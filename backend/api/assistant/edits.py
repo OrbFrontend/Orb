@@ -10,27 +10,21 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, StringConstraints, create_model
 
 from ...core.macros import resolve_inline
-from ...database import (
-    get_active_path,
-    get_character_card,
-    get_lorebook_entry,
-    get_message_by_id,
-    get_user_persona,
-    get_world,
-    greeting_rerolls,
-)
+from ...database import get_active_path, greeting_rerolls
 from ...features.assistant import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
-from ..deps import conversation_busy
 from .proposals import FIELD_LABELS, PROPOSAL_TTL_SECS, Proposal, is_open, revise, store
 from .targets import (
     CHARACTER_LIST_FIELDS,
     ID_CHARS,
     CharacterField,
     CharacterListField,
-    character_in_view,
+    character_of,
     chat_field,
     chat_in_view,
+    entry_of,
     message_label,
+    message_of,
+    persona_of,
     quoted,
 )
 
@@ -330,11 +324,8 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         "message), mes_example (example messages), creator_notes), or a list field (tags, alternate_greetings).",
     )
     async def edit_character(args: Any) -> ToolOutput:
-        card_id = await character_in_view(args.character_id, view)
-        card = await get_character_card(card_id)
-        if card is None:
-            raise ToolFailure(f"No character has the id {card_id}.")
-        target = {"kind": "character", "character_id": card_id}
+        card = await character_of(args.character_id, view)
+        target = {"kind": "character", "character_id": card.get("id")}
         label = f"character {quoted(card.get('name'))}"
         if args.field in CHARACTER_LIST_FIELDS:
             return propose(
@@ -359,12 +350,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
 
     @tools.add("confirm", _EntryEdit, "Propose an edit to a lore entry's name or content.")
     async def edit_lorebook_entry(args: Any) -> ToolOutput:
-        world = await get_world(args.world_id)
-        if world is None:
-            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
-        entry = await get_lorebook_entry(args.entry_id)
-        if entry is None or entry["world_id"] != world["id"]:
-            raise ToolFailure(f"That world has no entry {args.entry_id}. list_lorebook_entries shows its entries.")
+        world, entry = await entry_of(args.world_id, args.entry_id)
         reread = (
             "list_lorebook_entries with entry_id reads the entry whole: its name, and its content one page per text_offset."
         )
@@ -375,9 +361,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
 
     @tools.add("confirm", _PersonaEdit, "Propose an edit to a persona's name or description.")
     async def edit_persona(args: Any) -> ToolOutput:
-        persona = await get_user_persona(args.persona_id)
-        if persona is None:
-            raise ToolFailure(f"No persona has the id {args.persona_id}. list_personas shows the ids.")
+        persona = await persona_of(args.persona_id)
         reread = (
             "list_personas with persona_id reads the persona whole: its name, and its description one page per text_offset."
         )
@@ -392,13 +376,9 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         "Propose an edit to one chat message's text. Inline macros such as {{roll}} resolve in the preview.",
     )
     async def edit_message(args: Any) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
         cid = conv["id"]
-        if conversation_busy(cid):
-            raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
-        message = await get_message_by_id(args.message_id)
-        if message is None or message["conversation_id"] != cid:
-            raise ToolFailure(f"That chat has no message {args.message_id}. read_messages shows the ids.")
+        message = await message_of(cid, args.message_id)
         if await greeting_rerolls(cid, message["id"]):
             raise ToolFailure(_GREETING_REROLLS.format(id=message["id"]))
         reread = "read_messages with message_id reads that message whole, one page per text_offset."

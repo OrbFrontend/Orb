@@ -99,29 +99,12 @@ def _switch_table() -> dict[str, _Switch]:
 
 # "Editor" names the Editor pass, which the Output Auditor and the Length Guard each start. Turning it off turns both off;
 # turning it on turns on the Output Auditor alone, since the Length Guard is an optional limit the user sets separately.
-_EDITOR_OFF = ("output_auditor", "length_guard")
-
-_EDITOR_ON = ("output_auditor",)
-
-
-def _toggle_switches(toggle: str, on: bool) -> tuple[str, ...]:
-    return (_EDITOR_ON if on else _EDITOR_OFF) if toggle == "editor" else (toggle,)
+_EDITOR = ("output_auditor", "length_guard")
 
 
 def _effective(name: str, table: Mapping[str, _Switch], settings: Settings) -> bool:
     switch = table[name]
     return switch.read(settings) and (switch.gate is None or _effective(switch.gate, table, settings))
-
-
-def _toggle_description(table: Mapping[str, _Switch]) -> str:
-    return (
-        "Turn one pipeline switch on or off. "
-        f"Switches: editor, {', '.join(table)}. "
-        "editor is the Editor pass: off turns off output_auditor and length_guard, on turns on output_auditor only. "
-        "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback and "
-        "post-processing; workflows (secondary workflows) is the master of each workflow:<id>. A master that is off keeps "
-        "the switches under it from taking effect; it is reported, not changed."
-    )
 
 
 def build_toggle_tools() -> list[AssistantTool]:
@@ -140,22 +123,26 @@ def build_toggle_tools() -> list[AssistantTool]:
     def state(name: str, settings: Settings) -> dict[str, bool]:
         return {"stored": table[name].read(settings), "effective": _effective(name, table, settings)}
 
-    @tools.add(
-        "write",
-        _ToggleArgs,
-        _toggle_description(table),
-        idempotent=True,
+    description = (
+        "Turn one pipeline switch on or off. "
+        f"Switches: editor, {', '.join(table)}. "
+        "editor is the Editor pass: off turns off output_auditor and length_guard, on turns on output_auditor only. "
+        "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback and "
+        "post-processing; workflows (secondary workflows) is the master of each workflow:<id>. A master that is off keeps "
+        "the switches under it from taking effect; it is reported, not changed."
     )
+
+    @tools.add("write", _ToggleArgs, description, idempotent=True)
     async def set_pipeline_toggle(args: Any) -> ToolOutput:
         editor, on = args.toggle == "editor", args.enabled
-        names = _toggle_switches(args.toggle, on)
+        names = _EDITOR[: 1 if on else 2] if editor else (args.toggle,)
         before = await get_settings()
         changed = [name for name in names if table[name].read(before) != on]
         for name in changed:
             await table[name].write(on)
         after = await get_settings()
         # The Editor reports both of its switches whichever way it was set, so turning it on cannot hide the Length Guard.
-        switches = {name: state(name, after) for name in (_EDITOR_OFF if editor else names)}
+        switches = {name: state(name, after) for name in (_EDITOR if editor else names)}
         gates = {gate: state(gate, after) for gate in dict.fromkeys(table[name].gate for name in names) if gate is not None}
         effective = any(switches[name]["effective"] for name in names)
         blocked = [table[gate].label for gate, value in gates.items() if on and not value["effective"]]

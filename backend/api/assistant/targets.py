@@ -9,8 +9,17 @@ from typing import Any, Literal, get_args
 
 from pydantic import Field
 
-from ...database import get_active_path, get_conversation, get_message_by_id, resolve_cast
-from ...database.models import ConversationRow, MessageRow
+from ...database import (
+    get_active_path,
+    get_character_card,
+    get_conversation,
+    get_lorebook_entry,
+    get_message_by_id,
+    get_user_persona,
+    get_world,
+    resolve_cast,
+)
+from ...database.models import CharacterCardRow, ConversationRow, LorebookEntryRow, MessageRow, UserPersonaRow, WorldRow
 from ...features.assistant import ToolFailure, ViewContext
 from ..deps import conversation_busy, resource_deleting
 
@@ -63,11 +72,12 @@ def chat_id(conversation_id: str, view: ViewContext) -> str:
     return cid
 
 
-async def chat_in_view(conversation_id: str, view: ViewContext, *, changes: bool) -> ConversationRow:
+async def chat_in_view(conversation_id: str, view: ViewContext, *, changes: bool, idle: bool = False) -> ConversationRow:
     """The chat a tool names, else the one in view, read now.
 
     *changes* is for a tool that changes the chat or starts work in it: a chat being deleted is refused to it, since what it
     made would go with the chat. A read still sees that chat, which is stored until the delete ends, and changes nothing.
+    *idle* also refuses a chat that is generating.
     """
     cid = chat_id(conversation_id, view)
     conv = await get_conversation(cid)
@@ -75,7 +85,39 @@ async def chat_in_view(conversation_id: str, view: ViewContext, *, changes: bool
         raise ToolFailure(f"No chat has the id {cid}.")
     if changes and resource_deleting(cid):
         raise ToolFailure("That chat is being deleted, so nothing was done.")
+    if idle and conversation_busy(cid):
+        raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
     return conv
+
+
+async def message_of(cid: str, message_id: int) -> MessageRow:
+    message = await get_message_by_id(message_id)
+    if message is None or message["conversation_id"] != cid:
+        raise ToolFailure(f"That chat has no message {message_id}. read_messages or query_library shows the ids.")
+    return message
+
+
+async def world_of(world_id: str) -> WorldRow:
+    world = await get_world(world_id)
+    if world is None:
+        raise ToolFailure(f"No world has the id {world_id}. list_worlds shows the ids.")
+    return world
+
+
+async def entry_of(world_id: str, entry_id: int) -> tuple[WorldRow, LorebookEntryRow]:
+    """A lore entry and the world it must belong to."""
+    world = await world_of(world_id)
+    entry = await get_lorebook_entry(entry_id)
+    if entry is None or entry["world_id"] != world["id"]:
+        raise ToolFailure(f"That world has no entry {entry_id}. list_lorebook_entries shows its entries.")
+    return world, entry
+
+
+async def persona_of(persona_id: int) -> UserPersonaRow:
+    persona = await get_user_persona(persona_id)
+    if persona is None:
+        raise ToolFailure(f"No persona has the id {persona_id}. list_personas shows the ids.")
+    return persona
 
 
 async def cast_of(conv: ConversationRow) -> list[dict[str, Any]]:
@@ -92,16 +134,19 @@ async def cast_of(conv: ConversationRow) -> list[dict[str, Any]]:
     ]
 
 
-async def character_in_view(character_id: str, view: ViewContext) -> str:
+async def character_of(character_id: str, view: ViewContext) -> CharacterCardRow:
     """The character a tool names, else the one in view; a group view infers none and lists its cast instead."""
     card_id = character_id or view.character_id
-    if card_id:
-        return card_id
-    if view.group and view.conversation_id:
+    if not card_id and view.group and view.conversation_id:
         conv = await get_conversation(view.conversation_id)
         cast = await cast_of(conv) if conv else []
         raise ToolFailure(f"This is a group chat. Name one character_id from its cast: {json.dumps(cast)}")
-    raise ToolFailure("No character is in view. Name a character_id; list_characters can find one.")
+    if not card_id:
+        raise ToolFailure("No character is in view. Name a character_id; list_characters can find one.")
+    card = await get_character_card(card_id)
+    if card is None:
+        raise ToolFailure(f"No character has the id {card_id}. list_characters shows the ids.")
+    return card
 
 
 async def reply_target(
@@ -112,13 +157,9 @@ async def reply_target(
     *what* completes "only a reply can be …". *idle* also refuses a chat that is generating, as a handoff must: the chat's own
     stream would refuse to start.
     """
-    conv = await chat_in_view(conversation_id, view, changes=True)
+    conv = await chat_in_view(conversation_id, view, changes=True, idle=idle)
     cid = conv["id"]
-    if idle and conversation_busy(cid):
-        raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
-    message = await get_message_by_id(message_id)
-    if message is None or message["conversation_id"] != cid:
-        raise ToolFailure(f"That chat has no message {message_id}. read_messages shows the ids.")
+    message = await message_of(cid, message_id)
     if message["role"] != "assistant":
         raise ToolFailure(f"Message {message['id']} is the user's own message; only a reply can be {what}.")
     if not any(row["id"] == message["id"] for row in await get_active_path(cid)):

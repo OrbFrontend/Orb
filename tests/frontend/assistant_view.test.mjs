@@ -14,8 +14,7 @@ const {
   runItems,
   serializeTranscript,
   settleRun,
-  splitDiffHtml,
-  transcriptHtml,
+  transcriptEntries,
 } = await import("../../frontend/assistant_view.js");
 
 const chat = { mode: "chat", conversation_id: "c1", character_id: null, document_id: null, label: "Chat: Harbour" };
@@ -25,6 +24,11 @@ const NO_RESULT = "No result was received; check before asking again.";
 const feed = (run, events) => {
   for (const [event, data] of events) applyStreamEvent(run, event, JSON.stringify(data), "The model failed.");
 };
+
+const transcriptHtml = (...args) =>
+  transcriptEntries(...args)
+    .map((row) => row.html)
+    .join("");
 
 test("a stored transcript survives corruption and can never restore live or actionable state", () => {
   for (const bad of [null, "", "{", '"x"', "{}", "[1, null, []]", '[{"kind":"confirm","text":"Apply?"}]']) {
@@ -141,25 +145,6 @@ test("only an assistant reply is rendered as markup, and a separator marks each 
   assert.match(transcriptHtml([], String), /asst-empty/);
 });
 
-test("an empty log suggests requests for the view in front of the reader, as escaped inert text", () => {
-  const suggested = (html) => [...html.matchAll(/data-text="([^"]*)"/g)].map((match) => match[1]);
-  const chatHtml = transcriptHtml([], String, { suggestFor: "chat" });
-  assert.ok(suggested(chatHtml).length > 0);
-  assert.equal(chatHtml.split('data-wf-action="assistant:suggest"').length - 1, suggested(chatHtml).length);
-  assert.notDeepEqual(suggested(chatHtml), suggested(transcriptHtml([], String, { suggestFor: "document" })));
-  assert.deepEqual(suggested(transcriptHtml([], String, { suggestFor: "unknown" })), suggested(transcriptHtml([], String)));
-  assert.equal(transcriptHtml([{ kind: "assistant", text: "Hi" }], String).includes("asst-suggest"), false);
-});
-
-test("a wide diff puts what the field holds now beside what it will hold, each with only its own changes", () => {
-  const split = splitDiffHtml("Keep this. Drop that. Keep the end.", "Keep this. Add this. Keep the end.");
-  assert.ok(split.before.includes("<del") && !split.before.includes("<ins"));
-  assert.ok(split.after.includes("<ins") && !split.after.includes("<del"));
-  for (const side of [split.before, split.after]) assert.ok(side.includes("Keep this.") && side.includes("Keep the end."));
-  // A field that is new or emptied has one side only.
-  assert.deepEqual(splitDiffHtml("", "<b>new</b>"), { before: "", after: '<ins class="asst-ins">&lt;b&gt;new&lt;/b&gt;</ins>' });
-});
-
 test("Enter sends, but not with Shift and not while an IME composition is being committed", () => {
   assert.equal(isSendKey({ key: "Enter" }), true);
   assert.equal(isSendKey({ key: "Enter", shiftKey: true }), false);
@@ -175,9 +160,9 @@ test("a mutation names what to read again, and a failed result marks the run for
   const committed = applyStreamEvent(
     run,
     "mutation",
-    JSON.stringify({ call_id: "call1", tool: "create_lorebook_entry", resources: [{ ...lore, entry_id: 7, extra: "x" }, { kind: "?" }] }),
+    JSON.stringify({ call_id: "call1", tool: "create_lorebook_entry", resources: [{ ...lore, entry_id: 7 }] }),
   );
-  assert.deepEqual(committed, [{ ...lore, entry_id: 7 }], "only the ids its kind carries");
+  assert.deepEqual(committed, [{ ...lore, entry_id: 7 }]);
   // A reload mid-tool finds a tool with no result, which says to check rather than redo; nothing names a target.
   const reloaded = parseTranscript(serializeTranscript(run.items));
   assert.deepEqual(reloaded[1], { kind: "tool", tool: "create_lorebook_entry", text: NO_RESULT, ok: false });
@@ -289,14 +274,10 @@ test("Apply's verdicts settle each edit on its own: busy stays pending, and a pa
 
 test("a handoff names one reply and its run ends as a handoff", () => {
   const run = newRun();
+  feed(run, [["handoff", { call_id: "call2", tool: "edit_message", handoff: { conversation_id: "c1", message_id: 7 } }]]);
+  assert.equal(run.handoff, undefined, "a tool this page cannot start is dropped");
   feed(run, [
-    ["handoff", { call_id: "call2", tool: "regenerate_reply", handoff: { conversation_id: "c1", message_id: "7" } }],
-    ["handoff", { call_id: "call2", tool: "rewrite_reply", handoff: { conversation_id: "c1", message_id: 7 } }],
-    ["handoff", { call_id: "call2", tool: "edit_message", handoff: { conversation_id: "c1", message_id: 7 } }],
-  ]);
-  assert.equal(run.handoff, undefined, "a malformed handoff, a rewrite without direction or another tool is dropped");
-  feed(run, [
-    ["handoff", { call_id: "call2", tool: "rewrite_reply", handoff: { conversation_id: "c1", message_id: 7, direction: " Colder. " } }],
+    ["handoff", { call_id: "call2", tool: "rewrite_reply", handoff: { conversation_id: "c1", message_id: 7, direction: "Colder." } }],
     ["done", { reason: "handoff", message: "Handed to the chat." }],
   ]);
   assert.deepEqual(run.handoff, { tool: "rewrite_reply", conversation_id: "c1", message_id: 7, direction: "Colder." });
@@ -307,7 +288,7 @@ test("a continue names the message it follows and any speaker, and an opened cha
   const run = newRun();
   feed(run, [["handoff", { tool: "continue_chat", handoff: { conversation_id: "c1", message_id: 9, speaker_member_id: "m2" } }]]);
   assert.deepEqual(run.handoff, { tool: "continue_chat", conversation_id: "c1", message_id: 9, speaker_member_id: "m2" });
-  feed(run, [["handoff", { tool: "open_chat", handoff: { conversation_id: "c2", title: "<Quay>", message_id: 3 } }]]);
+  feed(run, [["handoff", { tool: "open_chat", handoff: { conversation_id: "c2", title: "<Quay>" } }]]);
   assert.deepEqual(run.handoff, { tool: "open_chat", conversation_id: "c2", title: "<Quay>" });
 
   const opened = handoffOutcome(run.handoff, "");

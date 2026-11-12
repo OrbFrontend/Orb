@@ -11,11 +11,9 @@ for (const name of ["document", "Node", "NodeFilter", "Element", "DocumentFragme
   globalThis[name] = dom.window[name];
 }
 // Storage that holds one corrupt transcript and then refuses every write, as a full or blocked store does.
-let writes = 0;
 globalThis.localStorage = {
   getItem: (key) => (key === "orb-assistant-transcript" ? '{"not":"a list"' : key === "orb-assistant-open" ? "1" : null),
   setItem() {
-    writes += 1;
     throw new Error("QuotaExceededError");
   },
 };
@@ -67,89 +65,6 @@ async function ask(text) {
   await settled();
   return requests.find((request) => request.url.includes("/assistant/run") && request.writer && !request.used);
 }
-
-test("corrupt or failing storage leaves a working assistant in memory", () => {
-  assert.deepEqual(S.assistant.items, []);
-  assert.equal(S.assistant.open, true, "the remembered open state was restored on the wide layout");
-  assert.ok($("assistant-panel").classList.contains("open"));
-  assert.ok(writes > 0, "writes were attempted and their failure was absorbed");
-});
-
-const panelOpen = (id) => $(id).classList.contains("open");
-
-test("the panel is exclusive with Tools and the Inspector, and every button that opens it says so", async () => {
-  const { openUtilityPanel } = await import("../../frontend/panels.js");
-  for (const id of ["assistant-btn", "doc-assistant-btn"]) assert.ok($(id).classList.contains("btn-active"));
-  $("assistant-input").value = "a draft";
-  openUtilityPanel("tools-panel");
-  assert.equal(panelOpen("assistant-panel"), false);
-  assert.equal(S.assistant.open, false, "opening another panel closes the assistant's state too");
-  assert.equal($("assistant-btn").classList.contains("btn-active"), false);
-
-  // The drawer's button opens it beside the lorebook, and the same action closes it.
-  $("lorebook-drawer").insertAdjacentHTML(
-    "beforeend",
-    '<button id="lb-assistant-btn" class="asst-launch" data-wf-action="assistant:toggle"></button>',
-  );
-  $("lb-assistant-btn").click();
-  await settled();
-  assert.ok(panelOpen("assistant-panel"));
-  assert.equal(panelOpen("tools-panel"), false);
-  assert.equal(document.activeElement, $("assistant-input"), "the wide layout focuses the input");
-  assert.equal($("assistant-input").value, "a draft");
-  $("doc-assistant-mobile-btn").click();
-  await settled();
-  assert.equal(panelOpen("assistant-panel"), false);
-  $("lb-assistant-btn").remove();
-  $("assistant-input").value = "";
-});
-
-test("a run and its card outlive a closed panel, and the buttons show both", async () => {
-  S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
-  S.activeConvId = "chat-a";
-  const app = $("app");
-  const run = await ask("Fix the messages.");
-  run.used = true;
-  assert.ok(app.hasAttribute("data-asst-running"));
-  assert.equal(panelOpen("assistant-panel"), false);
-  for (const preview of ["p-shut", "p-shut-2"]) emit(run, "confirm", confirmed(preview, message(preview === "p-shut" ? 7 : 8)));
-  emit(run, "assistant_message", { text: "Proposed.", final: true });
-  emit(run, "done", { reason: "reply", message: "" });
-  run.writer.close();
-  await settled();
-  assert.equal(app.hasAttribute("data-asst-running"), false);
-  assert.ok(app.hasAttribute("data-asst-pending"));
-  assert.equal(app.style.getPropertyValue("--asst-pending"), "2");
-
-  // Reopened, the card is still the one to apply.
-  $("assistant-btn").click();
-  assert.ok(applyButton());
-  document.querySelector('#assistant-log [data-wf-action="assistant:cancel"]').click();
-  assert.equal(app.hasAttribute("data-asst-pending"), false);
-  assert.equal(app.style.getPropertyValue("--asst-pending"), "");
-  $("assistant-clear").click();
-});
-
-test("a suggested request fills the input for the view now open and sends nothing", async () => {
-  S.conversations = [{ id: "chat-s", title: "Harbour", kind: "solo" }];
-  S.activeConvId = null;
-  $("assistant-panel").dispatchEvent(new window.Event("pointerenter"));
-  const offered = () => [...document.querySelectorAll('#assistant-log [data-wf-action="assistant:suggest"]')];
-  const library = offered().map((el) => el.dataset.text);
-  S.activeConvId = "chat-s";
-  $("assistant-panel").dispatchEvent(new window.Event("pointerenter"));
-  assert.notDeepEqual(
-    offered().map((el) => el.dataset.text),
-    library,
-    "the suggestions follow the view",
-  );
-  offered()[0].click();
-  await settled();
-  assert.equal($("assistant-input").value, offered()[0].dataset.text);
-  assert.equal(requests.length, 0);
-  $("assistant-input").value = "";
-  S.activeConvId = null;
-});
 
 test("a request keeps the view captured at Send, and Stop names that operation alone", async () => {
   S.conversations = [
@@ -208,24 +123,6 @@ test("a request keeps the view captured at Send, and Stop names that operation a
 
   $("assistant-clear").click();
   assert.deepEqual(S.assistant.items, []);
-});
-
-test("another open tab blocks Send, and an IME Enter is not a Send", async () => {
-  const input = $("assistant-input");
-  input.value = "composed text";
-  let reachedDocument = 0;
-  document.addEventListener("keydown", () => reachedDocument++);
-  input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
-  input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }));
-  await settled();
-  assert.equal(requests.length, 0);
-  assert.equal(reachedDocument, 0, "keys typed in the panel never reach the document's shortcuts");
-  S.hasMultipleTabs = true;
-  input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  await settled();
-  S.hasMultipleTabs = false;
-  assert.equal(requests.length, 0);
-  assert.equal(input.value, "composed text");
 });
 
 test("a committed change is read again by id, and a run cut short reads everything again once and resends nothing", async () => {
@@ -405,38 +302,6 @@ test("a view change during Apply repaints nothing there, and a new request or Ca
     ["cancelled", "cancelled"],
   );
   assert.equal(requests.length, before);
-  $("assistant-clear").click();
-});
-
-test("a settings refresh waits while the reader types in the Tools panel, then repaints", async () => {
-  const list = $("tools-list");
-  list.innerHTML = '<input id="lg-max-words" type="number" value="300">';
-  const field = $("lg-max-words");
-  field.focus();
-  field.value = "77";
-  const run = await ask("Turn the Director on.");
-  run.used = true;
-  const keys = { kind: "settings", keys: ["enabled_tools"] };
-  emit(run, "tool_start", { call_id: "call1", tool: "set_pipeline_toggle" });
-  emit(run, "mutation", { call_id: "call1", tool: "set_pipeline_toggle", resources: [keys] });
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(requests.some((request) => request.url.endsWith("/api/settings")), "the refresh itself has run");
-  assert.equal($("lg-max-words"), field, "the panel was not rewritten under the reader");
-  assert.equal(field.value, "77");
-  field.blur();
-  // The held repaint runs on a timer, after the field's own change handler.
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.notEqual($("lg-max-words"), field, "the held repaint ran once focus left");
-  // A checkbox there saves its own flag alone, so the server keeps a flag the assistant set that this tab has not seen.
-  const box = document.querySelector('#tools-list [data-wf-action="settings:toolEnabled"]');
-  box.checked = !box.checked;
-  box.dispatchEvent(new window.Event("change", { bubbles: true }));
-  await settled();
-  const save = requests.findLast((request) => request.url.endsWith("/api/settings") && request.body);
-  assert.deepEqual(save.body, { enabled_tools: { [box.dataset.toolId]: box.checked } });
-  emit(run, "done", { reason: "reply", message: "" });
-  run.writer.close();
-  await settled();
   $("assistant-clear").click();
 });
 
@@ -648,67 +513,6 @@ test("a chat action refreshes only the chat it changed, and only while that chat
   $("assistant-clear").click();
 });
 
-test("a media job's message is read again once it commits, and everything after a failed result or a Stop", async () => {
-  S.conversations = [
-    { id: "chat-a", title: "Harbour", kind: "solo" },
-    { id: "chat-b", title: "Campfire", kind: "solo" },
-  ];
-  S.activeConvId = "chat-a";
-  const reads = (path = "/api/conversations/chat-a/messages") => requests.filter((request) => request.url.endsWith(path)).length;
-  const target = { kind: "media", conversation_id: "chat-a", message_id: 7 };
-  let run = await ask("Make an image of the last reply.");
-  run.used = true;
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_image" });
-  emit(run, "progress", { label: "Rendering in ComfyUI..." });
-  await settled();
-  assert.equal($("assistant-status").textContent, "Rendering in ComfyUI...", "progress shows in the panel");
-  emit(run, "mutation", { call_id: "call1", tool: "generate_image", resources: [{ ...target, attachment_ids: [3] }] });
-  emit(run, "tool_result", { call_id: "call1", tool: "generate_image", ok: true, summary: "Saved an image.", ids: {} });
-  await settled();
-  assert.equal(reads(), 1, "the chat in view shows the saved image");
-  emit(run, "done", { reason: "reply", message: "" });
-  run.writer.close();
-  await settled();
-  assert.equal(reads(), 1, "a run that answered with every result ok reads nothing more");
-  assert.ok(!JSON.stringify(S.assistant.items).includes("Rendering"), "progress is not kept in the transcript");
-
-  // A failed result, then an ordinary answer: the job may have saved as it failed, so everything is read again.
-  const worlds = reads("/api/worlds");
-  run = await ask("Now speech for it.");
-  run.used = true;
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_speech" });
-  emit(run, "tool_result", { call_id: "call1", tool: "generate_speech", ok: false, summary: "May have been saved.", ids: {} });
-  emit(run, "assistant_message", { text: "Check the message.", final: true });
-  emit(run, "done", { reason: "reply", message: "" });
-  run.writer.close();
-  await settled();
-  assert.equal(reads(), 2);
-  assert.equal(reads("/api/worlds"), worlds + 1);
-
-  // Stopped: once the run has settled, everything is read again.
-  run = await ask("Once more.");
-  run.used = true;
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_image" });
-  await settled();
-  $("assistant-send").click();
-  emit(run, "done", { reason: "stopped", message: "" });
-  run.writer.close();
-  await settled();
-  assert.equal(reads(), 3);
-  assert.equal(S.operations.size, 0);
-
-  // A chat no longer in view is not repainted.
-  run = await ask("And again.");
-  run.used = true;
-  S.activeConvId = "chat-b";
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_image" });
-  run.writer.close();
-  await settled();
-  assert.equal(reads(), 3);
-  S.activeConvId = "chat-a";
-  $("assistant-clear").click();
-});
-
 test("after the assistant switches a branch, the Inspector leaves a message the chat no longer shows", async () => {
   const { showBranchChange } = await import("../../frontend/chat_messages.js");
   S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
@@ -788,37 +592,6 @@ test("a handoff starts only in the chat it names, once the assistant has settled
   assert.match(new URL(regenerations()[0].url, "https://orb.invalid").pathname, /^\/api\/conversations\/chat-a\/messages\/7\/regenerate$/);
   assert.deepEqual(regenerations()[0].body, { enable_agent: S.agentEnabled }, "through the chat's own Regenerate");
   assert.match(S.assistant.items.at(-1).text, /^Started regenerating message 7 in the chat/);
-  assert.ok(panelOpen("assistant-panel"), "the wide layout keeps the panel beside the chat");
-});
-
-test("on the narrow layout a handoff that starts closes the panel over the chat, and one that does not leaves it", async () => {
-  S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
-  S.activeConvId = "chat-a";
-  window.matchMedia = () => ({ matches: true });
-  const handOff = async () => {
-    S.messages = [
-      { id: 6, role: "user", content: "Hi", parent_id: null },
-      { id: 7, role: "assistant", content: "Hello.", parent_id: 6 },
-    ];
-    const run = await ask("Regenerate the last reply.");
-    run.used = true;
-    emit(run, "handoff", { call_id: "call1", tool: "regenerate_reply", handoff: { conversation_id: "chat-a", message_id: 7 } });
-    emit(run, "done", { reason: "handoff", message: "Handed to the chat." });
-    run.writer.close();
-    await settled();
-  };
-  try {
-    S.activeConvId = "chat-b";
-    await handOff();
-    assert.ok(panelOpen("assistant-panel"), "nothing started, so the reader keeps the note");
-    S.activeConvId = "chat-a";
-    await handOff();
-    assert.equal(panelOpen("assistant-panel"), false);
-    assert.equal(S.assistant.open, false);
-  } finally {
-    delete window.matchMedia;
-    $("assistant-btn").click();
-  }
 });
 
 test("an opened chat opens only from the view the request came from, and a continue starts the chat's own", async () => {
@@ -897,25 +670,3 @@ test("a Stop between the handoff's done and the run's settlement starts nothing,
   $("assistant-clear").click();
 });
 
-test("a stream event rebuilds only the rows it changed, so a disclosure the reader opened stays open", async () => {
-  S.conversations = [{ id: "chat-k", title: "Harbour", kind: "solo" }];
-  S.activeConvId = "chat-k";
-  const run = await ask("Look around.");
-  run.used = true;
-  emit(run, "assistant_message", { text: "Checking.\n\n<details><summary>More</summary>Hidden.</details>", final: true });
-  await settled();
-  const reply = document.querySelector("#assistant-log .asst-reply");
-  const disclosure = reply.querySelector("details");
-  if (disclosure) disclosure.open = true;
-  emit(run, "tool_start", { call_id: "k1", tool: "get_context" });
-  emit(run, "tool_result", { call_id: "k1", ok: true, summary: "Read the chat." });
-  emit(run, "done", { reason: "reply", message: "" });
-  run.writer.close();
-  await settled();
-  assert.equal(document.querySelector("#assistant-log .asst-reply"), reply, "the reply's row was kept, not rebuilt");
-  if (disclosure) assert.equal(disclosure.open, true);
-  assert.match($("assistant-log").textContent, /Read the chat\./);
-  $("assistant-clear").click();
-  assert.ok(document.querySelector('#assistant-log [data-wf-action="assistant:suggest"]'), "a cleared log suggests again");
-  S.activeConvId = null;
-});

@@ -173,7 +173,7 @@ async function refreshResources(changed) {
   const keys = new Set();
   for (const item of changed) {
     if (item.kind === "settings") for (const key of item.keys) keys.add(key);
-    else jobs.set(...REFRESHERS[item.kind](item));
+    else if (REFRESHERS[item.kind]) jobs.set(...REFRESHERS[item.kind](item));
   }
   if (keys.size) jobs.set("settings", () => refreshSettings([...keys]));
   await Promise.allSettled([...jobs.values()].map(async (job) => job()));
@@ -226,7 +226,6 @@ function launchHandoff(current) {
   // A slide-over would cover the reply the chat now writes.
   if (status === "" && narrow()) closeUtilityPanel(PANEL);
   current.items.push(handoffOutcome(target, status));
-  trimTranscript(current.items);
 }
 
 /** Repaint the Tools panel, unless the reader is typing in it: then once focus leaves it. */
@@ -462,13 +461,6 @@ function fillInput(text) {
   input.focus();
 }
 
-/** Put a card's request back in the input, for the reader to send again for a fresh preview. Nothing is sent. */
-function askAgain(index) {
-  const item = S.assistant.items[index];
-  if (item?.kind !== "proposals" || !item.request) return;
-  fillInput(item.request);
-}
-
 function clear() {
   if (activeOperation()) return;
   S.assistant.items.length = 0;
@@ -495,7 +487,8 @@ export function initAssistant() {
     },
     apply: () => apply(),
     cancel: () => cancel(),
-    askAgain: (el) => askAgain(Number(el.dataset.index)),
+    // A card's request goes back in the input, to send again for a fresh preview.
+    askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),
     focusInput: () => $("assistant-input").focus(),
     think: () => store(LS_THINK, $("assistant-think").checked ? "1" : "0"),

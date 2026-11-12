@@ -15,10 +15,8 @@ from pydantic import Field, StringConstraints, field_validator
 
 from ...database import (
     add_phrase_group,
-    get_lorebook_entry,
     get_phrase_bank_rows,
     get_settings,
-    get_world,
     update_lorebook_entry,
     update_settings,
     update_world,
@@ -26,7 +24,7 @@ from ...database import (
 from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet
 from ..deps import validate_phrase_group
 from ..schemas import LorebookEntryUpdate, WorldUpdate
-from .targets import ID_CHARS, clip, not_blank, quoted
+from .targets import ID_CHARS, clip, entry_of, not_blank, quoted, world_of
 from .toggles import switch_summary
 
 _NAME_CHARS = 200
@@ -129,12 +127,7 @@ def build_setter_tools() -> list[AssistantTool]:
         idempotent=True,
     )
     async def set_lorebook_entry(args: _EntrySet) -> ToolOutput:
-        world = await get_world(args.world_id)
-        if world is None:
-            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
-        entry = await get_lorebook_entry(args.entry_id)
-        if entry is None or entry["world_id"] != world["id"]:
-            raise ToolFailure(f"That world has no entry {args.entry_id}. list_lorebook_entries shows its entries.")
+        world, entry = await entry_of(args.world_id, args.entry_id)
         wanted: dict[str, Any] = {
             **_flag("enabled", args.enabled),
             **_flag("constant", args.constant),
@@ -166,12 +159,7 @@ def build_setter_tools() -> list[AssistantTool]:
             *([("constant" if changes["constant"] else "keyword-triggered")] if "constant" in changes else []),
             *([f"keywords {json.dumps(changes['keywords'], ensure_ascii=False)}"] if "keywords" in changes else []),
         ]
-        return ToolOutput(
-            data,
-            f"Set the {label}: {'; '.join(said)}.",
-            ids,
-            committed=({"kind": "lorebook_entry", **ids},),
-        )
+        return ToolOutput(data, f"Set the {label}: {'; '.join(said)}.", ids, committed=({"kind": "lorebook_entry", **ids},))
 
     @tools.add(
         "write",
@@ -180,9 +168,7 @@ def build_setter_tools() -> list[AssistantTool]:
         idempotent=True,
     )
     async def set_world(args: _WorldSet) -> ToolOutput:
-        world = await get_world(args.world_id)
-        if world is None:
-            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
+        world = await world_of(args.world_id)
         wanted: dict[str, Any] = {
             **({"name": args.name.strip()} if args.name.strip() else {}),
             **_flag("is_global", args.is_global),
@@ -216,10 +202,7 @@ def build_setter_tools() -> list[AssistantTool]:
             *([f"Dynamic Worlds {'on' if changes['dynamic_enabled'] else 'off'}"] if "dynamic_enabled" in changes else []),
         ]
         return ToolOutput(
-            data,
-            f"Set world {quoted(world['name'])}: {'; '.join(said)}.",
-            ids,
-            committed=({"kind": "world", **ids},),
+            data, f"Set world {quoted(world['name'])}: {'; '.join(said)}.", ids, committed=({"kind": "world", **ids},)
         )
 
     @tools.add(

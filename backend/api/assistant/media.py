@@ -1,7 +1,8 @@
 """The assistant's media tools: an image or speech for one saved reply, made by its workflow's own on-demand hook.
 
-A tool runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the assistant's Stop cancels that job alone) and under the message it renders (so deleting the message
-or its chat finds and settles it). A lazy event stream the hook returns is consumed inside that same job until it settles. A
+A tool runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the
+assistant's Stop cancels that job alone) and under the message it renders (so deleting the message or its chat finds and
+settles it). A lazy event stream the hook returns is consumed inside that same job until it settles. A
 result names the attachments that job reported saving; a job that started and saved nothing is not a success.
 
 The hooks are reached through the contract the frontend uses over HTTP: an ``action`` and a ``message_id`` in the body, then
@@ -16,6 +17,7 @@ import contextlib
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 from fastapi import HTTPException
@@ -185,24 +187,10 @@ def build_media_tools(view: ViewContext, run: MediaRun | None) -> list[Assistant
     """One tool per media workflow that is installed with an on-demand hook; none without a run to report to."""
     if run is None:
         return []
-
-    def tool(medium: _Medium) -> AssistantTool:
-        async def make(args: _MediaArgs) -> ToolOutput:
-            return await _make(view, run, medium, args)
-
-        return AssistantTool(
-            medium.tool,
-            medium.description,
-            _MediaArgs,
-            "write",
-            make,
-            reports_progress=True,
-        )
-
     return [
-        tool(medium)
-        for medium in _MEDIA
-        if get_workflow(medium.workflow_id) is not None and get_subscription(medium.workflow_id, HookType.ON_DEMAND)
+        AssistantTool(m.tool, m.description, _MediaArgs, "write", partial(_make, view, run, m), reports_progress=True)
+        for m in _MEDIA
+        if get_workflow(m.workflow_id) is not None and get_subscription(m.workflow_id, HookType.ON_DEMAND)
     ]
 
 
@@ -305,9 +293,4 @@ async def _result(
         "note": "It is on the message in the chat; nothing else changed.",
     }
     ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
-    return ToolOutput(
-        data,
-        summary,
-        ids_out,
-        committed=({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},),
-    )
+    return ToolOutput(data, summary, ids_out, committed=({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},))

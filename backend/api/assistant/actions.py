@@ -23,34 +23,34 @@ from ...database import (
     create_user_persona,
     create_world,
     get_active_path,
-    get_character_card,
     get_conversation,
     get_effective_world_ids,
-    get_message_by_id,
-    get_user_persona,
-    get_world,
     get_worlds,
     set_conversation_world,
     switch_to_branch,
     update_conversation,
 )
-from ...database.models import ConversationRow, MessageRow
+from ...database.models import ConversationRow
 from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from ..conversation_copy import checkpoint_conversation, checkpoint_title
 from ..conversation_start import DEFAULT_TITLE, start_solo_chat
-from ..deps import ChatUnavailable, conversation_busy, idle_chat_admission
+from ..deps import ChatUnavailable, idle_chat_admission
 from ..schemas import CharacterCardCreate, ConversationUpdate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
 from .targets import (
     ID_CHARS,
     cast_of,
+    character_of,
     chat_field,
     chat_id,
     chat_in_view,
     clip,
     message_label,
+    message_of,
     not_blank,
+    persona_of,
     quoted,
     reply_target,
+    world_of,
 )
 
 _NAME_CHARS = 200
@@ -93,10 +93,7 @@ class _LoreEntryArgs(ToolArguments):
 class _CharacterCreate(ToolArguments):
     """Authored text only: no image, avatar, extension, embedded book, import source or URL can be named."""
 
-    name: str = Field(
-        min_length=1,
-        max_length=_NAME_CHARS,
-    )
+    name: str = Field(min_length=1, max_length=_NAME_CHARS)
     description: str = _text(_LONG_TEXT_CHARS, "Who the character is.")
     personality: str = _text(_SHORT_TEXT_CHARS, "Their personality.")
     scenario: str = _text(_SHORT_TEXT_CHARS, "The situation a chat with them starts in.")
@@ -194,6 +191,10 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
 
     tools = ToolSet()
 
+    def wrote(data: dict[str, Any], summary: str, kind: str, **ids: Any) -> ToolOutput:
+        """A write's result whose ids are the one resource it committed."""
+        return ToolOutput(data, summary, ids, committed=({"kind": kind, **ids},))
+
     @asynccontextmanager
     async def admitted(cid: str) -> AsyncIterator[ConversationRow]:
         """Hold chat *cid*'s lane through a short mutation, its row read again once admitted."""
@@ -210,16 +211,9 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 "That chat is generating right now, so nothing was changed. Ask again once it has finished."
             ) from None
 
-    @tools.add(
-        "write",
-        _LoreEntryArgs,
-        "Add a new entry to a world (lorebook).",
-        name="create_lorebook_entry",
-    )
+    @tools.add("write", _LoreEntryArgs, "Add a new entry to a world (lorebook).", name="create_lorebook_entry")
     async def add_lorebook_entry(args: _LoreEntryArgs) -> ToolOutput:
-        world = await get_world(args.world_id)
-        if world is None:
-            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
+        world = await world_of(args.world_id)
         # The entry route's own schema and writer: an authored entry with its defaults, and a world revision bump.
         fields = LorebookEntryCreate(name=args.name, content=args.content, keywords=list(args.keywords), constant=args.constant)
         entry = await create_lorebook_entry(world["id"], fields.model_dump())
@@ -235,19 +229,10 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 "enabled": bool(entry["enabled"]),
             },
         }
-        return ToolOutput(
-            data,
-            f"Created lore entry {json.dumps(data['entry']['name'], ensure_ascii=False)} in {world_name}.",
-            {"world_id": world["id"], "entry_id": entry["id"]},
-            committed=({"kind": "lorebook_entry", "world_id": world["id"], "entry_id": entry["id"]},),
-        )
+        summary = f"Created lore entry {json.dumps(data['entry']['name'], ensure_ascii=False)} in {world_name}."
+        return wrote(data, summary, "lorebook_entry", world_id=world["id"], entry_id=entry["id"])
 
-    @tools.add(
-        "write",
-        _CharacterCreate,
-        "Create a character card from authored text.",
-        name="create_character",
-    )
+    @tools.add("write", _CharacterCreate, "Create a character card from authored text.", name="create_character")
     async def add_character(args: _CharacterCreate) -> ToolOutput:
         # The creation route's own schema and writer, without the parts of that route that import: no embedded book, no
         # extensions, and no expression pack fetched from a URL.
@@ -262,12 +247,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             "character": {"id": card_id, "name": clip(created.get("name"), _NAME_CHARS)},
             "note": "It is in the character library. No chat was started and nothing was opened.",
         }
-        return ToolOutput(
-            data,
-            f"Created character {quoted(created.get('name'))}.",
-            {"character_id": card_id},
-            committed=({"kind": "character", "character_id": card_id},),
-        )
+        return wrote(data, f"Created character {quoted(created.get('name'))}.", "character", character_id=card_id)
 
     @tools.add(
         "write",
@@ -283,12 +263,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             "world": {"id": world["id"], "name": clip(world["name"], _NAME_CHARS), "is_global": bool(world["is_global"])},
             "note": "It is empty, not global, and used by no chat; set_chat_world adds it to a chat.",
         }
-        return ToolOutput(
-            data,
-            f"Created world {quoted(world['name'])}.",
-            {"world_id": world["id"]},
-            committed=({"kind": "world", "world_id": world["id"]},),
-        )
+        return wrote(data, f"Created world {quoted(world['name'])}.", "world", world_id=world["id"])
 
     @tools.add(
         "write",
@@ -303,12 +278,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             "persona": {"id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)},
             "note": "It is not the active persona; the user chooses that.",
         }
-        return ToolOutput(
-            data,
-            f"Created persona {quoted(persona['name'])}.",
-            {"persona_id": persona["id"]},
-            committed=({"kind": "persona", "persona_id": persona["id"]},),
-        )
+        return wrote(data, f"Created persona {quoted(persona['name'])}.", "persona", persona_id=persona["id"])
 
     @tools.add(
         "write",
@@ -320,9 +290,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     async def set_chat_world(args: _ChatWorld) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
-            world = await get_world(args.world_id)
-            if world is None:
-                raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
+            world = await world_of(args.world_id)
             before = world["id"] in await get_effective_world_ids(cid)
             # Only a change is written: the chat's other world choices, and an explicit choice already in this state, stay.
             if before != args.attached:
@@ -352,11 +320,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         committed = ({"kind": "chat_worlds", "conversation_id": cid, "world_id": world["id"]},) if attached != before else ()
         return ToolOutput(data, summary, {"conversation_id": cid, "world_id": world["id"]}, committed=committed)
 
-    @tools.add(
-        "write",
-        _Checkpoint,
-        "Copy a chat's kept branch into a new, separate chat. The chat in view is not switched.",
-    )
+    @tools.add("write", _Checkpoint, "Copy a chat's kept branch into a new, separate chat. The chat in view is not switched.")
     async def checkpoint_chat(args: _Checkpoint) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
@@ -377,12 +341,6 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             committed=({"kind": "conversation", "conversation_id": copy["id"]},),
         )
 
-    async def owned_message(cid: str, message_id: int) -> MessageRow:
-        message = await get_message_by_id(message_id)
-        if message is None or message["conversation_id"] != cid:
-            raise ToolFailure(f"That chat has no message {message_id}. read_messages or query_library shows the ids.")
-        return message
-
     @tools.add(
         "write",
         _Branch,
@@ -394,7 +352,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     async def select_branch(args: _Branch) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
-            message = await owned_message(cid, args.message_id)
+            message = await message_of(cid, args.message_id)
             ids = {"conversation_id": cid, "message_id": message["id"]}
             path = await get_active_path(cid)
             if any(row["id"] == message["id"] for row in path):
@@ -416,16 +374,14 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             ends_run=True,
         )
 
-    async def handed(conv: ConversationRow, message: Mapping[str, Any], doing: str, extra: Mapping[str, Any]) -> ToolOutput:
-        target = {"conversation_id": conv["id"], "message_id": message["id"], **extra}
-        data = {"handed_off": True, **target}
+    def handed(summary: str, ids: dict[str, Any], **extra: Any) -> ToolOutput:
+        """A handoff's result: the checked target *ids*, and with *extra* what the browser passes to the chat's stream."""
+        return ToolOutput({"handed_off": True, **ids, **extra}, summary, ids, handoff={**ids, **extra})
+
+    async def handed_reply(conv: ConversationRow, message: Mapping[str, Any], doing: str, **extra: Any) -> ToolOutput:
         label = message_label(await get_active_path(conv["id"]), message["id"])
-        return ToolOutput(
-            data,
-            f"Handed {doing} {label} in {quoted(conv['title'])} to the chat.",
-            {"conversation_id": conv["id"], "message_id": message["id"]},
-            handoff=target,
-        )
+        ids = {"conversation_id": conv["id"], "message_id": message["id"]}
+        return handed(f"Handed {doing} {label} in {quoted(conv['title'])} to the chat.", ids, **extra)
 
     @tools.add(
         "handoff",
@@ -437,7 +393,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "regenerated", idle=True)
         if message["parent_id"] is None:
             raise ToolFailure(f"Message {message['id']} is the chat's opening greeting, which is not regenerated.")
-        return await handed(conv, message, "regenerating", {})
+        return await handed_reply(conv, message, "regenerating")
 
     @tools.add(
         "handoff",
@@ -447,7 +403,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def rewrite_reply(args: _Rewrite) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "rewritten", idle=True)
-        return await handed(conv, message, "rewriting", {"direction": args.direction})
+        return await handed_reply(conv, message, "rewriting", direction=args.direction)
 
     @tools.add(
         "write",
@@ -456,9 +412,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "nothing; open_chat opens it if the user asks.",
     )
     async def start_chat(args: _StartChat) -> ToolOutput:
-        card = await get_character_card(args.character_id)
-        if card is None:
-            raise ToolFailure(f"No character has the id {args.character_id}. list_characters shows the ids.")
+        card = await character_of(args.character_id, view)
         conv = await start_solo_chat(args.title.strip() or DEFAULT_TITLE, card)
         data = {
             "created": True,
@@ -480,29 +434,16 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def open_chat(args: _OpenChat) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True)
-        target = {"conversation_id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)}
-        data = {"handed_off": True, **target}
-        return ToolOutput(
-            data,
-            f"Handed opening chat {quoted(conv['title'])} to the browser.",
-            {"conversation_id": conv["id"]},
-            handoff=target,
-        )
+        summary = f"Handed opening chat {quoted(conv['title'])} to the browser."
+        return handed(summary, {"conversation_id": conv["id"]}, title=clip(conv["title"], _NAME_CHARS))
 
-    @tools.add(
-        "write",
-        _SetChat,
-        "Rename a chat, or choose the persona the user plays in it.",
-        idempotent=True,
-    )
+    @tools.add("write", _SetChat, "Rename a chat, or choose the persona the user plays in it.", idempotent=True)
     async def set_chat(args: _SetChat) -> ToolOutput:
         if args.persona_lock_id and args.clear_persona_lock:
             raise ToolFailure("Either lock a persona or clear the lock, not both. Nothing was changed.")
         if not (args.title.strip() or args.persona_lock_id or args.clear_persona_lock):
             raise ToolFailure("Name a title, a persona_lock_id, or clear_persona_lock; nothing was asked to change.")
-        persona = await get_user_persona(args.persona_lock_id) if args.persona_lock_id else None
-        if args.persona_lock_id and persona is None:
-            raise ToolFailure(f"No persona has the id {args.persona_lock_id}. list_personas shows the ids.")
+        persona = await persona_of(args.persona_lock_id) if args.persona_lock_id else None
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
             wanted = ConversationUpdate(
@@ -531,12 +472,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             said.append(f"renamed it {quoted(current['title'])}")
         if "persona_lock_id" in changes:
             said.append(f"locked persona {quoted(persona['name'])} to it" if persona else "cleared its persona lock")
-        return ToolOutput(
-            data,
-            f"Chat {quoted(conv['title'])}: {' and '.join(said)}.",
-            {"conversation_id": cid},
-            committed=({"kind": "conversation", "conversation_id": cid},),
-        )
+        return wrote(data, f"Chat {quoted(conv['title'])}: {' and '.join(said)}.", "conversation", conversation_id=cid)
 
     @tools.add(
         "handoff",
@@ -545,10 +481,8 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "message, or in a group chat a turn by the member named. A solo chat's character never replies twice in a row.",
     )
     async def continue_chat(args: _Continue) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
         cid = conv["id"]
-        if conversation_busy(cid):
-            raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
         path = await get_active_path(cid)
         last = path[-1] if path else None
         group = conv.get("kind") == "group"
@@ -580,18 +514,11 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 "user writes next. send_as_user writes and sends the user's message, if they asked for that; "
                 "regenerate_reply makes a new version of the reply."
             )
-        target = {
-            "conversation_id": cid,
-            "message_id": last["id"],
-            **({"speaker_member_id": speaker} if speaker else {}),
-        }
-        data = {"handed_off": True, **target}
         who = f" by {quoted(next(m['name'] for m in cast if m.get('member_id') == speaker))}" if speaker else ""
-        return ToolOutput(
-            data,
+        return handed(
             f"Handed the next reply{who} in {quoted(conv['title'])} to the chat.",
             {"conversation_id": cid, "message_id": last["id"]},
-            handoff=target,
+            **({"speaker_member_id": speaker} if speaker else {}),
         )
 
     @tools.add(
@@ -601,10 +528,8 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "user's, and the chat answers it. Only when the user asks for their side to be written.",
     )
     async def send_as_user(args: _SendAsUser) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
         cid = conv["id"]
-        if conversation_busy(cid):
-            raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
         path = await get_active_path(cid)
         if not path:
             raise ToolFailure("That chat has no messages yet; the user sends the first one from the box.")
@@ -614,12 +539,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 f"The user's last message, {message_label(path, last['id'])}, is still unanswered, so Send takes no "
                 "second one. continue_chat has it answered."
             )
-        target = {"conversation_id": cid, "message_id": last["id"]}
-        return ToolOutput(
-            {"handed_off": True, **target},
-            f"Handed the user's message in {quoted(conv['title'])} to the chat to send.",
-            target,
-            handoff={**target, "content": args.content},
-        )
+        summary = f"Handed the user's message in {quoted(conv['title'])} to the chat to send."
+        return handed(summary, {"conversation_id": cid, "message_id": last["id"]}, content=args.content)
 
     return tools

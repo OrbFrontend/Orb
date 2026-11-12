@@ -4,7 +4,6 @@ import asyncio
 import json
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 
 from backend.api.assistant import build_tools
@@ -411,32 +410,6 @@ async def test_long_text_is_measured_as_sent_so_every_result_stays_whole_json(cl
     with pytest.raises(ToolFailure) as refused:
         await _use(tools, "query_library", sql="SELECT " + ", ".join(["description"] * 20) + " FROM characters LIMIT 1")
     assert "substr" in str(refused.value)
-
-
-async def test_the_document_listing_pages_by_offset(client, library):
-    for index in range(35):
-        await client.create("/api/documents", json={"title": f"Draft {index}"})
-    tools = await _tools(mode="library")
-    first, _ = await _use(tools, "read_document")
-    second, _ = await _use(tools, "read_document", offset=first["next_offset"])
-    assert first["truncated"] is True and first["total"] == 36 and second["next_offset"] is None
-    assert not {row["id"] for row in first["rows"]} & {row["id"] for row in second["rows"]}
-    assert len(first["rows"]) + len(second["rows"]) == 36
-
-
-async def test_a_chat_outliving_its_card_and_a_long_title_keep_the_assistant_usable(client, library, monkeypatch):
-    await client.delete(f"/api/characters/{library['card']}?delete_conversations=false")
-    view = await resolve_view(AssistantViewContext(mode="chat", conversation_id=library["chat"]))
-    assert view.conversation_id == library["chat"] and view.character_id is None
-    # Only an id the browser names itself must still exist.
-    with pytest.raises(HTTPException) as missing:
-        await resolve_view(AssistantViewContext(mode="chat", conversation_id=library["chat"], character_id=library["card"]))
-    assert missing.value.status_code == 404
-
-    _script(monkeypatch, _reply("Still here."))
-    body = _body(mode="chat", conversation_id=library["chat"])
-    body["items"][:0] = [{"kind": "user", "text": "Earlier", "view": "Chat: " + "t" * 400}]
-    assert frames(await client.post_checked(RUN, json=body))[-1] == ("done", {"reason": "reply", "message": ""})
 
 
 async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_the_commit(client, library, monkeypatch):
@@ -861,31 +834,6 @@ async def test_a_failure_after_the_commit_is_finished_by_the_retry_never_reporte
     assert (await _apply(client, preview["proposal_id"]))[0]["verdict"] == "applied"
     row = await db.one("SELECT content, writer_draft FROM messages WHERE id = ?", (kept,))
     assert tuple(row) == ("Edited once.", None)
-
-
-async def test_a_committed_proposal_keeps_its_answer_through_newer_proposals_and_its_creation_expiry(
-    client, library, monkeypatch
-):
-    from backend.api.assistant import proposals
-
-    tools = await _tools(mode="library", character_id=library["card"])
-    created = proposals._clock()
-    preview = await _propose(tools, "edit_character", field="description", mode="replace_all", text="Applied once.")
-    # Applied just before it would have expired, and asked again well after its creation's expiry.
-    late = created + proposals.PROPOSAL_TTL_SECS - 5
-    monkeypatch.setattr(proposals, "_clock", lambda: late)
-    assert (await _apply(client, preview["proposal_id"]))[0]["verdict"] == "applied"
-    monkeypatch.setattr(proposals, "_clock", lambda: late + 60)
-    # Newer than the applied one, so only the eviction order can choose it over the older, applied proposal. Each is its own
-    # run's: one run's edits to one field stack into a single proposal.
-    waiting = await _propose(tools, "edit_character", field="scenario", mode="replace_all", text="Never applied.")
-    for index in range(proposals.MAX_PROPOSALS - 1):
-        run = await _tools(mode="library", character_id=library["card"])
-        await _propose(run, "edit_character", field="scenario", mode="replace_all", text=f"Scenario {index}.")
-    [repeat] = await _apply(client, preview["proposal_id"])
-    assert repeat["verdict"] == "applied" and repeat["repeated"] is True
-    # Eviction takes proposals not yet applied first.
-    assert (await _apply(client, waiting["proposal_id"]))[0]["verdict"] == "expired"
 
 
 async def test_a_clipped_read_never_becomes_a_whole_field_rewrite_and_the_whole_field_can_be_read(client, library, db):

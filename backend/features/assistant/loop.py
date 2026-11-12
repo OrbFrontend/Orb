@@ -431,16 +431,15 @@ async def run_assistant(
                 response, _, chosen = await ask(STEP_TOOL_NAME)
                 name, message = _step_choice(chosen, by_name) or (REPLY, "")
                 arguments = {}
+            call_id = f"call{step_number}" if single_call else f"step{step_number}"
+            if single_call:
+                called = assistant_tool_call(response, name, arguments, call_id)
+            else:
+                called = assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id)
             if name == REPLY:
                 if keep is not None and not proposed:
                     # A proposal is settled by Apply or Cancel after the run, so a context that names one would go stale.
-                    reply_id = f"call{step_number}" if single_call else f"step{step_number}"
-                    called = (
-                        assistant_tool_call(response, REPLY, arguments, reply_id)
-                        if single_call
-                        else assistant_tool_call(response, STEP_TOOL_NAME, {"tool": REPLY, "message": message}, reply_id)
-                    )
-                    keep(Continuation((*replay, latest, *run, called, tool_result(reply_id, _DELIVERED)), fingerprint))
+                    keep(Continuation((*replay, latest, *run, called, tool_result(call_id, _DELIVERED)), fingerprint))
                 yield {"type": "assistant_message", "text": message, "final": True}
                 yield done("reply")
                 return
@@ -448,14 +447,9 @@ async def run_assistant(
             if executions >= MAX_TOOL_EXECUTIONS:
                 raise _Limit
             tool = by_name[name]
-            if single_call:
-                call_id = f"call{step_number}"
-                run.append(assistant_tool_call(response, name, arguments, call_id))
-            else:
-                call_id = f"step{step_number}"
-                run.append(assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id))
-                if message:
-                    yield {"type": "assistant_message", "text": message, "final": False}
+            run.append(called)
+            if message:
+                yield {"type": "assistant_message", "text": message, "final": False}
             if tool.takes_arguments and not single_call:
                 run.append(tool_result(call_id, f"Call {name} with its arguments now."))
                 yield {"type": "progress", "label": f"Preparing {name}…"}

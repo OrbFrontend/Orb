@@ -14,18 +14,13 @@ from ...database import (
     LIBRARY_VIEWS,
     get_active_lorebook_entries,
     get_active_path,
-    get_character_card,
     get_document,
     get_documents,
     get_effective_world_ids,
     get_lorebook_entries,
-    get_lorebook_entry,
-    get_message_by_id,
     get_settings,
     get_speaker_names,
-    get_user_persona,
     get_user_personas,
-    get_world,
     get_worlds,
     list_character_cards,
     run_library_query,
@@ -49,12 +44,16 @@ from .targets import (
     ID_CHARS,
     CharacterField,
     cast_of,
-    character_in_view,
+    character_of,
     chat_field,
     chat_in_view,
     clip,
+    entry_of,
     message_label,
+    message_of,
+    persona_of,
     quoted,
+    world_of,
 )
 from .toggles import switch_summary
 
@@ -294,10 +293,8 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
 
     @tools.add("read", _CharacterArgs, "Read one character's authored text. A group chat has several characters, so name one.")
     async def get_character(args: _CharacterArgs) -> ToolOutput:
-        card_id = await character_in_view(args.character_id, view)
-        card = await get_character_card(card_id)
-        if card is None:
-            raise ToolFailure(f"No character has the id {card_id}.")
+        card = await character_of(args.character_id, view)
+        card_id = card.get("id")
         if "alternate_greetings" in args.fields:
             return greetings(card, args)
         # The name and tags head every read, so naming only them reads no text field.
@@ -458,9 +455,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         conv: ConversationRow, path: Sequence[Mapping[str, Any]], speakers: Mapping[str, str], args: _MessagesArgs
     ) -> ToolOutput:
         """One message of the chat, kept branch or not, read whole a page at a time."""
-        message = await get_message_by_id(args.message_id)
-        if message is None or message["conversation_id"] != conv["id"]:
-            raise ToolFailure(f"That chat has no message {args.message_id}. read_messages without message_id shows the ids.")
+        message = await message_of(conv["id"], args.message_id)
         speaker = speakers.get(message.get("speaker_member_id") or "")
         number = next((index + 1 for index, row in enumerate(path) if row["id"] == message["id"]), None)
         head = {
@@ -497,14 +492,10 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "and content.",
     )
     async def list_lorebook_entries(args: _EntriesArgs) -> ToolOutput:
-        world = await get_world(args.world_id)
-        if world is None:
-            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
+        world = await world_of(args.world_id)
         world_head = {"id": world["id"], "name": clip(world["name"], _QUERY_CHARS)}
         if args.entry_id:
-            entry = await get_lorebook_entry(args.entry_id)
-            if entry is None or entry["world_id"] != world["id"]:
-                raise ToolFailure(f"That world has no entry {args.entry_id}. list_lorebook_entries shows its entries.")
+            _, entry = await entry_of(args.world_id, args.entry_id)
             head = {"world": world_head, "id": entry["id"], "name": clip(entry["name"], _WHOLE_NAME_CHARS)}
             data = _text_page(entry["content"] or "", args.text_offset, head, "content")
             return ToolOutput(data, f"Read lore entry {entry['id']}.", {"world_id": world["id"], "entry_id": entry["id"]})
@@ -573,9 +564,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
     async def list_personas(args: _PersonaArgs) -> ToolOutput:
         active = settings.get("active_persona_id")
         if args.persona_id:
-            persona = await get_user_persona(args.persona_id)
-            if persona is None:
-                raise ToolFailure(f"No persona has the id {args.persona_id}. list_personas shows the ids.")
+            persona = await persona_of(args.persona_id)
             head = {"id": persona["id"], "name": clip(persona["name"], _WHOLE_NAME_CHARS), "active": persona["id"] == active}
             data = _text_page(persona["description"] or "", args.text_offset, head, "description")
             return ToolOutput(data, f"Read persona {persona['id']}.", {"persona_id": persona["id"]})

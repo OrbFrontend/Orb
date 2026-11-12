@@ -19,10 +19,6 @@ const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied",
 const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
 const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_chat", "send_as_user", "open_chat"]);
-// The most items a proposed list may hold, as the server bounds it.
-const MAX_LIST_ITEMS = 20;
-const MAX_DIRECTION_CHARS = 500;
-const MAX_SEND_CHARS = 4000;
 // A proposed edit's states besides `pending`. Only a pending edit on the card this page holds can be applied; a stored
 // card's pending edits load as historical.
 const PROPOSAL_NOTES = {
@@ -40,7 +36,6 @@ const ASK_AGAIN = new Set(["stale", "missing", "expired", "historical"]);
 
 const text = (value, cap) => (typeof value === "string" ? value.slice(0, cap) : "");
 const id = (value) => (typeof value === "string" && value && value.length <= 64 ? value : null);
-const rowId = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
 const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 
 function storedContext(value) {
@@ -77,7 +72,7 @@ function storedProposal(value) {
     status,
   };
   if (value.list === true) entry.list = true;
-  const target = resource(value.target);
+  const target = storedIds(value.target);
   if (target) entry.target = target;
   return entry;
 }
@@ -121,63 +116,9 @@ function storedItem(value) {
   return null;
 }
 
-// The ids each resource kind carries, each with its check and whether it is required.
-const MESSAGE_IDS = { conversation_id: [id, true], message_id: [rowId, true] };
-const RESOURCE_IDS = {
-  lorebook_entry: { world_id: [id, true], entry_id: [rowId, false] },
-  character: { character_id: [id, false] },
-  world: { world_id: [id, false] },
-  conversation: { conversation_id: [id, false] },
-  persona: { persona_id: [rowId, false] },
-  chat_worlds: { conversation_id: [id, true], world_id: [id, true] },
-  branch: { conversation_id: [id, true] },
-  message: MESSAGE_IDS,
-  media: MESSAGE_IDS,
-};
-
-/** A resource the server named, rebuilt from the ids its kind carries. Anything else is dropped. */
-function resource(value) {
-  if (!value || typeof value !== "object") return null;
-  if (value.kind === "settings") {
-    const keys = Array.isArray(value.keys)
-      ? value.keys.filter((key) => typeof key === "string" && key.length <= 64)
-      : [];
-    return keys.length ? { kind: "settings", keys: keys.slice(0, 16) } : null;
-  }
-  if (!Object.hasOwn(RESOURCE_IDS, value.kind)) return null;
-  const out = { kind: value.kind };
-  for (const [key, [check, required]] of Object.entries(RESOURCE_IDS[value.kind])) {
-    const valid = check(value[key]);
-    if (valid) out[key] = valid;
-    else if (required) return null;
-  }
-  return out;
-}
-
-/**
- * A `handoff` event's checked target, or null: the chat, and for work in it the message it follows on from, a rewrite's
- * direction, the group member who speaks next, or the user's message to send.
- */
-function handoffTarget(value) {
-  const tool = text(value?.tool, 64);
-  const target = value?.handoff;
-  const chat = id(target?.conversation_id);
-  if (!HANDOFF_TOOLS.has(tool) || !chat) return null;
-  if (tool === "open_chat") return { tool, conversation_id: chat, title: text(target.title, MAX_LABEL_CHARS) };
-  const message = rowId(target?.message_id);
-  if (!message) return null;
-  const out = { tool, conversation_id: chat, message_id: message };
-  if (tool === "continue_chat") {
-    const member = id(target.speaker_member_id);
-    return member ? { ...out, speaker_member_id: member } : out;
-  }
-  if (tool === "send_as_user") {
-    const content = text(target.content, MAX_SEND_CHARS).trim();
-    return content ? { ...out, content } : null;
-  }
-  if (tool !== "rewrite_reply") return out;
-  const direction = text(target.direction, MAX_DIRECTION_CHARS).trim();
-  return direction ? { ...out, direction } : null;
+/** A `handoff` event's checked target with its tool, or null when it names nothing this page can start. */
+function handoffTarget(d) {
+  return HANDOFF_TOOLS.has(d.tool) && d.handoff?.conversation_id ? { tool: d.tool, ...d.handoff } : null;
 }
 
 // What the transcript says once the chat was asked to start a handoff, by why it did not ("" when it did).
@@ -218,11 +159,6 @@ export function handoffOutcome(handoff, status) {
         : `${handoff.tool === "rewrite_reply" ? "rewriting" : "regenerating"} message ${handoff.message_id}`;
   const note = followsLast && status === "moved" ? CONTINUE_MOVED : (HANDOFF_NOTES[status] ?? HANDOFF_NOTES.busy);
   return { kind: "outcome", reason: "handoff", text: note.replace("{what}", doing) };
-}
-
-/** Validate resources a server response named, for the caller to read again. */
-function resources(values) {
-  return (Array.isArray(values) ? values : []).map(resource).filter(Boolean);
 }
 
 /**
@@ -315,14 +251,10 @@ function payload(data) {
 
 /** A `confirm` event's preview as a live card entry, or null. Its texts are kept whole: they are what Apply commits. */
 function proposalEntry(tool, value) {
-  const proposalId = id(value?.proposal_id);
-  const field = Array.isArray(value?.fields) ? value.fields[0] : null;
-  const items = (list) =>
-    Array.isArray(list) && list.length <= MAX_LIST_ITEMS && list.every((item) => typeof item === "string");
-  const listed = items(field?.before) && items(field?.after);
-  if (!proposalId || !(listed || (typeof field?.before === "string" && typeof field?.after === "string"))) return null;
+  const field = value?.fields?.[0];
+  if (!value?.proposal_id || !field) return null;
   const entry = {
-    proposalId,
+    proposalId: value.proposal_id,
     tool: text(tool, 64) || "edit",
     label: text(value.label, MAX_LABEL_CHARS),
     field: text(field.label, 64) || text(field.field, 64),
@@ -330,10 +262,10 @@ function proposalEntry(tool, value) {
     after: field.after,
     beforeChars: field.before.length,
     afterChars: field.after.length,
-    target: resource(value.target),
+    target: value.target,
     status: "pending",
   };
-  if (listed) entry.list = true;
+  if (Array.isArray(field.before)) entry.list = true;
   return entry;
 }
 
@@ -360,7 +292,7 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     run.note = "";
     run.items.push(item);
   } else if (event === "mutation") {
-    committed = resources(d.resources);
+    committed = Array.isArray(d.resources) ? d.resources : [];
   } else if (event === "tool_result") {
     const item = run.items.findLast((entry) => entry.kind === "tool" && entry.running && entry.callId === d.call_id);
     if (item) {
@@ -378,8 +310,7 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     if (index >= 0) run.proposals[index] = entry;
     else if (entry && run.proposals.length < MAX_PROPOSALS) run.proposals.push(entry);
   } else if (event === "handoff") {
-    const target = handoffTarget(d);
-    if (target) run.handoff = target;
+    run.handoff = handoffTarget(d) || run.handoff;
   } else if (event === "done") {
     run.terminal = OUTCOMES.has(d.reason) ? d.reason : "reply";
     if (typeof d.resume === "string" && d.resume.length <= MAX_RESUME_CHARS) run.resume = d.resume;
@@ -446,7 +377,7 @@ export function applyVerdicts(card, results) {
     if (result.verdict === "busy") entry.note = text(result.message, MAX_NOTE_CHARS) || "Busy; try again shortly.";
     else if (VERDICTS.has(result.verdict)) entry.status = result.verdict;
     if (entry.status === "applied") {
-      out.resources.push(...resources(result.resources));
+      out.resources.push(...(result.resources || []));
       out.summaries.push(text(result.summary, MAX_NOTE_CHARS) || `Applied the edit to the ${edited(entry)}.`);
     } else if (entry.status !== "pending") skipped.push(edited(entry));
   }
@@ -486,22 +417,14 @@ export function diffHtml(before, after) {
   return ops.map((op, index) => opHtml(op, index, ops)).join("");
 }
 
-/** The same change as two columns: what the field holds now with its removals, and what it will hold with its additions. */
-export function splitDiffHtml(before, after) {
-  const ops = diffOps(before, after);
-  const side = (drop) => ops.map((op, index) => (op.type === drop ? "" : opHtml(op, index, ops))).join("");
-  return { before: side("insert"), after: side("delete") };
-}
-
+// The same change as two columns: what the field holds now with its removals, and what it will hold with its additions.
 // The stylesheet shows this in place of the inline diff once the panel is wide enough for two columns.
 function splitHtml(entry) {
-  const split = splitDiffHtml(entry.before, entry.after);
-  return (
-    '<div class="asst-diff-split" aria-hidden="true">' +
-    `<div class="asst-diff-side"><div class="asst-diff-side-label">Now</div><div class="asst-diff">${split.before}</div></div>` +
-    `<div class="asst-diff-side"><div class="asst-diff-side-label">Proposed</div><div class="asst-diff">${split.after}</div></div>` +
-    "</div>"
-  );
+  const ops = diffOps(entry.before, entry.after);
+  const side = (label, drop) =>
+    `<div class="asst-diff-side"><div class="asst-diff-side-label">${label}</div><div class="asst-diff">` +
+    `${ops.map((op, index) => (op.type === drop ? "" : opHtml(op, index, ops))).join("")}</div></div>`;
+  return `<div class="asst-diff-split" aria-hidden="true">${side("Now", "insert")}${side("Proposed", "delete")}</div>`;
 }
 
 /** A list field's change: the items it removes and adds, and how many it keeps. */
@@ -700,11 +623,4 @@ export function transcriptEntries(items, renderProse, { active = null, busy = fa
     }
   });
   return rows;
-}
-
-/** The log's rows as one string of markup. */
-export function transcriptHtml(items, renderProse, options) {
-  return transcriptEntries(items, renderProse, options)
-    .map((row) => row.html)
-    .join("");
 }
