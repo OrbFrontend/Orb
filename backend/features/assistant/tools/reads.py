@@ -100,8 +100,10 @@ _VIEW_NOTES = (
     + ". messages.role is 'user' or 'assistant'. messages holds every branch: a chat's kept branch is the parent_id chain "
     "from conversations.active_leaf_id. tags, alternate_greetings and keywords are JSON arrays (json_each). "
     "lorebook_entries spans every world; a disabled or archived entry is not in effect. Select id and "
-    f"conversation_id with message findings; substr long text. At most {_SQL_CAPS['max_rows']} rows, "
-    f"{_SQL_CAPS['max_cell_chars']} characters a cell. Documents, settings and state are not here."
+    "conversation_id with message findings; substr long text. LIKE is literal: match the stem a word's forms share, "
+    "excerpt hits with instr, and if none fits ask for the user's exact words. "
+    f"At most {_SQL_CAPS['max_rows']} rows, {_SQL_CAPS['max_cell_chars']} characters a cell. "
+    "Documents, settings and state are not here."
 )
 _TEXT_OFFSET = "To read on in a whole text: the last page's next_offset."
 # The longest page of one text a read returns.
