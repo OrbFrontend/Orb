@@ -18,6 +18,7 @@ from ...database import (
     get_documents,
     get_effective_world_ids,
     get_lorebook_entries,
+    get_phrase_bank_rows,
     get_settings,
     get_speaker_names,
     get_user_personas,
@@ -44,6 +45,7 @@ from .targets import (
     ID_CHARS,
     CharacterField,
     cast_of,
+    character_field,
     character_of,
     chat_field,
     chat_in_view,
@@ -82,7 +84,8 @@ _VIEW_NOTES = (
     + ". messages.role is 'user' or 'assistant'. messages holds every branch: a chat's kept branch is the parent_id chain "
     "from conversations.active_leaf_id. tags, alternate_greetings and keywords are JSON arrays (json_each). "
     "lorebook_entries spans every world; a disabled or archived entry is not in effect. Select id and "
-    "conversation_id with message findings; substr long text."
+    f"conversation_id with message findings; substr long text. At most {_SQL_CAPS['max_rows']} rows, "
+    f"{_SQL_CAPS['max_cell_chars']} characters a cell. Documents, settings and state are not here."
 )
 _TEXT_OFFSET = "To read on in a whole text: the last page's next_offset."
 # The longest page of one text a read returns.
@@ -98,7 +101,7 @@ class _ListArgs(ToolArguments):
 
 
 class _CharacterArgs(ToolArguments):
-    character_id: str = Field(default="", max_length=ID_CHARS)
+    character_id: str = character_field()
     fields: list[Literal[CharacterField, "name", "tags", "alternate_greetings"]] = Field(
         default_factory=list,
         max_length=len(CHARACTER_FIELDS) + 3,
@@ -114,7 +117,7 @@ class _SqlArgs(ToolArguments):
 
 class _MessagesArgs(ToolArguments):
     conversation_id: str = chat_field()
-    count: int = Field(default=MAX_MESSAGES, ge=1, le=MAX_MESSAGES, description=f"Latest messages, at most {MAX_MESSAGES}.")
+    count: int = Field(default=MAX_MESSAGES, ge=1, le=MAX_MESSAGES, description=f"Messages to read, at most {MAX_MESSAGES}.")
     before_message_id: int = Field(
         default=0, ge=0, description="Read the messages before this one on the kept branch: the last page's earlier_from."
     )
@@ -122,6 +125,7 @@ class _MessagesArgs(ToolArguments):
         default="", max_length=_QUERY_CHARS, description="Only messages on the kept branch containing this text, any case."
     )
     message_id: int = Field(default=0, ge=0, description="One message to read whole, in pages, instead of the latest ones.")
+    number: int = Field(default=0, ge=0, description="The same, by the message's #N on the kept branch.")
     text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
 
 
@@ -358,7 +362,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             data, f"Read {len(items)} alternate greetings of character {data['name']}.", {"character_id": card["id"]}
         )
 
-    @tools.add("read", _SqlArgs, f"Search the library with SQL. {_VIEW_NOTES}")
+    @tools.add("read", _SqlArgs, f"Search the library with SQL; the way to find or list chats. {_VIEW_NOTES}")
     async def query_library(args: _SqlArgs) -> ToolOutput:
         result = await run_library_query(args.sql, **_SQL_CAPS)
         if "error" in result:
@@ -383,16 +387,20 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "read",
         _MessagesArgs,
         f"Read messages on a chat's kept branch, at most {MAX_MESSAGES}: the latest, those before before_message_id, or "
-        "those containing query. With message_id, read one message whole. A message's number is the #N the chat window "
+        "those containing query. With message_id or number, read one message whole. A message's number is the #N the chat window "
         "shows; name messages to the user by it, never by id.",
     )
     async def read_messages(args: _MessagesArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=False)
         path = await get_active_path(conv["id"])
         speakers = await get_speaker_names(conv["id"]) if conv.get("kind") == "group" else {}
+        if args.number:
+            if args.message_id or args.number > len(path):
+                raise ToolFailure(f"number is a #N from 1 to {len(path)} on the kept branch, given instead of message_id.")
+            args = args.model_copy(update={"message_id": path[args.number - 1]["id"]})
         if args.message_id:
             if args.before_message_id or args.query:
-                raise ToolFailure("message_id reads one message: leave before_message_id and query empty.")
+                raise ToolFailure("message_id or number reads one message: leave before_message_id and query empty.")
             return await read_message(conv, path, speakers, args)
         if args.text_offset:
             raise ToolFailure("text_offset pages through one message: name its message_id.")
@@ -416,7 +424,6 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
                 "number": numbers[message["id"]],
                 "role": message["role"],
                 **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
-                "turn_index": message["turn_index"],
                 "created_at": message["created_at"],
                 "content": clip(message["content"], _MESSAGE_CHARS),
             }
@@ -670,5 +677,19 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             },
         }
         return ToolOutput(data, "Read the pipeline switches and sampler values.")
+
+    @tools.add("read", _ListArgs, "List the phrase bank: the phrase groups the Output Auditor removes from replies.")
+    async def list_banned_phrases(args: _ListArgs) -> ToolOutput:
+        rows = [
+            {
+                "id": row["id"],
+                "kind": row["kind"],
+                "variants": [clip(variant, _QUERY_CHARS) for variant in row["variants"][:12]],
+                **({"pattern": clip(row["pattern"], _QUERY_CHARS)} if row["pattern"] else {}),
+            }
+            for row in await get_phrase_bank_rows()
+            if _matches(args.query, row["pattern"], *row["variants"])
+        ]
+        return _listed(_page(rows, args), "phrase groups")
 
     return tools

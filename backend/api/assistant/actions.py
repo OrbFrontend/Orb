@@ -47,6 +47,7 @@ from .targets import (
     message_label,
     message_of,
     not_blank,
+    open_in_view,
     persona_of,
     quoted,
     reply_target,
@@ -75,7 +76,7 @@ _Keyword = Annotated[str, StringConstraints(min_length=1, max_length=_LORE_KEYWO
 
 
 class _LoreEntryArgs(ToolArguments):
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world (lorebook) to add the entry to.")
+    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world (lorebook), from list_worlds.")
     name: str = Field(min_length=1, max_length=_NAME_CHARS, description="The entry's title.")
     content: str = Field(
         min_length=1, max_length=_LORE_CONTENT_CHARS, description=f"The lore itself, at most {_LORE_CONTENT_CHARS} characters."
@@ -140,7 +141,7 @@ class _StartChat(ToolArguments):
 
 
 class _OpenChat(ToolArguments):
-    conversation_id: str = Field(min_length=1, max_length=ID_CHARS)
+    conversation_id: str = Field(min_length=1, max_length=ID_CHARS, description="The chat, from start_chat or query_library.")
 
 
 class _SetChat(ToolArguments):
@@ -229,10 +230,14 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 "enabled": bool(entry["enabled"]),
             },
         }
+        if not entry["constant"] and not entry["keywords"]:
+            data["note"] = "It is keyword-triggered with no keywords, so nothing brings it into a chat."
         summary = f"Created lore entry {json.dumps(data['entry']['name'], ensure_ascii=False)} in {world_name}."
         return wrote(data, summary, "lorebook_entry", world_id=world["id"], entry_id=entry["id"])
 
-    @tools.add("write", _CharacterCreate, "Create a character card from authored text.", name="create_character")
+    @tools.add(
+        "write", _CharacterCreate, "Create a character card: text only, no avatar. No chat is started.", name="create_character"
+    )
     async def add_character(args: _CharacterCreate) -> ToolOutput:
         # The creation route's own schema and writer, without the parts of that route that import: no embedded book, no
         # extensions, and no expression pack fetched from a URL.
@@ -276,7 +281,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         data = {
             "created": True,
             "persona": {"id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)},
-            "note": "It is not the active persona; the user chooses that.",
+            "note": "It is not the active persona; set_active_persona makes it so, if the user asks.",
         }
         return wrote(data, f"Created persona {quoted(persona['name'])}.", "persona", persona_id=persona["id"])
 
@@ -391,6 +396,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def regenerate_reply(args: _Regenerate) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "regenerated", idle=True)
+        open_in_view(conv, view)
         if message["parent_id"] is None:
             raise ToolFailure(f"Message {message['id']} is the chat's opening greeting, which is not regenerated.")
         return await handed_reply(conv, message, "regenerating")
@@ -403,6 +409,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def rewrite_reply(args: _Rewrite) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "rewritten", idle=True)
+        open_in_view(conv, view)
         return await handed_reply(conv, message, "rewriting", direction=args.direction)
 
     @tools.add(
@@ -482,6 +489,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def continue_chat(args: _Continue) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
+        open_in_view(conv, view)
         cid = conv["id"]
         path = await get_active_path(cid)
         last = path[-1] if path else None
@@ -529,6 +537,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def send_as_user(args: _SendAsUser) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
+        open_in_view(conv, view)
         cid = conv["id"]
         path = await get_active_path(cid)
         if not path:

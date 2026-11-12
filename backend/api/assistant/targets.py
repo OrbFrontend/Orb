@@ -36,7 +36,20 @@ CHARACTER_LIST_FIELDS: tuple[CharacterListField, ...] = get_args(CharacterListFi
 
 
 def chat_field() -> Any:
-    return Field(default="", max_length=ID_CHARS)
+    return Field(default="", max_length=ID_CHARS, description="Empty: the chat in view.")
+
+
+def character_field() -> Any:
+    return Field(default="", max_length=ID_CHARS, description="Empty: the character in view.")
+
+
+def open_in_view(conv: ConversationRow, view: ViewContext) -> None:
+    """Refuse a handoff the browser could not start: the chat's stream runs only in the chat open in the main view."""
+    if view.mode == "document" or (view.conversation_id and conv["id"] != view.conversation_id):
+        raise ToolFailure(
+            "That chat is not the one open in the main view, so nothing can start there. open_chat opens it if the user "
+            "asks; they then ask again."
+        )
 
 
 def clip(value: object, cap: int) -> str:

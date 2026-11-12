@@ -35,6 +35,11 @@ async def test_messages_page_back_and_search_the_kept_branch_only(library):
     with pytest.raises(ToolFailure, match="leave before_message_id and query empty"):
         await _use(tools, "read_messages", message_id=library["kept"], query="x")
     assert len(latest["messages"]) == MAX_MESSAGES
+    # A message the user names by its #N is read without paging back to find its id.
+    third, _ = await _use(tools, "read_messages", number=3)
+    assert (third["number"], third["content"], third["id"]) == (3, "kept line 2", earlier["messages"][2]["id"])
+    with pytest.raises(ToolFailure, match="from 1 to"):
+        await _use(tools, "read_messages", number=10**6)
 
 
 async def test_entry_switches_set_a_state_and_active_lore_follows_what_the_chat_uses(client, library):
@@ -134,6 +139,9 @@ async def test_continue_answers_only_an_unanswered_message_or_a_named_member_and
         await send.run(send.arguments(content="Well?"))
     with pytest.raises(ToolFailure, match="only for a group"):
         await cont.run(cont.arguments(speaker_member_id="someone"))
+    # The chat's stream starts only in the chat open in the main view, so a handoff into any other chat is refused.
+    with pytest.raises(ToolFailure, match="not the one open"):
+        await send.run(send.arguments(content="Hi", conversation_id=library["group"]))
 
     group = await _tools(mode="chat", conversation_id=library["group"])
     cast = (await _use(group, "get_context"))[0]["chat"]["cast"]

@@ -76,7 +76,7 @@ _MEDIA = (
         "illustrated",
         "Composing the image prompt…",
         "Make an image of one saved reply in a chat with the Image Generation workflow, as the reply's image button does, and "
-        "save it on that message. It takes a while, often minutes.",
+        "save it on that message. It takes no direction: the prompt comes from the reply. It takes a while, often minutes.",
     ),
     _Medium(
         "generate_speech",

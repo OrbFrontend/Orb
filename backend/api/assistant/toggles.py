@@ -125,11 +125,11 @@ def build_toggle_tools() -> list[AssistantTool]:
 
     description = (
         "Turn one pipeline switch on or off. "
-        f"Switches: editor, {', '.join(table)}. "
         "editor is the Editor pass: off turns off output_auditor and length_guard, on turns on output_auditor only. "
         "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback and "
         "post-processing; workflows (secondary workflows) is the master of each workflow:<id>. A master that is off keeps "
-        "the switches under it from taking effect; it is reported, not changed."
+        "the switches under it from taking effect; it is reported, not changed. director_individual_fragments: the Director "
+        "fills each fragment in its own call. agentic_lorebook: the agent picks the lore entries to use."
     )
 
     @tools.add("write", _ToggleArgs, description, idempotent=True)

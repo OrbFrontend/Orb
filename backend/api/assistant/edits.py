@@ -18,6 +18,7 @@ from .targets import (
     ID_CHARS,
     CharacterField,
     CharacterListField,
+    character_field,
     character_of,
     chat_field,
     chat_in_view,
@@ -168,10 +169,7 @@ _Item = Annotated[str, StringConstraints(min_length=1, max_length=_EDIT_CHARS)]
 _CharacterEdit = _edit_args(
     "_CharacterEdit",
     lists=True,
-    character_id=(
-        str,
-        Field(default="", max_length=ID_CHARS),
-    ),
+    character_id=(str, character_field()),
     field=(Literal[CharacterField, "name", CharacterListField], ...),
     items=(
         list[_Item],

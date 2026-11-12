@@ -24,7 +24,7 @@ from ...database import (
 from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet
 from ..deps import validate_phrase_group
 from ..schemas import LorebookEntryUpdate, WorldUpdate
-from .targets import ID_CHARS, clip, entry_of, not_blank, quoted, world_of
+from .targets import ID_CHARS, clip, entry_of, not_blank, persona_of, quoted, world_of
 from .toggles import switch_summary
 
 _NAME_CHARS = 200
@@ -62,7 +62,13 @@ class _EntrySet(ToolArguments):
         description="The entry's complete new keyword list, replacing the old one; empty leaves the keywords as they are.",
     )
 
+    clear_keywords: bool = Field(default=False, description="true to remove every keyword.")
+
     _blank = field_validator("keywords")(not_blank)
+
+
+class _PersonaSet(ToolArguments):
+    persona_id: int = Field(ge=1, description="The persona, from list_personas.")
 
 
 class _WorldSet(ToolArguments):
@@ -127,14 +133,16 @@ def build_setter_tools() -> list[AssistantTool]:
         idempotent=True,
     )
     async def set_lorebook_entry(args: _EntrySet) -> ToolOutput:
+        if args.keywords and args.clear_keywords:
+            raise ToolFailure("Either name keywords or clear them, not both. Nothing was changed.")
         world, entry = await entry_of(args.world_id, args.entry_id)
         wanted: dict[str, Any] = {
             **_flag("enabled", args.enabled),
             **_flag("constant", args.constant),
-            **({"keywords": list(dict.fromkeys(args.keywords))} if args.keywords else {}),
+            **({"keywords": list(dict.fromkeys(args.keywords))} if args.keywords or args.clear_keywords else {}),
         }
         if not wanted:
-            raise ToolFailure("Name enabled, constant or keywords; nothing was asked to change.")
+            raise ToolFailure("Name enabled, constant, keywords or clear_keywords; nothing was asked to change.")
         stored = {"enabled": bool(entry["enabled"]), "constant": bool(entry["constant"]), "keywords": entry["keywords"] or []}
         changes = {key: value for key, value in wanted.items() if stored[key] != value}
         if changes:
@@ -238,6 +246,22 @@ def build_setter_tools() -> list[AssistantTool]:
             {"keys": sorted(changes)},
             committed=({"kind": "settings", "keys": sorted(changes)},),
         )
+
+    @tools.add(
+        "write",
+        _PersonaSet,
+        "Make a persona the active one: who the user plays in every chat with no persona lock.",
+        idempotent=True,
+    )
+    async def set_active_persona(args: _PersonaSet) -> ToolOutput:
+        persona = await persona_of(args.persona_id)
+        label, ids = f"Persona {quoted(persona['name'])}", {"persona_id": persona["id"]}
+        data = {"active_persona_id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)}
+        if (await get_settings()).get("active_persona_id") == persona["id"]:
+            return ToolOutput({**data, "changed": False}, f"{label} was already active; nothing changed.", ids)
+        await update_settings({"active_persona_id": persona["id"]})
+        committed = ({"kind": "settings", "keys": ["active_persona_id"]},)
+        return ToolOutput({**data, "changed": True}, f"{label} is now the active one.", ids, committed=committed)
 
     @tools.add(
         "write",

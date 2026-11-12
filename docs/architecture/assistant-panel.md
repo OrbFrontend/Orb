@@ -17,9 +17,9 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/` | The facade, contracts, the model loop and its prompt. It receives tool callables and imports no API, pipeline, workflow or peer feature code. |
 | `backend/api/assistant/` | The tools over the existing readers and writers, and Apply. `__init__.py` holds `build_tools`, which assembles every tool for one run. |
 | `backend/api/assistant/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
-| `backend/api/assistant/reads.py` | The twelve read tools, their projections and paging |
+| `backend/api/assistant/reads.py` | The thirteen read tools, their projections and paging |
 | `backend/api/assistant/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
-| `backend/api/assistant/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the phrase bank |
+| `backend/api/assistant/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
 | `backend/api/assistant/edits.py`, `proposals.py` | The four edit tools; the proposal store and Apply |
 | `backend/api/assistant/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools |
 | `backend/api/conversation_start.py` | The solo-chat writer the conversation route and `start_chat` share |
@@ -169,8 +169,8 @@ and a callable. The prompt marks each class.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `get_context`, `list_characters`, `get_character`, `query_library`, `read_messages`, `list_worlds`, `list_lorebook_entries`, `list_active_lore`, `list_personas`, `read_document`, `read_state`, `get_settings_summary` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lorebook_entry`, `set_world`, `set_length_guard`, `add_banned_phrase`, `create_lorebook_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
+| read | `get_context`, `list_characters`, `get_character`, `query_library`, `read_messages`, `list_worlds`, `list_lorebook_entries`, `list_active_lore`, `list_personas`, `read_document`, `read_state`, `get_settings_summary`, `list_banned_phrases` | Runs at once; changes nothing. |
+| write | `set_pipeline_toggle`, `set_lorebook_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_lorebook_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lorebook_entry`, `edit_persona`, `edit_message` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
@@ -186,7 +186,8 @@ latest messages on the kept branch, those before `before_message_id` (each page
 names the next one as `earlier_from`), or those containing `query`; it never
 searches a branch the user left. Each message carries its `number`, the `#N`
 the chat window shows, and every summary naming a message uses it rather than
-the id. `list_active_lore` lists the entries in effect
+the id; `number` reads one message by its `#N`, so a request that names one
+never pages to find its id. `list_active_lore` lists the entries in effect
 for a chat, overlays resolved as the prompt resolves them; nothing records which
 of them a given reply drew on. `get_character` reads the alternate greetings
 only whole, since an edit replaces the list whole; a list too long to send is
@@ -294,7 +295,9 @@ group a member named by `speaker_member_id` (a member id from `get_context`'s
 cast, or a name only one member has) takes a turn; a solo chat whose last message is a reply has nothing to continue,
 since its character never replies twice in a row. `send_as_user` takes the
 user's next message, written by the model, and checks that the chat is idle
-and its last message is a reply. Each ends the run with `handoff`. Once the
+and its last message is a reply. Each is refused when the chat is not the one
+the request was sent from, or the view is a document: the browser could not
+start it. Each ends the run with `handoff`. Once the
 assistant's stream has settled, and never after its Stop, the browser starts
 the chat's own Regenerate, Magic Rewrite, continue, speak or Send with the
 captured chat, message and direction, speaker or text; that Send leaves the

@@ -51,7 +51,7 @@ const LABEL_TITLE_CHARS = 120;
 // The events after which the stored transcript changes in a way worth keeping; progress and notes are not among them.
 const PERSISTED_EVENTS = new Set(["tool_start", "tool_result", "handoff", "done", "error"]);
 const APPLY_KIND = "assistant-apply";
-// Every settings key a pipeline toggle can write, read again after a run whose changes may not all have been reported.
+// Every settings key a tool can write, read again after a run whose changes may not all have been reported.
 const SWITCH_KEYS = [
   "enable_agent",
   "enabled_tools",
@@ -60,6 +60,7 @@ const SWITCH_KEYS = [
   "agentic_lorebook_enabled",
   "workflows_globally_enabled",
   "workflow_enabled",
+  "active_persona_id",
 ];
 
 // The run this tab is streaming, with the view it captured at Send. The view on screen may have moved on since.
@@ -175,6 +176,8 @@ async function refreshResources(changed) {
     if (item.kind === "settings") for (const key of item.keys) keys.add(key);
     else if (REFRESHERS[item.kind]) jobs.set(...REFRESHERS[item.kind](item));
   }
+  // The active persona's refresh paints the persona list itself, after the key it marks has loaded.
+  if (keys.has("active_persona_id")) jobs.delete("personas");
   if (keys.size) jobs.set("settings", () => refreshSettings([...keys]));
   await Promise.allSettled([...jobs.values()].map(async (job) => job()));
 }
@@ -255,6 +258,7 @@ function repaintToolsPanel() {
 async function refreshSettings(keys) {
   try {
     await reloadSettingKeys(keys);
+    if (keys.includes("active_persona_id")) await loadPersonas();
   } catch (error) {
     console.error("Failed to refresh settings:", error);
   }
