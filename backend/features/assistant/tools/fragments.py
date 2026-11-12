@@ -181,34 +181,47 @@ def ordered_stage(fragments: Iterable[InteractiveFragmentRow], stage: Stage) -> 
     )
 
 
-def decision_projection(row: Mapping[str, Any], cap: int, rules: AppReads) -> dict[str, Any]:
-    """A decision's definition as the tools name it, each text clipped to *cap*."""
-    keys = outcome_keys_of(row)
-    data: dict[str, Any] = {
+def decision_settings(row: Mapping[str, Any]) -> dict[str, Any]:
+    """How a decision resolves, as the tools name it; none of its texts."""
+    return {
         "decision_type": DECISION_TYPE_NAMES.get(str(row.get("decision_type")), row.get("decision_type")),
         "resolution": row.get("decision_resolution"),
         **({"threshold": row["decision_threshold"]} if row.get("decision_threshold") is not None else {}),
         **({"min_confidence": row["decision_confidence_floor"]} if row.get("decision_confidence_floor") is not None else {}),
         "inject": row.get("decision_inject"),
-        "question": clip(row.get("decision_instructions"), cap),
-        "situation": clip(row.get("decision_state_template"), cap),
-        "outcomes": [
+    }
+
+
+def decision_projection(row: Mapping[str, Any], cap: int, rules: AppReads, *, listing: bool = False) -> dict[str, Any]:
+    """A decision's definition as the tools name it, each text clipped to *cap*; *listing* names its outcomes only."""
+    keys = outcome_keys_of(row)
+    data: dict[str, Any] = {**decision_settings(row), "question": clip(row.get("decision_instructions"), cap)}
+    if listing:
+        data["outcomes"] = list(keys)
+    else:
+        data["situation"] = clip(row.get("decision_state_template"), cap)
+        data["outcomes"] = [
             {
                 "outcome": key,
                 "meaning": clip(outcome_text(row, "meaning", key), cap),
                 "guidance": clip(outcome_text(row, "guidance", key), cap),
             }
             for key in keys
-        ],
-    }
+        ]
     problems = rules.definition_problems(row)
     if problems:
         data["problems"] = problems[:6]
     return data
 
 
-def interactive_projection(row: InteractiveFragmentRow, position: int, cap: int, rules: AppReads) -> dict[str, Any]:
-    """An interactive fragment's settings, and its texts clipped to *cap*."""
+def interactive_projection(
+    row: InteractiveFragmentRow, position: int, cap: int, rules: AppReads, *, listing: bool = False
+) -> dict[str, Any]:
+    """An interactive fragment's settings, and its texts clipped to *cap*.
+
+    *listing* is a row among many: no cooldown of 0, no injection label that is the label, a decision's question without
+    its situation and outcome texts.
+    """
     field_type = row["field_type"]
     data: dict[str, Any] = {
         "kind": "interactive",
@@ -218,9 +231,11 @@ def interactive_projection(row: InteractiveFragmentRow, position: int, cap: int,
         "stage": stage_of(field_type),
         "position": position,
         "enabled": bool(row["enabled"]),
-        "cooldown_turns": row["cooldown_turns"],
-        "injection_label": clip(row["injection_label"], _LABEL_CHARS),
     }
+    if not listing or row["cooldown_turns"]:
+        data["cooldown_turns"] = row["cooldown_turns"]
+    if not listing or row["injection_label"] != row["label"]:
+        data["injection_label"] = clip(row["injection_label"], _LABEL_CHARS)
     if required_applies(field_type, row["state_mode"], row["state_update"]):
         data["required"] = bool(row["required"])
     if field_type == STATE_FIELD_TYPE:
@@ -229,22 +244,23 @@ def interactive_projection(row: InteractiveFragmentRow, position: int, cap: int,
         data["gate_question"] = clip(row["post_processing_gate"], cap)
         data["gate_replies"] = row["post_processing_gate_replies"]
     if field_type == DECISION_FIELD_TYPE:
-        data["decision"] = decision_projection(row, cap, rules)
+        data["decision"] = decision_projection(row, cap, rules, listing=listing)
     else:
         data["description"] = clip(row["description"], cap)
     return data
 
 
-def mood_projection(row: MoodFragmentRow, cap: int, *, texts: bool = True) -> dict[str, Any]:
+def mood_projection(row: MoodFragmentRow, cap: int, *, listing: bool = False) -> dict[str, Any]:
+    """A mood fragment's settings and texts clipped to *cap*; *listing* is a row among many, its description only."""
     data: dict[str, Any] = {
         "kind": "mood",
         "id": row["id"],
         "label": clip(row["label"], _LABEL_CHARS),
         "enabled": bool(row["enabled"]),
-        "cooldown_turns": row["cooldown_turns"],
+        **({} if listing and not row["cooldown_turns"] else {"cooldown_turns": row["cooldown_turns"]}),
         "description": clip(row["description"], cap),
     }
-    if texts:
+    if not listing:
         data["prompt_text"] = clip(row["prompt_text"], cap)
         data["negative_prompt"] = clip(row["negative_prompt"], cap)
     return data
@@ -464,9 +480,9 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             raise ToolFailure("A fragment with that id was added meanwhile. Nothing was created; ask again.") from None
         if row is None:
             raise ToolFailure("The fragment was not created.")
-        projected = interactive_projection(row, await stage_place(row), 300, host)
-        data = await noted({"created": True, "fragment": projected}, row["field_type"], row["enabled"])
         ids = {"fragment_id": row["id"]}
+        placed = {"stage": stage_of(row["field_type"]), "position": await stage_place(row)}
+        data = await noted({"created": True, **ids, **placed}, row["field_type"], row["enabled"])
         kind = FIELD_TYPE_NAMES.get(row["field_type"], row["field_type"])
         summary = f"Created {kind} fragment {quoted(row['label'])}."
         return ToolOutput(data, summary, ids, committed=({"kind": "interactive_fragment", **ids},))
@@ -496,8 +512,8 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             row = await create_mood_fragment(fields)
         except sqlite3.IntegrityError:
             raise ToolFailure("A mood fragment with that id was added meanwhile. Nothing was created; ask again.") from None
-        data = await noted({"created": True, "fragment": mood_projection(row, 300)}, "mood", row["enabled"])
         ids = {"fragment_id": row["id"]}
+        data = await noted({"created": True, **ids}, "mood", row["enabled"])
         summary = f"Created mood fragment {quoted(row['label'])}."
         return ToolOutput(data, summary, ids, committed=({"kind": "mood_fragment", **ids},))
 
@@ -591,7 +607,12 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         ):
             raise ToolFailure(f"No mood fragment has the id {args.fragment_id}.")
         after = await mood_fragment_of(row["id"])
-        data = {"fragment": mood_projection(after, 300, texts=False), "changed": sorted(changes)}
+        data = {
+            "fragment": clip(after["label"], _LABEL_CHARS),
+            "enabled": bool(after["enabled"]),
+            "cooldown_turns": after["cooldown_turns"],
+            "changed": sorted(changes),
+        }
         label, ids = f"mood fragment {quoted(row['label'])}", {"fragment_id": row["id"]}
         if not changes:
             return ToolOutput(data, f"The {label} already had that; nothing changed.", ids)
@@ -663,8 +684,14 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
                 raise ToolFailure(f"No interactive fragment has the id {args.fragment_id}.")
         moved = await _move(row["id"], stage_of(field_type), args.position) if args.position else False
         after = await interactive_fragment_of(row["id"])
+        settings = interactive_projection(after, await stage_place(after), 0, host, listing=True)
         data: dict[str, Any] = {
-            "fragment": interactive_projection(after, await stage_place(after), 300, host),
+            # Its settings as they now stand; a setter changes no text.
+            "fragment": {
+                key: value
+                for key, value in settings.items()
+                if key not in ("kind", "id", "description", "decision", "gate_question")
+            },
             "changed": sorted([*changes, *(["position"] if moved else [])]),
         }
         if "field_type" in changes and row["field_type"] == STATE_FIELD_TYPE:
@@ -719,7 +746,11 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             if await update_interactive_fragment(row["id"], fields) is None:
                 raise ToolFailure(f"No interactive fragment has the id {args.fragment_id}.")
         after = await interactive_fragment_of(row["id"])
-        data = {"decision": decision_projection(after, 300, host), "changed": sorted(changes)}
+        data = {
+            "fragment": clip(after["label"], _LABEL_CHARS),
+            "decision": decision_settings(after),
+            "changed": sorted(changes),
+        }
         if not changes:
             return ToolOutput(data, f"The {label} already had that; nothing changed.", ids)
         return ToolOutput(
@@ -770,9 +801,9 @@ def fragment_rows(
     """Every fragment as a listing shows it: moods by label, then interactive fragments stage by stage in their order."""
     rows: list[dict[str, Any]] = []
     if kind in ("all", "mood"):
-        rows.extend(mood_projection(row, cap, texts=False) for row in moods)
+        rows.extend(mood_projection(row, cap, listing=True) for row in moods)
     if kind in ("all", "interactive"):
         for stage in STAGES:
             for index, row in enumerate(ordered_stage(interactive, stage)):
-                rows.append(interactive_projection(row, index + 1, cap, rules))
+                rows.append(interactive_projection(row, index + 1, cap, rules, listing=True))
     return rows

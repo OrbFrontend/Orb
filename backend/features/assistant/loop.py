@@ -45,6 +45,7 @@ from .contracts import (
     ToolFailure,
     ToolOutput,
     ViewContext,
+    encode_result,
 )
 from .prompt import history_messages, reply_tool, request_message, step_tool, system_prompt, tool_schema
 
@@ -144,7 +145,7 @@ def _replay_window(replay: Sequence[WireMessage], room: int) -> list[WireMessage
 
 def _repeated(output: ToolOutput) -> str:
     """The refusal for a change this request already made: true about what exists, so the model cannot claim a second one."""
-    ids = json.dumps(dict(output.ids), ensure_ascii=False)
+    ids = encode_result(dict(output.ids))
     return (
         f"Nothing ran. This request already made exactly this change once ({output.summary} ids: {ids}); "
         "a change is made once per request, so no second one exists. If the user asked for more than one, "
@@ -161,18 +162,17 @@ def _reproposed(output: ToolOutput) -> str:
 
 
 def _encode(data: Mapping[str, Any], summary: str = "") -> str:
-    content = json.dumps(data, ensure_ascii=False)
+    content = encode_result(data)
     if len(content) <= MAX_RESULT_CHARS:
         return content
     # A tool bounds its own result; this only stops a mistake there from spending the whole context. It stays valid JSON, and
     # says so instead of cutting a value mid-way.
     logger.warning("Assistant result of %d characters passed the %d cap", len(content), MAX_RESULT_CHARS)
-    return json.dumps(
+    return encode_result(
         {
             "error": f"The result was {len(content)} characters, over the {MAX_RESULT_CHARS} limit. Narrow the request.",
             "summary": summary[:500],
-        },
-        ensure_ascii=False,
+        }
     )
 
 
@@ -526,7 +526,7 @@ async def run_assistant(
                     "note": f"Full result dropped to save space; {dropped}",
                 }
                 run.append(tool_result(call_id, f"{_encode(output.data, output.summary)}{last}"))
-                full_results.append((len(run) - 1, call_id, json.dumps(compact, ensure_ascii=False)))
+                full_results.append((len(run) - 1, call_id, encode_result(compact)))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
                     # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.

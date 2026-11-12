@@ -39,6 +39,7 @@ from ..contracts import (
     ToolOutput,
     ToolSet,
     ViewContext,
+    encode_result,
 )
 from .fragments import (
     MOOD_TEXT_FIELDS,
@@ -99,6 +100,7 @@ _VIEW_NOTES = (
     + "; ".join(f"{view}({', '.join(columns)})" for view, columns in LIBRARY_VIEWS.items())
     + ". messages.role is 'user' or 'assistant'. messages holds every branch: a chat's kept branch is the parent_id chain "
     "from conversations.active_leaf_id. tags, alternate_greetings and keywords are JSON arrays (json_each). "
+    "Rows may come from branches the user left: say so when a finding might. "
     "lorebook_entries spans every world; a disabled or archived entry is not in effect. Select id and "
     "conversation_id with message findings; substr long text. LIKE matches substrings only: search the stem a word's forms share, "
     "excerpt hits with instr, and if none fits ask for the user's exact words. "
@@ -200,7 +202,12 @@ class _DocumentArgs(ToolArguments):
 
 def _size(value: object) -> int:
     """The characters *value* takes as the loop encodes it, escapes included."""
-    return len(json.dumps(value, ensure_ascii=False))
+    return len(encode_result(value))
+
+
+def _filled(**fields: Any) -> dict[str, Any]:
+    """*fields* without the empty texts and lists: a row names an attribute only when it has one."""
+    return {key: value for key, value in fields.items() if value not in ("", [], None)}
 
 
 def _matches(query: str, *texts: object) -> bool:
@@ -213,17 +220,13 @@ def _page(rows: Sequence[Mapping[str, Any]], args: _ListArgs) -> dict[str, Any]:
     page: list[Mapping[str, Any]] = []
     size = 0
     for row in rows[args.offset : args.offset + args.limit]:
-        size += len(json.dumps(row, ensure_ascii=False)) + 1
+        size += _size(row) + 1
         if page and size > _ROWS_BUDGET:
             break
         page.append(row)
     shown = args.offset + len(page)
-    return {
-        "total": len(rows),
-        "truncated": shown < len(rows),
-        "next_offset": shown if shown < len(rows) else None,
-        "rows": page,
-    }
+    more = {"truncated": True, "next_offset": shown} if shown < len(rows) else {}
+    return {"total": len(rows), **more, "rows": page}
 
 
 def _noting(items: Sequence[tuple[dict[str, Any], str]], key: str, args: _ListArgs, note: str) -> dict[str, Any]:
@@ -237,7 +240,7 @@ def _noting(items: Sequence[tuple[dict[str, Any], str]], key: str, args: _ListAr
 
 def _listed(result: Mapping[str, Any], what: str) -> ToolOutput:
     rows = result["rows"]
-    more = f" of {result['total']}" if result["truncated"] else ""
+    more = f" of {result['total']}" if result.get("truncated") else ""
     return ToolOutput(result, f"Listed {len(rows)}{more} {what}.", {"ids": [row["id"] for row in rows]})
 
 
@@ -260,15 +263,12 @@ def _text_page(
 
     def page(length: int) -> dict[str, Any]:
         end = min(offset + length, len(text))
-        more = end < len(text)
-        return {
-            **head,
-            offset_key: offset,
-            "total_chars": len(text),
-            "truncated": more,
-            "next_offset": end if more else None,
-            key: text[offset:end],
-        }
+        paging: dict[str, Any] = {}
+        if offset or end < len(text):
+            paging = {**({offset_key: offset} if offset else {}), "total_chars": len(text)}
+        if end < len(text):
+            paging.update(truncated=True, next_offset=end)
+        return {**head, **paging, key: text[offset:end]}
 
     data = page(length)
     while (excess := _size(data) - _RESULT_BUDGET) > 0 and length:
@@ -284,59 +284,55 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
     @tools.add(
         "read",
         NoArguments,
-        "What the user is looking at: the chat's title, kept branch, cast, worlds in effect and context size; "
-        "the open document or character; and the world and entry open in the lorebook.",
+        "More about the chat in view than the view note says: its kind, kept branch, cast, worlds in effect and context size.",
     )
     async def read_context(_args: NoArguments) -> ToolOutput:
-        data: dict[str, Any] = {"mode": view.mode}
-        ids: dict[str, Any] = {}
-        if view.document_id:
-            data["document"] = {"id": view.document_id, "title": clip(view.document_title, _QUERY_CHARS)}
-            ids["document_id"] = view.document_id
-        if view.character_id:
-            data["character"] = {"id": view.character_id, "name": clip(view.character_name, _QUERY_CHARS)}
-            ids["character_id"] = view.character_id
-        if view.world_id:
-            lorebook: dict[str, Any] = {"world": {"id": view.world_id, "name": clip(view.world_name, _QUERY_CHARS)}}
-            ids["world_id"] = view.world_id
-            if view.entry_id:
-                lorebook["entry"] = {"id": view.entry_id, "name": clip(view.entry_name, _QUERY_CHARS)}
-                ids["entry_id"] = view.entry_id
-            data["lorebook"] = lorebook
-        if view.conversation_id:
-            conv = await chat_in_view("", view, host, changes=False)
-            size = await host.context_size(conv)
-            worlds = {world["id"]: world["name"] for world in await get_worlds()}
-            data["chat"] = {
-                "id": conv["id"],
-                "title": clip(conv["title"], _QUERY_CHARS),
-                "kind": conv.get("kind") or "solo",
-                "active_leaf_id": conv.get("active_leaf_id"),
-                "cast": await cast_of(conv),
-                "effective_worlds": [
-                    {"id": world_id, "name": clip(worlds.get(world_id), _QUERY_CHARS)}
-                    for world_id in await get_effective_world_ids(conv["id"])
-                ],
-                "context_size": {
-                    "messages": size["message_count"],
-                    "tokens_est": size["total_tokens_est"],
-                    "estimate_kind": size["estimate_kind"],
-                    "tokens_by_part": {part: value["tokens_est"] for part, value in size["breakdown"].items()},
+        ids: dict[str, Any] = {
+            key: value
+            for key, value in (
+                ("document_id", view.document_id),
+                ("character_id", view.character_id),
+                ("world_id", view.world_id),
+                ("entry_id", view.entry_id if view.world_id else None),
+            )
+            if value
+        }
+        if not view.conversation_id:
+            data = {"mode": view.mode, "note": "No chat is in view; the view note names everything that is open."}
+            return ToolOutput(data, f"Read the {view.mode} view.", ids)
+        conv = await chat_in_view("", view, host, changes=False)
+        size = await host.context_size(conv)
+        worlds = {world["id"]: world["name"] for world in await get_worlds()}
+        grouped = conv.get("kind") == "group"
+        data = {
+            "kind": conv.get("kind") or "solo",
+            "active_leaf_id": conv.get("active_leaf_id"),
+            # A solo chat's cast is the character the view note names.
+            **({"cast": await cast_of(conv)} if grouped or not view.character_id else {}),
+            "effective_worlds": [
+                {"id": world_id, "name": clip(worlds.get(world_id), _QUERY_CHARS)}
+                for world_id in await get_effective_world_ids(conv["id"])
+            ],
+            "context_size": {
+                "messages": size["message_count"],
+                "tokens_est": size["total_tokens_est"],
+                "tokens_by_part": {
+                    part: value["tokens_est"] for part, value in size["breakdown"].items() if value["tokens_est"]
                 },
-            }
-            ids["conversation_id"] = conv["id"]
-        return ToolOutput(data, f"Read the {view.mode} view.", ids)
+            },
+        }
+        return ToolOutput(data, f"Read the {view.mode} view.", {**ids, "conversation_id": conv["id"]})
 
     @tools.add("read", _ListArgs, "Search character cards by name, creator or tag.")
     async def list_characters(args: _ListArgs) -> ToolOutput:
         rows = [
-            {
-                "id": card.get("id"),
-                "name": clip(card.get("name"), _QUERY_CHARS),
-                "tags": [clip(tag, 60) for tag in (card.get("tags") or [])[:12]],
-                "creator": clip(card.get("creator"), 80),
-                "creator_notes": clip(card.get("creator_notes"), _PREVIEW_CHARS),
-            }
+            _filled(
+                id=card.get("id"),
+                name=clip(card.get("name"), _QUERY_CHARS),
+                tags=[clip(tag, 60) for tag in (card.get("tags") or [])[:12]],
+                creator=clip(card.get("creator"), 80),
+                creator_notes=clip(card.get("creator_notes"), _PREVIEW_CHARS),
+            )
             for card in await list_character_cards()
             if _matches(args.query, card.get("name"), card.get("creator"), *(card.get("tags") or []))
         ]
@@ -354,14 +350,16 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         texts = {name: str(card.get(name) or "") for name in chosen}
         if args.text_offset and len(chosen) != 1:
             raise ToolFailure("text_offset pages through one field: name exactly one in fields.")
-        meta = {
-            "id": card.get("id"),
-            "name": clip(card.get("name"), _QUERY_CHARS),
-            "creator": clip(card.get("creator"), 80),
-            "tags": [clip(tag, 60) for tag in (card.get("tags") or [])[:20]],
-            "alternate_greeting_count": len(card.get("alternate_greetings") or []),
-            "field_chars": {name: len(text) for name, text in texts.items()},
-        }
+        meta: dict[str, Any] = {"name": clip(card.get("name"), _QUERY_CHARS)}
+        if not named or "tags" in args.fields:
+            # The card's head: with every field, or asked for by name. A page of one field carries only the name.
+            meta.update(
+                _filled(
+                    creator=clip(card.get("creator"), 80),
+                    tags=[clip(tag, 60) for tag in (card.get("tags") or [])[:20]],
+                    alternate_greeting_count=len(card.get("alternate_greetings") or []),
+                )
+            )
         if not chosen:
             return ToolOutput(meta, f"Read the name and tags of character {meta['name']}.", {"character_id": card_id})
         # Each field's share before measuring; named fields split the whole result between them.
@@ -372,7 +370,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
 
         if len(chosen) == 1 and args.fields:
             # One field named: read whole, a page at a time, never clipped.
-            data = _text_page(texts[chosen[0]], args.text_offset, {**meta, "field": chosen[0]}, chosen[0])
+            data = _text_page(texts[chosen[0]], args.text_offset, meta, chosen[0])
             return ToolOutput(data, f"Read the {chosen[0]} of character {meta['name']}.", {"character_id": card_id})
 
         def build() -> dict[str, Any]:
@@ -382,7 +380,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
                 if clipped
                 else {}
             )
-            return {**meta, "clipped": clipped, **note, **{name: clip(texts[name], caps[name]) for name in chosen}}
+            return {**meta, **note, **{name: clip(texts[name], caps[name]) for name in chosen}}
 
         # Measured as encoded: quotes and newlines take two characters each there, so a raw count overruns the cap.
         data = build()
@@ -399,7 +397,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         if len(args.fields) != 1 or args.text_offset:
             raise ToolFailure("alternate_greetings is read on its own and whole: name it alone, with no text_offset.")
         items = [str(item) for item in card.get("alternate_greetings") or []]
-        data = {"id": card.get("id"), "name": clip(card.get("name"), _QUERY_CHARS), "alternate_greetings": items}
+        data = {"name": clip(card.get("name"), _QUERY_CHARS), "alternate_greetings": items}
         if _size(data) > _RESULT_BUDGET:
             raise ToolFailure(
                 f"Its {len(items)} alternate greetings are too long to read whole here, so they cannot be edited here either. "
@@ -416,11 +414,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             raise ToolFailure(f"The query failed: {clip(result['error'], _PREVIEW_CHARS)}")
         rows = result.get("rows") or []
         more = " (more rows exist)" if result.get("more_rows") else ""
-        data = {
-            "note": "Rows may come from branches the user left: say so when a finding might. Only read_messages follows the "
-            "kept branch.",
-            **result,
-        }
+        data = {"columns": result.get("columns"), "rows": rows, **({"more_rows": True} if result.get("more_rows") else {})}
         # The reader keeps its first row whatever its width; one that wide cannot be sent, so ask for a narrower query.
         if _size(data) > _RESULT_BUDGET:
             width = "Even one row" if len(rows) == 1 else "The result"
@@ -471,23 +465,20 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
                 "number": numbers[message["id"]],
                 "role": message["role"],
                 **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
-                "created_at": message["created_at"],
                 "content": clip(message["content"], _MESSAGE_CHARS),
             }
-            size += len(json.dumps(row, ensure_ascii=False)) + 1
+            size += _size(row) + 1
             if rows and size > _ROWS_BUDGET:
                 break
             rows.append(row)
         rows.reverse()
         earlier = len(candidates) - len(rows)
         data: dict[str, Any] = {
-            "conversation_id": conv["id"],
-            "title": clip(conv["title"], _QUERY_CHARS),
-            "messages": rows,
+            "chat": clip(conv["title"], _QUERY_CHARS),
             "path_length": len(path),
-            "truncated": earlier > 0,
             # Where the next page back starts: pass it as before_message_id.
-            "earlier_from": rows[0]["id"] if earlier > 0 and rows else None,
+            **({"truncated": True, "earlier_from": rows[0]["id"]} if earlier > 0 and rows else {}),
+            "messages": rows,
         }
         if needle:
             data["matches"] = len(candidates)
@@ -513,12 +504,10 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         speaker = speakers.get(message.get("speaker_member_id") or "")
         number = next((index + 1 for index, row in enumerate(path) if row["id"] == message["id"]), None)
         head = {
-            "conversation_id": conv["id"],
             "id": message["id"],
-            **({"number": number} if number else {}),
+            **({"number": number} if number else {"on_kept_branch": False}),
             "role": message["role"],
             **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
-            "on_kept_branch": number is not None,
         }
         data = _text_page(message["content"] or "", args.text_offset, head, "content")
         ids = {"conversation_id": conv["id"], "message_ids": [message["id"]]}
@@ -547,10 +536,10 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
     )
     async def list_lore_entries(args: _EntriesArgs) -> ToolOutput:
         world = await world_of(args.world_id, view)
-        world_head = {"id": world["id"], "name": clip(world["name"], _QUERY_CHARS)}
+        world_name = clip(world["name"], _QUERY_CHARS)
         if args.entry_id:
             _, entry = await entry_of(world["id"], args.entry_id, view)
-            head = {"world": world_head, "id": entry["id"], "name": clip(entry["name"], _WHOLE_NAME_CHARS)}
+            head = {"world": world_name, "name": clip(entry["name"], _WHOLE_NAME_CHARS)}
             data = _text_page(entry["content"] or "", args.text_offset, head, "content")
             return ToolOutput(data, f"Read lore entry {entry['id']}.", {"world_id": world["id"], "entry_id": entry["id"]})
         if args.text_offset:
@@ -568,7 +557,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
                     ),
                     "enabled": bool(entry["enabled"]),
                     "constant": bool(entry["constant"]),
-                    "layer": entry["entry_layer"],
+                    **({"layer": entry["entry_layer"]} if entry["entry_layer"] != "authored" else {}),
                     **({"archived": True} if entry["archived"] else {}),
                     "content": clip(entry["content"], _FIELD_CHARS),
                 },
@@ -579,15 +568,16 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         ]
         note = "Content ending with …[+N chars] was shortened; read it whole with the entry's entry_id."
         return _listed(
-            {"world": world_head, **_noting(items, "content", args, note)},
-            f"entries in {world_head['name']}",
+            {"world": world_name, **_noting(items, "content", args, note)},
+            f"entries in {world_name}",
         )
 
     @tools.add(
         "read",
         _ChatListArgs,
-        "List the worlds a chat uses and the lore entries in effect there: their enabled entries, with their text. It cannot "
-        "say which entries a given reply drew on; nothing records that.",
+        "List the worlds a chat uses and the lore entries in effect there: their enabled entries, with their text. A keyword "
+        "entry is offered when its keywords come up in the chat, a constant one always. It cannot say which entries a given "
+        "reply drew on; nothing records that.",
     )
     async def list_active_lore_entries(args: _ChatListArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, host, changes=False)
@@ -598,7 +588,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             (
                 {
                     "id": entry["id"],
-                    "world": {"id": entry["world_id"], "name": clip(entry.get("world_name"), _QUERY_CHARS)},
+                    # One world in effect is the world of every row.
+                    **({"world_id": entry["world_id"]} if len(world_ids) > 1 else {}),
                     "name": clip(entry["name"], _QUERY_CHARS),
                     "keywords": [clip(keyword, 60) for keyword in (entry["keywords"] or [])[:12]],
                     "constant": bool(entry["constant"]),
@@ -612,9 +603,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         note = "Content ending with …[+N chars] was shortened; list_lore_entries with its world_id and entry_id reads it whole."
         names = {world["id"]: world["name"] for world in await get_worlds()}
         listed = {
-            "conversation_id": conv["id"],
+            "chat": clip(conv["title"], _QUERY_CHARS),
             "worlds_in_effect": [{"id": world_id, "name": clip(names.get(world_id), _QUERY_CHARS)} for world_id in world_ids],
-            "note_matching": "A keyword entry is offered when its keywords come up in the chat; a constant one always is.",
             **_noting(items, "content", args, note),
         }
         return _listed(listed, f"lore entries in effect for {quoted(conv['title'])}")
@@ -624,7 +614,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         active = settings.get("active_persona_id")
         if args.persona_id:
             persona = await persona_of(args.persona_id)
-            head = {"id": persona["id"], "name": clip(persona["name"], _WHOLE_NAME_CHARS), "active": persona["id"] == active}
+            head = {"name": clip(persona["name"], _WHOLE_NAME_CHARS), "active": persona["id"] == active}
             data = _text_page(persona["description"] or "", args.text_offset, head, "description")
             return ToolOutput(data, f"Read persona {persona['id']}.", {"persona_id": persona["id"]})
         if args.text_offset:
@@ -648,7 +638,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
     @tools.add("read", _ListArgs, "List documents by title.")
     async def list_documents(args: _ListArgs) -> ToolOutput:
         rows = [
-            {"id": document["id"], "title": clip(document["title"], _QUERY_CHARS), "updated_at": document["updated_at"]}
+            {"id": document["id"], "title": clip(document["title"], _QUERY_CHARS), "updated_at": document["updated_at"][:16]}
             for document in await get_documents()
             if _matches(args.query, document["title"])
         ]
@@ -663,12 +653,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         if document is None:
             raise ToolFailure(f"No document has the id {document_id}. list_documents shows the ids.")
         content = document["content"] or ""
-        head = {
-            "id": document["id"],
-            "title": clip(document["title"], _QUERY_CHARS),
-            "updated_at": document["updated_at"],
-            "note": "This is the saved text. Edits still unsaved in the editor are not included.",
-        }
+        head = {"title": clip(document["title"], _QUERY_CHARS)}
         data = _text_page(content, args.offset, head, "content", length=_DOCUMENT_CHARS, offset_key="offset")
         summary = f"Read {len(data['content'])} of {len(content)} saved characters of {data['title']}."
         return ToolOutput(data, summary, {"document_id": document["id"]})
@@ -688,8 +673,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
 
         def build() -> dict[str, Any]:
             return {
-                "conversation_id": conv["id"],
-                "has_state": panel["has_state"],
+                "chat": clip(conv["title"], _QUERY_CHARS),
                 "fragments": [
                     {
                         "fragment_id": fragment["fragment_id"],
@@ -734,12 +718,12 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
     @tools.add("read", _ListArgs, "List the phrase bank: the phrase groups the Output Auditor removes from replies.")
     async def list_banned_phrases(args: _ListArgs) -> ToolOutput:
         rows = [
-            {
-                "id": row["id"],
-                "kind": row["kind"],
-                "variants": [clip(variant, _QUERY_CHARS) for variant in row["variants"][:12]],
-                **({"pattern": clip(row["pattern"], _QUERY_CHARS)} if row["pattern"] else {}),
-            }
+            _filled(
+                id=row["id"],
+                kind=row["kind"],
+                variants=[clip(variant, _QUERY_CHARS) for variant in row["variants"][:12]],
+                pattern=clip(row["pattern"], _QUERY_CHARS),
+            )
             for row in await get_phrase_bank_rows()
             if _matches(args.query, row["pattern"], *row["variants"])
         ]
@@ -785,8 +769,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             if args.field and args.field not in MOOD_TEXT_FIELDS:
                 raise ToolFailure(f"A mood fragment's texts are {', '.join(MOOD_TEXT_FIELDS[1:])}.")
             if args.field:
-                head = {"kind": "mood", "id": mood["id"], "label": clip(mood["label"], _WHOLE_NAME_CHARS), "field": args.field}
-                data = _text_page(str(mood[args.field] or ""), args.text_offset, head, "text")
+                head = {"label": clip(mood["label"], _WHOLE_NAME_CHARS)}
+                data = _text_page(str(mood[args.field] or ""), args.text_offset, head, args.field)
                 return ToolOutput(data, f"Read the {args.field} of mood fragment {quoted(mood['label'])}.", ids)
             data = _fitted(lambda cap: mood_projection(mood, cap))
             return ToolOutput(data, f"Read mood fragment {quoted(mood['label'])}.", ids)
@@ -794,14 +778,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         label = f"interactive fragment {quoted(fragment['label'])}"
         if args.field:
             check_field_applies(fragment, args.field, args.outcome)
-            head = {
-                "kind": "interactive",
-                "id": fragment["id"],
-                "label": clip(fragment["label"], _WHOLE_NAME_CHARS),
-                "field": args.field,
-                **({"outcome": args.outcome} if args.outcome else {}),
-            }
-            data = _text_page(fragment_text(fragment, args.field, args.outcome) or "", args.text_offset, head, "text")
+            head = {"label": clip(fragment["label"], _WHOLE_NAME_CHARS)}
+            data = _text_page(fragment_text(fragment, args.field, args.outcome) or "", args.text_offset, head, args.field)
             return ToolOutput(data, f"Read the {args.field.replace('_', ' ')} of {label}.", ids)
         if args.outcome:
             raise ToolFailure("outcome goes with field outcome_meaning or outcome_guidance.")

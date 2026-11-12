@@ -56,7 +56,7 @@ infers a character; tools that need one ask for it.
 The lorebook drawer opens over any of these views, so its open world and the
 saved entry selected on its Entries tab ride with whichever view is behind it
 (`world_id`, `entry_id`); an entry is named only with its own world. The view
-note names both, `read_context` reports them, and every tool that takes a
+note names both, and every tool that takes a
 `world_id` or an `entry_id` uses them when the argument is left empty. An entry
 named without a world is found in its own world.
 
@@ -178,7 +178,8 @@ hold and the model reads again only what they do not cover; otherwise it reads
 again whatever it relies on.
 
 Browser history is untrusted. Tool and outcome entries replay as quoted
-records on the assistant's side, never as `tool` messages. A user entry with no
+records on the assistant's side, never as `tool` messages; consecutive ones
+share one heading and one quote, a line each. A user entry with no
 answer after it replays as a quoted record of an interrupted request, so it can
 never authorise a write again. Only results produced inside the current run are
 native tool messages.
@@ -201,6 +202,30 @@ throughout.
 | write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_persona`, `delete_banned_phrase`, `delete_document`, `delete_mood_fragment`, `delete_interactive_fragment` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
+
+### Results
+
+A result is what the model reads back, encoded as compact JSON, and it carries
+only what the call and the request do not already say:
+
+- No echo of an argument, of an id the call named, or of anything the view note
+  states. A result names its target by its name (`"world": "Harbour"`), so a
+  default taken from the view is visible; `read_context` adds to the view note
+  and repeats none of it.
+- Paging keys appear only when there is more: `truncated` and `next_offset` (or
+  `earlier_from`) on a cut page, `text_offset` and `total_chars` on a paged
+  text. A row leaves out an empty text or list. State flags are always present.
+- A listing is a row among many: `list_fragments` gives a decision's question
+  and outcome names, and `read_fragment` its situation and outcome texts.
+- A write answers with what the server decided: new ids, `changed`, a switch's
+  resulting state. It does not send back text the model wrote.
+- A proposal answers with what it proposes and the lengths before and after; the
+  proposal id goes to the browser only.
+- A note is conditional: it reports something about this call's outcome. What
+  holds for every call of a tool is in that tool's description.
+
+The `summary` and `ids` of a result go to the browser's transcript, and stand
+in for the result once its body is dropped to save context.
 
 Reads project explicit allowlists, never whole rows: no avatars, extensions,
 prompt overrides, workflow state, endpoints, models or credentials. The
@@ -282,8 +307,8 @@ Pipeline toggles name a stored switch and the state wanted, never a flip. Each
 writes only its own key, and workflow toggles go through `set_workflow_toggle`,
 the route's own path with its runtime callbacks. `editor` maps to the Output
 Auditor (on) or the Output Auditor and Length Guard (off). The result reports
-stored and effective state, and a master switch that blocks it is reported, not
-changed. `read_settings` reports every switch under the name
+each switch it set as it now stands, with the effective value beside one a
+master overrides, and a master switch that blocks it is named, not changed. `read_settings` reports every switch under the name
 `set_pipeline_toggle` takes for it.
 
 ## Reviewed changes

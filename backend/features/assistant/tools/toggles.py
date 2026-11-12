@@ -21,10 +21,16 @@ def _gated(stored: object, master: bool) -> dict[str, bool] | bool:
 
 
 def switch_summary(settings: Settings, host: WorkflowSwitches) -> dict[str, Any]:
-    """Pipeline switches under the names set_pipeline_toggle takes, with the effective value beside any a master overrides."""
+    """Pipeline switches under the names set_pipeline_toggle takes, with the effective value beside any a master overrides.
+
+    The audit checks and the agent's other tools are stored values; each group says once when its master keeps it from running.
+    """
     table = _switch_table(host)
     agent_on = table["agent"].read(settings)
+    auditor_on = _effective("output_auditor", table, settings)
     named = {switch.item for switch in table.values() if switch.key == "enabled_tools"}
+    checks = {name: bool(on) for name, on in (settings.get("editor_audit_toggles") or {}).items()}
+    agent_tools = {name: bool(on) for name, on in (settings.get("enabled_tools") or {}).items() if name not in named}
     return {
         **{
             name: _gated(switch.read(settings), switch.gate is None or _effective(switch.gate, table, settings))
@@ -37,13 +43,10 @@ def switch_summary(settings: Settings, host: WorkflowSwitches) -> dict[str, Any]
         },
         "prevent_prompt_overrides": bool(settings.get("prevent_prompt_overrides")),
         # The audit checks run only inside the Output Auditor, which runs only with the Agent on.
-        "editor_audit_checks": {
-            name: _gated(on, _effective("output_auditor", table, settings))
-            for name, on in (settings.get("editor_audit_toggles") or {}).items()
-        },
-        "agent_tools": {
-            name: _gated(on, agent_on) for name, on in (settings.get("enabled_tools") or {}).items() if name not in named
-        },
+        "editor_audit_checks": checks,
+        **({} if auditor_on or not any(checks.values()) else {"editor_audit_checks_in_effect": False}),
+        "agent_tools": agent_tools,
+        **({} if agent_on or not any(agent_tools.values()) else {"agent_tools_in_effect": False}),
     }
 
 
@@ -117,8 +120,8 @@ def build_toggle_tools(host: WorkflowSwitches) -> list[AssistantTool]:
         enabled=(bool, Field(description="true to turn it on, false to turn it off.")),
     )
 
-    def state(name: str, settings: Settings) -> dict[str, bool]:
-        return {"stored": table[name].read(settings), "effective": _effective(name, table, settings)}
+    def state(name: str, settings: Settings) -> dict[str, bool] | bool:
+        return _gated(table[name].read(settings), _effective(name, table, settings))
 
     description = (
         "Turn one pipeline switch on or off. "
@@ -140,29 +143,24 @@ def build_toggle_tools(host: WorkflowSwitches) -> list[AssistantTool]:
         after = await get_settings()
         # The Editor reports both of its switches whichever way it was set, so turning it on cannot hide the Length Guard.
         switches = {name: state(name, after) for name in (_EDITOR if editor else names)}
-        gates = {gate: state(gate, after) for gate in dict.fromkeys(table[name].gate for name in names) if gate is not None}
-        effective = any(switches[name]["effective"] for name in names)
-        blocked = [table[gate].label for gate, value in gates.items() if on and not value["effective"]]
+        gates = [gate for gate in dict.fromkeys(table[name].gate for name in names) if gate is not None]
+        effective = any(_effective(name, table, after) for name in names)
+        blocked = [table[gate].label for gate in gates if on and not _effective(gate, table, after)]
         label, wanted = "Editor" if editor else table[args.toggle].label, "on" if on else "off"
         summary = f"Turned {label} {wanted}." if changed else f"{label} was already {wanted}."
         if editor and on:
             # On sets the Output Auditor alone; the Length Guard is a limit the user sets separately.
-            guard = "on" if switches["length_guard"]["stored"] else "off; it is set separately"
+            guard = "on" if table["length_guard"].read(after) else "off; it is set separately"
             summary += f" The Output Auditor is on; the Length Guard stays {guard}."
         if blocked and not effective:
             summary += f" It has no effect while {', '.join(blocked)} is off."
-        data: dict[str, Any] = {
-            "toggle": args.toggle,
-            "requested": on,
-            "effective": effective,
-            "changed": changed,
-            "switches": switches,
-            "gates": gates,
-        }
-        if editor:
+        data: dict[str, Any] = {"changed": changed, "switches": switches}
+        if editor and not on:
             data["note"] = "Post-processing and feedback fragments can still run an Editor pass; they are set per fragment."
         if blocked:
-            data["note_gates"] = "A master switch is off. Tell the user; turn it on only if they ask."
+            data["note_gates"] = (
+                f"{', '.join(blocked)} is off, so this has no effect yet. Tell the user; turn it on only if they ask."
+            )
         keys = list(dict.fromkeys(table[name].key for name in changed))
         committed = ({"kind": "settings", "keys": keys},) if keys else ()
         return ToolOutput(data, summary, {"toggle": args.toggle, "keys": keys}, committed=committed)

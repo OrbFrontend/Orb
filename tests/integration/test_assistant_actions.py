@@ -52,7 +52,7 @@ async def test_creates_take_authored_text_only_and_never_import_attach_or_activa
 
     world = await tools["create_world"].run(tools["create_world"].arguments(name="Harbour"))
     world_id = world.committed[0]["world_id"]
-    assert world_id != library["world"] and world.data["world"]["is_global"] is False
+    assert world_id != library["world"] and world.data == {"created": True, "world_id": world_id}
     effective = (await client.get_json(f"/api/conversations/{library['chat']}/worlds"))["world_ids"]
     assert world_id not in effective, "a new world is not attached to the chat in view"
 
@@ -77,9 +77,7 @@ async def test_set_chat_world_sets_an_explicit_state_keeps_other_choices_and_rep
     # A global world: detaching it here turns it off for this chat alone, and the result says it is global.
     await client.put_checked(f"/api/worlds/{library['world']}", json={"is_global": True})
     detached = await set_world.run(set_world.arguments(world_id=library["world"], attached=False))
-    assert (
-        detached.data["attached"] is False and detached.data["world"]["is_global"] is True and "global" in detached.data["note"]
-    )
+    assert detached.data["attached"] is False and detached.data["world"] == "Harbour" and "global" in detached.data["note"]
     assert library["world"] in (await client.get_json(f"/api/conversations/{library['group']}/worlds"))["world_ids"]
 
     for bad in (
@@ -150,7 +148,7 @@ async def test_a_checkpoint_copies_the_kept_branch_into_a_new_chat_and_leaves_th
     tool = (await _tools(mode="chat", conversation_id=chat))["checkpoint_chat"]
     output = await tool.run(tool.arguments())
     copy = output.committed[0]["conversation_id"]
-    assert copy != chat and output.data["checkpoint"]["title"].endswith("(checkpoint)")
+    assert copy != chat and output.data["title"].endswith("(checkpoint)")
     copied = [row["content"] for row in await client.get_json(f"/api/conversations/{copy}/messages")]
     source = [row["content"] for row in await client.get_json(f"/api/conversations/{chat}/messages")]
     assert copied == source and "abandoned draft" not in copied

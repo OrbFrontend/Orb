@@ -24,7 +24,7 @@ async def test_messages_page_back_and_search_the_kept_branch_only(library):
     # The summary is shown to the user, who sees each message's #N in the chat window, never its id.
     assert [row["number"] for row in earlier["messages"]] == [1, 2, 3, 4, 5, 6]
     assert output.summary == "Read 6 messages before message #7."
-    assert earlier["truncated"] is False and earlier["earlier_from"] is None
+    assert "truncated" not in earlier and "earlier_from" not in earlier
 
     found, encoded = await _use(tools, "read_messages", query="LINE 1")
     assert found["matches"] == 1 + 10, "line 1 and lines 10 to 19, any case"
@@ -103,7 +103,7 @@ async def test_a_started_chat_comes_from_the_route_writer_and_set_chat_writes_it
     tools = await _tools(mode="chat", conversation_id=library["chat"])
     started = await tools["start_chat"].run(tools["start_chat"].arguments(character_id=library["card"]))
     cid = started.ids["conversation_id"]
-    assert cid != library["chat"] and started.data["conversation"]["title"] == "Mara"
+    assert cid != library["chat"] and started.data["title"] == "Mara"
     messages = await client.get_json(f"/api/conversations/{cid}/messages")
     assert [message["content"] for message in messages] == ["Mara looks up."], "the greeting is the first reply"
     with pytest.raises(ToolFailure, match="No character"):
@@ -144,7 +144,7 @@ async def test_continue_answers_only_an_unanswered_message_or_a_named_member_and
         await send.run(send.arguments(content="Hi", conversation_id=library["group"]))
 
     group = await _tools(mode="chat", conversation_id=library["group"])
-    cast = (await _use(group, "read_context"))[0]["chat"]["cast"]
+    cast = (await _use(group, "read_context"))[0]["cast"]
     assert all(member.get("member_id") for member in cast)
     await add_message(library["group"], "assistant", "Mara speaks.", 0, advance_leaf=True)
     gcont = group["continue_chat"]

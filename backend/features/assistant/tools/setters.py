@@ -172,11 +172,7 @@ def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
             if await update_lorebook_entry(entry["id"], fields, world_id=world["id"]) is None:
                 raise ToolFailure(f"That world has no entry {args.entry_id}.")
         after = {**stored, **changes}
-        data = {
-            "world": {"id": world["id"], "name": clip(world["name"], _NAME_CHARS)},
-            "entry": {"id": entry["id"], "name": clip(entry["name"], _NAME_CHARS), **after},
-            "changed": sorted(changes),
-        }
+        data: dict[str, Any] = {"entry": clip(entry["name"], _NAME_CHARS), "changed": sorted(changes)}
         if after["constant"] is False and not after["keywords"]:
             data["note"] = "It is keyword-triggered with no keywords, so nothing brings it into a chat."
         elif after["constant"] and after["secondary_keys"]:
@@ -223,10 +219,7 @@ def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
             if await update_world(world["id"], host.validated("world_update", changes, exclude_unset=True)) is None:
                 raise ToolFailure(f"No world has the id {args.world_id}.")
         after = {**stored, **changes}
-        data: dict[str, Any] = {
-            "world": {"id": world["id"], **{**after, "name": clip(after["name"], _NAME_CHARS)}},
-            "changed": sorted(changes),
-        }
+        data: dict[str, Any] = {"world": clip(after["name"], _NAME_CHARS), "changed": sorted(changes)}
         if changes.get("is_global"):
             data["note"] = "Every chat now uses this world unless that chat turns it off."
         ids = {"world_id": world["id"]}
@@ -262,7 +255,10 @@ def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
             await update_settings(changes)
         switches = switch_summary(await get_settings(), host)
         guard = switches["length_guard_limits"]
-        data = {"length_guard": switches["length_guard"], "limits": guard, "changed": sorted(changes)}
+        data = {
+            "limits": {"max_words": guard["max_words"], "max_paragraphs": guard["max_paragraphs"]},
+            "changed": sorted(changes),
+        }
         if switches["length_guard"] is not True:
             data["note"] = "The Length Guard is not in effect, so these limits apply only once it is on."
         limits = f"{guard['max_words']} words, {guard['max_paragraphs']} paragraphs"
@@ -284,7 +280,7 @@ def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
     async def set_active_persona(args: _PersonaSet) -> ToolOutput:
         persona = await persona_of(args.persona_id)
         label, ids = f"Persona {quoted(persona['name'])}", {"persona_id": persona["id"]}
-        data = {"active_persona_id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)}
+        data = {"active_persona": clip(persona["name"], _NAME_CHARS)}
         if (await get_settings()).get("active_persona_id") == persona["id"]:
             return ToolOutput({**data, "changed": False}, f"{label} was already active; nothing changed.", ids)
         await update_settings({"active_persona_id": persona["id"]})
@@ -314,7 +310,7 @@ def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         switches = switch_summary(await get_settings(), host)
         auditor = switches["output_auditor"]
         check = switches["editor_audit_checks"].get("banned_phrases")
-        data = {"added": True, "group_id": group_id, "variants": variants}
+        data: dict[str, Any] = {"added": True, "group_id": group_id}
         if auditor is not True or check is False:
             data["note"] = (
                 "The phrase bank is applied by the Output Auditor's banned-phrases check, which is not in effect now. "

@@ -181,8 +181,8 @@ async def test_the_lorebook_drawer_is_part_of_the_view_and_its_entry_is_the_defa
     world = library["world"]
     entry = (await client.get_json(f"/api/worlds/{world}/entries"))[0]["id"]
     tools = await _tools(mode="chat", conversation_id=library["chat"], world_id=world, entry_id=entry)
-    context, _ = await _use(tools, "read_context")
-    assert context["lorebook"] == {"world": {"id": world, "name": "Harbour"}, "entry": {"id": entry, "name": "Tide tax"}}
+    context = await tools["read_context"].run(tools["read_context"].arguments())
+    assert (context.ids["world_id"], context.ids["entry_id"]) == (world, entry)
     listed, _ = await _use(tools, "list_lore_entries")
     assert [row["name"] for row in listed["rows"]] == ["Tide tax"], "the open world is the default"
     proposal = await _propose(tools, "edit_lore_entry", field="content", mode="replace_all", text="Paid at dawn.")
@@ -191,7 +191,7 @@ async def test_the_lorebook_drawer_is_part_of_the_view_and_its_entry_is_the_defa
     # An entry named on its own is found in its own world; a world that is not its own is refused.
     inland = (await client.get_json(f"/api/worlds/{library['elsewhere']}/entries"))[0]["id"]
     setter = tools["set_lore_entry"]
-    assert (await setter.run(setter.arguments(entry_id=inland, enabled="off"))).data["world"]["id"] == library["elsewhere"]
+    assert (await setter.run(setter.arguments(entry_id=inland, enabled="off"))).ids["world_id"] == library["elsewhere"]
     with pytest.raises(ToolFailure, match="no entry"):
         await setter.run(setter.arguments(world_id=world, entry_id=inland, enabled="on"))
 

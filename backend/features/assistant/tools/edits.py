@@ -100,15 +100,7 @@ def _edited(before: str, args: Any, reread: str) -> str:
     return before.replace(find, text, 1)
 
 
-_FRESH = (
-    "Nothing has changed yet. The user reviews every change proposed in this request once it ends, then applies or cancels "
-    "each; until then every read shows the stored text."
-)
-
-_STACKED = (
-    "Added on top of the edit already proposed for this field: the one proposal now holds both. Nothing has changed yet; every "
-    "read still shows the stored text until the user applies."
-)
+_STACKED = "Added on top of the edit already proposed for this field: the one proposal now holds both."
 
 _STALE_EARLIER = (
     "An earlier request proposed an edit to this field, but the stored text has changed since, so that preview could never "
@@ -118,18 +110,14 @@ _STALE_EARLIER = (
 
 def _preview(proposal: Proposal, note: str) -> ToolOutput:
     """The tool's result for *proposal* as it now stands, and the preview the browser shows with Apply and Cancel."""
-    before, after, name = proposal.before, proposal.after, proposal.name
+    before, after = proposal.before, proposal.after
     listed = isinstance(after, list)
     key, unit = ("items", "items") if listed else ("chars", "characters")
     data = {
-        "proposed": True,
-        "applied": False,
-        "proposal_id": proposal.id,
-        "target": dict(proposal.target),
-        "field": name,
+        "proposed": change_label(proposal),
         f"before_{key}": len(before),
         f"after_{key}": len(after),
-        "note": note,
+        **({"note": note} if note else {}),
     }
     return ToolOutput(
         data,
@@ -330,7 +318,7 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
             # Applied, expired or forgotten meanwhile: this edit starts a new proposal from the stored text.
             held = None
         inherited = held is not None and held.id in earlier
-        note = _STACKED if held is not None else _FRESH
+        note = _STACKED if held is not None else ""
         if inherited and held is not None and held.before != stored:
             # The stored text moved under an earlier request's preview, which can never apply: start from what is stored.
             base, note = stored, _STALE_EARLIER

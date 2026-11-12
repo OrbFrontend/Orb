@@ -233,21 +233,10 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         )
         entry = await create_lorebook_entry(world["id"], fields)
         world_name = clip(world["name"], _NAME_CHARS)
-        data = {
-            "created": True,
-            "world": {"id": world["id"], "name": world_name},
-            "entry": {
-                "id": entry["id"],
-                "name": clip(entry["name"], _NAME_CHARS),
-                "keywords": entry["keywords"] or [],
-                **({"secondary_keywords": entry["secondary_keys"]} if entry["secondary_keys"] else {}),
-                "constant": bool(entry["constant"]),
-                "enabled": bool(entry["enabled"]),
-            },
-        }
+        data: dict[str, Any] = {"created": True, "entry_id": entry["id"], "world": world_name}
         if not entry["constant"] and not entry["keywords"]:
             data["note"] = "It is keyword-triggered with no keywords, so nothing brings it into a chat."
-        summary = f"Created lore entry {json.dumps(data['entry']['name'], ensure_ascii=False)} in {world_name}."
+        summary = f"Created lore entry {quoted(entry['name'])} in {world_name}."
         return wrote(data, summary, "lorebook_entry", world_id=world["id"], entry_id=entry["id"])
 
     @tools.add(
@@ -262,11 +251,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         card["source_format"] = "manual"
         created = await create_character_card(card)
         card_id = str(card["id"])
-        data = {
-            "created": True,
-            "character": {"id": card_id, "name": clip(created.get("name"), _NAME_CHARS)},
-            "note": "It is in the character library. No chat was started and nothing was opened.",
-        }
+        data = {"created": True, "character_id": card_id}
         return wrote(data, f"Created character {quoted(created.get('name'))}.", "character", character_id=card_id)
 
     @tools.add(
@@ -278,11 +263,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
     async def add_world(args: _WorldCreate) -> ToolOutput:
         # Never global and never attached: either is a separate choice the user makes.
         world = await create_world(host.validated("world_create", {"name": args.name, "is_global": False}))
-        data = {
-            "created": True,
-            "world": {"id": world["id"], "name": clip(world["name"], _NAME_CHARS), "is_global": bool(world["is_global"])},
-            "note": "It is empty, not global, and used by no chat; set_chat_world adds it to a chat.",
-        }
+        data = {"created": True, "world_id": world["id"]}
         return wrote(data, f"Created world {quoted(world['name'])}.", "world", world_id=world["id"])
 
     @tools.add(
@@ -295,11 +276,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         persona = await create_user_persona(
             host.validated("persona_create", {"name": args.name, "description": args.description})
         )
-        data = {
-            "created": True,
-            "persona": {"id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)},
-            "note": "It is not the active persona; set_active_persona makes it so, if the user asks.",
-        }
+        data = {"created": True, "persona_id": persona["id"]}
         return wrote(data, f"Created persona {quoted(persona['name'])}.", "persona", persona_id=persona["id"])
 
     @tools.add(
@@ -321,14 +298,10 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         names = {item["id"]: item["name"] for item in await get_worlds()}
         is_global = bool(world["is_global"])
         data: dict[str, Any] = {
-            "conversation_id": cid,
-            "world": {"id": world["id"], "name": clip(world["name"], _NAME_CHARS), "is_global": is_global},
-            "requested": args.attached,
+            "world": clip(world["name"], _NAME_CHARS),
             "attached": attached,
             "changed": attached != before,
-            "effective_worlds": [
-                {"id": world_id, "name": clip(names.get(world_id), _NAME_CHARS)} for world_id in effective[:_LISTED_WORLDS]
-            ],
+            "worlds_in_effect": [clip(names.get(world_id), _NAME_CHARS) for world_id in effective[:_LISTED_WORLDS]],
         }
         if is_global:
             data["note"] = (
@@ -349,12 +322,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
             copy = await host.checkpoint_chat(conv, args.title)
         if copy is None:
             raise ToolFailure(f"No chat has the id {cid}.")
-        data = {
-            "created": True,
-            "checkpoint": {"id": copy["id"], "title": clip(copy["title"], _NAME_CHARS)},
-            "source_conversation_id": cid,
-            "note": "A separate chat holding a copy of the kept branch. The chat in view is unchanged and was not switched.",
-        }
+        data = {"created": True, "conversation_id": copy["id"], "title": clip(copy["title"], _NAME_CHARS)}
         return ToolOutput(
             data,
             f"Created checkpoint {quoted(copy['title'])} of {quoted(conv['title'])}.",
@@ -377,7 +345,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
             ids = {"conversation_id": cid, "message_id": message["id"]}
             path = await get_active_path(cid)
             if any(row["id"] == message["id"] for row in path):
-                data = {"switched": False, **ids, "note": "That message is already on the branch the chat shows."}
+                data = {"switched": False, "note": "That message is already on the branch the chat shows."}
                 label = message_label(path, message["id"])
                 return ToolOutput(data, f"{label.capitalize()} is already on the kept branch; nothing changed.", ids)
             # The branch route's own selection: the newest line of replies below that message.
@@ -437,12 +405,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
     async def start_chat(args: _StartChat) -> ToolOutput:
         card = await character_of(args.character_id, view)
         conv = await host.start_chat(args.title.strip(), card)
-        data = {
-            "created": True,
-            "conversation": {"id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)},
-            "character": {"id": args.character_id, "name": clip(card.get("name"), _NAME_CHARS)},
-            "note": "It is in the chat list. Nothing was opened; the view is unchanged.",
-        }
+        data = {"created": True, "conversation_id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)}
         return ToolOutput(
             data,
             f"Started chat {quoted(conv['title'])} with {quoted(card.get('name'))}.",
@@ -484,13 +447,10 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         if current is None:
             raise ToolFailure(f"No chat has the id {cid}.")
         lock = current.get("persona_lock_id")
-        data = {
-            "conversation_id": cid,
-            "title": clip(current["title"], _NAME_CHARS),
-            "persona_lock_id": lock,
-            "changed": sorted(changes),
-        }
-        if lock is None:
+        data: dict[str, Any] = {"title": clip(current["title"], _NAME_CHARS), "changed": sorted(changes)}
+        if "persona_lock_id" in wanted:
+            data["persona_lock_id"] = lock
+        if lock is None and "persona_lock_id" in wanted:
             data["note"] = "No persona is locked to this chat: it uses the character's lock, if any, or the active persona."
         if not changes:
             return ToolOutput(data, f"{quoted(current['title'])} already had that; nothing changed.", {"conversation_id": cid})

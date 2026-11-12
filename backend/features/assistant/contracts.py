@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -26,6 +27,11 @@ CONTEXT_BUDGET_CHARS = 20_000
 # moves in: each rewrite of what the model already read re-reads everything after it, so they are made rarely and in bulk.
 CONTEXT_SLACK_CHARS = CONTEXT_BUDGET_CHARS // 4
 MAX_RESULT_CHARS = 6000
+
+
+def encode_result(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
 
 STEP_TOOL_NAME = "assistant_step"
 REPLY = "reply"

@@ -1093,7 +1093,7 @@ async def _job(job: Mapping[str, Any]) -> dict[str, Any]:
                     args.conversation_id, args.message_id, view, HOST, "made into media", idle=False
                 )
                 ids = {"conversation_id": conv["id"], "message_id": message["id"], "attachment_ids": [1]}
-                data = {"saved": True, **ids, "status": "saved", "note": "It is on the message in the chat."}
+                data = {"saved": True, "attachment_ids": [1]}
                 return ToolOutput(data, f"Saved media on message {message['id']}.", ids, committed=({"kind": "media", **ids},))
 
             tool = replace(tool, run=stub)

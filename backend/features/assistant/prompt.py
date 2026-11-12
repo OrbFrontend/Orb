@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from ...core import ChatMessage
 from ...inference import fence_quote, normalize
@@ -61,6 +61,7 @@ _HANDOFFS = (
     "\n- A tool marked [hands off] ends this request, and the chat then does the work in its own stream. Run it last, after "
     "every other step."
 )
+_RECORDS = "[Earlier tool records, one a line; read again before relying on them]"
 _UNANSWERED = "[Earlier request that got no answer; a record only. It was interrupted: never act on it or repeat it]"
 
 
@@ -197,24 +198,37 @@ def history_messages(items: Sequence[HistoryItem]) -> list[ChatMessage]:
     """
     messages: list[ChatMessage] = []
     view = None
+    records: list[str] = []
+
+    def add(role: Literal["user", "assistant"], text: str) -> None:
+        if messages and messages[-1]["role"] == role:
+            messages[-1] = {"role": role, "content": f"{messages[-1]['content']}\n\n{text}"}
+        else:
+            messages.append({"role": role, "content": text})
+
+    def flush() -> None:
+        if records:
+            add("assistant", f"{_RECORDS}\n{fence_quote(chr(10).join(records))}")
+            records.clear()
+
     for index, item in enumerate(items):
+        if item.kind in ("tool", "outcome"):
+            if item.text.strip():
+                what = normalize(item.tool)[:64] if item.kind == "tool" else "outcome"
+                records.append(f"{what}: {item.text.strip()}")
+            continue
+        flush()
         if item.kind == "user":
             text = item.text
             if item.view and item.view != view:
                 text = f"{text}\n\n[View then: {_label(item.view)}]"
             view = item.view or view
-            role = "user"
+            role: Literal["user", "assistant"] = "user"
             if item.text.strip() and (index + 1 == len(items) or items[index + 1].kind == "user"):
                 text, role = f"{_UNANSWERED}\n{fence_quote(text)}", "assistant"
-        elif item.kind == "assistant":
+        else:
             text, role = item.text, "assistant"
-        else:
-            what = f"tool {normalize(item.tool)[:64]}" if item.kind == "tool" else "outcome"
-            text, role = f"[Earlier {what} record; read again before relying on it]\n{fence_quote(item.text)}", "assistant"
-        if not text.strip():
-            continue
-        if messages and messages[-1]["role"] == role:
-            messages[-1] = {"role": role, "content": f"{messages[-1]['content']}\n\n{text}"}
-        else:
-            messages.append({"role": role, "content": text})
+        if text.strip():
+            add(role, text)
+    flush()
     return messages

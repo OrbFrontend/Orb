@@ -167,14 +167,6 @@ async def _result(
         summary = f"{summary}, but a later step failed: {outcome.error}"
     else:
         status, summary = "saved", f"{summary}."
-    data: dict[str, Any] = {
-        "saved": True,
-        "kind": medium.noun,
-        "conversation_id": cid,
-        "message_id": mid,
-        "attachment_ids": ids,
-        "status": status,
-        "note": "It is on the message in the chat; nothing else changed.",
-    }
+    data: dict[str, Any] = {"saved": True, "attachment_ids": ids, **({} if status == "saved" else {"status": status})}
     ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
     return ToolOutput(data, summary, ids_out, committed=({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},))

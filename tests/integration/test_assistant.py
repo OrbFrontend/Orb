@@ -11,7 +11,9 @@ from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
 from backend.database import LIBRARY_VIEWS, add_message, close_wal_anchor, get_lorebook_entries, get_settings, open_wal_anchor
 from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant
+from backend.features.assistant.contracts import encode_result
 from backend.features.assistant.tools.reads import MAX_MESSAGES
+from backend.features.assistant.tools.targets import CHARACTER_FIELDS
 from backend.inference import LLMClient
 from backend.workflows import prose_rewriter_host
 
@@ -106,7 +108,7 @@ async def _tools(**context):
 
 async def _use(tools, name, **arguments):
     output = await tools[name].run(tools[name].arguments(**arguments))
-    encoded = json.dumps(output.data, ensure_ascii=False)
+    encoded = encode_result(output.data)
     assert len(encoded) <= MAX_RESULT_CHARS, f"{name} returned {len(encoded)} characters"
     return output.data, encoded
 
@@ -283,10 +285,11 @@ async def test_a_group_view_infers_no_character_and_asks_for_one(client, library
     data, _ = await _use(tools, "read_character", character_id=library["other"])
     assert data["name"] == "Ivo"
     context, _ = await _use(tools, "read_context")
-    assert "character" not in context and [member["name"] for member in context["chat"]["cast"]] == ["Mara", "Ivo"]
+    assert [member["name"] for member in context["cast"]] == ["Mara", "Ivo"]
     # A solo chat has one character, taken from the chat itself rather than from the browser.
     solo = await _tools(mode="chat", conversation_id=library["chat"])
-    assert (await _use(solo, "read_character"))[0]["id"] == library["card"]
+    assert (await solo["read_character"].run(solo["read_character"].arguments())).ids["character_id"] == library["card"]
+    assert "cast" not in (await _use(solo, "read_context"))[0], "the view note names a solo chat's character"
 
 
 async def test_character_and_settings_projections_leave_out_everything_not_allowlisted(client, library):
@@ -296,7 +299,7 @@ async def test_character_and_settings_projections_leave_out_everything_not_allow
     for forbidden in ("AVATARBYTES", "OVERRIDE", "EXTENSION", "system_prompt", "extensions", "workflow_state"):
         assert forbidden not in encoded
     listed, encoded = await _use(tools, "list_characters", query="noir")
-    assert [row["name"] for row in listed["rows"]] == ["Mara"] and listed["truncated"] is False
+    assert [row["name"] for row in listed["rows"]] == ["Mara"] and "truncated" not in listed
     assert "AVATARBYTES" not in encoded and "display_scripts" not in encoded
 
     await client.put_checked("/api/settings", json={"enable_agent": False, "length_guard_enabled": True})
@@ -320,12 +323,12 @@ async def test_messages_follow_the_kept_branch_while_sql_sees_every_branch_and_n
     data, encoded = await _use(tools, "read_messages")
     assert len(data["messages"]) == MAX_MESSAGES and data["truncated"] is True
     assert data["messages"][-1]["content"] == "final kept line" and "abandoned draft" not in encoded
-    assert set(data["messages"][0]) == {"id", "number", "role", "created_at", "content"}
+    assert set(data["messages"][0]) == {"id", "number", "role", "content"}
 
     found, _ = await _use(
         tools, "query_library", sql="SELECT id, conversation_id FROM messages WHERE content = 'abandoned draft'"
     )
-    assert found["rows"][0][1] == library["chat"] and "branches the user left" in found["note"]
+    assert found["rows"][0][1] == library["chat"]
     for sql in ("SELECT api_key FROM endpoints", "SELECT * FROM settings", "DELETE FROM messages"):
         with pytest.raises(ToolFailure) as refused:
             await _use(tools, "query_library", sql=sql)
@@ -354,9 +357,9 @@ async def test_entries_and_documents_are_read_from_the_target_named(client, libr
     listed, _ = await _use(tools, "list_documents")
     assert [row["id"] for row in listed["rows"]] == [library["document"]] and "content" not in listed["rows"][0]
     page, _ = await _use(tools, "read_document", document_id=library["document"])
-    assert page["truncated"] is True and page["total_chars"] == 7200 and "unsaved" in page["note"]
+    assert page["truncated"] is True and page["total_chars"] == 7200 and "offset" not in page
     rest, _ = await _use(tools, "read_document", document_id=library["document"], offset=page["next_offset"])
-    assert rest["truncated"] is False and len(page["content"]) + len(rest["content"]) == 7200
+    assert "truncated" not in rest and len(page["content"]) + len(rest["content"]) == 7200
     with pytest.raises(ToolFailure):
         await _use(tools, "read_document", document_id="missing")
 
@@ -395,15 +398,15 @@ async def test_long_text_is_measured_as_sent_so_every_result_stays_whole_json(cl
     tools = await _tools(mode="library")
     card, encoded = await _use(tools, "read_character", character_id=library["card"])
     assert json.loads(encoded)["alternate_greeting_count"] == 0
-    assert card["creator_notes"].startswith("NOTES") and set(card["clipped"]) == set(card["field_chars"])
+    assert card["creator_notes"].startswith("NOTES") and all("…[+" in card[name] for name in CHARACTER_FIELDS)
     narrowed, _ = await _use(tools, "read_character", character_id=library["card"], fields=["creator_notes"])
-    assert set(narrowed["field_chars"]) == {"creator_notes"} and len(narrowed["creator_notes"]) > len(card["creator_notes"])
+    assert "tags" not in narrowed and len(narrowed["creator_notes"]) > len(card["creator_notes"])
     with pytest.raises(ValidationError):
         await _use(tools, "read_character", character_id=library["card"], fields=["avatar_b64"])
 
     await client.put_checked(f"/api/documents/{library['document']}", json={"content": dialogue * 2, "expected_revision": 1})
     page, encoded = await _use(tools, "read_document", document_id=library["document"])
-    assert page["truncated"] is True and page["next_offset"] == len(page["content"]) and "unsaved" in page["note"]
+    assert page["truncated"] is True and page["next_offset"] == len(page["content"])
     rest, _ = await _use(tools, "read_document", document_id=library["document"], offset=page["next_offset"])
     assert rest["offset"] == page["next_offset"] and rest["total_chars"] == len(dialogue * 2)
 
@@ -520,7 +523,8 @@ async def test_toggles_set_an_explicit_state_keep_other_keys_and_report_master_s
     settings = await get_settings()
     assert settings["enabled_tools"]["editor_apply_patch"] is False and settings["length_guard_enabled"] == 0
     assert settings["enabled_tools"]["direct_scene"] is False, "the other tab's change survives"
-    assert output.data["effective"] is False and set(output.data["changed"]) == {"output_auditor", "length_guard"}
+    assert output.data["switches"] == {"output_auditor": False, "length_guard": False}
+    assert set(output.data["changed"]) == {"output_auditor", "length_guard"}
     assert output.committed == ({"kind": "settings", "keys": ["enabled_tools", "length_guard_enabled"]},)
     again = await toggle.run(toggle.arguments.model_validate({"toggle": "editor", "enabled": False}))
     assert again.committed == () and "already off" in again.summary
@@ -529,7 +533,7 @@ async def test_toggles_set_an_explicit_state_keep_other_keys_and_report_master_s
     await client.put_checked("/api/settings", json={"enable_agent": False})
     output = await toggle.run(toggle.arguments.model_validate({"toggle": "director", "enabled": True}))
     assert output.data["switches"]["director"] == {"stored": True, "effective": False}
-    assert output.data["gates"] == {"agent": {"stored": False, "effective": False}} and "no effect" in output.summary
+    assert "Agent" in output.data["note_gates"] and "no effect" in output.summary
     assert (await get_settings())["enable_agent"] == 0
 
     for bad in ({"toggle": "editor"}, {"toggle": "editor", "enabled": "off"}, {"toggle": "api_key", "enabled": False}):
@@ -538,7 +542,7 @@ async def test_toggles_set_an_explicit_state_keep_other_keys_and_report_master_s
     assert "flip" not in json.dumps(toggle.parameters) and "editor" in toggle.parameters["properties"]["toggle"]["enum"]
 
     summary = (await tools["read_settings"].run(tools["read_settings"].arguments())).data["switches"]
-    assert summary["editor_audit_checks"]["banned_phrases"] == {"stored": True, "effective": False}
+    assert summary["editor_audit_checks"]["banned_phrases"] is True and summary["editor_audit_checks_in_effect"] is False
 
 
 async def test_a_workflow_toggle_runs_its_host_callback_like_its_route(client, monkeypatch):
@@ -781,7 +785,7 @@ async def test_a_tools_panel_save_after_the_assistants_toggle_keeps_it(client):
     toggle = {tool.name: tool for tool in await _tools_for_library()}["set_pipeline_toggle"]
     output = await toggle.run(toggle.arguments.model_validate({"toggle": "editor", "enabled": True}))
     # On names the Length Guard too, and says it stays off.
-    assert output.data["switches"]["length_guard"] == {"stored": False, "effective": False}
+    assert output.data["switches"]["length_guard"] is False
     assert "Length Guard stays off" in output.summary
     await toggle.run(toggle.arguments.model_validate({"toggle": "output_auditor", "enabled": False}))
     # The Tools panel, unaware of that, saves the one flag its checkbox changed.
@@ -844,13 +848,13 @@ async def test_a_clipped_read_never_becomes_a_whole_field_rewrite_and_the_whole_
     )
     tools = await _tools(mode="library", character_id=library["card"])
     seen, _ = await _use(tools, "read_character")
-    assert "personality" in seen["clipped"] and "text_offset" in seen["note"]
+    assert "…[+" in seen["personality"] and "text_offset" in seen["note"]
     edit = tools["edit_character"]
     with pytest.raises(ToolFailure, match="not part of the field"):
         await edit.run(edit.arguments(field="personality", mode="replace_all", text=seen["personality"]))
     # Named alone, a field shorter than one page reads whole, unclipped.
     whole, _ = await _use(tools, "read_character", fields=["personality"])
-    assert whole["personality"] == personality and whole["next_offset"] is None
+    assert whole["personality"] == personality and "next_offset" not in whole
     # A field longer than an argument may carry cannot be rewritten whole; it reads in pages, and find_replace reaches its tail.
     with pytest.raises(ToolFailure, match="find_replace") as refused:
         await edit.run(edit.arguments(field="description", mode="replace_all", text="Short."))
@@ -859,7 +863,7 @@ async def test_a_clipped_read_never_becomes_a_whole_field_rewrite_and_the_whole_
     while offset is not None:
         page, _ = await _use(tools, "read_character", fields=["description"], text_offset=offset)
         pages.append(page["description"])
-        offset = page["next_offset"]
+        offset = page.get("next_offset")
     assert "".join(pages) == description and len(pages) > 1
     preview = await _propose(
         tools, "edit_character", field="description", mode="find_replace", find="Final clause.", text="End."
@@ -874,7 +878,7 @@ async def test_a_clipped_read_never_becomes_a_whole_field_rewrite_and_the_whole_
     latest, _ = await _use(chat, "read_messages", count=1)
     assert latest["messages"][0]["content"].endswith("chars]") and "message_id" in latest["note"]
     one, _ = await _use(chat, "read_messages", message_id=library["kept"])
-    assert one["content"] == reply and one["on_kept_branch"] is True
+    assert one["content"] == reply and one["number"] and "on_kept_branch" not in one
     with pytest.raises(ToolFailure):
         await _use(await _tools(mode="chat", conversation_id=library["group"]), "read_messages", message_id=library["kept"])
 

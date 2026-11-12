@@ -44,11 +44,6 @@ from .targets import (
     world_of,
 )
 
-_NOTE = (
-    "Nothing is deleted yet. The user reviews it on the card once this request ends, and only their Apply deletes it. "
-    "It cannot be undone once applied."
-)
-
 
 class _CharacterDelete(ToolArguments):
     character_id: str = character_field()
@@ -111,14 +106,7 @@ def build_delete_tools(view: ViewContext, guards: ChatGuards, held: Sequence[Pro
             raise ToolFailure(f"Deleting {label} is already proposed and waits for the user's Apply. Do not propose it again.")
         proposal = store(kind, target, label, "delete", detail, "", action="delete", options=options, replaces=earlier)
         proposed[key] = proposal
-        data = {
-            "proposed": True,
-            "deleted": False,
-            "proposal_id": proposal.id,
-            "target": target,
-            "detail": detail,
-            "note": _NOTE,
-        }
+        data = {"proposed": f"deleting {label}", "detail": detail}
         ids = {"proposal_id": proposal.id, **{name: value for name, value in target.items() if name != "kind"}}
         return ToolOutput(
             data,
