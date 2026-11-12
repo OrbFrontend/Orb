@@ -154,8 +154,10 @@ def translate_tools(tools: object) -> list[dict[str, Any]]:
             "name": function["name"],
             # ``strict`` obliges the schema to close every object and mark every property required; Orb's own tools ship partial
             # ``required`` lists, so shape them the way the OpenAI forced path already does rather than sending a schema the API
-            # will reject.
-            "input_schema": strictify_schema(dict(function.get("parameters") or {"type": "object", "properties": {}})),
+            # will reject. Strict mode also rejects value and size bounds, which Orb validates after the call anyway.
+            "input_schema": strictify_schema(
+                dict(function.get("parameters") or {"type": "object", "properties": {}}), bounds=False
+            ),
             "strict": True,
         }
         if isinstance(function.get("description"), str):

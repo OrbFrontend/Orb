@@ -43,6 +43,7 @@ import { clearTextEffect } from "./workflow_text_effects.js";
 
 export async function loadConversations() {
   S.conversations = await api.get("/conversations");
+  notify("conversations");
   renderGroupList();
 }
 

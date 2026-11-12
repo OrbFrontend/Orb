@@ -721,14 +721,21 @@ def test_partial_required_tool_schema_is_closed_before_strict_goes_out():
             "name": "direct_scene",
             "parameters": {
                 "type": "object",
-                "properties": {"mood": {"type": "string"}, "moods": {"type": "array"}},
+                "properties": {
+                    "mood": {"type": "string"},
+                    "moods": {"type": "array", "maxItems": 3, "items": {"type": "integer", "minimum": 0}},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 30},
+                },
                 "required": [],
             },
         },
     }
     schema = anthropic.translate_tools([partial])[0]["input_schema"]
     assert schema["additionalProperties"] is False
-    assert sorted(schema["required"]) == ["mood", "moods"]
+    assert sorted(schema["required"]) == ["limit", "mood", "moods"]
+    # Strict tool use rejects value and size bounds.
+    assert schema["properties"]["limit"]["type"] == ["integer", "null"] and "maximum" not in schema["properties"]["limit"]
+    assert "maxItems" not in schema["properties"]["moods"] and "minimum" not in schema["properties"]["moods"]["items"]
     # Optional survives as nullable rather than as an omittable key.
     assert schema["properties"]["mood"]["type"] == ["string", "null"]
 

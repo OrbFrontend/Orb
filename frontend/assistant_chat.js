@@ -652,6 +652,7 @@ export function initAssistant() {
   subscribe("operations", paintControls);
   subscribe("conversations", paintControls);
   subscribe("documents", paintControls);
+  subscribe("lorebook", paintControls);
   // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.
   watchUtilityPanel(PANEL, (open) => {
     S.assistant.open = open;

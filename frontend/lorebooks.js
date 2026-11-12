@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
-import { charactersView, S } from "./state.js";
+import { charactersView, notify, S } from "./state.js";
 import { $, boolFlag, downloadBlob, esc, fromMessageBody, plural, toast } from "./utils.js";
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
@@ -392,6 +392,7 @@ function closeLorebook() {
 
 function _closeDrawer() {
   _lorebookOpen = false;
+  notify("lorebook");
   _dirty = false;
   $("lorebook-drawer")?.classList.add("hidden");
   renderWorldsSidebar();
@@ -467,6 +468,7 @@ function _entryListHtml(liveEntries) {
 }
 
 function renderLorebookDrawer() {
+  notify("lorebook");
   const drawer = $("lorebook-drawer");
   if (!drawer) return;
 

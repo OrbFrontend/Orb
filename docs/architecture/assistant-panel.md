@@ -181,7 +181,11 @@ native tool messages.
 ## Tools
 
 Every tool has a name, a description, a flat argument model, a behaviour class
-and a callable. The prompt marks each class. Names are a verb and what it acts
+and a callable. The model's integer bounds and list sizes go out in the schema
+as `minimum`, `maximum`, `minItems` and `maxItems`; string lengths stay out, since a
+grammar-constrained endpoint would spell them out character by character, and
+the Anthropic route drops every bound because strict tool use rejects them. The
+prompt marks each class. Names are a verb and what it acts
 on: `read_` one thing, `list_` several, `set_` an explicit state, `create_`,
 `edit_` (proposed) and `delete_` (proposed). A lore entry is `lore_entry`
 throughout.

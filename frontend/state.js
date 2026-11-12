@@ -342,6 +342,7 @@ const TOPICS = new Set([
   "attachments",
   "tabs",
   "cast",
+  "lorebook",
   "expression-playback",
 ]);
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Annotated, Any, Literal, TypeVar, get_args, get_origin
@@ -53,6 +53,28 @@ def _flat_schema(annotation: Any) -> dict[str, Any]:
     return {"type": _JSON_TYPES[annotation]}
 
 
+def _bounds(kind: str, metadata: Sequence[Any]) -> dict[str, int]:
+    """A field's integer and list-size bounds as schema keywords; string lengths stay out of the schema."""
+    found = {
+        name: getattr(item, name)
+        for item in metadata
+        for name in ("ge", "gt", "le", "lt", "min_length", "max_length")
+        if isinstance(getattr(item, name, None), int)
+    }
+    bounds: dict[str, int] = {}
+    if kind == "integer":
+        if "ge" in found or "gt" in found:
+            bounds["minimum"] = found["ge"] if "ge" in found else found["gt"] + 1
+        if "le" in found or "lt" in found:
+            bounds["maximum"] = found["le"] if "le" in found else found["lt"] - 1
+    elif kind == "array":
+        if found.get("min_length"):
+            bounds["minItems"] = found["min_length"]
+        if "max_length" in found:
+            bounds["maxItems"] = found["max_length"]
+    return bounds
+
+
 class ToolArguments(BaseModel):
     """Base for a tool's flat argument model: scalars, string enums and lists of them; unknown fields and coerced types refused."""
 
@@ -90,6 +112,11 @@ class ToolOutput:
     ends_run: bool = False
 
 
+def _field_schema(annotation: Any, metadata: Sequence[Any], description: str | None) -> dict[str, Any]:
+    schema = _flat_schema(annotation)
+    return {**schema, **_bounds(schema["type"], metadata), **({"description": description} if description else {})}
+
+
 @dataclass(frozen=True)
 class AssistantTool:
     name: str
@@ -106,10 +133,7 @@ class AssistantTool:
     def parameters(self) -> dict[str, Any]:
         """The flat provider schema for ``arguments``."""
         fields = self.arguments.model_fields
-        properties = {
-            name: {**_flat_schema(info.annotation), **({"description": info.description} if info.description else {})}
-            for name, info in fields.items()
-        }
+        properties = {name: _field_schema(info.annotation, info.metadata, info.description) for name, info in fields.items()}
         return {
             "type": "object",
             "properties": properties,
