@@ -1,6 +1,6 @@
-"""The assistant's media tools: an image or speech for one saved reply, made by its workflow's own on-demand hook.
+"""The assistant's media jobs: one saved reply rendered by its workflow's own on-demand hook.
 
-A tool runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the
+A job runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the
 assistant's Stop cancels that job alone) and under the message it renders (so deleting the message or its chat finds and
 settles it). A lazy event stream the hook returns is consumed inside that same job until it settles. A
 result names the attachments that job reported saving; a job that started and saved nothing is not a success.
@@ -17,22 +17,16 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
-from functools import partial
 from typing import Any
 
 from fastapi import HTTPException
-from pydantic import Field
 
-from ...core.settings import Settings
-from ...database import get_active_path, get_message_by_id, get_settings, message_workflow_attachment_ids
-from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ViewContext
+from ...features.assistant.tools import HostRefusal, MediaOutcome, MediaRun
 from ...inference import AbortToken
 from ...workflows import HookType, WorkflowEventStream, get_subscription, get_workflow, public_event_error
-from ..deps import message_deleting, resource_deleting, start_workflow_job, stop_workflow_jobs
+from ..deps import start_workflow_job, stop_workflow_jobs
 from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..workflow_dispatch import run_on_demand
-from .targets import chat_field, message_label, quoted, reply_target
 
 logger = logging.getLogger(__name__)
 
@@ -40,91 +34,8 @@ _LABEL_CHARS = 160
 _ERROR_CHARS = 300
 
 
-@dataclass(frozen=True)
-class MediaRun:
-    """What the media tools take from the run they belong to.
-
-    *job* is the workflow job id their jobs are filed under, unique to the run's operation; *abort* is the run's Stop; *report*
-    sends a progress label to the run's stream while a job renders.
-    """
-
-    job: str
-    abort: AbortToken
-    report: Callable[[str], None]
-
-
-@dataclass(frozen=True)
-class _Medium:
-    tool: str
-    workflow_id: str
-    action: str
-    noun: str
-    # The noun with its article, as a sentence names one: "an image", "speech".
-    some: str
-    # Completes "only a reply can be …".
-    verb: str
-    starting: str
-    description: str
-    # Takes the user's own direction for what to make, beside the reply it is made of.
-    directed: bool = False
-
-
-# The longest direction an image request carries; the image workflow bounds it again.
-_DIRECTION_CHARS = 1000
-
-_MEDIA = (
-    _Medium(
-        "generate_image",
-        "image_gen",
-        "generate",
-        "image",
-        "an image",
-        "illustrated",
-        "Composing the image prompt…",
-        "Make an image of one saved reply in a chat with the Image Generation workflow and save it on that message. With "
-        "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
-        "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
-        "It takes a while, often minutes.",
-        directed=True,
-    ),
-    _Medium(
-        "generate_speech",
-        "tts",
-        "create",
-        "speech",
-        "speech",
-        "voiced",
-        "Synthesizing speech…",
-        "Make speech audio of one saved reply in a chat with the Text-to-Speech workflow, in the speaking character's voice, "
-        "and save it on that message.",
-    ),
-)
-
-
-class _MediaArgs(ToolArguments):
-    conversation_id: str = chat_field()
-    message_id: int = Field(ge=1, description="The saved reply to make it of, from read_messages.")
-
-
-class _ImageArgs(_MediaArgs):
-    direction: str = Field(
-        default="",
-        max_length=_DIRECTION_CHARS,
-        description="What the user wants this image to show, in their words or a faithful paraphrase; empty: from the reply alone.",
-    )
-
-
-@dataclass
-class _Outcome:
-    """What one job reported: the attachments it saved, its error, and whether its hook reached its own end."""
-
-    ids: list[int] = field(default_factory=list)
-    error: str = ""
-    finished: bool = False
-
-    def saved(self, attachment: object) -> None:
-        if type(attachment) is int and attachment not in self.ids:
-            self.ids.append(attachment)
+def media_available(workflow_id: str) -> bool:
+    return get_workflow(workflow_id) is not None and bool(get_subscription(workflow_id, HookType.ON_DEMAND))
 
 
 def _detail(exc: Exception) -> str:
@@ -145,12 +56,13 @@ def _message_of(data: object, fallback: str) -> str:
     return fallback
 
 
-async def _consume(stream: WorkflowEventStream, medium: _Medium, outcome: _Outcome, report: Callable[[str], None]) -> None:
+async def _consume(
+    stream: WorkflowEventStream, wid: str, noun: str, outcome: MediaOutcome, report: Callable[[str], None]
+) -> None:
     """Read a lazy workflow stream through to its end, inside the job that owns it.
 
     A cancelled job cancels the stream's pending step, so the hook's own cleanup (withdrawing a queued render) runs there.
     """
-    wid = medium.workflow_id
     events = stream.events
     try:
         async for event in events:
@@ -165,12 +77,12 @@ async def _consume(stream: WorkflowEventStream, medium: _Medium, outcome: _Outco
             elif name == f"{wid}_render":
                 outcome.saved(payload.get("attachment_id"))
             elif name == f"{wid}_error":
-                outcome.error = _message_of(payload, f"The {medium.noun} failed.")
+                outcome.error = _message_of(payload, f"The {noun} failed.")
             elif name == f"{wid}_done":
                 outcome.saved(payload.get("attachment_id"))
                 outcome.finished = True
             elif name == "error":
-                outcome.error = _message_of(data, f"The {medium.noun} failed.")
+                outcome.error = _message_of(data, f"The {noun} failed.")
     finally:
         close = getattr(events, "aclose", None)
         if close is not None:
@@ -179,14 +91,14 @@ async def _consume(stream: WorkflowEventStream, medium: _Medium, outcome: _Outco
 
 
 async def _produce(
-    cid: str, medium: _Medium, body: Mapping[str, Any], outcome: _Outcome, report: Callable[[str], None]
+    cid: str, wid: str, noun: str, body: Mapping[str, Any], outcome: MediaOutcome, report: Callable[[str], None]
 ) -> None:
     """The job: the hook through the shared dispatch with *body*, and its stream if it returns one."""
     mid = body["message_id"]
     try:
-        result = await run_on_demand(cid, medium.workflow_id, dict(body))
+        result = await run_on_demand(cid, wid, dict(body))
         if isinstance(result, WorkflowEventStream):
-            await _consume(result, medium, outcome, report)
+            await _consume(result, wid, noun, outcome, report)
             return
         outcome.finished = True
         if not isinstance(result, Mapping):
@@ -199,39 +111,8 @@ async def _produce(
     except API_PASSTHROUGH_ERRORS as exc:
         outcome.error = _detail(exc)
     except Exception:
-        logger.exception("Assistant %s for message %s failed", medium.noun, mid)
-        outcome.error = f"The {medium.noun} failed; the server log has the details."
-
-
-def build_media_tools(view: ViewContext, run: MediaRun | None) -> list[AssistantTool]:
-    """One tool per media workflow that is installed with an on-demand hook; none without a run to report to."""
-    if run is None:
-        return []
-    return [
-        AssistantTool(
-            m.tool,
-            m.description,
-            _ImageArgs if m.directed else _MediaArgs,
-            "write",
-            partial(_make, view, run, m),
-            reports_progress=True,
-        )
-        for m in _MEDIA
-        if get_workflow(m.workflow_id) is not None and get_subscription(m.workflow_id, HookType.ON_DEMAND)
-    ]
-
-
-def _switched_off(workflow_id: str, settings: Settings) -> list[str]:
-    """Each switch that keeps *workflow_id* from running, named with its toggle; empty when it may run."""
-    off = []
-    if not settings.get("workflows_globally_enabled", 1):
-        off.append("Secondary workflows (toggle `workflows`) are")
-    stored = settings.get("workflow_enabled")
-    if not (stored if isinstance(stored, dict) else {}).get(workflow_id, True):
-        workflow = get_workflow(workflow_id)
-        name = workflow.display_name if workflow is not None else workflow_id
-        off.append(f"The {name} workflow (toggle `workflow:{workflow_id}`) is")
-    return off
+        logger.exception("Assistant %s for message %s failed", noun, mid)
+        outcome.error = f"The {noun} failed; the server log has the details."
 
 
 async def _waited(task: asyncio.Task[Any], abort: AbortToken) -> bool:
@@ -244,82 +125,20 @@ async def _waited(task: asyncio.Task[Any], abort: AbortToken) -> bool:
     return not task.done()
 
 
-async def _make(view: ViewContext, run: MediaRun, medium: _Medium, args: _MediaArgs) -> ToolOutput:
-    conv, message = await reply_target(args.conversation_id, args.message_id, view, medium.verb, idle=False)
-    cid, mid = conv["id"], message["id"]
-    if not (message["content"] or "").strip():
-        raise ToolFailure(f"Message {mid} has no text to make {medium.noun} of.")
-    # Read now: a toggle earlier in this request may have changed what the request's own snapshot says. The dispatch gates
-    # too, but answers a bare 404; this names the switch.
-    off = _switched_off(medium.workflow_id, await get_settings())
-    if off:
-        raise ToolFailure(
-            f"{' and '.join(off)} switched off, so nothing was made. Tell the user; you can turn it on with "
-            "set_pipeline_toggle if they ask."
-        )
-
-    direction = args.direction.strip() if isinstance(args, _ImageArgs) else ""
-    body: dict[str, Any] = {"action": medium.action, "message_id": mid, **({"direction": direction} if direction else {})}
-    before = set(await message_workflow_attachment_ids(mid, medium.workflow_id))
-    outcome = _Outcome()
-    run.report(medium.starting)
+async def run_media(cid: str, workflow_id: str, noun: str, body: Mapping[str, Any], run: MediaRun) -> MediaOutcome:
+    """One job of *run* for *body*'s message, waited for until it ends or the run's Stop; what it reported."""
+    outcome = MediaOutcome()
     try:
-        task = start_workflow_job(cid, _produce(cid, medium, body, outcome, run.report), job=run.job, message_id=mid)
-    except HTTPException:
-        raise ToolFailure("That chat or message is being deleted, so nothing was made.") from None
-    stopped = await _waited(task, run.abort)
-    if stopped:
+        task = start_workflow_job(
+            cid, _produce(cid, workflow_id, noun, body, outcome, run.report), job=run.job, message_id=body["message_id"]
+        )
+    except HTTPException as exc:
+        raise HostRefusal(str(exc.detail)) from None
+    outcome.stopped = await _waited(task, run.abort)
+    if outcome.stopped:
         # This run's job alone: a render the user started from the message, or another run's, is left running.
         if not (await stop_workflow_jobs(cid, job=run.job))["settled"]:
             # Its result is not known until it has ended, and the browser reads the message again only once this run has.
             await asyncio.wait({task})
-    return await _result((cid, conv["title"], mid), medium, before, outcome, stopped=stopped, cut=task.cancelled())
-
-
-async def _result(
-    where: tuple[str, str, int], medium: _Medium, before: set[int], outcome: _Outcome, *, stopped: bool, cut: bool
-) -> ToolOutput:
-    """The tool's answer from what its own job reported: an attachment it saved is success, and a started job alone is not.
-
-    *stopped* is this run's Stop and *cut* a job cancelled by someone else (a deletion). Only the ids the job reported count:
-    another render of the same message, such as one the user started from its button, saves rows too.
-    """
-    cid, title, mid = where
-    # A delete settles the job before it deletes, so the message may still be there, about to go.
-    if await get_message_by_id(mid) is None or message_deleting(mid) or resource_deleting(cid):
-        raise ToolFailure(f"Message {mid} was deleted while its {medium.noun} was being made, so nothing was kept.")
-    stored = set(await message_workflow_attachment_ids(mid, medium.workflow_id))
-    ids = [attachment for attachment in outcome.ids if attachment in stored]
-    if not ids:
-        if (stopped or cut or not outcome.finished) and stored - before:
-            # A job cut short may have saved a render whose event was never read, but the new row may as well be another's.
-            ended = "was stopped" if stopped else "was cut short" if cut else "ended before finishing"
-            raise ToolFailure(
-                f"The {medium.noun} job {ended} without reporting a saved {medium.noun}, but {medium.some} may have been saved "
-                f"on message {mid} as it ended. Tell the user to check the message."
-            )
-        if stopped:
-            raise ToolFailure(f"Stopped before any {medium.noun} was saved; nothing was made.")
-        if cut:
-            raise ToolFailure(f"The {medium.noun} job was stopped before anything was saved, so nothing was made.")
-        raise ToolFailure(f"No {medium.noun} was made: {outcome.error or 'the workflow ended without saving anything.'}")
-    what = f"{len(ids)} images" if medium.noun == "image" and len(ids) > 1 else medium.some
-    summary = f"Saved {what} on {message_label(await get_active_path(cid), mid)} in {quoted(title)}"
-    if stopped or cut:
-        status, summary = "stopped early; kept what was saved", f"{summary} before it was stopped."
-    elif outcome.error:
-        status = f"saved; a later step failed: {outcome.error}"
-        summary = f"{summary}, but a later step failed: {outcome.error}"
-    else:
-        status, summary = "saved", f"{summary}."
-    data: dict[str, Any] = {
-        "saved": True,
-        "kind": medium.noun,
-        "conversation_id": cid,
-        "message_id": mid,
-        "attachment_ids": ids,
-        "status": status,
-        "note": "It is on the message in the chat; nothing else changed.",
-    }
-    ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
-    return ToolOutput(data, summary, ids_out, committed=({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},))
+    outcome.cut = task.cancelled()
+    return outcome

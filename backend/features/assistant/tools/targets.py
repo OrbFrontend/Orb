@@ -9,7 +9,7 @@ from typing import Any, Literal, get_args
 
 from pydantic import Field
 
-from ...database import (
+from ....database import (
     get_active_path,
     get_character_card,
     get_conversation,
@@ -21,7 +21,7 @@ from ...database import (
     get_world,
     resolve_cast,
 )
-from ...database.models import (
+from ....database.models import (
     CharacterCardRow,
     ConversationRow,
     InteractiveFragmentRow,
@@ -31,8 +31,8 @@ from ...database.models import (
     UserPersonaRow,
     WorldRow,
 )
-from ...features.assistant import ToolFailure, ViewContext
-from ..deps import conversation_busy, resource_deleting
+from ..contracts import ToolFailure, ViewContext
+from .host import ChatGuards
 
 # How long an id argument to any assistant tool may be.
 ID_CHARS = 64
@@ -108,7 +108,9 @@ def chat_id(conversation_id: str, view: ViewContext) -> str:
     return cid
 
 
-async def chat_in_view(conversation_id: str, view: ViewContext, *, changes: bool, idle: bool = False) -> ConversationRow:
+async def chat_in_view(
+    conversation_id: str, view: ViewContext, guards: ChatGuards, *, changes: bool, idle: bool = False
+) -> ConversationRow:
     """The chat a tool names, else the one in view, read now.
 
     *changes* is for a tool that changes the chat or starts work in it: a chat being deleted is refused to it, since what it
@@ -119,9 +121,9 @@ async def chat_in_view(conversation_id: str, view: ViewContext, *, changes: bool
     conv = await get_conversation(cid)
     if conv is None:
         raise ToolFailure(f"No chat has the id {cid}.")
-    if changes and resource_deleting(cid):
+    if changes and guards.chat_deleting(cid):
         raise ToolFailure("That chat is being deleted, so nothing was done.")
-    if idle and conversation_busy(cid):
+    if idle and guards.chat_busy(cid):
         raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
     return conv
 
@@ -212,14 +214,14 @@ async def character_of(character_id: str, view: ViewContext) -> CharacterCardRow
 
 
 async def reply_target(
-    conversation_id: str, message_id: int, view: ViewContext, what: str, *, idle: bool
+    conversation_id: str, message_id: int, view: ViewContext, guards: ChatGuards, what: str, *, idle: bool
 ) -> tuple[ConversationRow, MessageRow]:
     """The chat, and the saved reply on its kept branch, that a handoff or a media tool names.
 
     *what* completes "only a reply can be …". *idle* also refuses a chat that is generating, as a handoff must: the chat's own
     stream would refuse to start.
     """
-    conv = await chat_in_view(conversation_id, view, changes=True, idle=idle)
+    conv = await chat_in_view(conversation_id, view, guards, changes=True, idle=idle)
     cid = conv["id"]
     message = await message_of(cid, message_id)
     if message["role"] != "assistant":

@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
-from ...database import (
+from ....database import (
     get_active_path,
     get_character_usage,
     get_document,
@@ -19,10 +19,11 @@ from ...database import (
     get_phrase_bank_rows,
     get_settings,
 )
-from ...database.queries.messages import get_message_subtree_ids
-from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from ....database.queries.messages import get_message_subtree_ids
+from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from .edits import proposal_key
 from .fragments import FIELD_TYPE_NAMES
+from .host import ChatGuards
 from .proposals import Proposal, ProposalKind, is_open, preview, store
 from .targets import (
     ID_CHARS,
@@ -95,7 +96,7 @@ def _count(n: int, noun: str) -> str:
     return f"{n:,} {noun}{'' if n == 1 else 's'}"
 
 
-def build_delete_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[AssistantTool]:
+def build_delete_tools(view: ViewContext, guards: ChatGuards, held: Sequence[Proposal] = ()) -> list[AssistantTool]:
     """The delete tools, bound to the request's view and to *held*, the pending proposals earlier requests made."""
     tools = ToolSet()
     proposed: dict[str, Proposal] = {proposal_key(item.target, item.name): item for item in held if item.action == "delete"}
@@ -150,7 +151,7 @@ def build_delete_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list
 
     @tools.add("confirm", _ChatDelete, "Propose deleting a chat with all its messages and branches.")
     async def delete_chat(args: _ChatDelete) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        conv = await chat_in_view(args.conversation_id, view, guards, changes=True)
         path = await get_active_path(conv["id"])
         detail = f"All its messages go with it, on every branch; its kept branch holds {_count(len(path), 'message')}."
         target = {"kind": "conversation", "conversation_id": conv["id"]}
@@ -163,7 +164,7 @@ def build_delete_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list
         "the message's own Delete does.",
     )
     async def delete_message(args: _MessageDelete) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        conv = await chat_in_view(args.conversation_id, view, guards, changes=True)
         cid = conv["id"]
         message = await message_of(cid, args.message_id)
         removed = len(await get_message_subtree_ids(cid, message["id"]))

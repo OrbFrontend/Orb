@@ -15,7 +15,7 @@ enforce them.
 | HTTP endpoints | `backend/api/routes/` and `backend/api/schemas.py` | Register the router in `backend/api/routes/__init__.py` |
 | Failure responses and warnings | `backend/api/errors.py`, `backend/pipeline/failures.py`, and `frontend/errors.js` | [Shared failure handling](sse-stream.md#shared-failure-handling) |
 | Core UI | `frontend/`, with shared state in `state.js` | Module layers in `scripts/check_frontend_layers.py` and action registration in `actions.js` |
-| Panel assistant tools | `backend/api/assistant/`; the loop in `backend/features/assistant/` | [Panel assistant](assistant-panel.md) |
+| Panel assistant tools | `backend/features/assistant/tools/`, with the loop in `backend/features/assistant/`; the host they run against in `backend/api/assistant/` | [Panel assistant](assistant-panel.md) |
 
 ## Workflow or core
 

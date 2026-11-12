@@ -126,8 +126,9 @@ async def seed_library(path: Path) -> dict[str, Any]:
     import httpx
 
     import backend.database.connection as db_connection
-    from backend.api.assistant.toggles import switch_summary
+    from backend.api.assistant import HOST
     from backend.database import add_message, get_conversation, get_settings, init_db, resolve_cast
+    from backend.features.assistant.tools import switch_summary
     from backend.main import app
 
     db_connection.DB_PATH = str(path)
@@ -231,7 +232,7 @@ async def seed_library(path: Path) -> dict[str, Any]:
     members = (await resolve_cast(await get_conversation(group))).members
     ivo_member = next(member.member_id for member in members if member.card_id == ivo)
     await add_message(group, "assistant", "Mara eyes the clerk across the table.", 0, advance_leaf=True)
-    summary = switch_summary(await get_settings())
+    summary = switch_summary(await get_settings(), HOST)
     return {
         "mara": mara,
         "ivo": ivo,
@@ -343,10 +344,11 @@ def _db(probe: Callable[[Outcome], Awaitable[bool]]) -> Check:
 
 
 async def _director_off(out: Outcome) -> bool:
-    from backend.api.assistant.toggles import switch_summary
+    from backend.api.assistant import HOST
     from backend.database import get_settings
+    from backend.features.assistant.tools import switch_summary
 
-    value = switch_summary(await get_settings())["director"]
+    value = switch_summary(await get_settings(), HOST)["director"]
     return not (value.get("stored") if isinstance(value, Mapping) else value)
 
 
@@ -1001,13 +1003,13 @@ def run_job(job: Mapping[str, Any]) -> dict[str, Any]:
 
 async def _job(job: Mapping[str, Any]) -> dict[str, Any]:
     from backend.api import deps
-    from backend.api.assistant import MediaRun, build_tools
-    from backend.api.assistant.targets import reply_target
+    from backend.api.assistant import HOST, MediaRun, build_tools
     from backend.api.routes.assistant import resolve_view
     from backend.api.schemas import AssistantViewContext
     from backend.core import locks
     from backend.database import get_settings
     from backend.features.assistant import AssistantUnavailable, ToolOutput, run_assistant
+    from backend.features.assistant.tools import reply_target
     from backend.inference import AbortToken, LLMClient, endpoint_profiles
 
     for held in (deps._conversation_stream_locks, deps._active_streams, locks._workflow_state_locks):
@@ -1087,7 +1089,9 @@ async def _job(job: Mapping[str, Any]) -> dict[str, Any]:
         if tool.reports_progress:
             # The render is not what is measured: keep the real argument model and target checks, and save nothing.
             async def stub(args: Any, name: str = tool.name) -> ToolOutput:
-                conv, message = await reply_target(args.conversation_id, args.message_id, view, "made into media", idle=False)
+                conv, message = await reply_target(
+                    args.conversation_id, args.message_id, view, HOST, "made into media", idle=False
+                )
                 ids = {"conversation_id": conv["id"], "message_id": message["id"], "attachment_ids": [1]}
                 data = {"saved": True, **ids, "status": "saved", "note": "It is on the message in the chat."}
                 return ToolOutput(data, f"Saved media on message {message['id']}.", ids, committed=({"kind": "media", **ids},))

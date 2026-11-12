@@ -1,4 +1,4 @@
-"""Contracts between the assistant loop and the tools its caller supplies."""
+"""Contracts between the assistant loop and the tools it runs."""
 
 from __future__ import annotations
 

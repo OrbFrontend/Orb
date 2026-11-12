@@ -17,13 +17,10 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from fastapi import HTTPException
-
-from ...core import OUTCOME_COLUMNS, outcome_text, with_outcome_text
-from ...core.macros import resolve_inline
-from ...database import (
+from ....core import OUTCOME_COLUMNS, outcome_text, with_outcome_text
+from ....core.macros import resolve_inline
+from ....database import (
     StaleWrite,
-    delete_character_card,
     delete_interactive_fragment,
     delete_mood_fragment,
     delete_phrase_group,
@@ -47,11 +44,9 @@ from ...database import (
     update_settings,
     update_user_persona,
 )
-from ...features import lorebook
-from ...features.assistant import settled
-from ..deletions import delete_chat, delete_document_settled, delete_message_subtree
-from ..deps import ChatUnavailable, conversation_busy, idle_chat_admission, idle_chats_guard
+from ..loop import settled
 from .fragments import INTERACTIVE_TEXT_COLUMNS, OUTCOME_PARTS, REQUIRED_TEXT, TEXT_CAPS, fragment_text_problem
+from .host import AppReads, AssistantHost, ChatGuards, ChatUnavailable, HostRefusal
 from .targets import clip
 
 MAX_PROPOSALS = 32
@@ -269,12 +264,12 @@ class _Refused(Exception):
         self.verdict = {"verdict": verdict, "message": message, **extra}
 
 
-async def _write_message(proposal: Proposal, expected: str, text: str) -> None:
+async def _write_message(proposal: Proposal, expected: str, text: str, guards: ChatGuards) -> None:
     """The message edit: admitted under its chat's lane, compared and written with every invariant in one transaction."""
     cid = proposal.target["conversation_id"]
     # Apply is not a chat route, so the deletion fence on chat paths does not cover it; the admission does.
     try:
-        async with idle_chat_admission(cid):
+        async with guards.admitted(cid):
             original = await get_message_by_id(proposal.target["message_id"])
             if await get_conversation(cid) is None or original is None or original["conversation_id"] != cid:
                 raise _Refused("missing", _MISSING)
@@ -305,11 +300,11 @@ async def _write_interactive(proposal: Proposal, expected: str, value: str) -> o
     return await update_interactive_fragment(fid, with_outcome_text(row, part, key, value), expected=held)
 
 
-async def _write(proposal: Proposal, expected: str | list[str], value: str | list[str]) -> None:
+async def _write(proposal: Proposal, expected: str | list[str], value: str | list[str], guards: ChatGuards) -> None:
     """Compare *expected* and write *value* in one transaction, through each target's own write path."""
     if proposal.kind == "message":
         assert isinstance(expected, str) and isinstance(value, str)
-        return await _write_message(proposal, expected, value)
+        return await _write_message(proposal, expected, value, guards)
     target, before, after = proposal.target, {proposal.name: expected}, {proposal.name: value}
     if proposal.kind == "interactive_fragment":
         assert isinstance(expected, str) and isinstance(value, str)
@@ -328,62 +323,60 @@ async def _write(proposal: Proposal, expected: str | list[str], value: str | lis
         raise _Refused("missing", _MISSING)
 
 
-async def _delete_character(target: Mapping[str, Any], options: Mapping[str, Any]) -> bool:
+async def _delete_character(target: Mapping[str, Any], options: Mapping[str, Any], host: AssistantHost) -> bool:
     try:
-        return await delete_character_card(
-            target["character_id"], bool(options.get("delete_chats")), idle_guard=idle_chats_guard
-        )
-    except HTTPException as exc:
-        raise _Refused("busy", f"{exc.detail}. Nothing was deleted.") from None
+        return await host.delete_character(target["character_id"], bool(options.get("delete_chats")))
+    except HostRefusal as exc:
+        raise _Refused("busy", f"{exc}. Nothing was deleted.") from None
 
 
-async def _delete_entry(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_entry(target: Mapping[str, Any], _options: Mapping[str, Any], host: AssistantHost) -> bool:
     world, entry = await get_world(target["world_id"]), await get_lorebook_entry(target["entry_id"])
     if world is None or entry is None or entry["world_id"] != world["id"]:
         return False
-    return await lorebook.delete_entry(world, entry)
+    return await host.delete_lore_entry(world, entry)
 
 
-async def _delete_chat(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_chat(target: Mapping[str, Any], _options: Mapping[str, Any], host: AssistantHost) -> bool:
     cid = target["conversation_id"]
     if await get_conversation(cid) is None:
         return False
     # The chat list's own delete stops a running reply first; a change reviewed in a card waits for it instead.
-    if conversation_busy(cid):
+    if host.chat_busy(cid):
         raise _Refused("busy", _BUSY)
     try:
-        return await delete_chat(cid)
-    except HTTPException as exc:
-        raise _Refused("busy", f"{exc.detail}.") from None
+        return await host.delete_chat(cid)
+    except HostRefusal as exc:
+        raise _Refused("busy", f"{exc}.") from None
 
 
-async def _delete_message(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_message(target: Mapping[str, Any], _options: Mapping[str, Any], host: AssistantHost) -> bool:
     cid, mid = target["conversation_id"], target["message_id"]
     message = await get_message_by_id(mid)
     if message is None or message["conversation_id"] != cid:
         return False
-    if conversation_busy(cid):
+    if host.chat_busy(cid):
         raise _Refused("busy", _BUSY)
     try:
-        return await delete_message_subtree(cid, mid)
-    except HTTPException as exc:
-        raise _Refused("busy", f"{exc.detail}.") from None
+        return await host.delete_message(cid, mid)
+    except HostRefusal as exc:
+        raise _Refused("busy", f"{exc}.") from None
 
 
-async def _delete_document(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_document(target: Mapping[str, Any], _options: Mapping[str, Any], host: AssistantHost) -> bool:
     if await get_document(target["document_id"]) is None:
         return False
     try:
-        return await delete_document_settled(target["document_id"])
-    except HTTPException as exc:
-        raise _Refused("busy", f"{exc.detail}.") from None
+        return await host.delete_document(target["document_id"])
+    except HostRefusal as exc:
+        raise _Refused("busy", f"{exc}.") from None
 
 
-async def _delete_world(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_world(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     return await delete_world(target["world_id"])
 
 
-async def _delete_persona(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_persona(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     persona_id = target["persona_id"]
     if await get_user_persona(persona_id) is None or not await delete_user_persona(persona_id):
         return False
@@ -393,19 +386,19 @@ async def _delete_persona(target: Mapping[str, Any], _options: Mapping[str, Any]
     return True
 
 
-async def _delete_phrase_group(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_phrase_group(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     return await delete_phrase_group(target["group_id"])
 
 
-async def _delete_mood_fragment(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_mood_fragment(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     return await delete_mood_fragment(target["fragment_id"])
 
 
-async def _delete_interactive_fragment(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+async def _delete_interactive_fragment(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     return await delete_interactive_fragment(target["fragment_id"])
 
 
-_DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], Awaitable[bool]]] = {
+_DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any], AssistantHost], Awaitable[bool]]] = {
     "character": _delete_character,
     "lorebook_entry": _delete_entry,
     "conversation": _delete_chat,
@@ -428,12 +421,12 @@ async def _sync_card(proposal: Proposal) -> None:
             await sync_conversations_for_card(proposal.target["character_id"], card)
 
 
-async def _apply(proposal: Proposal) -> dict[str, Any]:
+async def _apply(proposal: Proposal, host: AssistantHost) -> dict[str, Any]:
     """Write *proposal* once and keep the answer; a repeated Apply returns that answer without comparing again."""
     repeated = proposal.result is not None
     if proposal.result is None:
         if proposal.action == "delete":
-            if not await _DELETERS[proposal.kind](proposal.target, proposal.options):
+            if not await _DELETERS[proposal.kind](proposal.target, proposal.options, host):
                 raise _Refused("missing", _MISSING)
             summary = f"Deleted {proposal.label}."
             resources = [{**proposal.target, "deleted": True}]
@@ -441,7 +434,7 @@ async def _apply(proposal: Proposal) -> dict[str, Any]:
                 resources.append({"kind": "settings", "keys": ["active_persona_id"]})
         else:
             try:
-                await _write(proposal, proposal.before, proposal.after)
+                await _write(proposal, proposal.before, proposal.after, host)
             except StaleWrite:
                 raise _Refused("stale", _STALE, fields=[proposal.name]) from None
             summary = f"Applied the edit to {change_label(proposal)}."
@@ -457,7 +450,7 @@ def _expired(proposal_id: str) -> dict[str, Any]:
     return {"proposal_id": proposal_id, "verdict": "expired", "message": message}
 
 
-async def apply_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
+async def apply_proposals(proposal_ids: Sequence[str], host: AssistantHost) -> list[dict[str, Any]]:
     """One verdict per proposal, each compared and written on its own, under its own lock.
 
     Concurrent and repeated Applies of one proposal wait for the first and return its answer. Once admitted a write settles
@@ -471,20 +464,20 @@ async def apply_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
             continue
         async with proposal.lock:
             try:
-                verdict = await settled(_apply(proposal))
+                verdict = await settled(_apply(proposal, host))
             except _Refused as refused:
                 verdict = refused.verdict
         verdicts.append({"proposal_id": proposal_id, **verdict})
     return verdicts
 
 
-async def _undo(proposal: Proposal) -> dict[str, Any]:
+async def _undo(proposal: Proposal, guards: ChatGuards) -> dict[str, Any]:
     if proposal.action == "delete":
         raise _Refused("refused", "A delete cannot be undone.")
     if proposal.result is None:
         raise _Refused("refused", "That edit has not been applied, so there is nothing to undo.")
     try:
-        await _write(proposal, proposal.after, proposal.before)
+        await _write(proposal, proposal.after, proposal.before, guards)
     except StaleWrite:
         raise _Refused("stale", "The text changed after the edit was applied, so it was left as it is.") from None
     # Pending again: the card offers Apply once more, and a further edit may build on it.
@@ -498,7 +491,7 @@ async def _undo(proposal: Proposal) -> dict[str, Any]:
     }
 
 
-async def undo_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
+async def undo_proposals(proposal_ids: Sequence[str], guards: ChatGuards) -> list[dict[str, Any]]:
     """Put back the stored text of each applied edit *proposal_ids* names, where it still holds what Apply wrote.
 
     ``undone`` returns the proposal to pending; ``stale``, the text changed since; ``missing``, ``busy`` and ``expired`` as for
@@ -512,7 +505,7 @@ async def undo_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
             continue
         async with proposal.lock:
             try:
-                verdict = await settled(_undo(proposal))
+                verdict = await settled(_undo(proposal, guards))
             except _Refused as refused:
                 verdict = refused.verdict
         verdicts.append({"proposal_id": proposal_id, **verdict})
@@ -522,7 +515,7 @@ async def undo_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
 _FRAGMENT_KINDS = frozenset(("mood_fragment", "interactive_fragment"))
 
 
-async def _fragment_problem(proposal: Proposal, text: str) -> str:
+async def _fragment_problem(proposal: Proposal, text: str, rules: AppReads) -> str:
     """Why the user's *text* cannot become the fragment text *proposal* edits, as the edit tool would refuse it; or nothing."""
     if proposal.kind == "mood_fragment":
         cap = TEXT_CAPS[proposal.name]
@@ -532,10 +525,10 @@ async def _fragment_problem(proposal: Proposal, text: str) -> str:
     row = await get_interactive_fragment(proposal.target["fragment_id"])
     if row is None:
         return _MISSING
-    return fragment_text_problem(row, proposal.name, str(proposal.target.get("outcome") or ""), text)
+    return fragment_text_problem(row, proposal.name, str(proposal.target.get("outcome") or ""), text, rules)
 
 
-async def revise_proposal(proposal_id: str, text: str) -> dict[str, Any]:
+async def revise_proposal(proposal_id: str, text: str, rules: AppReads) -> dict[str, Any]:
     """Make *text*, the user's own, what the pending edit *proposal_id* writes; answers its new preview.
 
     Only a pending edit of a text field can be revised: a list is edited item by item, and a delete has no text.
@@ -554,7 +547,7 @@ async def revise_proposal(proposal_id: str, text: str) -> dict[str, Any]:
         required = proposal.name == "name" or proposal.kind == "message" or fragment_required
         if required and not after.strip():
             return {"proposal_id": proposal_id, "verdict": "refused", "message": "That cannot be left empty."}
-        problem = await _fragment_problem(proposal, after)
+        problem = await _fragment_problem(proposal, after, rules)
         if problem:
             return {"proposal_id": proposal_id, "verdict": "refused", "message": problem}
         if after == proposal.before:

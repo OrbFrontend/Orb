@@ -2,7 +2,7 @@
 checkpoints, branch selection, and handoffs to the chat's own stream or to the browser.
 
 Creates are additive and go through each resource's own schema and writer, with server-generated ids. Chat mutations take the
-chat's lane through :func:`~backend.api.deps.idle_chat_admission`, read their target again once admitted, and hold the lane only
+chat's lane through the host's admission, read their target again once admitted, and hold the lane only
 for their own database work. A handoff writes nothing: it checks its target and names it, and the browser starts the work in
 the chat's stream once this run has settled.
 """
@@ -17,7 +17,7 @@ from typing import Annotated, Any
 
 from pydantic import Field, StringConstraints, field_validator
 
-from ...database import (
+from ....database import (
     create_character_card,
     create_lorebook_entry,
     create_user_persona,
@@ -30,12 +30,9 @@ from ...database import (
     switch_to_branch,
     update_conversation,
 )
-from ...database.models import ConversationRow
-from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
-from ..conversation_copy import checkpoint_conversation, checkpoint_title
-from ..conversation_start import DEFAULT_TITLE, start_solo_chat
-from ..deps import ChatUnavailable, idle_chat_admission
-from ..schemas import CharacterCardCreate, ConversationUpdate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
+from ....database.models import ConversationRow
+from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from .host import AssistantHost, ChatUnavailable
 from .targets import (
     ID_CHARS,
     cast_of,
@@ -193,7 +190,7 @@ class _Rewrite(_Regenerate):
     _blank = field_validator("direction")(not_blank)
 
 
-def build_action_tools(view: ViewContext) -> list[AssistantTool]:
+def build_action_tools(view: ViewContext, host: AssistantHost) -> list[AssistantTool]:
     """The creates, chat actions and handoffs, bound to the view the request was sent from."""
 
     tools = ToolSet()
@@ -206,7 +203,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     async def admitted(cid: str) -> AsyncIterator[ConversationRow]:
         """Hold chat *cid*'s lane through a short mutation, its row read again once admitted."""
         try:
-            async with idle_chat_admission(cid):
+            async with host.admitted(cid):
                 conv = await get_conversation(cid)
                 if conv is None:
                     raise ToolFailure(f"No chat has the id {cid}.")
@@ -223,15 +220,18 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         world = await world_of(args.world_id, view)
         # The entry route's own schema and writer: an authored entry with its defaults, and a world revision bump.
         secondary = list(dict.fromkeys(args.secondary_keywords))
-        fields = LorebookEntryCreate(
-            name=args.name,
-            content=args.content,
-            keywords=list(args.keywords),
-            constant=args.constant,
-            secondary_keys=secondary,
-            selective=bool(secondary),
+        fields = host.validated(
+            "lorebook_entry_create",
+            {
+                "name": args.name,
+                "content": args.content,
+                "keywords": list(args.keywords),
+                "constant": args.constant,
+                "secondary_keys": secondary,
+                "selective": bool(secondary),
+            },
         )
-        entry = await create_lorebook_entry(world["id"], fields.model_dump())
+        entry = await create_lorebook_entry(world["id"], fields)
         world_name = clip(world["name"], _NAME_CHARS)
         data = {
             "created": True,
@@ -256,7 +256,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     async def add_character(args: _CharacterCreate) -> ToolOutput:
         # The creation route's own schema and writer, without the parts of that route that import: no embedded book, no
         # extensions, and no expression pack fetched from a URL.
-        card = CharacterCardCreate(**args.model_dump()).model_dump()
+        card = host.validated("character_create", args.model_dump())
         card.pop("character_book", None)
         card["id"] = str(uuid.uuid4())
         card["source_format"] = "manual"
@@ -277,7 +277,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def add_world(args: _WorldCreate) -> ToolOutput:
         # Never global and never attached: either is a separate choice the user makes.
-        world = await create_world(WorldCreate(name=args.name, is_global=False).model_dump())
+        world = await create_world(host.validated("world_create", {"name": args.name, "is_global": False}))
         data = {
             "created": True,
             "world": {"id": world["id"], "name": clip(world["name"], _NAME_CHARS), "is_global": bool(world["is_global"])},
@@ -292,7 +292,9 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         name="create_persona",
     )
     async def add_persona(args: _PersonaCreate) -> ToolOutput:
-        persona = await create_user_persona(UserPersonaCreate(name=args.name, description=args.description).model_dump())
+        persona = await create_user_persona(
+            host.validated("persona_create", {"name": args.name, "description": args.description})
+        )
         data = {
             "created": True,
             "persona": {"id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)},
@@ -345,7 +347,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
             # The checkpoint route's own copy, under the chat's lane so no reply lands half-way through it.
-            copy = await checkpoint_conversation(cid, checkpoint_title(conv, args.title))
+            copy = await host.checkpoint_chat(conv, args.title)
         if copy is None:
             raise ToolFailure(f"No chat has the id {cid}.")
         data = {
@@ -410,7 +412,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "the old one.",
     )
     async def regenerate_reply(args: _Regenerate) -> ToolOutput:
-        conv, message = await reply_target(args.conversation_id, args.message_id, view, "regenerated", idle=True)
+        conv, message = await reply_target(args.conversation_id, args.message_id, view, host, "regenerated", idle=True)
         open_in_view(conv, view)
         if message["parent_id"] is None:
             raise ToolFailure(f"Message {message['id']} is the chat's opening greeting, which is not regenerated.")
@@ -423,7 +425,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "beside the old one.",
     )
     async def rewrite_reply(args: _Rewrite) -> ToolOutput:
-        conv, message = await reply_target(args.conversation_id, args.message_id, view, "rewritten", idle=True)
+        conv, message = await reply_target(args.conversation_id, args.message_id, view, host, "rewritten", idle=True)
         open_in_view(conv, view)
         return await handed_reply(conv, message, "rewriting", direction=args.direction)
 
@@ -435,7 +437,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def start_chat(args: _StartChat) -> ToolOutput:
         card = await character_of(args.character_id, view)
-        conv = await start_solo_chat(args.title.strip() or DEFAULT_TITLE, card)
+        conv = await host.start_chat(args.title.strip(), card)
         data = {
             "created": True,
             "conversation": {"id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)},
@@ -455,7 +457,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "Open a chat in the main view once this request ends, as picking it in the chat list does.",
     )
     async def open_chat(args: _OpenChat) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=True)
         summary = f"Handed opening chat {quoted(conv['title'])} to the browser."
         return handed(summary, {"conversation_id": conv["id"]}, title=clip(conv["title"], _NAME_CHARS))
 
@@ -468,11 +470,15 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         persona = await persona_of(args.persona_lock_id) if args.persona_lock_id else None
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
-            wanted = ConversationUpdate(
-                **({"title": args.title.strip()} if args.title.strip() else {}),
-                **({"persona_lock_id": args.persona_lock_id} if args.persona_lock_id else {}),
-                **({"persona_lock_id": None} if args.clear_persona_lock else {}),
-            ).model_dump(exclude_unset=True)
+            wanted = host.validated(
+                "conversation_update",
+                {
+                    **({"title": args.title.strip()} if args.title.strip() else {}),
+                    **({"persona_lock_id": args.persona_lock_id} if args.persona_lock_id else {}),
+                    **({"persona_lock_id": None} if args.clear_persona_lock else {}),
+                },
+                exclude_unset=True,
+            )
             # Only what differs is written: a title or lock already in that state stays as stored.
             changes = {key: value for key, value in wanted.items() if conv.get(key) != value}
             current = await update_conversation(cid, changes) if changes else conv
@@ -503,7 +509,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "message, or in a group chat a turn by the member named. A solo chat's character never replies twice in a row.",
     )
     async def continue_chat(args: _Continue) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=True, idle=True)
         open_in_view(conv, view)
         cid = conv["id"]
         path = await get_active_path(cid)
@@ -551,7 +557,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "user's, and the chat answers it. Only when the user asks for their side to be written.",
     )
     async def send_as_user(args: _SendAsUser) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=True, idle=True)
         open_in_view(conv, view)
         cid = conv["id"]
         path = await get_active_path(cid)

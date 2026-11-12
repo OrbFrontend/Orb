@@ -8,9 +8,9 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from ...core import extract_hyperparams
-from ...core.settings import Settings
-from ...database import (
+from ....core import extract_hyperparams
+from ....core.settings import Settings
+from ....database import (
     LIBRARY_VIEWS,
     get_active_lorebook_entries,
     get_active_path,
@@ -28,8 +28,9 @@ from ...database import (
     list_character_cards,
     run_library_query,
 )
-from ...database.models import ConversationRow
-from ...features.assistant import (
+from ....database.models import ConversationRow
+from ....prompting.lorebook import select_effective_entries
+from ..contracts import (
     MAX_RESULT_CHARS,
     AssistantTool,
     NoArguments,
@@ -39,10 +40,6 @@ from ...features.assistant import (
     ToolSet,
     ViewContext,
 )
-from ...features.fragment_state import StateWriteError, state_panel
-from ...features.lorebook import select_effective_entries
-from ...pipeline import estimate_context_size
-from ..fragments import stage_of
 from .fragments import (
     MOOD_TEXT_FIELDS,
     check_field_applies,
@@ -52,7 +49,9 @@ from .fragments import (
     interactive_projection,
     mood_projection,
     ordered_stage,
+    stage_of,
 )
+from .host import AssistantHost, HostRefusal
 from .targets import (
     CHARACTER_FIELDS,
     ID_CHARS,
@@ -278,7 +277,7 @@ def _text_page(
     return data
 
 
-def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantTool]:
+def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost) -> list[AssistantTool]:
     """The read tools, in their stable order, bound to the request's settings and view."""
     tools = ToolSet()
 
@@ -305,8 +304,8 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
                 ids["entry_id"] = view.entry_id
             data["lorebook"] = lorebook
         if view.conversation_id:
-            conv = await chat_in_view("", view, changes=False)
-            size = await estimate_context_size(conv)
+            conv = await chat_in_view("", view, host, changes=False)
+            size = await host.context_size(conv)
             worlds = {world["id"]: world["name"] for world in await get_worlds()}
             data["chat"] = {
                 "id": conv["id"],
@@ -439,7 +438,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "shows; name messages to the user by it, never by id.",
     )
     async def read_messages(args: _MessagesArgs) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=False)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=False)
         path = await get_active_path(conv["id"])
         speakers = await get_speaker_names(conv["id"]) if conv.get("kind") == "group" else {}
         if args.number:
@@ -591,7 +590,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "say which entries a given reply drew on; nothing records that.",
     )
     async def list_active_lore_entries(args: _ChatListArgs) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=False)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=False)
         world_ids = await get_effective_world_ids(conv["id"])
         # What the prompt draws from: dynamic replacements and suppressions resolved, as the chat's own lore view shows it.
         entries = select_effective_entries(await get_active_lorebook_entries(world_ids))
@@ -680,10 +679,10 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "Read a chat's scene state: what each state fragment holds on the kept branch, as the Inspector's State tab shows it.",
     )
     async def read_chat_state(args: _StateArgs) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=False)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=False)
         try:
-            panel = await state_panel(conv["id"])
-        except StateWriteError as exc:
+            panel = await host.chat_state(conv["id"])
+        except HostRefusal as exc:
             raise ToolFailure(str(exc)) from None
         cap = _STATE_ENTRY_CHARS
 
@@ -722,7 +721,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         # Read now: a toggle earlier in this request has changed what the request's own snapshot says.
         current = await get_settings()
         data = {
-            "switches": switch_summary(current),
+            "switches": switch_summary(current, host),
             "samplers": {
                 "writer": {key: value for key, value in extract_hyperparams(current).items() if key in _SAMPLER_KEYS},
                 "agent": {
@@ -756,7 +755,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         moods, interactive = await get_mood_fragments(), await get_interactive_fragments()
         rows = [
             row
-            for row in fragment_rows(moods, interactive, args.kind, _PREVIEW_CHARS)
+            for row in fragment_rows(moods, interactive, args.kind, _PREVIEW_CHARS, host)
             if _matches(args.query, row["id"], row["label"], row.get("description"), row.get("decision", {}).get("question"))
         ]
         listed = _page(rows, args)
@@ -764,7 +763,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             listed["note"] = "Text ending with …[+N chars] was shortened; read_fragment reads it whole."
         current = await get_settings()
         shown = {"mood" if row["kind"] == "mood" else row["stage"] for row in listed["rows"]}
-        notes = [await effect_note(_STAGE_TYPES.get(name, name), current) for name in sorted(shown)]
+        notes = [await effect_note(_STAGE_TYPES.get(name, name), current, host) for name in sorted(shown)]
         if any(notes):
             listed["note_switches"] = " ".join(dict.fromkeys(note for note in notes if note))
         return _listed(listed, "fragments")
@@ -808,7 +807,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             raise ToolFailure("outcome goes with field outcome_meaning or outcome_guidance.")
         stage = ordered_stage(await get_interactive_fragments(), stage_of(fragment["field_type"]))
         position = next((index + 1 for index, row in enumerate(stage) if row["id"] == fragment["id"]), 0)
-        data = _fitted(lambda cap: interactive_projection(fragment, position, cap))
+        data = _fitted(lambda cap: interactive_projection(fragment, position, cap, host))
         return ToolOutput(data, f"Read {label}.", ids)
 
     return tools

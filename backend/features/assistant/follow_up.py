@@ -6,7 +6,7 @@ import secrets
 import time
 from dataclasses import dataclass
 
-from ...features.assistant import Continuation
+from .contracts import Continuation
 
 # The prefix cache's own anchor lasts an hour; past that the follow-up gains nothing over a replay.
 _KEPT_SECONDS = 3600

@@ -9,11 +9,10 @@ from typing import Any, Literal
 
 from pydantic import Field, create_model
 
-from ...core.settings import Settings
-from ...database import get_settings, set_enabled_tool, update_settings
-from ...features.assistant import AssistantTool, ToolArguments, ToolOutput, ToolSet
-from ...pipeline import agent_enabled
-from ...workflows import gpu_swap_host, list_workflows, set_workflow_toggle
+from ....core.settings import Settings
+from ....database import get_settings, set_enabled_tool, update_settings
+from ..contracts import AssistantTool, ToolArguments, ToolOutput, ToolSet
+from .host import WorkflowSwitches
 
 
 def _gated(stored: object, master: bool) -> dict[str, bool] | bool:
@@ -21,10 +20,10 @@ def _gated(stored: object, master: bool) -> dict[str, bool] | bool:
     return bool(stored) if master or not stored else {"stored": True, "effective": False}
 
 
-def switch_summary(settings: Settings) -> dict[str, Any]:
+def switch_summary(settings: Settings, host: WorkflowSwitches) -> dict[str, Any]:
     """Pipeline switches under the names set_pipeline_toggle takes, with the effective value beside any a master overrides."""
-    table = _switch_table()
-    agent_on = agent_enabled(settings)
+    table = _switch_table(host)
+    agent_on = table["agent"].read(settings)
     named = {switch.item for switch in table.values() if switch.key == "enabled_tools"}
     return {
         **{
@@ -64,23 +63,21 @@ class _Switch:
             stored = (stored if isinstance(stored, dict) else {}).get(self.item, self.default)
         return bool(stored)
 
-    async def write(self, on: bool) -> None:
+    async def write(self, on: bool, host: WorkflowSwitches) -> None:
         if self.key == "enabled_tools":
             # One key of the map, so a concurrent change to another tool's flag is kept.
             await set_enabled_tool(self.item, on)
         elif self.key == "workflow_enabled":
             # The workflow route's own path, runtime callbacks included.
-            await set_workflow_toggle(self.item, on)
+            await host.set_workflow_enabled(self.item, on)
+        elif self.key == "workflows_globally_enabled":
+            await host.set_workflows_enabled(on)
         else:
             # The settings route's own writer: one column, so a concurrent change to any other key is untouched.
             await update_settings({self.key: int(on)})
-            if self.key == "workflows_globally_enabled":
-                # The GPU swap plan is off while workflows are, so a render right after switching them on must not read a
-                # cached "off".
-                gpu_swap_host.invalidate()
 
 
-def _switch_table() -> dict[str, _Switch]:
+def _switch_table(host: WorkflowSwitches) -> dict[str, _Switch]:
     """Every toggle name with one stored switch behind it, in a stable order; workflow names follow the registry."""
     table = {
         "agent": _Switch("Agent", "enable_agent", default=True),
@@ -91,7 +88,7 @@ def _switch_table() -> dict[str, _Switch]:
         "agentic_lorebook": _Switch("Agentic Lorebook", "agentic_lorebook_enabled", "agent"),
         "workflows": _Switch("Secondary workflows", "workflows_globally_enabled", default=True),
     }
-    for workflow in list_workflows():
+    for workflow in host.workflows():
         name = f"{workflow.display_name} workflow"
         table[f"workflow:{workflow.id}"] = _Switch(name, "workflow_enabled", "workflows", item=workflow.id, default=True)
     return table
@@ -107,11 +104,11 @@ def _effective(name: str, table: Mapping[str, _Switch], settings: Settings) -> b
     return switch.read(settings) and (switch.gate is None or _effective(switch.gate, table, settings))
 
 
-def build_toggle_tools() -> list[AssistantTool]:
+def build_toggle_tools(host: WorkflowSwitches) -> list[AssistantTool]:
     """The one tool that sets a pipeline switch."""
     tools = ToolSet()
 
-    table = _switch_table()
+    table = _switch_table(host)
     toggle_names = ("editor", *table)
     _ToggleArgs = create_model(
         "_ToggleArgs",
@@ -139,7 +136,7 @@ def build_toggle_tools() -> list[AssistantTool]:
         before = await get_settings()
         changed = [name for name in names if table[name].read(before) != on]
         for name in changed:
-            await table[name].write(on)
+            await table[name].write(on, host)
         after = await get_settings()
         # The Editor reports both of its switches whichever way it was set, so turning it on cannot hide the Length Guard.
         switches = {name: state(name, after) for name in (_EDITOR if editor else names)}

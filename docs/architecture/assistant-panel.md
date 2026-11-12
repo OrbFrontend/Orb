@@ -14,18 +14,21 @@ browser stores and refreshes what changed.
 
 | Path | Owns |
 |---|---|
-| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt. It receives tool callables and imports no API, pipeline, workflow or peer feature code. |
-| `backend/api/assistant/` | The tools over the existing readers and writers, and Apply. `__init__.py` holds `build_tools`, which assembles every tool for one run. |
-| `backend/api/assistant/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
-| `backend/api/assistant/reads.py` | The sixteen read tools, their projections and paging |
-| `backend/api/assistant/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
-| `backend/api/assistant/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
-| `backend/api/assistant/fragments.py` | The fragment creates and setters, and the names, projections and checks the fragment reads, edits and deletes share |
-| `backend/api/assistant/edits.py`, `deletes.py`, `proposals.py` | The six edit tools; the ten delete tools; the proposal store, Apply, Undo and Revise |
-| `backend/api/assistant/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools |
+| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the follow-up slot (`follow_up.py`). It imports no API, pipeline, workflow or peer feature code. |
+| `backend/features/assistant/tools/` | The tools over the library's readers and writers, the proposal store, and Apply, Undo and Revise. `__init__.py` holds `build_tools`, which assembles them for one run against a host. |
+| `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
+| `backend/features/assistant/tools/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
+| `backend/features/assistant/tools/reads.py` | The sixteen read tools, their projections and paging |
+| `backend/features/assistant/tools/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
+| `backend/features/assistant/tools/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
+| `backend/features/assistant/tools/fragments.py` | The fragment creates and setters, the stage each fragment type runs in and where Required applies, and the names, projections and checks the fragment reads, edits and deletes share |
+| `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The six edit tools; the ten delete tools; the proposal store, Apply, Undo and Revise |
+| `backend/features/assistant/tools/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools and what counts as a saved render |
+| `backend/api/assistant/` | The binding: `host.py` implements the host over the API, pipeline, workflow and peer-feature code; `__init__.py` binds `build_tools`, Apply, Undo and Revise to it |
+| `backend/api/assistant/media.py` | A media render as a workflow job: the on-demand dispatch, its event stream, Stop |
 | `backend/api/conversation_start.py` | The solo-chat writer the conversation route and `start_chat` share |
 | `backend/api/deletions.py` | The chat, message and document deletes their routes and Apply share, with their fences |
-| `backend/api/fragments/` | The interactive fragment write rules the fragment routes and the assistant share: type-scoped settings, defaults, the decision check, stages and where Required applies |
+| `backend/api/fragments/` | The interactive fragment write rules the fragment routes and the assistant share: type-scoped settings, defaults and the decision check |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
 | `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, replay, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |

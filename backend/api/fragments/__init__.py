@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any
 
 from ...core import (
     DECISION_COLUMNS,
@@ -17,11 +17,8 @@ from ...core import (
 )
 from ...pipeline.passes.judge import definition_problems
 
-__all__ = ["DecisionProblems", "Stage", "checked_interactive_write", "required_applies", "stage_of"]
+__all__ = ["DecisionProblems", "checked_interactive_write"]
 
-# The stages an interactive fragment runs in, as the fragment list groups them; order counts within a stage.
-Stage = Literal["judge", "director", "state", "editor"]
-_EDITOR_FIELD_TYPES = frozenset(("feedback", "post_processing"))
 _STATE_DEFAULTS = {"state_mode": DEFAULT_STATE_MODE, "state_update": DEFAULT_STATE_UPDATE, "state_inject": DEFAULT_STATE_INJECT}
 
 
@@ -31,21 +28,6 @@ class DecisionProblems(ValueError):
     def __init__(self, problems: list[str]):
         self.problems = problems
         super().__init__("; ".join(problems))
-
-
-def stage_of(field_type: str) -> Stage:
-    if field_type == DECISION_FIELD_TYPE:
-        return "judge"
-    if field_type == STATE_FIELD_TYPE:
-        return "state"
-    return "editor" if field_type in _EDITOR_FIELD_TYPES else "director"
-
-
-def required_applies(field_type: str, state_mode: str | None, state_update: str | None) -> bool:
-    """Whether Required means anything: a field the Director fills, or a single state value it sets before the Writer."""
-    if field_type == STATE_FIELD_TYPE:
-        return (state_mode or DEFAULT_STATE_MODE) == "value" and state_update == "before_writer"
-    return field_type not in ("post_processing", DECISION_FIELD_TYPE)
 
 
 def _checked_decision_write(payload: dict, existing: Mapping[str, Any] | None) -> dict:

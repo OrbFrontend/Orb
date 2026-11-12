@@ -13,10 +13,11 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, StringConstraints, create_model
 
-from ...core.macros import resolve_inline
-from ...database import get_active_path, greeting_rerolls
-from ...features.assistant import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from ....core.macros import resolve_inline
+from ....database import get_active_path, greeting_rerolls
+from ..contracts import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from .fragments import MOOD_TEXT_FIELDS, TEXT_CAPS, check_field_applies, fragment_text, fragment_text_problem
+from .host import AssistantHost
 from .proposals import Proposal, change_label, is_open, preview, revise, store
 from .targets import (
     CHARACTER_LIST_FIELDS,
@@ -292,7 +293,7 @@ def proposal_key(target: Mapping[str, Any], name: str) -> str:
     return json.dumps([dict(target), name], sort_keys=True)
 
 
-def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[AssistantTool]:
+def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Proposal] = ()) -> list[AssistantTool]:
     """The four edit tools, bound to the request's view and to *held*, the pending edits earlier requests proposed.
 
     The run holds one proposal per target and field: a later edit to a field it already proposed an edit to is made on that
@@ -416,7 +417,7 @@ def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[A
         "Propose an edit to one chat message's text. Inline macros such as {{roll}} resolve in the preview.",
     )
     async def edit_message(args: Any) -> ToolOutput:
-        conv = await chat_in_view(args.conversation_id, view, changes=True, idle=True)
+        conv = await chat_in_view(args.conversation_id, view, host, changes=True, idle=True)
         cid = conv["id"]
         message = await message_of(cid, args.message_id)
         if await greeting_rerolls(cid, message["id"]):
@@ -464,7 +465,7 @@ def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[A
         stored = fragment_text(fragment, args.field, args.outcome) or ""
 
         def check(text: str) -> str:
-            return fragment_text_problem(fragment, args.field, args.outcome, text)
+            return fragment_text_problem(fragment, args.field, args.outcome, text, host)
 
         return propose(target, label, args.field, stored, args, reread, check=check)
 

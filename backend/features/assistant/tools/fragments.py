@@ -9,9 +9,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, StringConstraints, field_validator
 
-from ...core import (
+from ....core import (
     DECISION_FIELD_TYPE,
     DECISION_RESOLUTIONS_BY_TYPE,
+    DEFAULT_STATE_MODE,
     DEFAULT_STATE_TEMPLATE,
     MAX_SCORE_LEVELS,
     MIN_SCORE_LEVELS,
@@ -21,8 +22,8 @@ from ...core import (
     outcome_text,
     with_outcome_text,
 )
-from ...core.settings import Settings
-from ...database import (
+from ....core.settings import Settings
+from ....database import (
     create_interactive_fragment,
     create_mood_fragment,
     get_interactive_fragments,
@@ -32,14 +33,15 @@ from ...database import (
     update_interactive_fragment,
     update_mood_fragment,
 )
-from ...database.models import InteractiveFragmentRow, MoodFragmentRow
-from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet
-from ...pipeline import resolve_judge_config
-from ...pipeline.passes.judge import definition_problems
-from ..fragments import DecisionProblems, Stage, checked_interactive_write, required_applies, stage_of
-from ..schemas import InteractiveFragmentCreate, InteractiveFragmentUpdate, MoodFragmentCreate, MoodFragmentUpdate
+from ....database.models import InteractiveFragmentRow, MoodFragmentRow
+from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet
+from .host import AppReads, AssistantHost, HostRefusal
 from .targets import clip, fragment_field, interactive_fragment_of, mood_fragment_of, not_blank, quoted
 from .toggles import switch_summary
+
+# The stages an interactive fragment runs in, as the fragment list groups them; order counts within a stage.
+Stage = Literal["judge", "director", "state", "editor"]
+_EDITOR_FIELD_TYPES = frozenset(("feedback", "post_processing"))
 
 # The field types under the names the fragment editor shows; Single and List are stored as string and array.
 FIELD_TYPE_NAMES = {
@@ -115,6 +117,21 @@ def _flag(key: str, value: Switch) -> dict[str, bool]:
     return {} if value == "unchanged" else {key: value == "on"}
 
 
+def stage_of(field_type: str) -> Stage:
+    if field_type == DECISION_FIELD_TYPE:
+        return "judge"
+    if field_type == STATE_FIELD_TYPE:
+        return "state"
+    return "editor" if field_type in _EDITOR_FIELD_TYPES else "director"
+
+
+def required_applies(field_type: str, state_mode: str | None, state_update: str | None) -> bool:
+    """Whether Required means anything: a field the Director fills, or a single state value it sets before the Writer."""
+    if field_type == STATE_FIELD_TYPE:
+        return (state_mode or DEFAULT_STATE_MODE) == "value" and state_update == "before_writer"
+    return field_type not in ("post_processing", DECISION_FIELD_TYPE)
+
+
 def fragment_text(row: Mapping[str, Any], field: str, outcome: str = "") -> str | None:
     """An interactive fragment's text *field* as stored; ``None`` for an outcome the decision does not have."""
     part = OUTCOME_PARTS.get(field)
@@ -123,7 +140,7 @@ def fragment_text(row: Mapping[str, Any], field: str, outcome: str = "") -> str 
     return str(row.get(INTERACTIVE_TEXT_COLUMNS[field]) or "")
 
 
-def fragment_text_problem(row: Mapping[str, Any], field: str, outcome: str, text: str) -> str:
+def fragment_text_problem(row: Mapping[str, Any], field: str, outcome: str, text: str, rules: AppReads) -> str:
     """Why *text* cannot become *field* of interactive fragment *row*; empty when it can.
 
     A decision is checked whole, as its route checks it, for the problems this text would add.
@@ -136,8 +153,8 @@ def fragment_text_problem(row: Mapping[str, Any], field: str, outcome: str, text
         return ""
     part = OUTCOME_PARTS.get(field)
     changed = with_outcome_text(row, part, outcome, text) if part else {INTERACTIVE_TEXT_COLUMNS[field]: text}
-    before = set(definition_problems(row))
-    added = [problem for problem in definition_problems({**row, **changed}) if problem not in before]
+    before = set(rules.definition_problems(row))
+    added = [problem for problem in rules.definition_problems({**row, **changed}) if problem not in before]
     return f"That would leave the decision unable to run: {'; '.join(added)}." if added else ""
 
 
@@ -164,7 +181,7 @@ def ordered_stage(fragments: Iterable[InteractiveFragmentRow], stage: Stage) -> 
     )
 
 
-def decision_projection(row: Mapping[str, Any], cap: int) -> dict[str, Any]:
+def decision_projection(row: Mapping[str, Any], cap: int, rules: AppReads) -> dict[str, Any]:
     """A decision's definition as the tools name it, each text clipped to *cap*."""
     keys = outcome_keys_of(row)
     data: dict[str, Any] = {
@@ -184,13 +201,13 @@ def decision_projection(row: Mapping[str, Any], cap: int) -> dict[str, Any]:
             for key in keys
         ],
     }
-    problems = definition_problems(row)
+    problems = rules.definition_problems(row)
     if problems:
         data["problems"] = problems[:6]
     return data
 
 
-def interactive_projection(row: InteractiveFragmentRow, position: int, cap: int) -> dict[str, Any]:
+def interactive_projection(row: InteractiveFragmentRow, position: int, cap: int, rules: AppReads) -> dict[str, Any]:
     """An interactive fragment's settings, and its texts clipped to *cap*."""
     field_type = row["field_type"]
     data: dict[str, Any] = {
@@ -212,7 +229,7 @@ def interactive_projection(row: InteractiveFragmentRow, position: int, cap: int)
         data["gate_question"] = clip(row["post_processing_gate"], cap)
         data["gate_replies"] = row["post_processing_gate_replies"]
     if field_type == DECISION_FIELD_TYPE:
-        data["decision"] = decision_projection(row, cap)
+        data["decision"] = decision_projection(row, cap, rules)
     else:
         data["description"] = clip(row["description"], cap)
     return data
@@ -233,11 +250,11 @@ def mood_projection(row: MoodFragmentRow, cap: int, *, texts: bool = True) -> di
     return data
 
 
-async def effect_note(field_type: str, settings: Settings) -> str:
+async def effect_note(field_type: str, settings: Settings, host: AssistantHost) -> str:
     """What keeps a fragment of *field_type* (``mood`` for a mood) from taking effect now, or nothing."""
-    switches = switch_summary(settings)
+    switches = switch_summary(settings, host)
     if field_type == DECISION_FIELD_TYPE:
-        if not (await resolve_judge_config(settings)).configured:
+        if not await host.judge_configured(settings):
             return "No Judge endpoint is set (Endpoints, Judge), so decisions are skipped until one is. Tell the user."
         needs, switch = "", ""
     elif field_type in ("mood", "string", "array"):
@@ -419,13 +436,13 @@ def _outcome_columns(args: _DecisionCreate) -> dict[str, Any]:
     return {"decision_criteria": dict(zip(keys, meanings)), "decision_outputs": dict(zip(keys, guidance))}
 
 
-def build_fragment_tools() -> list[AssistantTool]:
+def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
     """The fragment creates and setters, in their stable order."""
     tools = ToolSet()
 
     async def noted(data: dict[str, Any], field_type: str, enabled: object) -> dict[str, Any]:
         """*data* with what keeps an enabled fragment from taking effect now, if anything does."""
-        note = await effect_note(field_type, await get_settings()) if enabled else ""
+        note = await effect_note(field_type, await get_settings(), host) if enabled else ""
         return {**data, "note": note} if note else data
 
     async def stage_place(row: InteractiveFragmentRow) -> int:
@@ -438,8 +455,8 @@ def build_fragment_tools() -> list[AssistantTool]:
         # Last in its stage, as a new fragment the user adds to the end of the list.
         payload["sort_order"] = max((row["sort_order"] or 0 for row in rows), default=0) + 1
         try:
-            fields = checked_interactive_write(InteractiveFragmentCreate(**payload).model_dump())
-        except DecisionProblems as exc:
+            fields = host.checked_fragment_write(host.validated("interactive_fragment_create", payload))
+        except HostRefusal as exc:
             raise ToolFailure(f"That decision would not run: {exc}. Nothing was created.") from None
         try:
             row = await create_interactive_fragment(fields)
@@ -447,7 +464,7 @@ def build_fragment_tools() -> list[AssistantTool]:
             raise ToolFailure("A fragment with that id was added meanwhile. Nothing was created; ask again.") from None
         if row is None:
             raise ToolFailure("The fragment was not created.")
-        projected = interactive_projection(row, await stage_place(row), 300)
+        projected = interactive_projection(row, await stage_place(row), 300, host)
         data = await noted({"created": True, "fragment": projected}, row["field_type"], row["enabled"])
         ids = {"fragment_id": row["id"]}
         kind = FIELD_TYPE_NAMES.get(row["field_type"], row["field_type"])
@@ -463,15 +480,18 @@ def build_fragment_tools() -> list[AssistantTool]:
     )
     async def add_mood_fragment(args: _MoodCreate) -> ToolOutput:
         taken = [row["id"] for row in await get_mood_fragments()]
-        fields = MoodFragmentCreate(
-            id=new_fragment_id(args.label, taken),
-            label=args.label.strip(),
-            description=args.description.strip(),
-            prompt_text=args.prompt_text.strip(),
-            negative_prompt=args.negative_prompt.strip(),
-            cooldown_turns=args.cooldown_turns,
-            enabled=args.enabled,
-        ).model_dump()
+        fields = host.validated(
+            "mood_fragment_create",
+            {
+                "id": new_fragment_id(args.label, taken),
+                "label": args.label.strip(),
+                "description": args.description.strip(),
+                "prompt_text": args.prompt_text.strip(),
+                "negative_prompt": args.negative_prompt.strip(),
+                "cooldown_turns": args.cooldown_turns,
+                "enabled": args.enabled,
+            },
+        )
         try:
             row = await create_mood_fragment(fields)
         except sqlite3.IntegrityError:
@@ -566,7 +586,8 @@ def build_fragment_tools() -> list[AssistantTool]:
         changes = {key: value for key, value in wanted.items() if row[key] != value}
         if (
             changes
-            and await update_mood_fragment(row["id"], MoodFragmentUpdate(**changes).model_dump(exclude_none=True)) is None
+            and await update_mood_fragment(row["id"], host.validated("mood_fragment_update", changes, exclude_none=True))
+            is None
         ):
             raise ToolFailure(f"No mood fragment has the id {args.fragment_id}.")
         after = await mood_fragment_of(row["id"])
@@ -633,17 +654,17 @@ def build_fragment_tools() -> list[AssistantTool]:
             raise ToolFailure("Name something to change; nothing was asked to.")
         changes = {key: value for key, value in wanted.items() if row.get(key) != value}
         if changes:
-            fields = InteractiveFragmentUpdate(**changes).model_dump(exclude_unset=True)
+            fields = host.validated("interactive_fragment_update", changes, exclude_unset=True)
             try:
-                fields = checked_interactive_write(fields, dict(row))
-            except DecisionProblems as exc:
+                fields = host.checked_fragment_write(fields, dict(row))
+            except HostRefusal as exc:
                 raise ToolFailure(f"That would leave the decision unable to run: {exc}. Nothing was changed.") from None
             if await update_interactive_fragment(row["id"], fields) is None:
                 raise ToolFailure(f"No interactive fragment has the id {args.fragment_id}.")
         moved = await _move(row["id"], stage_of(field_type), args.position) if args.position else False
         after = await interactive_fragment_of(row["id"])
         data: dict[str, Any] = {
-            "fragment": interactive_projection(after, await stage_place(after), 300),
+            "fragment": interactive_projection(after, await stage_place(after), 300, host),
             "changed": sorted([*changes, *(["position"] if moved else [])]),
         }
         if "field_type" in changes and row["field_type"] == STATE_FIELD_TYPE:
@@ -692,13 +713,13 @@ def build_fragment_tools() -> list[AssistantTool]:
         label, ids = f"decision fragment {quoted(row['label'])}", {"fragment_id": row["id"]}
         if changes:
             try:
-                fields = checked_interactive_write(dict(changes), dict(row))
-            except DecisionProblems as exc:
+                fields = host.checked_fragment_write(dict(changes), dict(row))
+            except HostRefusal as exc:
                 raise ToolFailure(f"That would leave the decision unable to run: {exc}. Nothing was changed.") from None
             if await update_interactive_fragment(row["id"], fields) is None:
                 raise ToolFailure(f"No interactive fragment has the id {args.fragment_id}.")
         after = await interactive_fragment_of(row["id"])
-        data = {"decision": decision_projection(after, 300), "changed": sorted(changes)}
+        data = {"decision": decision_projection(after, 300, host), "changed": sorted(changes)}
         if not changes:
             return ToolOutput(data, f"The {label} already had that; nothing changed.", ids)
         return ToolOutput(
@@ -744,7 +765,7 @@ async def _move(fragment_id: str, stage: Stage, position: int) -> bool:
 
 
 def fragment_rows(
-    moods: Sequence[MoodFragmentRow], interactive: Sequence[InteractiveFragmentRow], kind: str, cap: int
+    moods: Sequence[MoodFragmentRow], interactive: Sequence[InteractiveFragmentRow], kind: str, cap: int, rules: AppReads
 ) -> list[dict[str, Any]]:
     """Every fragment as a listing shows it: moods by label, then interactive fragments stage by stage in their order."""
     rows: list[dict[str, Any]] = []
@@ -753,5 +774,5 @@ def fragment_rows(
     if kind in ("all", "interactive"):
         for stage in STAGES:
             for index, row in enumerate(ordered_stage(interactive, stage)):
-                rows.append(interactive_projection(row, index + 1, cap))
+                rows.append(interactive_projection(row, index + 1, cap, rules))
     return rows

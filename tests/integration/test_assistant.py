@@ -6,12 +6,12 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from backend.api.assistant import build_tools
-from backend.api.assistant.reads import MAX_MESSAGES
+from backend.api.assistant import apply_proposals, build_tools
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
 from backend.database import LIBRARY_VIEWS, add_message, close_wal_anchor, get_lorebook_entries, get_settings, open_wal_anchor
 from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant
+from backend.features.assistant.tools.reads import MAX_MESSAGES
 from backend.inference import LLMClient
 from backend.workflows import prose_rewriter_host
 
@@ -473,7 +473,7 @@ async def test_a_change_runs_once_and_an_edit_is_proposed_once_per_request(clien
 
 
 async def test_stop_during_a_lore_commit_waits_for_it_and_still_reports_its_id(client, library, monkeypatch):
-    from backend.api.assistant import actions
+    from backend.features.assistant.tools import actions
 
     writing, release = asyncio.Event(), asyncio.Event()
     real = actions.create_lorebook_entry
@@ -615,7 +615,7 @@ async def test_an_edit_after_the_preview_is_a_409_and_concurrent_applies_commit_
     )
 
     # Two Applies at once: the second arrives while the first is inside its write, waits for it, and answers with its result.
-    from backend.api.assistant import proposals
+    from backend.features.assistant.tools import proposals
 
     preview = await _propose(tools, "edit_character", field="scenario", mode="replace_all", text="Dawn at the docks.")
     writing, release = asyncio.Event(), asyncio.Event()
@@ -691,7 +691,7 @@ async def test_an_edit_racing_the_apply_waits_for_it_and_is_not_overwritten(clie
 
 
 async def test_proposals_check_their_text_and_an_unknown_or_expired_one_is_inert(client, library, db, monkeypatch):
-    from backend.api.assistant import proposals
+    from backend.features.assistant.tools import proposals
 
     tools = await _tools(mode="library", character_id=library["card"])
     edit = tools["edit_character"]
@@ -729,7 +729,7 @@ async def test_proposals_check_their_text_and_an_unknown_or_expired_one_is_inert
 
 async def test_a_chat_edit_refuses_a_busy_or_deleted_chat_and_a_cancelled_apply_still_settles(client, library, db, monkeypatch):
     from backend.api import deps
-    from backend.api.assistant import proposals
+    from backend.features.assistant.tools import proposals
 
     tools = await _tools(mode="chat", conversation_id=library["chat"])
     kept = library["kept"]
@@ -751,7 +751,7 @@ async def test_a_chat_edit_refuses_a_busy_or_deleted_chat_and_a_cancelled_apply_
         return await real(*args, **kwargs)
 
     monkeypatch.setattr(proposals, "save_message_edit", slow)
-    task = asyncio.create_task(proposals.apply_proposals([preview["proposal_id"]]))
+    task = asyncio.create_task(apply_proposals([preview["proposal_id"]]))
     await asyncio.wait_for(writing.wait(), 5)
     task.cancel()
     await asyncio.sleep(0.05)
@@ -791,8 +791,8 @@ async def test_a_tools_panel_save_after_the_assistants_toggle_keeps_it(client):
 
 
 async def test_a_failure_after_the_commit_is_finished_by_the_retry_never_reported_as_stale(client, library, db, monkeypatch):
-    from backend.api.assistant import proposals
     from backend.database.queries import messages
+    from backend.features.assistant.tools import proposals
 
     # A card: its write commits, then carrying it to the card's chats fails. A repeated Apply returns the first answer and runs
     # that step again; nothing is stale.
@@ -807,7 +807,7 @@ async def test_a_failure_after_the_commit_is_finished_by_the_retry_never_reporte
 
     monkeypatch.setattr(proposals, "sync_conversations_for_card", flaky_sync)
     with pytest.raises(RuntimeError):
-        await proposals.apply_proposals([preview["proposal_id"]])
+        await apply_proposals([preview["proposal_id"]])
     [retry] = await _apply(client, preview["proposal_id"])
     assert retry["verdict"] == "applied" and retry["repeated"] is True
     conv = await db.one("SELECT character_scenario FROM conversations WHERE id = ?", (library["chat"],))
@@ -828,7 +828,7 @@ async def test_a_failure_after_the_commit_is_finished_by_the_retry_never_reporte
 
     monkeypatch.setattr(messages, "mark_changesets_stale_on", flaky_stale)
     with pytest.raises(RuntimeError):
-        await proposals.apply_proposals([preview["proposal_id"]])
+        await apply_proposals([preview["proposal_id"]])
     row = await db.one("SELECT content, writer_draft FROM messages WHERE id = ?", (kept,))
     assert tuple(row) == ("final kept line", "pre-rewrite draft"), "rolled back whole"
     assert (await _apply(client, preview["proposal_id"]))[0]["verdict"] == "applied"

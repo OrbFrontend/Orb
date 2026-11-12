@@ -10,10 +10,9 @@ from __future__ import annotations
 import json
 from typing import Annotated, Any, Literal
 
-from fastapi import HTTPException
 from pydantic import Field, StringConstraints, field_validator
 
-from ...database import (
+from ....database import (
     add_phrase_group,
     get_phrase_bank_rows,
     get_settings,
@@ -21,9 +20,8 @@ from ...database import (
     update_settings,
     update_world,
 )
-from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
-from ..deps import validate_phrase_group
-from ..schemas import LorebookEntryUpdate, WorldUpdate
+from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from .host import AssistantHost, HostRefusal
 from .targets import clip, entry_field, entry_of, not_blank, persona_of, quoted, world_field, world_of
 from .toggles import switch_summary
 
@@ -130,7 +128,7 @@ class _PhraseAdd(ToolArguments):
     _blank = field_validator("phrase", "variants")(not_blank)
 
 
-def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
+def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[AssistantTool]:
     """The setters, in their stable order, bound to the request's view."""
     tools = ToolSet()
 
@@ -171,7 +169,7 @@ def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
         changes = {key: value for key, value in wanted.items() if stored[key] != value}
         if changes:
             # The entry route's own schema and writer: the entry and world revisions advance as for any edit.
-            fields = LorebookEntryUpdate(**changes).model_dump(exclude_unset=True)
+            fields = host.validated("lorebook_entry_update", changes, exclude_unset=True)
             if await update_lorebook_entry(entry["id"], fields, world_id=world["id"]) is None:
                 raise ToolFailure(f"That world has no entry {args.entry_id}.")
         after = {**stored, **changes}
@@ -223,7 +221,7 @@ def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
         changes = {key: value for key, value in wanted.items() if stored[key] != value}
         if changes:
             # The world route's own schema and writer; a world's own fields never invalidate its pending proposals.
-            if await update_world(world["id"], WorldUpdate(**changes).model_dump(exclude_unset=True)) is None:
+            if await update_world(world["id"], host.validated("world_update", changes, exclude_unset=True)) is None:
                 raise ToolFailure(f"No world has the id {args.world_id}.")
         after = {**stored, **changes}
         data: dict[str, Any] = {
@@ -263,7 +261,7 @@ def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
         if changes:
             # The settings route's own writer: these columns only, so a concurrent change to any other key is untouched.
             await update_settings(changes)
-        switches = switch_summary(await get_settings())
+        switches = switch_summary(await get_settings(), host)
         guard = switches["length_guard_limits"]
         data = {"length_guard": switches["length_guard"], "limits": guard, "changed": sorted(changes)}
         if switches["length_guard"] is not True:
@@ -302,9 +300,9 @@ def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def add_banned_phrase(args: _PhraseAdd) -> ToolOutput:
         try:
-            variants, _ = validate_phrase_group("literal", [args.phrase, *args.variants], "")
-        except HTTPException as exc:
-            raise ToolFailure(str(exc.detail)) from None
+            variants = host.literal_phrases([args.phrase, *args.variants])
+        except HostRefusal as exc:
+            raise ToolFailure(str(exc)) from None
         variants = list(dict.fromkeys(variants))
         known = {
             str(variant).casefold(): row["id"] for row in await get_phrase_bank_rows() for variant in row["variants"] or []
@@ -314,7 +312,7 @@ def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
             data = {"added": False, "already_in_bank": already, "group_id": known[already[0].casefold()]}
             return ToolOutput(data, f"The phrase bank already has {json.dumps(already[0], ensure_ascii=False)}; nothing added.")
         group_id = await add_phrase_group(variants)
-        switches = switch_summary(await get_settings())
+        switches = switch_summary(await get_settings(), host)
         auditor = switches["output_auditor"]
         check = switches["editor_audit_checks"].get("banned_phrases")
         data = {"added": True, "group_id": group_id, "variants": variants}
