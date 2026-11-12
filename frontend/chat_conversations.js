@@ -238,7 +238,7 @@ export async function selectConversation(id) {
     const prevCharId = S.activeCharId;
     if (conv?.kind === "group") S.activeCharId = null;
     else if (conv?.character_card_id) S.activeCharId = conv.character_card_id;
-    if (S.activeCharId !== prevCharId) renderCharacters();
+    if (S.activeCharId !== prevCharId) refreshCharacters();
     renderGroupList();
     updateUserBtn();
     $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";

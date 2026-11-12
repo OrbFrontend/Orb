@@ -649,10 +649,10 @@ function cardHtml(card, index, { busy }) {
 // Requests the tools can carry out from each kind of view, offered while the transcript is empty.
 const SUGGESTIONS = {
   chat: [
-    "Summarise what has happened in this chat.",
-    "Tighten entries for the active lorebook.",
-    "Rewrite the last reply to be shorter.",
-    "Save a checkpoint of this chat.",
+    "What can you do?",
+    "How do I strategically get into her pants?",
+    "Tighten entries for the active lorebooks.",
+    "What are the most used 2-grams in this chat?",
   ],
   character: [
     "Summarise this character.",
@@ -675,9 +675,9 @@ const SUGGESTIONS = {
     "What is switched on in the pipeline?",
   ],
   library: [
-    "Which characters have no scenario?",
-    "Create a world called Ashfall with an entry for its capital.",
-    "List my personas.",
+    "Make another character of my favorite archetype, then start a chat.",
+    "Create a fantasy world called India with an entry for its cursed denizens.",
+    "Rate my personas.",
     "What is switched on in the pipeline?",
   ],
 };
