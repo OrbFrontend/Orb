@@ -288,8 +288,8 @@ def _text(cap: int, description: str, *, required: bool = False) -> Any:
 
 def _cooldown(*, unchanged: bool = False) -> Any:
     if unchanged:
-        return Field(default=-1, ge=-1, le=50, description="Turns it rests after it is used, 0 to 50; -1 leaves it.")
-    return Field(default=0, ge=0, le=50, description="Turns it rests after it is used, 0 to 50.")
+        return Field(default=-1, ge=-1, le=50, description="Turns it rests after it is used; -1 leaves it.")
+    return Field(default=0, ge=0, le=50, description="Turns it rests after it is used.")
 
 
 class _MoodCreate(ToolArguments):
@@ -572,7 +572,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
     @tools.add(
         "write",
         _MoodSet,
-        "Turn a mood fragment on or off, or set its cooldown. Turning one off is how to stop using it but keep it.",
+        "Turn a mood fragment on or off, or set its cooldown.",
         idempotent=True,
     )
     async def set_mood_fragment(args: _MoodSet) -> ToolOutput:
@@ -602,7 +602,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         "write",
         _InteractiveSet,
         "Set an interactive fragment's switches, cooldown, type, state settings, gate history or place in its stage. "
-        "Turning one off is how to stop using it but keep it. Its text changes through edit_interactive_fragment.",
+        "Its text changes through edit_interactive_fragment.",
         idempotent=True,
     )
     async def set_interactive_fragment(args: _InteractiveSet) -> ToolOutput:

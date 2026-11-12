@@ -100,7 +100,7 @@ _VIEW_NOTES = (
     + ". messages.role is 'user' or 'assistant'. messages holds every branch: a chat's kept branch is the parent_id chain "
     "from conversations.active_leaf_id. tags, alternate_greetings and keywords are JSON arrays (json_each). "
     "lorebook_entries spans every world; a disabled or archived entry is not in effect. Select id and "
-    "conversation_id with message findings; substr long text. LIKE is literal: match the stem a word's forms share, "
+    "conversation_id with message findings; substr long text. LIKE matches substrings only: search the stem a word's forms share, "
     "excerpt hits with instr, and if none fits ask for the user's exact words. "
     f"At most {_SQL_CAPS['max_rows']} rows, {_SQL_CAPS['max_cell_chars']} characters a cell. "
     "Documents, settings and state are not here."
@@ -112,9 +112,7 @@ FULL_FIELD_CHARS = 4000
 
 class _ListArgs(ToolArguments):
     query: str = Field(default="", max_length=_QUERY_CHARS, description="Case-insensitive text to match; empty lists all.")
-    limit: int = Field(
-        default=_DEFAULT_LIST_ROWS, ge=1, le=_MAX_LIST_ROWS, description=f"Rows to return, at most {_MAX_LIST_ROWS}."
-    )
+    limit: int = Field(default=_DEFAULT_LIST_ROWS, ge=1, le=_MAX_LIST_ROWS, description="Rows to return.")
     offset: int = Field(default=0, ge=0, description="Rows to skip, for the next page.")
 
 
@@ -135,7 +133,7 @@ class _SqlArgs(ToolArguments):
 
 class _MessagesArgs(ToolArguments):
     conversation_id: str = chat_field()
-    count: int = Field(default=MAX_MESSAGES, ge=1, le=MAX_MESSAGES, description=f"Messages to read, at most {MAX_MESSAGES}.")
+    count: int = Field(default=MAX_MESSAGES, ge=1, le=MAX_MESSAGES, description="Messages to read.")
     before_message_id: int = Field(
         default=0, ge=0, description="Read the messages before this one on the kept branch: the last page's earlier_from."
     )

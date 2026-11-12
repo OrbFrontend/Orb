@@ -676,7 +676,7 @@ const SUGGESTIONS = {
   ],
   library: [
     "What can you do?",
-    "Make another character of my favorite archetype, then start a chat.",
+    "Make a character based on my favorite archetype, then start a chat.",
     "Create a fantasy world called India with an entry for its cursed denizens.",
     "Rate my fragments library.",
   ],

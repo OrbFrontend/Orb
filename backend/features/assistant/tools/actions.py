@@ -77,7 +77,7 @@ class _LoreEntryArgs(ToolArguments):
     world_id: str = world_field()
     name: str = Field(min_length=1, max_length=_NAME_CHARS, description="The entry's title.")
     content: str = Field(
-        min_length=1, max_length=_LORE_CONTENT_CHARS, description=f"The lore itself, at most {_LORE_CONTENT_CHARS} characters."
+        min_length=1, max_length=_LORE_CONTENT_CHARS, description=f"The lore itself. At most {_LORE_CONTENT_CHARS} characters."
     )
     keywords: list[_Keyword] = Field(
         default_factory=list,
@@ -305,8 +305,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
     @tools.add(
         "write",
         _ChatWorld,
-        "Use a world in one chat, or stop using it there. "
-        "It changes nothing else about the chat and reports whether the world is global.",
+        "Use a world in one chat, or stop using it there.",
         idempotent=True,
     )
     async def set_chat_world(args: _ChatWorld) -> ToolOutput:

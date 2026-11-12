@@ -198,12 +198,12 @@ _EntryEdit = _edit_args(
 
 _PersonaEdit = _edit_args(
     "_PersonaEdit",
-    persona_id=(int, Field(ge=1, description="The persona's id, from list_personas.")),
+    persona_id=(int, Field(ge=1, description="The persona, from list_personas.")),
     field=(Literal["name", "description"], ...),
 )
 
 _MessageEdit = _edit_args(
-    "_MessageEdit", conversation_id=_CHAT, message_id=(int, Field(ge=1, description="The message's id, from read_messages."))
+    "_MessageEdit", conversation_id=_CHAT, message_id=(int, Field(ge=1, description="The message, from read_messages."))
 )
 
 _MoodFragmentEdit = _edit_args("_MoodFragmentEdit", fragment_id=(str, fragment_field()), field=(Literal[MOOD_TEXT_FIELDS], ...))

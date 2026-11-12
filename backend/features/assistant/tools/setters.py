@@ -135,8 +135,7 @@ def build_setter_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
     @tools.add(
         "write",
         _EntrySet,
-        "Turn a lore entry on or off, make it constant or keyword-triggered, or replace its keywords or secondary keywords. "
-        "Turning an entry off is how to undo one added by mistake.",
+        "Turn a lore entry on or off, make it constant or keyword-triggered, or replace its keywords or secondary keywords.",
         idempotent=True,
     )
     async def set_lore_entry(args: _EntrySet) -> ToolOutput:

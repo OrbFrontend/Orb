@@ -45,8 +45,7 @@ _MEDIA = (
         "Composing the image prompt…",
         "Make an image of one saved reply in a chat with the Image Generation workflow and save it on that message. With "
         "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
-        "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
-        "It takes a while, often minutes.",
+        "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does.",
         directed=True,
     ),
     _Medium(

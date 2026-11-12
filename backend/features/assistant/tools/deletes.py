@@ -54,7 +54,7 @@ class _CharacterDelete(ToolArguments):
     character_id: str = character_field()
     delete_chats: bool = Field(
         default=False,
-        description="true only when the user asks for the character's chats to go too; otherwise its chats are kept.",
+        description="true only when the user asks for its chats to go too.",
     )
 
 
@@ -81,7 +81,7 @@ class _PersonaDelete(ToolArguments):
 
 
 class _PhraseDelete(ToolArguments):
-    group_id: int = Field(ge=1, description="The phrase group's id, from list_banned_phrases.")
+    group_id: int = Field(ge=1, description="The phrase group, from list_banned_phrases.")
 
 
 class _DocumentDelete(ToolArguments):

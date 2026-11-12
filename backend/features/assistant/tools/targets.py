@@ -55,15 +55,15 @@ def character_field() -> Any:
 
 
 def world_field() -> Any:
-    return Field(default="", max_length=ID_CHARS, description="Empty: the world open in the lorebook. Ids: list_worlds.")
+    return Field(default="", max_length=ID_CHARS, description="Empty: the world open in the lorebook; else from list_worlds.")
 
 
 def entry_field() -> Any:
-    return Field(default=0, ge=0, description="0: the entry selected in the lorebook. Ids: list_lore_entries.")
+    return Field(default=0, ge=0, description="0: the entry selected in the lorebook; else from list_lore_entries.")
 
 
 def fragment_field() -> Any:
-    return Field(min_length=1, max_length=ID_CHARS, description="The fragment's id, from list_fragments.")
+    return Field(min_length=1, max_length=ID_CHARS, description="The fragment, from list_fragments.")
 
 
 def open_in_view(conv: ConversationRow, view: ViewContext) -> None:
