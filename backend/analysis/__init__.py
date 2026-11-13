@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from .audit import AUDIT_TYPES, AuditReport, format_report, report_to_dict, run_audit
 from .detectors.anti_echo import EchoResult
-from .detectors.negated_narration import NegationFinding, NegationResult
+from .detectors.negated_narration import NegationFinding, NegationResult, detect_negated_narration
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
-from .detectors.phrase_repetition import PhraseResult
+from .detectors.phrase_repetition import PhraseResult, detect_phrase_reuse
 from .detectors.slop_detector import DetectionResult
 from .detectors.structural_repetition import StructuralResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult

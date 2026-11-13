@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import os
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 
-from ..text.lexical import count_content_words, is_contiguous_subsequence, ngrams, tokenize
+from ..text.lexical import STOPWORDS, TOKEN_RE, count_content_words, is_contiguous_subsequence, ngrams, tokenize
 from ..text.roleplay_segmentation import split_narration_sentences
 
 DEBUG = "DEBUG_PHRASE_REPETITION" in os.environ
 
-__all__ = ["detect_phrase_repetition", "deduplicate_phrases", "PhraseResult", "FlaggedPhrase"]
+__all__ = ["detect_phrase_repetition", "detect_phrase_reuse", "deduplicate_phrases", "PhraseResult", "FlaggedPhrase"]
 
 
 @dataclass(slots=True)
@@ -127,3 +128,71 @@ def detect_phrase_repetition(
         sys.stderr.write(f"[phrase_repetition] {len(flagged)} after redundancy suppression\n")
 
     return PhraseResult(flagged_phrases=flagged, total_messages=total)
+
+
+def _is_proper_noun(phrase: str, sentence: str) -> bool:
+    """Return whether every content word of *phrase* is capitalised where it occurs in *sentence*."""
+    gram = phrase.split()
+    originals = TOKEN_RE.findall(unicodedata.normalize("NFC", sentence))
+    folded = tokenize(sentence)
+    if len(originals) != len(folded):
+        return False
+    for i in range(len(folded) - len(gram) + 1):
+        if folded[i : i + len(gram)] == gram:
+            content = [word for word, token in zip(originals[i:], gram) if token not in STOPWORDS]
+            return bool(content) and all(word[:1].isupper() for word in content)
+    return False
+
+
+def detect_phrase_reuse(
+    earlier: str,
+    text: str,
+    min_n: int = 2,
+    short_max_n: int = 2,
+    max_n: int = 5,
+    short_min_sentences: int = 3,
+    long_min_sentences: int = 2,
+    min_content_words: int = 2,
+) -> PhraseResult:
+    """Return phrases a sentence of *text* repeats from an earlier sentence of *earlier* or of *text* itself.
+
+    One finding per repeating sentence, with ``example_sentences`` holding the previous occurrence and the repeat. Names are
+    not findings.
+    """
+    before = len(_split_sentences(earlier))
+    sentences = _split_sentences(earlier) + _split_sentences(text)
+
+    def repeats(phrase: FlaggedPhrase, need: int) -> list[int]:
+        return [k for k, index in enumerate(phrase.message_indices) if index >= before and k >= need - 1]
+
+    need_of: dict[int, int] = {}
+    candidates: list[FlaggedPhrase] = []
+    for low, high, need in ((min_n, short_max_n, short_min_sentences), (short_max_n + 1, max_n, long_min_sentences)):
+        found = detect_phrase_repetition(
+            sentences,
+            min_n=low,
+            max_n=high,
+            min_messages=need,
+            min_content_words=min_content_words,
+            require_last_message=False,
+        )
+        for phrase in found.flagged_phrases:
+            if repeats(phrase, need):
+                need_of[id(phrase)] = need
+                candidates.append(phrase)
+
+    flagged: list[FlaggedPhrase] = []
+    for phrase in deduplicate_phrases(candidates):
+        for k in repeats(phrase, need_of[id(phrase)]):
+            sentence = phrase.example_sentences[k]
+            if _is_proper_noun(phrase.phrase, sentence):
+                continue
+            flagged.append(
+                FlaggedPhrase(
+                    phrase=phrase.phrase,
+                    count=phrase.count,
+                    message_indices=phrase.message_indices[: k + 1],
+                    example_sentences=[phrase.example_sentences[k - 1], sentence],
+                )
+            )
+    return PhraseResult(flagged_phrases=flagged, total_messages=len(sentences))

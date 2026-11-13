@@ -331,6 +331,8 @@ DEFAULT_SETTINGS: Settings = {
         "repetitive_openers": True,
         "repetitive_templates": True,
         "contrastive_negation": True,
+        "phrase_repetition": True,
+        "negated_narration": False,
     },
     "hide_streaming_until_baked": 0,
     "expression_rendering": "classic",

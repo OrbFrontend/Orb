@@ -7,8 +7,23 @@ import { persistSettings } from "./settings_store.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 
-const DOC_AUDIT_KEYS = ["banned_phrases", "repetitive_openers", "repetitive_templates", "contrastive_negation"];
-const DOC_AUDIT_DEFS = AUDIT_TYPE_DEFS.filter((d) => DOC_AUDIT_KEYS.includes(d.key));
+const DOC_AUDIT_KEYS = [
+  "banned_phrases",
+  "repetitive_openers",
+  "repetitive_templates",
+  "contrastive_negation",
+  "phrase_repetition",
+  "negated_narration",
+];
+const DOC_AUDIT_TITLES = {
+  phrase_repetition: "Flag phrases the new text repeats from the last few pages or from itself. Names are ignored.",
+};
+const DOC_AUDIT_OFF_BY_DEFAULT = ["negated_narration"];
+const DOC_AUDIT_DEFS = AUDIT_TYPE_DEFS.filter((d) => DOC_AUDIT_KEYS.includes(d.key)).map((d) => ({
+  ...d,
+  title: DOC_AUDIT_TITLES[d.key] || d.title,
+}));
+const docAuditOn = (toggles, key) => toggles[key] ?? !DOC_AUDIT_OFF_BY_DEFAULT.includes(key);
 
 let _ctx = null; // { getContent, applyPatchedRun, selectRange } injected by document.js
 
@@ -39,7 +54,7 @@ export function renderDocAuditPane() {
 
   const checks = DOC_AUDIT_DEFS.map(
     (a) => `<label class="lg-enforce-label" title="${escAttr(a.title)}">
-             <input type="checkbox" data-doc-audit-key="${a.key}" ${toggles[a.key] !== false ? "checked" : ""}>
+             <input type="checkbox" data-doc-audit-key="${a.key}" ${docAuditOn(toggles, a.key) ? "checked" : ""}>
              ${esc(a.label)}
            </label>`,
   ).join("");
@@ -118,6 +133,9 @@ function jumpButton(r, cls, text, inner) {
 }
 
 function sectionItemsHtml(r, key, items) {
+  if (key === "negated_narration") {
+    return items.map((it) => jumpButton(r, "doc-audit-item", it.span, `${_ids(it.ids)}${esc(it.span)}`)).join("");
+  }
   if (key === "banned_phrases") {
     return items
       .map((it) =>
@@ -130,17 +148,20 @@ function sectionItemsHtml(r, key, items) {
       )
       .join("");
   }
-  if (key === "repetitive_openers" || key === "repetitive_templates") {
-    const label = key === "repetitive_openers" ? "opener" : "template";
-    const snippets = (list) => (list || []).map((t) => jumpButton(r, "doc-audit-snippet", t, `• ${esc(t)}`)).join("");
+  if (key === "contrastive_negation") {
     return items
-      .map(
-        (it) =>
-          `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it[label])}”</b> ×${it.count}${snippets(it.sentences)}</div>`,
-      )
+      .map((it) => jumpButton(r, "doc-audit-item", it.sentence, `${_ids(it.ids)}${esc(it.sentence)}`))
       .join("");
   }
-  return items.map((it) => jumpButton(r, "doc-audit-item", it.sentence, `${_ids(it.ids)}${esc(it.sentence)}`)).join("");
+  const label = { repetitive_openers: "opener", repetitive_templates: "template", phrase_repetition: "phrase" }[key];
+  const snippets = (list) => (list || []).map((t) => jumpButton(r, "doc-audit-snippet", t, `• ${esc(t)}`)).join("");
+  const sentences = (it) => (key === "phrase_repetition" ? [it.earlier, it.sentence].filter(Boolean) : it.sentences);
+  return items
+    .map(
+      (it) =>
+        `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it[label])}”</b> ×${it.count}${snippets(sentences(it))}</div>`,
+    )
+    .join("");
 }
 
 function renderDocAuditResults() {

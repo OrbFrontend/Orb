@@ -1,5 +1,5 @@
 """Integration of the negated-narration detector with the audit, targets,
-patching, serializers, Editor prompts, and Document-mode exclusion."""
+patching, serializers, Editor prompts, and Document mode."""
 
 import pytest
 
@@ -210,16 +210,28 @@ def test_unchanged_patch_is_a_no_op_error():
     assert [e.kind for e in errors] == ["no_op"]
 
 
-# -- Document mode never runs it -----------------------------------------------
+# -- Document mode ------------------------------------------------------------
 
 
-def test_document_audit_excludes_negated_narration_even_when_enabled():
-    assert _audit_sync(_DRAFT, "", [], {"negated_narration": True}).negation_result is None
+def test_document_audit_is_off_by_default():
+    assert _audit_sync(_DRAFT, "", [], None).negation_result is None
 
 
-async def test_document_audit_payload_has_no_negated_narration_section():
-    res = await audit_document(_DRAFT, "", [], {"negated_narration": True}, assisted=False, truncated=False)
-    assert "negated_narration" not in res["report"]["sections"]
+async def test_document_audit_anchors_findings_to_the_run():
+    context = "She doesn't look up. Doesn't speak. She just waits.\n\n"
+    res = await audit_document(_DRAFT, context, [], {"negated_narration": True}, assisted=False, truncated=False)
+    items = res["report"]["sections"]["negated_narration"]
+    assert [item["ids"] for item in items] == [[1], [2]]
+    assert all(item["span"] in _DRAFT for item in items)
+
+
+async def test_document_audit_counts_denials_on_the_preceding_page():
+    context = "She doesn't jump. Doesn't gasp. She just slowly straightens up.\n\n"
+    run = "The fire pops. He didn't answer."
+    alone = await audit_document(run, "", [], {"negated_narration": True}, assisted=False, truncated=False)
+    assert alone["report"]["is_clean"]
+    res = await audit_document(run, context, [], {"negated_narration": True}, assisted=False, truncated=False)
+    assert [item["span"] for item in res["report"]["sections"]["negated_narration"]] == ["He didn't answer."]
 
 
 # -- Editor prompts ------------------------------------------------------------

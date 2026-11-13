@@ -67,7 +67,7 @@ def _repeats(item: FlaggedOpener | FlaggedTemplate) -> list[str]:
     return item.sentences[1:] if item.original_listed else item.sentences
 
 
-def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]:
+def _raw_findings(report: AuditReport, draft: str, phrase_source: str) -> list[tuple[str, str, str]]:
     """Return ``(span, category, reason)`` triples for actionable findings."""
     raw: list[tuple[str, str, str]] = []
     for fs in report.cliche_result.flagged_sentences:
@@ -86,7 +86,7 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
         for fp in report.phrase_result.flagged_phrases:
             for s in reversed(fp.example_sentences):
                 if s in draft:
-                    raw.append((s, "phrase_repetition", f'reuses the phrase "{fp.phrase}" already seen in previous messages'))
+                    raw.append((s, "phrase_repetition", f'reuses the phrase "{fp.phrase}" already seen {phrase_source}'))
                     break
     if report.echo_result:
         for fe in report.echo_result.flagged_echoes:
@@ -167,13 +167,15 @@ def _merge_overlapping(targets: list[Target], draft: str) -> list[Target]:
     return merged
 
 
-def build_targets(report: AuditReport, draft: str) -> list[Target]:
-    """Resolve an audit report into ordered, id-addressable targets."""
+def build_targets(report: AuditReport, draft: str, *, phrase_source: str = "in previous messages") -> list[Target]:
+    """Resolve an audit report into ordered, id-addressable targets.
+
+    *phrase_source* names where a repeated phrase was already seen."""
     mask = _narration_mask(draft)
 
     # Group findings by marker-stripped span text, preserving discovery order.
     by_span: dict[str, list[tuple[str, str]]] = {}
-    for span, cat, why in _raw_findings(report, draft):
+    for span, cat, why in _raw_findings(report, draft, phrase_source):
         core = strip_markers(span)
         if not core or core not in draft:
             continue

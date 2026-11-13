@@ -6,18 +6,23 @@ import asyncio
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ...analysis import (
     AuditReport,
+    NegationResult,
     Target,
     apply_id_patches,
     build_targets,
+    detect_negated_narration,
+    detect_phrase_reuse,
     filter_audit_report_to_text,
     format_numbered_report,
     report_to_dict,
     run_audit,
 )
+from ...analysis.audit import audit_on
 from ...core import ChatMessage, extract_hyperparams
 from ...core.llm_types import CompletionMessage
 from ...core.settings import Settings
@@ -29,15 +34,25 @@ from .continuation import ROLE_MACRO_RE, build_generation_messages
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
 
-# The doc-applicable subset of analysis.AUDIT_TYPES: the three chat-context scanners (anti_echo, phrase_repetition,
-# structural_repetition) need previous assistant messages / the user's last message, which a document doesn't have -- run_audit
-# auto-skips them when those aren't passed. Single source for both the toggle filter here and the panel checkboxes in the
-# frontend.
-DOC_AUDIT_TYPES = ("banned_phrases", "repetitive_openers", "repetitive_templates", "contrastive_negation")
+# The doc-applicable subset of analysis.AUDIT_TYPES. anti_echo and structural_repetition compare chat turns, which a document
+# doesn't have.
+DOC_AUDIT_TYPES = (
+    "banned_phrases",
+    "repetitive_openers",
+    "repetitive_templates",
+    "contrastive_negation",
+    "phrase_repetition",
+    "negated_narration",
+)
 
 # Semantic cap on the preceding-document context the scanners see (the client may send more; the server owns the cap). Keeps the
 # opener/template windows spanning the context->draft boundary without scanning a whole novel per run.
 DOC_AUDIT_CONTEXT_CHARS = 8000
+
+# Negated narration is a repeated habit, so the run is judged together with about this much of the text before it, cut at a
+# paragraph break. A one-sentence run can then still be the second denial on the page.
+DOC_NEGATION_LEAD_CHARS = 1200
+_PHRASE_SOURCE = "earlier in the document"
 
 # llama.cpp-style chat-template control tokens (<|im_start|>, <|eot_id|>, ...). In a Raw-mode document these live on their own
 # scaffold lines; a line carrying one is template markup, not prose.
@@ -88,23 +103,46 @@ def clean_context(context: str, assisted: bool) -> str:
 def doc_audit_toggles(toggles: Mapping[str, Any] | None) -> dict:
     """The stored per-scanner map restricted to the doc-applicable subset.
 
-    Missing keys default on, mirroring run_audit's ``_on`` semantics.
+    Missing keys take the scanner's release default, like run_audit.
     """
-    src = toggles or {}
-    return {key: bool(src.get(key, True)) for key in DOC_AUDIT_TYPES}
+    src = dict(toggles or {})
+    return {key: audit_on(src, key) for key in DOC_AUDIT_TYPES}
+
+
+def _negated_narration(draft_core: str, context: str) -> NegationResult:
+    """Detect over the preceding page plus the run; keep the findings that start in the run, re-anchored to draft_core."""
+    paragraph_break = context.rfind("\n\n", 0, max(0, len(context) - DOC_NEGATION_LEAD_CHARS))
+    lead = context[paragraph_break + 2 :] if paragraph_break >= 0 else context
+    result = detect_negated_narration(lead + draft_core)
+    shift = len(lead)
+    findings = [
+        replace(
+            finding,
+            start=finding.start - shift,
+            end=finding.end - shift,
+            constituents=[replace(part, start=part.start - shift, end=part.end - shift) for part in finding.constituents],
+        )
+        for finding in result.findings
+        if finding.start >= shift
+    ]
+    return replace(result, source_text=draft_core, findings=findings)
 
 
 def _audit_sync(
     draft_core: str, context: str, phrase_bank: list[PhraseGroup], toggles: Mapping[str, Any] | None
 ) -> AuditReport:
     """Audit ``context + draft_core`` (so opener/template windows span the
-    boundary), narrowed to draft-only findings -- chat-editor semantics. No
-    chat context is passed, so the three cross-message scanners never run."""
+    boundary), narrowed to draft-only findings -- chat-editor semantics.
+
+    Phrase repetition and negated narration are run here, not by run_audit: its versions compare chat messages and read the
+    draft alone."""
     text = f"{context}\n\n{draft_core}" if context else draft_core
-    # Negated narration is chat-only: its findings are anchored to the text it read (context + draft here), so filtering to the
-    # draft would reject them. Disable it explicitly; a missing key would fall back to its release default.
-    audit_toggles = {**doc_audit_toggles(toggles), "negated_narration": False}
-    report = run_audit(text, phrase_bank, audit_toggles=audit_toggles)
+    on = doc_audit_toggles(toggles)
+    report = run_audit(text, phrase_bank, audit_toggles={**on, "negated_narration": False})
+    if on["phrase_repetition"]:
+        report.phrase_result = detect_phrase_reuse(context, draft_core)
+    if on["negated_narration"]:
+        report.negation_result = _negated_narration(draft_core, context)
     return filter_audit_report_to_text(report, draft_core)
 
 
@@ -220,7 +258,7 @@ async def patch_document(
             "skipped": "clean",
         }
 
-    targets: list[Target] = build_targets(report, core)
+    targets: list[Target] = build_targets(report, core, phrase_source=_PHRASE_SOURCE)
     if not targets:
         # Findings the detectors could not resolve to an offset in the core. Chat mode falls through to a whole-draft rewrite
         # here; doc mode has no rewrite tool, so there is simply nothing addressable to ask for.

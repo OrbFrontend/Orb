@@ -100,8 +100,8 @@ def test_clean_context_plain_prose_is_untouched_and_capped():
 # -- doc_audit_toggles --------------------------------------------------------
 
 
-def test_toggles_none_defaults_all_on():
-    assert doc_audit_toggles(None) == {k: True for k in DOC_AUDIT_TYPES}
+def test_toggles_none_takes_release_defaults():
+    assert doc_audit_toggles(None) == {k: k != "negated_narration" for k in DOC_AUDIT_TYPES}
 
 
 def test_toggles_intersected_with_doc_subset():
@@ -192,6 +192,32 @@ async def test_audit_scanner_toggle_off():
         f"She felt {_BANNED} again.", "", _BANK, {"banned_phrases": False}, assisted=False, truncated=False
     )
     assert res["report"]["is_clean"] is True
+
+
+async def test_audit_flags_phrase_repeated_from_earlier_document():
+    earlier = "The lighthouse keeper climbed the spiral iron staircase before dawn. Gulls wheeled over the rocks."
+    draft = "By evening she had counted every step of the spiral iron staircase twice."
+    res = await audit_document(draft, earlier, [], None, assisted=False, truncated=False)
+    (hit,) = res["report"]["sections"]["phrase_repetition"]
+    assert hit["phrase"] == "the spiral iron staircase" and hit["ids"] == [1]
+    assert hit["sentence"] in draft and hit["earlier"] in earlier
+    off = await audit_document(draft, earlier, [], {"phrase_repetition": False}, assisted=False, truncated=False)
+    assert off["report"]["is_clean"]
+
+
+async def test_audit_flags_phrase_repeated_inside_the_run():
+    draft = "She crossed the cold stone floor. He waited. Rain fell on the cold stone floor again."
+    res = await audit_document(draft, "", [], None, assisted=False, truncated=False)
+    (hit,) = res["report"]["sections"]["phrase_repetition"]
+    assert hit["sentence"] == "Rain fell on the cold stone floor again."
+    assert hit["earlier"] == "She crossed the cold stone floor."
+
+
+async def test_audit_does_not_flag_repeated_names():
+    earlier = "Captain Elias Voss took a room at the Black Harbour Inn."
+    draft = "Later, Captain Elias Voss returned to the Black Harbour Inn."
+    res = await audit_document(draft, earlier, [], None, assisted=False, truncated=False)
+    assert "phrase_repetition" not in res["report"]["sections"]
 
 
 # -- patch_document -----------------------------------------------------------

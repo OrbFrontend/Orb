@@ -421,6 +421,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
                 "phrase": strip_markers(fp.phrase),
                 "count": fp.count,
                 "sentence": strip_markers(fp.example_sentences[-1]) if fp.example_sentences else "",
+                "earlier": strip_markers(fp.example_sentences[-2]) if len(fp.example_sentences) > 1 else "",
                 **ids(fp.example_sentences[-1] if fp.example_sentences else ""),
             }
             for fp in report.phrase_result.flagged_phrases
