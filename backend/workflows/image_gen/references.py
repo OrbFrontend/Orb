@@ -30,7 +30,7 @@ SOURCE_LABELS = {"previous": "the previous image in the chat", "character": "the
 # How far back a `previous` slot looks, in messages on this branch. Unbounded, the first render in a conversation permanently
 # retires the character reference: `previous_or_character` would find *something* forever after, and a picture from two hundred
 # messages ago would outrank a likeness the user set on purpose.
-PREVIOUS_LOOKBACK_MESSAGES = 30
+_PREVIOUS_LOOKBACK_MESSAGES = 30
 
 
 def _bytes_from_row(row: Mapping[str, Any] | None) -> tuple[bytes, str] | None:
@@ -101,7 +101,7 @@ def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tup
         if message.get("id") == anchor_id:
             continue
         scanned += 1
-        if scanned > PREVIOUS_LOOKBACK_MESSAGES:
+        if scanned > _PREVIOUS_LOOKBACK_MESSAGES:
             return None
         for row, prefix in (
             (_active_generated_image(message), "attachment"),

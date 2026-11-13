@@ -18,17 +18,17 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-ServerKind = Literal[
+_ServerKind = Literal[
     "llama_router", "llama_single", "llama_swap", "ollama", "tabby", "ooba", "koboldcpp", "needs_admin", "other"
 ]
-UNLOADABLE: frozenset[ServerKind] = frozenset({"llama_router", "llama_swap", "ollama", "tabby", "ooba"})
-SLOTTED: frozenset[ServerKind] = frozenset({"llama_router", "llama_swap"})
-RELOADED: frozenset[ServerKind] = frozenset({"tabby", "ooba"})
+UNLOADABLE: frozenset[_ServerKind] = frozenset({"llama_router", "llama_swap", "ollama", "tabby", "ooba"})
+SLOTTED: frozenset[_ServerKind] = frozenset({"llama_router", "llama_swap"})
+RELOADED: frozenset[_ServerKind] = frozenset({"tabby", "ooba"})
 Owner = Literal["llm", "comfy"]
 Notify = Callable[[str], Awaitable[None] | None]
 Stop = Callable[[], Awaitable[object]]
 
-PROBE_TIMEOUT = 3.0
+_PROBE_TIMEOUT = 3.0
 POLL_INTERVAL = 0.1
 UNLOAD_CAP = 30.0
 SWAP_UNLOAD_TIMEOUT = 120.0
@@ -36,7 +36,7 @@ SETTLE_CAP = 5.0
 SETTLE_RISE = 256 * 1024 * 1024
 SETTLE_AGREE = 64 * 1024 * 1024
 SLOT_TIMEOUT = 120.0
-LOAD_TIMEOUT = 600.0
+_LOAD_TIMEOUT = 600.0
 KIND_TTL = 30.0
 _ROUTER_RESIDENT = frozenset({"loaded", "loading"})
 _SWAP_LOADED = frozenset({"starting", "ready"})
@@ -60,7 +60,7 @@ class GpuSwapError(RuntimeError):
 class LlmTarget:
     root: str
     model: str
-    kind: ServerKind
+    kind: _ServerKind
     headers: Mapping[str, str] = field(default_factory=dict)
     proxy: str | None = None
 
@@ -90,7 +90,7 @@ class SwapPlan:
 DISABLED = SwapPlan(enabled=False)
 
 
-def _client(headers: Mapping[str, str] | None, proxy: str | None, timeout: float = PROBE_TIMEOUT) -> httpx.AsyncClient:
+def _client(headers: Mapping[str, str] | None, proxy: str | None, timeout: float = _PROBE_TIMEOUT) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout, proxy=proxy or None, headers=dict(headers or {}))
 
 
@@ -101,7 +101,7 @@ def _json(resp: httpx.Response) -> Any:
         return None
 
 
-_kinds: dict[str, tuple[float, ServerKind]] = {}
+_kinds: dict[str, tuple[float, _ServerKind]] = {}
 
 
 def _forget(root: str) -> None:
@@ -119,7 +119,7 @@ def _ok_json(resp: httpx.Response | None) -> Any:
     return _json(resp) if resp is not None and resp.status_code < 400 else None
 
 
-async def _detect(client: httpx.AsyncClient, root: str) -> tuple[bool, ServerKind]:
+async def _detect(client: httpx.AsyncClient, root: str) -> tuple[bool, _ServerKind]:
     """``(answered, kind)``; tabbyAPI and text-generation-webui keep load and unload behind an admin key."""
     answered = False
     resp = await _get(client, f"{root}/props")
@@ -168,7 +168,7 @@ async def _detect(client: httpx.AsyncClient, root: str) -> tuple[bool, ServerKin
 
 async def probe(
     root: str, headers: Mapping[str, str] | None = None, proxy: str | None = None, *, fresh: bool = False
-) -> ServerKind:
+) -> _ServerKind:
     """What kind of server answers at *root* (the base URL without ``/v1``); never loads a model.
 
     A kind is cached per root for :data:`KIND_TTL` seconds once a server answered, so a server restarted in another mode is
@@ -291,7 +291,7 @@ async def _resident(client: httpx.AsyncClient, target: LlmTarget) -> set[str]:
     raise GpuSwapError(f"{target.root} cannot unload models")
 
 
-async def loaded_models(target: LlmTarget) -> set[str]:
+async def _loaded_models(target: LlmTarget) -> set[str]:
     """Models the server holds in memory (``loading`` counts; a router's ``sleeping`` does not)."""
     async with _client(target.headers, target.proxy) as client:
         try:
@@ -301,7 +301,7 @@ async def loaded_models(target: LlmTarget) -> set[str]:
             raise
 
 
-async def model_loaded(target: LlmTarget, model: str) -> bool:
+async def _model_loaded(target: LlmTarget, model: str) -> bool:
     """Whether *model* is resident on *target*'s server; a one-model server answers with whatever it holds."""
     async with _client(target.headers, target.proxy) as client:
         try:
@@ -321,7 +321,7 @@ async def model_loaded(target: LlmTarget, model: str) -> bool:
 async def unload(target: LlmTarget, model: str) -> None:
     """Unload *model* and return once the server no longer lists it as resident."""
     # llama-swap answers once the process has stopped: up to its unloadTimeout, which Docker setups raise to 30 s.
-    timeout = SWAP_UNLOAD_TIMEOUT if target.kind == "llama_swap" else PROBE_TIMEOUT
+    timeout = SWAP_UNLOAD_TIMEOUT if target.kind == "llama_swap" else _PROBE_TIMEOUT
     async with _client(target.headers, target.proxy, timeout) as client:
         if target.kind == "llama_router":
             resp = await client.post(f"{target.root}/models/unload", json={"model": model})
@@ -345,7 +345,7 @@ async def unload(target: LlmTarget, model: str) -> None:
             await asyncio.sleep(POLL_INTERVAL)
 
 
-def slot_filename(model: str, slot: int) -> str:
+def _slot_filename(model: str, slot: int) -> str:
     """One fixed file per model and slot, so the files on the server's tmpfs never outgrow slots x models."""
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", model).strip("._")[:48]
     return f"orb-{safe}-{hashlib.sha256(model.encode()).hexdigest()[:8]}-{slot}.bin"
@@ -356,7 +356,7 @@ def _slot_base(target: LlmTarget, model: str) -> str:
     return f"{target.root}/upstream/{quote(model, safe='')}" if target.kind == "llama_swap" else target.root
 
 
-async def save_slots(target: LlmTarget, model: str) -> tuple[int, ...]:
+async def _save_slots(target: LlmTarget, model: str) -> tuple[int, ...]:
     """Save every slot of a loaded model to the server's ``--slot-save-path``; the slots that saved.
 
     The bodies name the model for a router; the single llama-server behind llama-swap ignores it.
@@ -378,7 +378,7 @@ async def save_slots(target: LlmTarget, model: str) -> tuple[int, ...]:
             resp = await client.post(
                 f"{base}/slots/{slot}",
                 params={"action": "save"},
-                json={"model": model, "filename": slot_filename(model, slot)},
+                json={"model": model, "filename": _slot_filename(model, slot)},
             )
             if resp.status_code >= 400:
                 logger.info(
@@ -389,17 +389,17 @@ async def save_slots(target: LlmTarget, model: str) -> tuple[int, ...]:
     return tuple(saved)
 
 
-async def restore_slots(target: LlmTarget, model: str, slots: tuple[int, ...]) -> None:
+async def _restore_slots(target: LlmTarget, model: str, slots: tuple[int, ...]) -> None:
     """Restore saved slots; the first restore loads the model. A slot that fails just prefills on its next call."""
     # Under llama-swap the first restore cold-starts the process, as long as llama-swap's own health timeout allows.
-    timeout = LOAD_TIMEOUT if target.kind == "llama_swap" else SLOT_TIMEOUT
+    timeout = _LOAD_TIMEOUT if target.kind == "llama_swap" else SLOT_TIMEOUT
     async with _client(target.headers, target.proxy, timeout) as client:
         base = _slot_base(target, model)
         for slot in slots:
             resp = await client.post(
                 f"{base}/slots/{slot}",
                 params={"action": "restore"},
-                json={"model": model, "filename": slot_filename(model, slot)},
+                json={"model": model, "filename": _slot_filename(model, slot)},
             )
             if resp.status_code >= 400:
                 logger.info(
@@ -440,7 +440,7 @@ async def reload_spec(target: LlmTarget) -> dict[str, Any]:
 
 async def reload(target: LlmTarget, spec: Mapping[str, Any]) -> None:
     """Load *spec* back on *target* and return once the server holds a model."""
-    async with _client(target.headers, target.proxy, LOAD_TIMEOUT) as client:
+    async with _client(target.headers, target.proxy, _LOAD_TIMEOUT) as client:
         if target.kind == "tabby":
             async with client.stream("POST", f"{target.root}/v1/model/load", json=dict(spec)) as resp:
                 if resp.status_code >= 400:
@@ -480,7 +480,7 @@ async def _vram_free(client: httpx.AsyncClient, url: str) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-async def comfy_free(url: str, api_key: str = "", *, queue_cap: float = 180.0) -> None:
+async def _comfy_free(url: str, api_key: str = "", *, queue_cap: float = 180.0) -> None:
     """Ask ComfyUI to drop its models and wait until the VRAM is back.
 
     ``/free`` has no acknowledgement, so the wait reads ``vram_free``: it must rise past the pre-``/free`` baseline and then hold
@@ -627,11 +627,11 @@ async def _unload_all(plan: SwapPlan, notify: Notify | None) -> None:
         hosted = plan.hosts_comfy(target.root)
         if hosted and not plan.slot_restore:
             continue
-        for model in sorted(await loaded_models(target) - {plan.comfy_model}):
+        for model in sorted(await _loaded_models(target) - {plan.comfy_model}):
             if plan.slot_restore and target.kind in SLOTTED:
                 await _notify(notify, "saving")
                 try:
-                    slots = await save_slots(target, model)
+                    slots = await _save_slots(target, model)
                 except httpx.HTTPError as exc:
                     logger.info("gpu swap: could not save the slots of %s (%r); its next call prefills", model, exc)
                     slots = ()
@@ -659,7 +659,7 @@ async def _start_comfy(plan: SwapPlan, host: LlmTarget, notify: Notify | None) -
     await _notify(notify, "starting")
     logger.info("gpu swap: starting ComfyUI (%s) through llama-swap at %s", plan.comfy_model, host.root)
     headers = {"Authorization": f"Bearer {plan.comfy_key}"} if plan.comfy_key else {}
-    async with _client(headers, None, LOAD_TIMEOUT) as client:
+    async with _client(headers, None, _LOAD_TIMEOUT) as client:
         try:
             (await client.get(f"{plan.comfy_url}/system_stats")).raise_for_status()
         except httpx.HTTPError as exc:
@@ -670,7 +670,7 @@ async def _free_comfy(plan: SwapPlan, target: LlmTarget, model: str) -> None:
     """Free ComfyUI's VRAM before *model* loads, without starting a ComfyUI that llama-swap has stopped."""
     if not plan.comfy_host:
         logger.info("gpu swap: freeing ComfyUI before %s reloads on %s", model, target.root)
-        await comfy_free(plan.comfy_url, plan.comfy_key, queue_cap=plan.wait_cap)
+        await _comfy_free(plan.comfy_url, plan.comfy_key, queue_cap=plan.wait_cap)
         return
     host = plan.target_for(plan.comfy_host)
     if host is not None and not plan.hosts_comfy(target.root):
@@ -683,7 +683,7 @@ async def _free_comfy(plan: SwapPlan, target: LlmTarget, model: str) -> None:
 async def _claim_state(target: LlmTarget, model: str) -> tuple[str, bool]:
     """``(the ID *model*'s slots are saved under, whether it is loaded)``: llama-swap saves an alias under its real ID."""
     if target.kind != "llama_swap":
-        return model, await model_loaded(target, model)
+        return model, await _model_loaded(target, model)
     async with _client(target.headers, target.proxy) as client:
         try:
             real, loaded = await _swap_state(client, target.root, model)
@@ -745,7 +745,7 @@ async def _claim_for_llm(plan: SwapPlan, target: LlmTarget, model: str) -> None:
     if slots and not loaded:
         logger.info("gpu swap: restoring %d slot(s) of %s on %s", len(slots), model, target.root)
         try:
-            await restore_slots(target, model, slots)
+            await _restore_slots(target, model, slots)
         except httpx.HTTPError as exc:
             logger.info("gpu swap: could not restore the slots of %s (%r); the call prefills", model, exc)
     spec = _arbiter.reloads.pop(target.root, None)

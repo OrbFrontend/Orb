@@ -241,9 +241,7 @@ async def pre_pipeline(ctx: PreCtx) -> AsyncIterator[PreEvent]:
 
 Context collections are annotated as read-only mappings and tuples, and
 clients and cache trackers use their concrete service types. `turn_scratch`
-remains a mutable dictionary for workflow-owned data. Static contract
-regressions in `tests/unit/workflows/test_static_contracts.py` check valid
-declarations and dispatch alongside deliberately invalid examples.
+remains a mutable dictionary for workflow-owned data.
 
 For group work, `character` identifies the relevant speaker. A
 `RerollGenCtx` with `replay=True` reproduces stored generation parameters;

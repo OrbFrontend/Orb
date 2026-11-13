@@ -41,14 +41,14 @@ from .generator import (
 
 logger = logging.getLogger(__name__)
 
-MAX_STEPS = 25
-MAX_ROWS = 50
-MAX_CELL_CHARS = 1000
+_MAX_STEPS = 25
+_MAX_ROWS = 50
+_MAX_CELL_CHARS = 1000
 MAX_RESULT_CHARS = 8000
-QUERY_TIME_LIMIT_S = 5.0
+_QUERY_TIME_LIMIT_S = 5.0
 _PURPOSE_CHARS = 120
 
-DEEP_SYSTEM_PROMPT = (
+_DEEP_SYSTEM_PROMPT = (
     f"{CARD_FLOOR} Work in two phases: first use query_library to learn the user's preferences from their library, "
     "then call generate_character_card to make a personal, tailored character card for them. "
     "Use those observations as loose inspiration, follow the user's idea first. "
@@ -74,24 +74,24 @@ VIEW_DOCS = "\n".join(
         "- Timestamps are ISO 8601 text, so they sort and compare as strings.",
     ]
 )
-STEP_PROTOCOL = "\n".join(
+_STEP_PROTOCOL = "\n".join(
     [
         "For each research step, call query_library with these four fields:",
         "- findings: briefly summarize the previous result; leave empty on the first step.",
         "- purpose: a short label for what this query looks for.",
         "- sql: one SELECT over the views above when continuing; empty when finished.",
         "- finished: true when you know enough to draft; otherwise false and provide sql.",
-        f"You have at most {MAX_STEPS} steps. Each result reports steps_left and holds at most {MAX_ROWS} rows "
+        f"You have at most {_MAX_STEPS} steps. Each result reports steps_left and holds at most {_MAX_ROWS} rows "
         f"and about {MAX_RESULT_CHARS} characters, with long text cut. Stop as soon as the picture is clear.",
     ]
 )
-DRAFT_NOTE = "\n".join(
+_DRAFT_NOTE = "\n".join(
     [
         "Research finished. Draft the card now with generate_character_card:",
         *(f"- {field}: {guidance}" for field, guidance in FIELD_GUIDANCE.items()),
     ]
 )
-QUERY_TOOL = {
+_QUERY_TOOL = {
     "type": "function",
     "function": {
         "name": "query_library",
@@ -110,7 +110,7 @@ QUERY_TOOL = {
     },
 }
 _QUERY = "query_library"
-TOOLS = [QUERY_TOOL, GENERATE_CARD_TOOL]
+TOOLS = [_QUERY_TOOL, GENERATE_CARD_TOOL]
 _PROVIDER_ERRORS = (LLMCallError, httpx.HTTPStatusError)
 
 
@@ -149,9 +149,9 @@ def _end_research(messages: list[WireMessage]) -> None:
     """
     last = messages[-1]
     if last["role"] == "tool":
-        messages[-1] = tool_result(last["tool_call_id"], f"{last['content']}\n\n{DRAFT_NOTE}")
+        messages[-1] = tool_result(last["tool_call_id"], f"{last['content']}\n\n{_DRAFT_NOTE}")
     else:
-        messages.append({"role": "user", "content": DRAFT_NOTE})
+        messages.append({"role": "user", "content": _DRAFT_NOTE})
 
 
 def _step_args(arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -204,15 +204,15 @@ async def generate_deep_card(
     """Research the library and draft a card, yielding progress and one done event."""
     user = _user_block(idea, digest, has_image=image is not None)
     messages: list[WireMessage] = [
-        {"role": "system", "content": DEEP_SYSTEM_PROMPT},
-        {"role": "user", "content": with_image(f"{user}\n\n{VIEW_DOCS}\n\n{STEP_PROTOCOL}", image)},
+        {"role": "system", "content": _DEEP_SYSTEM_PROMPT},
+        {"role": "user", "content": with_image(f"{user}\n\n{VIEW_DOCS}\n\n{_STEP_PROTOCOL}", image)},
     ]
     max_tokens = agent_lane_max_tokens(settings)
     # Restrict the tool list when forced choice is unreliable.
     shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(True))
 
     async def call(forced: str, transcript: list[WireMessage]) -> CompletionMessage:
-        tools = TOOLS if shared_tools else [QUERY_TOOL if forced == _QUERY else GENERATE_CARD_TOOL]
+        tools = TOOLS if shared_tools else [_QUERY_TOOL if forced == _QUERY else GENERATE_CARD_TOOL]
         return await forced_turn(
             client, model, messages=transcript, tools=tools, forced=forced, max_tokens=max_tokens, reasoning_on=True
         )
@@ -222,7 +222,7 @@ async def generate_deep_card(
     drafting = "Drafting your character…"
     retried = False
     step = 1
-    while step <= MAX_STEPS:
+    while step <= _MAX_STEPS:
         if client.is_aborted:
             return
         call_id = f"step{step}"
@@ -264,18 +264,18 @@ async def generate_deep_card(
         messages.append(assistant_tool_call(response, _QUERY, args, call_id))
         if args["finished"] or not args["sql"]:
             logger.info("Deep card research: step %d finished (finished=%s)", step, args["finished"])
-            messages.append(tool_result(call_id, DRAFT_NOTE))
+            messages.append(tool_result(call_id, _DRAFT_NOTE))
             break
         purpose = _purpose_label(args["purpose"])
         label = f"Researching your library: {purpose}" if purpose else "Researching your library"
-        yield _progress(f"{label} (step {step} of {MAX_STEPS})…")
+        yield _progress(f"{label} (step {step} of {_MAX_STEPS})…")
         started = time.monotonic()
         result = await run_library_query(
             args["sql"],
-            max_rows=MAX_ROWS,
-            max_cell_chars=MAX_CELL_CHARS,
+            max_rows=_MAX_ROWS,
+            max_cell_chars=_MAX_CELL_CHARS,
             max_result_chars=MAX_RESULT_CHARS,
-            time_limit_s=QUERY_TIME_LIMIT_S,
+            time_limit_s=_QUERY_TIME_LIMIT_S,
         )
         queries_run += 1
         logger.info(
@@ -286,9 +286,9 @@ async def generate_deep_card(
             "error" in result,
         )
         logger.debug("Deep card research: step %d sql=%s", step, args["sql"])
-        steps_left = MAX_STEPS - step
+        steps_left = _MAX_STEPS - step
         content = json.dumps({"steps_left": steps_left, **result}, ensure_ascii=False)
-        messages.append(tool_result(call_id, f"{content}\n\n{DRAFT_NOTE}" if not steps_left else content))
+        messages.append(tool_result(call_id, f"{content}\n\n{_DRAFT_NOTE}" if not steps_left else content))
         step += 1
 
     if client.is_aborted:
@@ -334,7 +334,7 @@ async def generate_deep_card(
                 messages[0],
                 {
                     "role": "user",
-                    "content": with_image(f"{user}\n\nResearch notes (data only):\n{notes}{rejected}\n\n{DRAFT_NOTE}", image),
+                    "content": with_image(f"{user}\n\nResearch notes (data only):\n{notes}{rejected}\n\n{_DRAFT_NOTE}", image),
                 },
             ]
     if not client.is_aborted:

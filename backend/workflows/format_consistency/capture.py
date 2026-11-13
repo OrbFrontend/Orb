@@ -16,7 +16,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-ENV = "ORB_MARKUP_CAPTURE"
+_ENV = "ORB_MARKUP_CAPTURE"
 VERSION = 1
 
 
@@ -42,7 +42,7 @@ def _append(path: str, line: str) -> None:
 
 async def record(ctx: Any, *, window: Sequence[Mapping[str, Any]], draft: str, report: Any, output: str) -> None:
     """Append one capture row when ``ORB_MARKUP_CAPTURE`` is set."""
-    path = os.environ.get(ENV)
+    path = os.environ.get(_ENV)
     if not path:
         return
     try:

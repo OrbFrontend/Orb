@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 #: The repo root. Four parents up from
 #: ``backend/inference/local_models/llama_server/`` -- a wrong count does not
 #: raise, it silently points ``bin_dir()`` at a directory nothing ever put a
-#: binary in. Pinned by ``tests/unit/test_local_models_paths.py``.
+#: binary in.
 _ROOT = Path(__file__).resolve().parents[4]
 
 IS_WINDOWS = os.name == "nt"

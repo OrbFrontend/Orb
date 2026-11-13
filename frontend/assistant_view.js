@@ -402,11 +402,6 @@ export function settleRun(run, { stopped = false, failure = "" } = {}) {
   trimTranscript(run.items);
 }
 
-/** The ids of *card*'s edits still waiting for Apply. */
-export function pendingIds(card) {
-  return card.proposals.filter((entry) => entry.status === "pending").map((entry) => entry.proposalId);
-}
-
 /**
  * Record Apply's *results* (`[{proposal_id, verdict, ...}]`) on *card*'s pending edits. `busy` leaves an edit pending with
  * its note; an unknown verdict leaves it as it was. Returns what the applied ones changed and their summaries.
@@ -479,7 +474,7 @@ function opHtml(op, index, ops) {
  * One field's change as escaped markup: removed and added text marked, unchanged text around a change shortened to its
  * nearest context. The texts are the server's exact before and after.
  */
-export function diffHtml(before, after) {
+function diffHtml(before, after) {
   const ops = diffOps(before, after);
   return ops.map((op, index) => opHtml(op, index, ops)).join("");
 }

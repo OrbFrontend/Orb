@@ -112,7 +112,7 @@ function turnView(msgId, data, resting, rest) {
 }
 
 /** A saved reply's view, from its `director-log` payload. */
-export function turnViewFromLog(msgId, data) {
+function turnViewFromLog(msgId, data) {
   return turnView(msgId, data, restingCooldowns(msgId), {
     reasoning: Object.fromEntries(REASONING_PASSES.map(({ key }) => [key, data?.[`reasoning_${key}`] || ""])),
     decisions: data?.decision_evaluations,
@@ -305,7 +305,7 @@ export function latencyHtml(latency, breakdown = []) {
 const selectedPassByMsg = new Map();
 
 /** A reply's Reasoning block, or "" when no pass has reasoning to show. */
-export function reasoningBlockHtml(view) {
+function reasoningBlockHtml(view) {
   // The streaming reply also lists the running pass, so its box is there for the first delta.
   const shown = REASONING_PASSES.flatMap(({ key }, i) =>
     view.reasoning[key] ||
@@ -337,7 +337,7 @@ export function reasoningBlockHtml(view) {
 }
 
 /** A reply's Inspector block, or "" when none of its sections has anything to show. */
-export function inspectorBlockHtml(view) {
+function inspectorBlockHtml(view) {
   const stored = !view.live;
   // Keep latency near the top so the breakdown is easy to reach in a reply.
   const sections = [

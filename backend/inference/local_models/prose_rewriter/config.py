@@ -10,12 +10,6 @@ from ..catalog import ModelVariantSpec
 from ..llama_server import LaunchProfile
 from . import catalog
 
-#: Per slot, and the number is the trained envelope plus room to finish a
-#: sentence: 512 source tokens is the documented maximum input, the generation
-#: budget never exceeds 512, and the prompt's own three blocks are a dozen more.
-#: n_ctx is divided by the slot count inside llama.cpp, so this multiplies.
-CTX_PER_SLOT = 1280
-
 #: ``batch_size -> (ctx_size, parallel, threads_http)``. Four lanes remains the
 #: compatibility default; Settings exposes up to eight for machines with enough
 #: memory. The multiplication is not free: the KV cache is allocated in full

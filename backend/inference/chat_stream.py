@@ -1,8 +1,7 @@
 """Accumulate a streamed OpenAI-compatible chat completion.
 
-The parsers here read already-framed SSE ``data:`` payloads, so they can be driven from a list in tests; the HTTP, abort race
-and retry policy stay in :mod:`client`. The Anthropic Messages parser lives with its request translation in :mod:`anthropic` and
-fills the same :class:`ChatStream`.
+The parsers here read already-framed SSE ``data:`` payloads; the HTTP, abort race and retry policy stay in :mod:`client`. The
+Anthropic Messages parser lives with its request translation in :mod:`anthropic` and fills the same :class:`ChatStream`.
 """
 
 from __future__ import annotations
@@ -60,7 +59,7 @@ def merge_reasoning_details(blocks: list[dict], fragments: object) -> None:
                 block[key] = value
 
 
-def parse_chat_logprobs(choice: Mapping[str, Any]) -> list[TokenProbability]:
+def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[TokenProbability]:
     """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
 
     Thin wrapper over :func:`text_completion.normalize_prob_records`: the ``logprobs.content`` records carry the same fields as
@@ -154,7 +153,7 @@ async def consume_openai(
                 acc.content_parts.append(content)
                 if not forced:
                     yield {"type": "content", "delta": content}
-            for rec in parse_chat_logprobs(choice):
+            for rec in _parse_chat_logprobs(choice):
                 yield {"type": "token_probs", **rec}
             for tc_delta in delta.get("tool_calls") or []:
                 entry = acc.tool_entry(slot_for(tc_delta))

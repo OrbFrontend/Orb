@@ -18,15 +18,15 @@ BACKGROUND = "background"
 
 POV_MODES = ("auto", "first", "third", "background")
 DEFAULT_MODE = "auto"
-DEFAULT_POV = THIRD
+_DEFAULT_POV = THIRD
 
 _MANUAL = {"first": FIRST, "third": THIRD, "background": BACKGROUND}
 
-DEFAULT_POV_MODE = next(mode for mode, viewpoint in _MANUAL.items() if viewpoint == DEFAULT_POV)
+DEFAULT_POV_MODE = next(mode for mode, viewpoint in _MANUAL.items() if viewpoint == _DEFAULT_POV)
 
 _CLASSIFIER_POV = {"first": FIRST, "second": FIRST, "third": THIRD}
 
-LOOKBACK = 3
+_LOOKBACK = 3
 
 FEATURE = "pov_classifier"
 
@@ -42,7 +42,7 @@ async def classifier_ready() -> bool:
 
 
 def _assistant_texts(history: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Assistant message bodies, newest first, capped at LOOKBACK. Only assistant
+    """Assistant message bodies, newest first, capped at _LOOKBACK. Only assistant
     turns: the camera describes the reply being illustrated, and the user's own turn
     is written from a persona voice that need not match it."""
     texts: list[str] = []
@@ -52,7 +52,7 @@ def _assistant_texts(history: Sequence[Mapping[str, Any]]) -> list[str]:
         content = msg.get("content")
         if isinstance(content, str) and content.strip():
             texts.append(content)
-        if len(texts) >= LOOKBACK:
+        if len(texts) >= _LOOKBACK:
             break
     return texts
 
@@ -88,8 +88,8 @@ async def resolve(*, mode: str = DEFAULT_MODE, history: Sequence[Mapping[str, An
         return manual, "manual"
     settings = await get_settings()
     if not local_feature_ready(FEATURE, settings):
-        return DEFAULT_POV, "no_classifier"
+        return _DEFAULT_POV, "no_classifier"
     classified = await _classify(history, settings)
     if classified is not None:
         return classified, "classifier"
-    return DEFAULT_POV, "default"
+    return _DEFAULT_POV, "default"

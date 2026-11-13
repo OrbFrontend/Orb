@@ -10,33 +10,23 @@ const DEADLINE_MS = 2000;
 const MAX_WORKERS = 2;
 const queuedJobs = [];
 const activeJobs = new Set();
-const jobs = new Set();
 let pumpPending = false;
-let guard;
+let storage = null;
+try {
+  storage = globalThis.localStorage ?? null;
+} catch {}
 let disabled;
-let projections;
+try {
+  disabled = new Set(JSON.parse(storage?.getItem(OFF_KEY) ?? "[]"));
+} catch {
+  disabled = new Set();
+}
+const projections = new WeakMap();
 const recent = new Map();
 let repaint = () => {};
 
 export function setCardScriptRepaint(fn) {
   repaint = fn;
-}
-
-/** Replace the projector/storage/announcer in tests; production always executes in a worker. */
-export function configureCardScriptGuard(options = {}) {
-  for (const job of jobs) job.cancel();
-  let storage = null;
-  try {
-    storage = globalThis.localStorage ?? null;
-  } catch {}
-  guard = { project: projectInWorker, storage, announce: (message) => toast(message, true), ...options };
-  projections = new WeakMap();
-  recent.clear();
-  try {
-    disabled = new Set(JSON.parse(guard.storage?.getItem(OFF_KEY) ?? "[]"));
-  } catch {
-    disabled = new Set();
-  }
 }
 
 export function cardScriptTurnedOff(source) {
@@ -51,9 +41,9 @@ function turnOff(source) {
   if (disabled.has(source)) return;
   disabled.add(source);
   try {
-    guard.storage?.setItem(OFF_KEY, JSON.stringify([...disabled].slice(-512)));
+    storage?.setItem(OFF_KEY, JSON.stringify([...disabled].slice(-512)));
   } catch {}
-  guard.announce("Turned off a card display script on this device because it took too long to render.");
+  toast("Turned off a card display script on this device because it took too long to render.", true);
 }
 
 function scheduleWorkers() {
@@ -85,7 +75,6 @@ function projectInWorker(job) {
     clearTimeout(deadline);
     worker?.terminate();
     activeJobs.delete(task);
-    jobs.delete(task);
     const index = queuedJobs.indexOf(task);
     if (index !== -1) queuedJobs.splice(index, 1);
     resolve(projection);
@@ -111,7 +100,6 @@ function projectInWorker(job) {
       }
     },
   };
-  jobs.add(task);
   queuedJobs.push(task);
   result.cancel = task.cancel;
   scheduleWorkers();
@@ -119,7 +107,7 @@ function projectInWorker(job) {
 }
 
 /** Show canonical text while pending, then repaint from a result keyed by the exact input and identity context. */
-export function applyCardScripts(text, scripts, role, owner = null) {
+function applyCardScripts(text, scripts, role, owner = null) {
   if (text.length > 100_000) return text;
   scripts = displayScripts(scripts, role).filter((script) => !cardScriptTurnedOff(script.findRegex));
   if (!scripts.length) return text;
@@ -138,24 +126,18 @@ export function applyCardScripts(text, scripts, role, owner = null) {
     cache.delete(oldest);
     evicted.cancel?.();
   }
-  const currentGuard = guard;
   const done = (result) => {
     delete entry.cancel;
-    if (guard !== currentGuard) return;
     for (const source of result.disabled ?? []) turnOff(source);
     if (cache.get(key) !== entry) return;
     entry.text = result.text;
     if (entry.text !== text || result.disabled?.length) repaint();
   };
-  const result = guard.project({ text, scripts, role, names });
-  if (result instanceof Promise) {
-    entry.cancel = () => result.cancel?.();
-    result.then(done, () => done({ text }));
-  } else done(result);
+  const result = projectInWorker({ text, scripts, role, names });
+  entry.cancel = result.cancel;
+  result.then(done, () => done({ text }));
   return entry.text;
 }
-
-configureCardScriptGuard();
 
 const STYLE_ELEMENT_RE = /<style\b[^>]*>([\s\S]*?)(?:<\/style\s*>|$)/gi;
 
@@ -165,7 +147,7 @@ function stylesheetText(css) {
 }
 
 /** Project card CSS through the existing message sanitizer and scope. */
-export function projectCardDisplay(text, card, role, owner = null) {
+function projectCardDisplay(text, card, role, owner = null) {
   text = applyCardScripts(text, card?.display_scripts, role, owner);
   const css = typeof card?.display_css === "string" ? stylesheetText(card.display_css) : "";
   if (role === "assistant" && css.trim()) {

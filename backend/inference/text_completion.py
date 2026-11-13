@@ -340,7 +340,7 @@ def forced_schema(tools: Sequence[Mapping[str, Any]] | None, tool_choice: Any) -
     return None
 
 
-def synthesize_usage(final: Mapping[str, Any]) -> dict:
+def _synthesize_usage(final: Mapping[str, Any]) -> dict:
     """Build an OpenAI-shaped ``usage`` dict from a ``/completion`` final chunk.
 
     Provider-truth, exact (probe-verified F8): ``prompt_tokens`` = ``tokens_evaluated``, ``completion_tokens`` =
@@ -367,7 +367,7 @@ def terminal_state(final: Mapping[str, Any]) -> tuple[dict, str]:
     contract across both transports.
     """
     limit = bool(final.get("stopped_limit") or final.get("stop_type") == "limit")
-    return synthesize_usage(final), "length" if limit else "stop"
+    return _synthesize_usage(final), "length" if limit else "stop"
 
 
 def forced_tool_message(name: str, arguments: str) -> CompletionMessage:

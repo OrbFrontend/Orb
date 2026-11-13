@@ -363,7 +363,7 @@ const SCENE_INTRO_BLOCKS = [
   ["scenario", "Scenario", "scenario"],
 ];
 
-export function sceneIntroEntries() {
+function sceneIntroEntries() {
   const intro = S.sceneIntro;
   if (!intro || intro.convId !== S.activeConvId) return [];
   const entries = [];

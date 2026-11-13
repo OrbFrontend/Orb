@@ -17,10 +17,7 @@ logger = logging.getLogger(__name__)
 class ManagedLlamaServerHost:
     """One resident llama-server, loaded lazily and swapped by profile."""
 
-    def __init__(self, *, name: str, idle_timeout: float, register: bool = True) -> None:
-        """*register* is default-on because the failure mode of forgetting it is the one this subsystem warns about three times:
-        an orphaned child holding the GPU after Orb exits. A test that builds a throwaway host passes ``register=False``.
-        """
+    def __init__(self, *, name: str, idle_timeout: float) -> None:
         self.name = name
         self.state = "idle"  # idle | loading | ready | failed
         self.error = ""
@@ -33,8 +30,7 @@ class ManagedLlamaServerHost:
         self._stale = False
         self._idle_task: asyncio.Task | None = None
         self._last_used = time.monotonic()
-        if register:
-            manager.register(self)
+        manager.register(self)
 
     def mark_stale(self, profile: LaunchProfile | None) -> None:
         """Record a new selection without touching the running child.

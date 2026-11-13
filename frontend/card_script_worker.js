@@ -59,7 +59,7 @@ function expandReplacement(template, captures, groups, offset, source, names) {
 }
 
 /** Pure projection rules; the browser calls these only inside the disposable worker. */
-export function projectCardScripts({ text, scripts, role, names = [] }, running = () => {}) {
+function projectCardScripts({ text, scripts, role, names = [] }, running = () => {}) {
   const original = text;
   const disabled = [];
   if (text.length > MAX_TEXT_LENGTH) return { text, disabled };

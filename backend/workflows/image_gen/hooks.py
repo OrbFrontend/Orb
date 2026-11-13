@@ -67,7 +67,7 @@ SEED_MODULUS = 2**64
 Keep = Callable[[dict], Awaitable[int | None]]
 
 
-def fold_seed(seed: str | int) -> int:
+def _fold_seed(seed: str | int) -> int:
     if isinstance(seed, bool):
         raise ValueError("invalid seed")
     if isinstance(seed, int):
@@ -80,7 +80,7 @@ def fold_seed(seed: str | int) -> int:
 
 
 def _fresh_seed() -> int:
-    return fold_seed(secrets.token_hex(16))
+    return _fold_seed(secrets.token_hex(16))
 
 
 async def _render_inputs(ctx: OnDemandCtx | RegenCtx, body: Mapping[str, Any]) -> tuple[dict, str, dict]:
@@ -764,7 +764,7 @@ async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
             notes.append(f"this style takes fewer reference images, so {dropped} of them were not sent")
     if recorded_references or references:
         params["references"] = [reference.record() for reference in references]
-    resolved_seed = fold_seed(seed)
+    resolved_seed = _fold_seed(seed)
     result = await resolve_and_generate(
         adapter,
         ImageRequest(

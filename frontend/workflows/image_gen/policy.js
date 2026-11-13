@@ -99,8 +99,8 @@ export function maxCloudReferences(preset) {
   return Number.isFinite(declared) && declared >= 1 ? Math.min(declared, MAX_REFERENCE_SLOTS) : 1;
 }
 
-export const CLOUD_SIZES = ["1024x1024", "1024x1536", "1536x1024", "1024x1820", "1820x1024"];
-export const COMFY_SIZES = ["512x512", "768x768", "1024x1024", "832x1216", "1216x832", "1024x1536", "1536x1024"];
+const CLOUD_SIZES = ["1024x1024", "1024x1536", "1536x1024", "1024x1820", "1820x1024"];
+const COMFY_SIZES = ["512x512", "768x768", "1024x1024", "832x1216", "1216x832", "1024x1536", "1536x1024"];
 
 function fitsGrid(preset, value) {
   const step = preset.dimension_step || 1;
@@ -184,7 +184,7 @@ export function cardSummary(config = {}, styles = [], providers = []) {
     .join(" · ");
 }
 
-export const POV_MODES = [
+const POV_MODES = [
   ["auto", "Auto"],
   ["first", "First-person"],
   ["third", "Third-person"],

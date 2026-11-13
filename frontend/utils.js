@@ -33,7 +33,7 @@ const ATTACHMENT_MIME_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /** A `data:` URL for an attachment, or "" when the metadata is not usable. */
-export function attachmentDataUrl(mime, b64) {
+function attachmentDataUrl(mime, b64) {
   const type = typeof mime === "string" ? mime.trim() : "";
   const data = typeof b64 === "string" ? b64.replace(/\s+/g, "") : "";
   if (!ATTACHMENT_MIME_RE.test(type) || !BASE64_RE.test(data)) return "";
@@ -503,8 +503,6 @@ export function formatProse(text) {
     })
     .join("");
 }
-
-export { replacePlaceholders } from "./identity_macros.js";
 
 export function placeholderNames() {
   let userName = S.settings?.user_name || "User";

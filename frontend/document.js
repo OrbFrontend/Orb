@@ -309,7 +309,7 @@ async function createDocument() {
   }
 }
 
-export async function openDocument(id) {
+async function openDocument(id) {
   if (S.activeDocId === id && !S.docStreaming) return;
   if (S.docStreaming) {
     showConfirmModal(
@@ -619,7 +619,7 @@ let stopRequested = false;
 let genFinish = ""; // finish reason from the SSE done event
 let genErrored = false;
 
-export function docGenerate() {
+function docGenerate() {
   const did = S.activeDocId;
   if (!did || S.docStreaming) return;
   // Reserved before the dirty save, so a second click cannot start another run.
@@ -745,7 +745,7 @@ async function finalizeGeneration() {
   }
 }
 
-export function docStop() {
+function docStop() {
   if (!S.docStreaming) return;
   stopRequested = true;
   S.docOperation?.stop();

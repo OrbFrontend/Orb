@@ -1,6 +1,6 @@
 import { esc, escAttr } from "./utils.js";
 
-export const STATUS_LABELS = {
+const STATUS_LABELS = {
   pending: "Proposed world change",
   stale: "Needs re-evaluation",
   applied: "Applied to the world",
@@ -21,28 +21,28 @@ const OP_VERBS = {
 const IRREVERSIBLE_OPS = new Set(["delete"]);
 
 export const isOpen = (cs) => cs?.status === "pending" || cs?.status === "stale";
-export const isStale = (cs) => cs?.status === "stale";
+const isStale = (cs) => cs?.status === "stale";
 
-export const isUndoable = (cs) => (cs?.operations || []).some((op) => !IRREVERSIBLE_OPS.has(op?.op));
+const isUndoable = (cs) => (cs?.operations || []).some((op) => !IRREVERSIBLE_OPS.has(op?.op));
 
-export function openProposals(msg) {
+function openProposals(msg) {
   return (msg?.world_changesets || []).filter(isOpen);
 }
 
-export function activationLabel(op) {
+function activationLabel(op) {
   if (op?.op === "suppress" || op?.op === "archive") return "";
   if (op?.activation === "constant") return "Always in context";
   const kws = (op?.keywords || []).filter(Boolean);
   return kws.length ? `On: ${kws.join(", ")}` : "Keyword-activated";
 }
 
-export function operationTitle(op) {
+function operationTitle(op) {
   const verb = OP_VERBS[op?.op] || op?.op || "Change";
   const subject = op?.op === "create" ? op?.name : op?.target_name || op?.name;
   return subject ? `${verb} “${subject}”` : verb;
 }
 
-export function operationDiff(op) {
+function operationDiff(op) {
   const before = op?.op === "create" ? "" : op?.target_content || "";
   const after = op?.op === "suppress" || op?.op === "archive" ? "" : op?.content || "";
   return { before, after };
@@ -57,7 +57,7 @@ function _diffHtml(op) {
   return `<div class="wc-diff">${rows.join("")}</div>`;
 }
 
-export function operationHtml(op) {
+function operationHtml(op) {
   const meta = [activationLabel(op)].filter(Boolean);
   return `
     <li class="wc-op wc-op-${escAttr(op?.op || "")}">
@@ -72,7 +72,7 @@ function _button(action, label, cls = "") {
   return `<button type="button" class="btn btn-sm ${cls}" data-wc-action="${escAttr(action)}">${esc(label)}</button>`;
 }
 
-export function actionsHtml(cs) {
+function actionsHtml(cs) {
   if (cs?.status === "pending") {
     return [
       _button("apply", "Apply", "btn-accent"),
@@ -87,7 +87,7 @@ export function actionsHtml(cs) {
   return "";
 }
 
-export function proposalCardHtml(cs) {
+function proposalCardHtml(cs) {
   if (!cs) return "";
   const ops = cs.operations || [];
   const status = cs.status || "pending";

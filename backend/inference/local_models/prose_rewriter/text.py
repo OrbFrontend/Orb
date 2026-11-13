@@ -28,7 +28,7 @@ PARAGRAPH_BREAK = re.compile(r"(\n+)")
 # Below this the model is out of its training distribution: the corpus builder dropped every human paragraph under 80 bytes, so
 # short dialogue lines were never targets. Asked to rewrite one anyway it pads toward its learned length and invents. Passing
 # them through unchanged is the honest answer.
-MIN_REWRITE_BYTES = 80
+_MIN_REWRITE_BYTES = 80
 # 512, because the longest source in the training pool is 445 tokens (p99 275,
 # p50 76). Accepting several times that degrades quietly instead of erroring.
 MAX_SOURCE_TOKENS = 512
@@ -47,14 +47,14 @@ def plan(text: str) -> list[tuple[str, str]]:
         if not piece:
             continue
         clean = piece.strip()
-        if PARAGRAPH_BREAK.fullmatch(piece) or not clean or len(clean.encode()) < MIN_REWRITE_BYTES:
+        if PARAGRAPH_BREAK.fullmatch(piece) or not clean or len(clean.encode()) < _MIN_REWRITE_BYTES:
             pieces.append(("keep", piece))  # below the trained floor, or a break
         else:
             pieces.append(("rewrite", clean))
     return pieces
 
 
-def trim_to_sentence(text: str) -> str:
+def _trim_to_sentence(text: str) -> str:
     """Cut back to the last sentence that actually ended.
 
     Closing quotes and asterisks may follow the terminal mark, so the cut lands after them, not before -- trimming to the '.'
@@ -85,7 +85,7 @@ _HORIZONTAL_SPACE = re.compile(r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000
 _SPACE_BEFORE_PUNCT = re.compile(r"(?P<left>[\w\])\"'”’])[ \t]+(?P<mark>[,;:!?])(?![-()\\/DPp])")
 
 
-def normalise_spacing(text: str) -> str:
+def _normalise_spacing(text: str) -> str:
     """Canonicalise whitespace without flattening paragraph structure."""
     text = _UNICODE_LINE_BREAK.sub("\n", text)
     text = _HORIZONTAL_SPACE.sub(" ", text)
@@ -107,7 +107,7 @@ _QUOTED_SENTENCE_JOIN = re.compile(r"(?<=[A-Za-z0-9\]\)])([.!?])([\"“”])(?=[
 _BACK_TO_BACK_DIALOGUE = re.compile(r"(?<=[A-Za-z0-9\]\)])([.!?])([\"”])([\"“])(?=[A-Za-z])")
 
 
-def restore_sentence_spacing(text: str) -> str:
+def _restore_sentence_spacing(text: str) -> str:
     """Insert a missing space at a clear sentence boundary."""
 
     def quoted(match: re.Match) -> str:
@@ -130,15 +130,15 @@ def restore_sentence_spacing(text: str) -> str:
 # The AO3 scrape does not merely drop the space between two utterances, it drops the PARAGRAPH BREAK, and the archive's own
 # format is one paragraph per speaker. The discriminator is free, and it is the space itself: an exchange the author really did
 # write into one paragraph is already close-space-open in the raw text (3,878 occurrences), a lost break is the tight form
-# (73,224). The mark class is wider than restore_sentence_spacing's because a line of dialogue ends in more than a full stop;
+# (73,224). The mark class is wider than _restore_sentence_spacing's because a line of dialogue ends in more than a full stop;
 # the comma is excluded because `,"` promises a dialogue tag, so it is not a line end.
 _LOST_PARAGRAPH = re.compile(r"(?<=[A-Za-z0-9\]\)])([.!?…—–-])([\"”])([\"“])(?=[A-Za-z])")
 
 
-def split_lost_paragraphs(text: str) -> str:
+def _split_lost_paragraphs(text: str) -> str:
     """Tight close-quote/open-quote weld -> the paragraph break it used to be.
 
-    Runs BEFORE restore_sentence_spacing, whose back-to-back rule would otherwise settle the same weld as a space. What survives
+    Runs BEFORE _restore_sentence_spacing, whose back-to-back rule would otherwise settle the same weld as a space. What survives
     to that rule is what this one declined, so the two do not overlap.
     """
 
@@ -167,5 +167,5 @@ def finish(text: str, stopped: bool) -> str:
     """
     text = text.strip()
     if not stopped:
-        text = trim_to_sentence(text) or text
-    return restore_sentence_spacing(split_lost_paragraphs(normalise_spacing(text))).strip()
+        text = _trim_to_sentence(text) or text
+    return _restore_sentence_spacing(_split_lost_paragraphs(_normalise_spacing(text))).strip()

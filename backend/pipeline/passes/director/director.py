@@ -46,9 +46,9 @@ logger = logging.getLogger(__name__)
 # user-authored fragment row. This is the synthetic stage the per-fragment loop runs it as: same shape the loop reads off a real
 # fragment (``field_type`` included, or the step-prompt builder has no type hint to render), so neither the loop nor the prompt
 # builder needs to know the plan is special.
-SPEAKING_PLAN_FIELD = "speaking_plan"
+_SPEAKING_PLAN_FIELD = "speaking_plan"
 SPEAKING_PLAN_STAGE: dict[str, Any] = {
-    "id": SPEAKING_PLAN_FIELD,
+    "id": _SPEAKING_PLAN_FIELD,
     "field_type": "array",
     "injection_label": "Speaking plan",
     "description": "Choose the ordered speakers and their one-line cues.",
@@ -58,7 +58,7 @@ SPEAKING_PLAN_STAGE: dict[str, Any] = {
 # (kv-cache.md, Invariant 3). It deliberately names no member -- muting one is otherwise prefix-neutral (a muted member still
 # renders in the cast section, in every context mode), so letting the roster reach this string made a mute toggle re-prefill
 # every lane on the backends that render tool declarations ahead of the conversation.
-SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
+_SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
     "Ordered speakers and cues, formatted `<speaker_key> — <one-line cue>`. "
     "Use only the unmuted speaker keys named in the request. Return [] when nobody should answer."
 )
@@ -73,7 +73,7 @@ def speaking_plan_instruction(speaker_keys: str) -> str:
     description, so the roster used to be invisible on both paths.
     """
     return (
-        f"Cast the exchange with `{SPEAKING_PLAN_FIELD}`: ordered lines `<speaker_key> — <one-line cue>`. "
+        f"Cast the exchange with `{_SPEAKING_PLAN_FIELD}`: ordered lines `<speaker_key> — <one-line cue>`. "
         f"Valid unmuted speaker keys: {speaker_keys}. Return [] when nobody should answer."
     )
 
@@ -84,7 +84,7 @@ def keeps_director_value(field: str, value: Any) -> bool:
     Empty values normally mean declined. A speaking plan of [] means nobody
     answers; only None falls back to the configured strategy.
     """
-    if field == SPEAKING_PLAN_FIELD:
+    if field == _SPEAKING_PLAN_FIELD:
         return value is not None
     return value not in (None, "", [])
 
@@ -97,10 +97,10 @@ def build_direct_scene_override(writer_fragments: Sequence[Mapping[str, Any]], g
     """
     schema = build_direct_scene_tool(writer_fragments)
     if grouped:
-        schema["function"]["parameters"]["properties"][SPEAKING_PLAN_FIELD] = {
+        schema["function"]["parameters"]["properties"][_SPEAKING_PLAN_FIELD] = {
             "type": "array",
             "items": {"type": "string"},
-            "description": SPEAKING_PLAN_SCHEMA_DESCRIPTION,
+            "description": _SPEAKING_PLAN_SCHEMA_DESCRIPTION,
         }
     return schema
 
@@ -114,7 +114,7 @@ def _with_description(key: str, prop: dict, descriptions: Mapping[str, str]) -> 
     return {**prop, "description": descriptions[key]} if key in descriptions else prop
 
 
-def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]]) -> dict:
+def _live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]]) -> dict:
     """The blob's ``direct_scene`` narrowed to the fields *fragments* make live.
 
     The shared blob offers every defined fragment by name only, with nothing required, so an enable toggle never rewrites the
@@ -129,7 +129,7 @@ def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str,
     properties = {
         key: _with_description(key, value, descriptions)
         for key, value in params.get("properties", {}).items()
-        if key in descriptions or key in ("moods", SPEAKING_PLAN_FIELD)
+        if key in descriptions or key in ("moods", _SPEAKING_PLAN_FIELD)
     }
     return {
         **tool_schema,
@@ -268,7 +268,7 @@ async def director_pass(
         # Only the group driver widens direct_scene with a speaking plan, so its
         # presence in the schema is what says "this turn schedules speakers".
         scene_fields = tool_schema["function"]["parameters"]["properties"] if name == "direct_scene" and tool_schema else {}
-        plans_speakers = SPEAKING_PLAN_FIELD in scene_fields
+        plans_speakers = _SPEAKING_PLAN_FIELD in scene_fields
         if name == "direct_scene" and per_fragment_on and (interactive_fragments or plans_speakers):
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             hyperparams = extract_hyperparams(settings, lane="agent")
@@ -297,7 +297,7 @@ async def director_pass(
                     progressive_prior=(progressive_state or {}).get(stage["id"]) if stage else None,
                     cast_instruction=(
                         speaking_plan_instruction(speaker_keys)
-                        if speaker_keys and stage is not None and stage["id"] == SPEAKING_PLAN_FIELD
+                        if speaker_keys and stage is not None and stage["id"] == _SPEAKING_PLAN_FIELD
                         else ""
                     ),
                     resting=resting,
@@ -361,7 +361,7 @@ async def director_pass(
         # The blob offers every defined fragment; the call is shown, narrowed to,
         # and credited with only the enabled ones that are not resting.
         live_schema = (
-            live_direct_scene_schema(tool_schema, [f for f in interactive_fragments if f["id"] not in resting])
+            _live_direct_scene_schema(tool_schema, [f for f in interactive_fragments if f["id"] not in resting])
             if name == "direct_scene" and tool_schema
             else tool_schema
         )

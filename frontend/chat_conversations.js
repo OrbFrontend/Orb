@@ -473,7 +473,7 @@ let _compressConvId = null;
 let _compressOperation = null;
 let _compressDialogToken = 0;
 
-export function showCompressModal() {
+function showCompressModal() {
   if (!S.activeConvId) {
     toast("No active conversation", true);
     return;
@@ -523,13 +523,13 @@ export function showCompressModal() {
   setModalDismiss(cancelCompression);
 }
 
-export function cancelCompression() {
+function cancelCompression() {
   _compressDialogToken++;
   _compressOperation?.stop?.();
   closeModal();
 }
 
-export async function generateCompressionSummary() {
+async function generateCompressionSummary() {
   const cid = _compressConvId;
   if (_compressOperation || !cid) return;
   const dialog = _compressDialogToken;

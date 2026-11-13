@@ -65,7 +65,7 @@ def vote_axes(styles: Sequence[AxisStyle]) -> AxisStyle:
     )
 
 
-def baseline_axes(messages: list[str]) -> AxisStyle:
+def _baseline_axes(messages: list[str]) -> AxisStyle:
     """Derive target axes from recent assistant messages."""
     return vote_axes([classify_axes(m) for m in messages if m and m.strip()])
 
@@ -146,11 +146,6 @@ def _group_run(
         else:
             break
     return j
-
-
-def normalize_format(draft: str, target: AxisStyle) -> str:
-    """Rewrite draft markup to match *target* where classification is safe."""
-    return _rewrite(draft, classify_axes(draft), target)
 
 
 def _governing_dialogue(src: AxisStyle, target: AxisStyle) -> Dialogue:
@@ -280,7 +275,7 @@ _SKIP_RULES: tuple[tuple[str, Callable[[str], object]], ...] = (
 )
 
 
-def skip_reasons(draft: str) -> list[str]:
+def _skip_reasons(draft: str) -> list[str]:
     """Why *draft* must be left as written (skip-v1); empty when it may be rewritten."""
     visible = strip_protected_markup(draft)
     return [name for name, fires in _SKIP_RULES if fires(visible)]
@@ -301,13 +296,13 @@ def normalize_to_baseline(
         return draft, FormatDriftReport(None, None, False, "no baseline")
 
     if target is None:
-        target = baseline_axes(baseline_messages)
+        target = _baseline_axes(baseline_messages)
     if target.dialogue == Dialogue.UNKNOWN and target.narration == Narration.UNKNOWN:
         return draft, FormatDriftReport(None, target, False, "baseline unstable")
 
     if source is None:
         source = classify_axes(draft)
-    skipped = skip_reasons(draft)
+    skipped = _skip_reasons(draft)
     if skipped:
         return draft, FormatDriftReport(source, target, False, f"skipped ({', '.join(skipped)})")
     new_text = _rewrite(draft, source, target)

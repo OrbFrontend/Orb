@@ -12,22 +12,22 @@ from typing import Literal
 
 ThinkTags = tuple[str, str]
 SplitterStart = Literal["auto", "reasoning", "content"]
-GEMMA_TAGS: ThinkTags = ("<|channel>thought\n", "<channel|>")
-THINK_TAGS: ThinkTags = ("<think>", "</think>")
-MINIMAX_TAGS: ThinkTags = ("<mm:think>", "</mm:think>")
-NO_TAGS: ThinkTags = ("", "")
+_GEMMA_TAGS: ThinkTags = ("<|channel>thought\n", "<channel|>")
+_NO_TAGS: ThinkTags = ("", "")
 SELF_HEADER = " to=self<|message|>"
 REPLY_HEADER = " to=user<|message|>"
 
-PROBE_REASONING = "ORB_REASONING_7f32"
-PROBE_CONTENT = "ORB_CONTENT_7f32"
+_PROBE_REASONING = "ORB_REASONING_7f32"
+_PROBE_CONTENT = "ORB_CONTENT_7f32"
 
 
 def probe_messages(*, history: bool = False, empty: bool = False) -> list[dict]:
     """Fixed synthetic inputs; no conversation data and no generation needed."""
     messages = [{"role": "user", "content": "Reply with one color."}]
     if history:
-        messages.append({"role": "assistant", "content": PROBE_CONTENT, "reasoning_content": "" if empty else PROBE_REASONING})
+        messages.append(
+            {"role": "assistant", "content": _PROBE_CONTENT, "reasoning_content": "" if empty else _PROBE_REASONING}
+        )
     return messages
 
 
@@ -43,7 +43,7 @@ class ReasoningControls:
 @dataclass(frozen=True)
 class ReasoningFormat:
     status: Literal["known", "none", "unknown"] = "none"
-    tags: ThinkTags = NO_TAGS
+    tags: ThinkTags = _NO_TAGS
     channel: bool = False
     controls: ReasoningControls | None = None
     detail: str = ""
@@ -73,24 +73,24 @@ def format_from_probes(*, on: str, off: str, history: str, empty_history: str) -
     arbitrary template expressions are interpreted here.
     """
     unknown = ReasoningFormat(status="unknown", detail="the rendered reasoning boundaries are unsupported or ambiguous")
-    if history.count(PROBE_CONTENT) != 1 or empty_history.count(PROBE_CONTENT) != 1:
+    if history.count(_PROBE_CONTENT) != 1 or empty_history.count(_PROBE_CONTENT) != 1:
         return unknown
-    if PROBE_REASONING not in history:
+    if _PROBE_REASONING not in history:
         return ReasoningFormat() if history == empty_history and on == off else unknown
-    if history.count(PROBE_REASONING) != 1 or history.replace(PROBE_REASONING, "") != empty_history:
+    if history.count(_PROBE_REASONING) != 1 or history.replace(_PROBE_REASONING, "") != empty_history:
         return unknown
-    before, after = history.split(PROBE_REASONING)
-    if PROBE_CONTENT in before:
+    before, after = history.split(_PROBE_REASONING)
+    if _PROBE_CONTENT in before:
         return unknown
-    between, _ = after.split(PROBE_CONTENT)
+    between, _ = after.split(_PROBE_CONTENT)
     if before.endswith(SELF_HEADER) and between.endswith(REPLY_HEADER):
         # Both headers and their transition were observed in the rendered
         # assistant message. Only this routed protocol uses ChannelSplitter.
         if between not in ("<|eom|><|start|>assistant" + REPLY_HEADER, "<|start|>assistant" + REPLY_HEADER):
             return unknown
         return ReasoningFormat(status="known", channel=True, controls=ReasoningControls(SELF_HEADER, REPLY_HEADER, between))
-    if before.endswith(GEMMA_TAGS[0]) and between.strip() == GEMMA_TAGS[1]:
-        opening, closing = GEMMA_TAGS
+    if before.endswith(_GEMMA_TAGS[0]) and between.strip() == _GEMMA_TAGS[1]:
+        opening, closing = _GEMMA_TAGS
         open_suffix = opening
     else:
         match = _TAG_BEFORE_REASONING.search(before)
@@ -113,7 +113,7 @@ class PreparedPrompt:
     reasoning_prefill: str = ""
 
 
-def prompt_state(prompt: str, fmt: ReasoningFormat, *, prefill: bool = False) -> SplitterStart:
+def _prompt_state(prompt: str, fmt: ReasoningFormat, *, prefill: bool = False) -> SplitterStart:
     """Observed prompt state wins over the requested reasoning toggle."""
     if prefill or fmt.status == "none":
         return "content"
@@ -132,9 +132,9 @@ def prompt_state(prompt: str, fmt: ReasoningFormat, *, prefill: bool = False) ->
 def select_reply(prompt: str, fmt: ReasoningFormat) -> str:
     """Select the reply at the tail; preserve all preceding prompt bytes."""
     controls = fmt.controls
-    if not controls or prompt_state(prompt, fmt) == "content":
+    if not controls or _prompt_state(prompt, fmt) == "content":
         return prompt
-    if prompt_state(prompt, fmt) == "reasoning":
+    if _prompt_state(prompt, fmt) == "reasoning":
         # Replace only the observed open suffix with the rendered empty span.
         # Routed messages close through a message transition instead.
         if fmt.channel:
@@ -155,7 +155,7 @@ def prepare_prompt(
 ) -> PreparedPrompt:
     """Return the final bytes and the one state every stream parser must honor."""
     fmt.require_supported()
-    start = prompt_state(prompt, fmt, prefill=prefill)
+    start = _prompt_state(prompt, fmt, prefill=prefill)
     controls = fmt.controls
     if reasoning_prefill and reasoning and not prefill and controls:
         if start == "content":

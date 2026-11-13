@@ -19,7 +19,7 @@ MEL_FMAX = SAMPLE_RATE / 2  # config says null, which torchaudio reads as Nyquis
 NUM_MELS = 128
 
 
-def mel_filterbank() -> np.ndarray:
+def _mel_filterbank() -> np.ndarray:
     """Return the Slaney-normalized mel filterbank."""
     import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
@@ -69,7 +69,7 @@ def mel_spectrogram(wav: np.ndarray) -> np.ndarray:
     import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     spec = _stft_magnitude(wav)  # power=1: magnitude, not energy
-    return (mel_filterbank().T @ spec).astype(np.float32)
+    return (_mel_filterbank().T @ spec).astype(np.float32)
 
 
-__all__ = ["HOP_LENGTH", "NUM_MELS", "SAMPLE_RATE", "mel_filterbank", "mel_spectrogram"]
+__all__ = ["HOP_LENGTH", "NUM_MELS", "SAMPLE_RATE", "mel_spectrogram"]

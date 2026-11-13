@@ -13,7 +13,7 @@ function _isWs(c) {
   return isSentenceWhitespace(c) || isHardLineBreak(c);
 }
 
-export function tokenizeRun(text, carry, opts) {
+function tokenizeRun(text, carry, opts) {
   let { wordIndex, sentIndex, midWord, breakPending } = carry;
   let pendingWord = carry.pendingWord || "";
   let separated = Boolean(carry.separated);

@@ -20,16 +20,16 @@ RELEASE_THRESHOLD = 0.001
 #: How far an edge may follow a decay past the last speech frame. Without a cap,
 #: a clip whose noise floor sits above ``RELEASE_THRESHOLD`` would not be
 #: trimmed at all.
-RELEASE_MS = 200
+_RELEASE_MS = 200
 
 #: Quiet audio kept after the decay, so a clip does not end the instant it goes
 #: silent. Nothing is invented: the pad is the decoder's own trailing silence,
 #: and it is shorter when the waveform holds less.
-RELEASE_PAD_MS = 120
+_RELEASE_PAD_MS = 120
 
 #: Ramp applied at each cut. The edges land in near-silence once the decay is
 #: kept, but a waveform that runs out mid-decay would otherwise end on a step.
-FADE_MS = 5
+_FADE_MS = 5
 
 
 def frame_rms(wav: np.ndarray, frame: int, hop: int) -> np.ndarray:
@@ -178,9 +178,9 @@ def trim_silence_edges(
     # is conservative enough on its own -- it only ever removes audio that sits below the decay floor.
     min_keep_samples: int = 0,
     release_threshold: float = RELEASE_THRESHOLD,
-    release_ms: int = RELEASE_MS,
-    pad_ms: int = RELEASE_PAD_MS,
-    fade_ms: int = FADE_MS,
+    release_ms: int = _RELEASE_MS,
+    pad_ms: int = _RELEASE_PAD_MS,
+    fade_ms: int = _FADE_MS,
 ) -> np.ndarray:
     """Remove dead air at the edges, keeping each word's attack and release.
 
@@ -202,7 +202,7 @@ def trim_silence_edges(
     )
 
 
-def pad_tail(wav: np.ndarray, *, ms: int = RELEASE_PAD_MS, threshold: float = RELEASE_THRESHOLD) -> np.ndarray:
+def pad_tail(wav: np.ndarray, *, ms: int = _RELEASE_PAD_MS, threshold: float = RELEASE_THRESHOLD) -> np.ndarray:
     """Append silence so a clip ends with at least *ms* of quiet.
 
     Spark's decoder normally renders its own trailing silence and the trim keeps it, leaving this a no-op. A short line is the

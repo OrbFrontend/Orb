@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Set
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -58,19 +58,6 @@ assert tuple(_tools) == BUILTIN_TOOL_ORDER
 _standalone_tools: set[str] = set()
 
 
-class _LiveSetView(Set[str]):
-    """Read-only set interface over mutable catalog-owned membership."""
-
-    def __contains__(self, value: object) -> bool:
-        return value in _standalone_tools
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(_standalone_tools)
-
-    def __len__(self) -> int:
-        return len(_standalone_tools)
-
-
 class _LiveToolsView(Mapping[str, dict]):
     """Read-only live catalog view that does not expose mutable internals."""
 
@@ -85,7 +72,6 @@ class _LiveToolsView(Mapping[str, dict]):
 
 
 TOOLS: Mapping[str, dict] = _LiveToolsView()
-STANDALONE_TOOLS: Set[str] = _LiveSetView()
 
 
 @dataclass(frozen=True, slots=True)

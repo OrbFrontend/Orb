@@ -9,7 +9,7 @@ from ...core import agent_lane_cut_off, agent_lane_max_tokens
 from ...core.settings import Settings
 from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
-PROFILE_TOOL_NAME = "draft_public_profile"
+_PROFILE_TOOL_NAME = "draft_public_profile"
 
 # Shared public-profile prompt contract. Forbid braces because profiles are
 # macro-resolved at turn time and approved text must stay stable.
@@ -41,7 +41,7 @@ SCENE_SYSTEM_PROMPT = (
 DRAFT_PROFILE_TOOL = {
     "type": "function",
     "function": {
-        "name": PROFILE_TOOL_NAME,
+        "name": _PROFILE_TOOL_NAME,
         "description": "Draft the scene-safe public profile for one roleplay cast member.",
         "parameters": {
             "type": "object",
@@ -125,7 +125,7 @@ def build_card_message(card: Mapping[str, Any]) -> str:
     )
 
 
-def build_scene_message(
+def _build_scene_message(
     card: Mapping[str, Any],
     *,
     display_name: str = "",
@@ -217,7 +217,7 @@ async def draft_scene_profile(
 
     One member per call. See the module docstring for why this is not batched.
     """
-    message = build_scene_message(
+    message = _build_scene_message(
         card,
         display_name=display_name,
         cast_names=cast_names,

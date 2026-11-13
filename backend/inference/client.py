@@ -141,7 +141,7 @@ def without_reasoning(message: _M) -> _M:
     return cast(_M, {key: value for key, value in message.items() if key not in endpoint_profiles.REASONING_REPLAY_FIELDS})
 
 
-def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
+def _apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
     """Apply per-model effort only to reasoning-enabled chat requests.
 
     Standard levels set reasoning_effort and reasoning.effort; custom uses its body key with JSON-decoded value or raw string.
@@ -169,7 +169,7 @@ def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str 
 _HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
 
 
-def parse_extra_headers(text: str) -> dict[str, str]:
+def _parse_extra_headers(text: str) -> dict[str, str]:
     """Parse ``Name: value`` lines into a header dict.
 
     Blank lines and ``#`` comments are skipped; a malformed line is dropped with a warning rather than raised on. The API layer
@@ -196,10 +196,10 @@ def parse_extra_headers(text: str) -> dict[str, str]:
     return out
 
 
-def parse_extra_body(text: str) -> dict:
+def _parse_extra_body(text: str) -> dict:
     """Parse a JSON object of extra body fields; ``{}`` when absent or unusable.
 
-    Permissive for the same reason as :func:`parse_extra_headers`.
+    Permissive for the same reason as :func:`_parse_extra_headers`.
     """
     text = (text or "").strip()
     if not text:
@@ -292,7 +292,7 @@ class LLMClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
-        # Per-model reasoning effort (see apply_reasoning_effort): '' = provider
+        # Per-model reasoning effort (see _apply_reasoning_effort): '' = provider
         # default, a level name, or 'custom' + the param/value pair to send.
         self.reasoning_effort = reasoning_effort
         self.reasoning_effort_param = reasoning_effort_param
@@ -304,8 +304,8 @@ class LLMClient:
         # httpx connects directly; httpx rejects "" as a proxy URL.
         self.proxy = proxy or None
         # Parsed once here rather than on every request.
-        self.extra_headers = parse_extra_headers(extra_headers)
-        self.extra_body = parse_extra_body(extra_body)
+        self.extra_headers = _parse_extra_headers(extra_headers)
+        self.extra_body = _parse_extra_body(extra_body)
         # Shared across the turn's clients when passed in; otherwise a private
         # token so a standalone client (e.g. a workflow hook) is still abortable.
         self.abort_token = abort_token or AbortToken()
@@ -609,7 +609,7 @@ class LLMClient:
             # Requests usage in the terminal SSE chunk; servers that don't support it silently ignore this field.
             body.setdefault("stream_options", {"include_usage": True})
 
-            apply_reasoning_effort(body, self.reasoning_effort, self.reasoning_effort_param, self.reasoning_effort_value)
+            _apply_reasoning_effort(body, self.reasoning_effort, self.reasoning_effort_param, self.reasoning_effort_value)
 
             logger.info(
                 "LLM complete: model=%s, tools=%s, tool_choice=%s",
@@ -848,7 +848,7 @@ class LLMClient:
     def _template_effort(self) -> str:
         """The reasoning-effort level to render into a text-mode prompt.
 
-        ``custom`` names a provider-specific *request body* field (see :func:`apply_reasoning_effort`), which a chat template
+        ``custom`` names a provider-specific *request body* field (see :func:`_apply_reasoning_effort`), which a chat template
         cannot read, so only a standard level rides the render.
         """
         return "" if self.reasoning_effort == "custom" else self.reasoning_effort
@@ -988,8 +988,8 @@ class LLMClient:
             ctk = {"enable_thinking": reasoning, "thinking": reasoning}
             if preserve and reasoning:
                 ctk.update(preserve_thinking=True, clear_thinking=False)
-            # Text mode's only seam for the per-model effort level: the chat transport's apply_reasoning_effort writes a request
-            # body this transport never sends. Reasoning-off calls are skipped for the same reason apply_reasoning_effort skips
+            # Text mode's only seam for the per-model effort level: the chat transport's _apply_reasoning_effort writes a request
+            # body this transport never sends. Reasoning-off calls are skipped for the same reason _apply_reasoning_effort skips
             # them. Read off self rather than taken as an argument so the doc-mode auditor's re-render (which reuses this
             # client) cannot drift from the transport by a byte.
             effort = self._template_effort() if reasoning else ""

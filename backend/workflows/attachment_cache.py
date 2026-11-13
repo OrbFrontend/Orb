@@ -77,7 +77,7 @@ def _lru3_key(c: dict) -> float:
     return float(ra[-1])
 
 
-def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
+def _plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
     """Oldest-first (LRU-3) eviction prefix covering *shortfall* bytes.
 
     Returns the victim candidate dicts in eviction order; empty when *shortfall* is already non-positive. Shared by the
@@ -178,7 +178,7 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
         candidates = [c for c in candidates if c["id"] != attachment_id]
         occupied = sum(c["size"] for c in candidates)
         shortfall = (occupied + new_size) - budget
-        victims = plan_eviction(candidates, shortfall)
+        victims = _plan_eviction(candidates, shortfall)
         if not _covered(victims, shortfall):
             raise ValueError(f"workflow_attachment {attachment_id!r} cannot fit without evicting unrecoverable artifacts")
         for victim in victims:
@@ -370,8 +370,6 @@ def _stored_rehydratable(seed: object, generation_metadata: object) -> bool:
 
 def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | None]:
     """Validate a workflow-attachment payload."""
-    # Defense-in-depth: today's only caller (regenerate route) pre-filters non-dicts before invoking, but the gate stays so unit
-    # tests pin the exhaustive contract and future callers don't need to re-derive it.
     if not isinstance(attachment, dict):
         return False, "not a dict"
     workflow_id = attachment.get("workflow_id")
@@ -567,7 +565,7 @@ async def _insert_one_on(db, message_id: int, attachment: dict) -> tuple[int | N
     candidates = await _byte_bearing_candidates_on(db)
     occupied = sum(c["size"] for c in candidates)
     shortfall = 0 if insert_as_marker else (occupied + new_size) - budget
-    victims = plan_eviction(candidates, shortfall)
+    victims = _plan_eviction(candidates, shortfall)
 
     # Pinned legacy rows may leave too little safe capacity for this artifact. Preserve the new row as a marker when it is
     # recoverable; otherwise reject it instead of destroying an irreplaceable old row.
@@ -575,7 +573,7 @@ async def _insert_one_on(db, message_id: int, attachment: dict) -> tuple[int | N
         if not _is_rehydratable(attachment):
             return (None, {**attachment, "reason": OVERSIZE_NO_METADATA_REASON})
         insert_as_marker = True
-        victims = plan_eviction(candidates, occupied - budget)
+        victims = _plan_eviction(candidates, occupied - budget)
 
     for victim in victims:
         await _evict_on(db, victim["id"])
@@ -663,7 +661,7 @@ async def insert_workflow_attachments(
 
         # Step B: evict existing oldest-first for any residual shortfall (occupied + new_byte_total > budget). Runtime
         # over-budget state (occupied alone > budget after a settings shrink) also converges here on the next write.
-        for victim in plan_eviction(existing, (occupied + new_byte_total) - budget):
+        for victim in _plan_eviction(existing, (occupied + new_byte_total) - budget):
             await _evict_on(conn, victim["id"])
 
         new_ids_by_input_idx: dict[int, int] = {}

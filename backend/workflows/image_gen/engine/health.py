@@ -67,7 +67,7 @@ def verdict(config: Mapping[str, Any], style: Mapping[str, Any]) -> dict[str, An
 
 
 def forget(style_id: str | None = None) -> None:
-    """Drop one verdict, or all of them. For tests and for a config reset."""
+    """Drop one verdict, or all of them."""
     if style_id is None:
         _verdicts.clear()
     else:

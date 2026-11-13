@@ -233,7 +233,7 @@ def _deterministic_route(endpoint_url: str) -> EndpointRoute:
     return _base_route("openai", clean)
 
 
-def resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
+def _resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
     """Return the cached or deterministic route for one configured endpoint."""
     return (
         _RESOLVED_ROUTES.get((endpoint_url, model))
@@ -248,7 +248,7 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
     Explicit resource URLs win; ambiguous URLs try the configured chat route, Messages sibling and conventional host-root
     routes, then /v1beta/openai. Probe alternatives only for recognized route-mismatch responses.
     """
-    primary = resolve_endpoint(endpoint_url, model)
+    primary = _resolve_endpoint(endpoint_url, model)
     if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES or (endpoint_url, "") in _RESOLVED_ROUTES:
         return [primary]
     parsed = _parsed_http_url(endpoint_url)
@@ -370,7 +370,7 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """
     if not endpoint_url:
         return None
-    resolved_url = resolve_endpoint(endpoint_url, model).url
+    resolved_url = _resolve_endpoint(endpoint_url, model).url
     if is_gemini_openai_surface(endpoint_url) or is_gemini_openai_surface(resolved_url):
         return _GEMINI_PROFILE
     haystack = endpoint_url.lower()

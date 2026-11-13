@@ -20,14 +20,6 @@ def register(host: ManagedLlamaServerHost) -> ManagedLlamaServerHost:
     return host
 
 
-def unregister(host: ManagedLlamaServerHost) -> None:
-    """Drop a host from the registry. For tests that build a throwaway one."""
-    for i, h in enumerate(_HOSTS):
-        if h is host:
-            del _HOSTS[i]
-            return
-
-
 def hosts() -> tuple[ManagedLlamaServerHost, ...]:
     return tuple(_HOSTS)
 

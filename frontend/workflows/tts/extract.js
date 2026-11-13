@@ -221,7 +221,7 @@ export function alignBlocks(words, blockTokens) {
   return starts;
 }
 
-export function extractBlocks(content) {
+function extractBlocks(content) {
   if (!content?.trim()) return [];
   const quoted = findQuotedSpans(content);
   const parentheticals = findParentheticalSpans(content, quoted);

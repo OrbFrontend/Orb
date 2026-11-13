@@ -26,22 +26,13 @@ REFERENCE_SUBFOLDER = "orb"
 VIEW_KEYS = ("filename", "subfolder", "type")
 _MAX_VIEW_FIELD = 512
 
-# How long to wait between /history polls. Named so tests can shorten it;
-# a hardcoded sleep made the queue-progress test wait in real time.
+# How long to wait between /history polls.
 _POLL_INTERVAL = 1.0
 # How long a stopped render spends withdrawing its job from the server.
 _WITHDRAW_SECS = 5.0
 _OBJECT_INFO_TTL = 60.0
 _OBJECT_INFO_MAX_ENTRIES = 8
 _object_info_cache: dict[str, tuple[float, dict]] = {}
-
-
-def invalidate_object_info(api_url: str | None = None) -> None:
-    """Drop cached node information, for one server or all of them."""
-    if api_url is None:
-        _object_info_cache.clear()
-    else:
-        _object_info_cache.pop(api_url.rstrip("/"), None)
 
 
 def _first_input_name(node_errors: Any) -> str | None:

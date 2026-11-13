@@ -20,11 +20,11 @@ DEFAULT_SOURCE = "external_comfy"
 # id in that namespace is a cloud provider id, so nothing may ship a provider preset called "comfy".
 COMFY_CONNECTION = "comfy"
 MAX_STYLES = 32
-MAX_SCENE_SKILLS = 32
-MAX_USER_GRAPHS = 32
+_MAX_SCENE_SKILLS = 32
+_MAX_USER_GRAPHS = 32
 # Switching provider must not destroy the previous key, so the credential map is
 # retained rather than replaced -- and, like everything here, bounded.
-MAX_CLOUD_PROVIDERS = 16
+_MAX_CLOUD_PROVIDERS = 16
 CLOUD_QUALITIES = ("low", "medium", "high")
 # Canonical pixel bounds, shared by both backends. Stored as width/height even for providers that speak aspect ratios: one
 # representation, converted at the wire. A ComfyUI graph reads the same pair, through whichever node its `width`/`height` slots
@@ -381,7 +381,7 @@ def _scene_skills(candidates: Any) -> list[dict]:
         if skill and skill["id"] not in seen:
             skills.append(skill)
             seen.add(skill["id"])
-        if len(skills) >= MAX_SCENE_SKILLS:
+        if len(skills) >= _MAX_SCENE_SKILLS:
             break
     return skills
 
@@ -552,7 +552,7 @@ def _cloud(raw: Any, provider_override: str = "") -> dict:
         if not _ID_RE.fullmatch(pid) or pid in providers:
             continue
         providers[pid] = _cloud_provider_entry(entry)
-        if len(providers) >= MAX_CLOUD_PROVIDERS:
+        if len(providers) >= _MAX_CLOUD_PROVIDERS:
             break
 
     return {"provider": provider, "providers": providers}
@@ -594,7 +594,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     # the graph, and `_user_graph` drops them on the way past, so it hands them out here on its way past instead.
     legacy_references: dict[str, list[str]] = {}
     graphs = _unique_by_id(
-        external_raw.get("user_graphs"), partial(_user_graph, legacy_sources=legacy_references), MAX_USER_GRAPHS
+        external_raw.get("user_graphs"), partial(_user_graph, legacy_sources=legacy_references), _MAX_USER_GRAPHS
     )
     # The raw cloud block and the legacy map are bound at the call site rather than by
     # widening `_unique_by_id`, which `_user_graph` shares and has neither to pass.

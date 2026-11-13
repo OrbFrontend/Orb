@@ -9,7 +9,7 @@ import httpx
 # Temporary server-side HTTP statuses. 429/503/529 are explicit "busy/overloaded" signals; 408/500/502/504 are transient often
 # enough on LLM backends (request timeouts, OOM/CUDA hiccups, gateway blips) to be worth a bounded retry. Client-side 4xx
 # (400/401/404/422 ...) are deterministic and never retried.
-RETRYABLE_STATUS: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 529})
+_RETRYABLE_STATUS: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 529})
 
 # Connection-level failures that mean the server was briefly unreachable rather than that the request was bad: a refused or
 # timed-out connect, a read/protocol error or dropped connection before any response, or no free pool slot. Write-side and
@@ -35,7 +35,7 @@ class RetryPolicy:
 
     count: int = 4
     delay: float = 5.0
-    status_codes: frozenset[int] = RETRYABLE_STATUS
+    status_codes: frozenset[int] = _RETRYABLE_STATUS
 
     def should_retry(self, exc: BaseException) -> bool:
         """True if *exc* is a transient failure worth retrying under this policy."""

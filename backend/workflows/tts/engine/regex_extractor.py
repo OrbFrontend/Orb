@@ -159,12 +159,12 @@ def _spoken_text(text: str) -> str:
 
 # Narration pacing
 
-# Narration is never read aloud, so the gap before the next line stands in for it. Hyperbolic in its length, so GAP_MAX_MS is an
+# Narration is never read aloud, so the gap before the next line stands in for it. Hyperbolic in its length, so _GAP_MAX_MS is an
 # asymptote rather than a plateau every long beat flattens onto.
-GAP_MIN_MS = 300
-GAP_MAX_MS = 3000
+_GAP_MIN_MS = 300
+_GAP_MAX_MS = 3000
 GAP_HALF_WORDS = 10  # narration length spending half the range above the floor
-UNVOICED_BEAT_MS = 200  # room for a sound the backend cannot perform
+_UNVOICED_BEAT_MS = 200  # room for a sound the backend cannot perform
 TAG_BEAT_WORDS = 3  # words a performed tag stands in for
 _CHARS_PER_WORD = 6  # sizes a script that spaces no words, where tokens read as one
 
@@ -174,11 +174,11 @@ def _narration_words(text: str) -> int:
     return sum(max(1, count // _CHARS_PER_WORD) for count in content if count)
 
 
-def narration_pause_ms(words: int, *, unvoiced_beat: bool = False) -> int:
+def _narration_pause_ms(words: int, *, unvoiced_beat: bool = False) -> int:
     """Silence standing in for ``words`` of narration between two spoken lines."""
     words = max(0, words)
-    pause = GAP_MIN_MS + round((GAP_MAX_MS - GAP_MIN_MS) * words / (words + GAP_HALF_WORDS))
-    return min(pause + (UNVOICED_BEAT_MS if unvoiced_beat else 0), GAP_MAX_MS)
+    pause = _GAP_MIN_MS + round((_GAP_MAX_MS - _GAP_MIN_MS) * words / (words + GAP_HALF_WORDS))
+    return min(pause + (_UNVOICED_BEAT_MS if unvoiced_beat else 0), _GAP_MAX_MS)
 
 
 # Emotion heuristics
@@ -300,7 +300,7 @@ def regex_extract(
                 else:
                     unvoiced_beat = True
             last_beat = None
-        pause_before = narration_pause_ms(gap_words, unvoiced_beat=unvoiced_beat)
+        pause_before = _narration_pause_ms(gap_words, unvoiced_beat=unvoiced_beat)
         gap_words = 0
 
         emotion = _infer_emotion(dialogue_text)

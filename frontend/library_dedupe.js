@@ -336,7 +336,7 @@ async function afterResolve(removed) {
   toast(removed === 1 ? "Duplicate removed" : `${removed} duplicates removed`);
 }
 
-export function unmountLibraryDedupe() {
+function unmountLibraryDedupe() {
   _mount++;
   _scan?.stop();
   _root?.removeEventListener("click", onClick);

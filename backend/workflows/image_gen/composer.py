@@ -134,7 +134,7 @@ async def _forced_result(
     return result
 
 
-def enabled_scene_skills(skills: Sequence[Mapping[str, Any]]) -> tuple[dict, ...]:
+def _enabled_scene_skills(skills: Sequence[Mapping[str, Any]]) -> tuple[dict, ...]:
     """Return usable entries in library order."""
     return tuple(dict(skill) for skill in skills if skill.get("enabled") is True and bounded(skill.get("instructions"), 4_000))
 
@@ -158,7 +158,7 @@ async def read_image_skills(
     subjects: Sequence[Subject] = (),
 ) -> SkillSelection:
     """Select up to four skills; degrade every selector failure to no selection."""
-    catalog = enabled_scene_skills(skills)
+    catalog = _enabled_scene_skills(skills)
     if not catalog:
         return SkillSelection()
     try:

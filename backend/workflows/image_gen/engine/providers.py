@@ -107,7 +107,7 @@ _OPENAI_SIZES = ("1024x1024", "1024x1536", "1536x1024")
 
 _GAPS_NO_CONTROLS = ("ignores negative prompts, seed, steps and CFG", "applies style prompts and the resolution")
 
-PRESETS: tuple[ProviderPreset, ...] = (
+_PRESETS: tuple[ProviderPreset, ...] = (
     ProviderPreset(
         id="xai",
         label="xAI (Grok)",
@@ -329,7 +329,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
     ),
 )
 
-_BY_ID: dict[str, ProviderPreset] = {preset.id: preset for preset in PRESETS}
+_BY_ID: dict[str, ProviderPreset] = {preset.id: preset for preset in _PRESETS}
 
 
 def get_preset(provider_id: str) -> ProviderPreset | None:
@@ -340,7 +340,7 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 # when someone puts it here -- which is also what keeps a credential from ever riding along, since none is named.
 #
 # The whole dimension contract rides along -- `sizes` for a menu provider, the min/max/step grid for a `width_height` one --
-# because the panel's resolution menu is otherwise a guess at what `size_for`/`pixels_for` will accept, and a guess there offers
+# because the panel's resolution menu is otherwise a guess at what `size_for`/`_pixels_for` will accept, and a guess there offers
 # sizes that are silently snapped to something else at render time. `reference_drives_size` for the same reason: it is the one
 # capability that decides whether that menu applies *at all*, and only the panel can say so before the bill.
 _CATALOGUE_FIELDS = (
@@ -364,7 +364,7 @@ def provider_catalogue(ceiling: int) -> list[dict]:
             "needs_base_url": not preset.base_url,
             "max_references": reference_capacity(preset, ceiling),
         }
-        for preset in PRESETS
+        for preset in _PRESETS
     ]
 
 
@@ -382,7 +382,7 @@ def _parse_ratio(candidate: str) -> float | None:
     return numerator / denominator if denominator else None
 
 
-def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
+def _aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
     """The declared aspect ratio nearest to `width`x`height`, and any disclosure."""
     if not preset.aspect_ratios or width <= 0 or height <= 0:
         return "", None
@@ -421,7 +421,7 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
     return best, f"{preset.label} accepts fixed sizes; {requested} was rendered as {best}"
 
 
-def pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, int, str | None]:
+def _pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, int, str | None]:
     """`width`x`height` snapped to what the provider's pixel grid accepts.
 
     Unlike `size_for` this is not a menu, so the requested aspect ratio survives: an over-large request is scaled down whole
@@ -460,7 +460,7 @@ class BuiltRequest:
 
 # The two single-field modes are named after the field they emit, so the mode is
 # also the key. `width_height` is the odd one out because it emits two.
-_SINGLE_FIELD_MODES = {"aspect_ratio": aspect_for, "size": size_for}
+_SINGLE_FIELD_MODES = {"aspect_ratio": _aspect_for, "size": size_for}
 
 
 def _dimension_fields(preset: ProviderPreset, width: int | None, height: int | None) -> BuiltRequest:
@@ -471,7 +471,7 @@ def _dimension_fields(preset: ProviderPreset, width: int | None, height: int | N
         value, note = mapper(preset, width, height)
         return BuiltRequest({preset.dimension_mode: value} if value else {}, [note] if note else [])
     if preset.dimension_mode == "width_height":
-        final_w, final_h, note = pixels_for(preset, width, height)
+        final_w, final_h, note = _pixels_for(preset, width, height)
         return BuiltRequest({"width": final_w, "height": final_h}, [note] if note else [])
     # "none", and anything a future row misspells: the provider decides.
     return BuiltRequest({})

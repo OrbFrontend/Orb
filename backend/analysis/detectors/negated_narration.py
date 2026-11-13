@@ -14,7 +14,12 @@ from ..text.lexical import TOKEN_RE, normalize_word
 from ..text.roleplay import THOUGHT_ATTRIBUTION, is_inline_emphasis
 from ..text.roleplay_segmentation import find_emphasis_spans, ooc_spans
 
-__all__ = ["NegationConstituent", "NegationFinding", "NegationResult", "detect_negated_narration", "evaluate_negated_narration"]
+__all__ = [
+    "NegationConstituent",
+    "NegationFinding",
+    "NegationResult",
+    "detect_negated_narration",
+]
 
 ASTERISK = "asterisk"
 PROSE = "prose"
@@ -740,7 +745,7 @@ def detect_negated_narration(text: str, *, min_hits: int = 2) -> NegationResult:
     return _detect(text, min_hits=min_hits, style=None)
 
 
-def evaluate_negated_narration(text: str, style: str, *, min_hits: int = 0) -> NegationResult:
+def _evaluate_negated_narration(text: str, style: str, *, min_hits: int = 0) -> NegationResult:
     """Re-detect a full patched draft under an explicit narration style.
 
     Evaluation only, not an application setting: a repair benchmark scores the edited draft with the original draft's

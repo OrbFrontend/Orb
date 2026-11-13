@@ -82,7 +82,7 @@ GENERIC_HTTP_HEADLINE = "The model provider rejected the request."
 WORKFLOW_HEADLINE = "A workflow step failed."
 CONFIG_HEADLINE = "The model settings are incomplete."
 INTERNAL_HEADLINE = "Something went wrong inside Orb."
-GPU_SWAP_HEADLINE = "The GPU swap with ComfyUI didn't finish."
+_GPU_SWAP_HEADLINE = "The GPU swap with ComfyUI didn't finish."
 
 
 def headline_for_status(status: int) -> str:
@@ -195,7 +195,7 @@ def describe_failure(exc: BaseException) -> FailureData:
         return {"headline": CONFIG_HEADLINE, "sentence": str(exc), "kind": "config", "stage": stage}
 
     if isinstance(exc, GpuSwapError):
-        return {"headline": GPU_SWAP_HEADLINE, "sentence": str(exc), "kind": "workflow", "stage": stage}
+        return {"headline": _GPU_SWAP_HEADLINE, "sentence": str(exc), "kind": "workflow", "stage": stage}
 
     if isinstance(exc, WorkflowUserFacingError):
         # The message is already sanitized -- that is what raising this type promises.

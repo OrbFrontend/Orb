@@ -2,11 +2,11 @@
 // `aspect` locks width / height; null allows FREE_ASPECT_MIN..FREE_ASPECT_MAX.
 //
 // Smallest resize side, unless the image leaves less room.
-export const CROP_MIN = 40;
+const CROP_MIN = 40;
 
 // Limit free crops to 1:2..2:1 so square avatar surfaces still show the subject.
-export const FREE_ASPECT_MIN = 1 / 2;
-export const FREE_ASPECT_MAX = 2;
+const FREE_ASPECT_MIN = 1 / 2;
+const FREE_ASPECT_MAX = 2;
 
 export const CROP_RATIOS = {
   portrait: { label: "Portrait 2:3", aspect: 2 / 3 },

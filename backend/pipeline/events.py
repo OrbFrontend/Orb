@@ -308,10 +308,10 @@ PipelineEvent = PublicTurnEvent | TurnStateEvent | ResultEvent
 
 # Names come from the host event contract, traced to entrypoints, stages,
 # persistence and chat_stream.js. Shared hooks may publish only the four below.
-SHARED_HOOK_EVENTS = frozenset({"phase_status", "reasoning", "draft_update", "warning"})
+_SHARED_HOOK_EVENTS = frozenset({"phase_status", "reasoning", "draft_update", "warning"})
 PROTECTED_TURN_EVENTS = (
     frozenset(name for event_type in get_args(CoreTurnEvent) for name in get_args(get_type_hints(event_type)["event"]))
-    - SHARED_HOOK_EVENTS
+    - _SHARED_HOOK_EVENTS
 )
 
 
@@ -329,7 +329,7 @@ def turn_hook_event_error(ev: object) -> str | None:
     name = ev["event"]
     if name in PROTECTED_TURN_EVENTS:
         return f"event {name!r} is protected by the turn host"
-    if name not in SHARED_HOOK_EVENTS:
+    if name not in _SHARED_HOOK_EVENTS:
         return None
     data = ev.get("data")
     if not isinstance(data, dict):

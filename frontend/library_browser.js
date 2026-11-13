@@ -74,7 +74,7 @@ let _internetLoading = false;
 let _internetHasMore = false;
 let _internetRequestToken = 0;
 
-export async function showCharacterBrowserModal({ view } = {}) {
+async function showCharacterBrowserModal({ view } = {}) {
   const token = ++_openToken;
   _browserCharacters = charactersView();
   _browserConversations = S.conversations || [];

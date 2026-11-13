@@ -18,7 +18,7 @@ import DOMPurify from "./vendor/purify.js";
 // -- Class vocabulary --------------------------------------------------------
 // Classes emitted by formatProse. Other model classes are prefixed with `custom-`; classes added after sanitising are
 // intentionally not listed here.
-export const ORB_CLASSES = new Set([
+const ORB_CLASSES = new Set([
   "quoted",
   "code-block",
   "inline-code",
@@ -40,7 +40,7 @@ export const ORB_CLASSES = new Set([
 ]);
 
 /** Class-name prefixes `formatProse` builds at runtime (```lang fences). */
-export const ORB_CLASS_PREFIXES = ["language-"];
+const ORB_CLASS_PREFIXES = ["language-"];
 
 // -- Block layout ------------------------------------------------------------
 // Tags that already start a line, so adjacent newlines are redundant.
@@ -105,21 +105,21 @@ const COMMENT_CLOSE = "-->";
  * Escape every `<` that does not open a tag the browser actually knows.
  *
  * DOMPurify keeps the contents of dropped tags, so unknown tags must be escaped
- * first or ordinary prose can disappear. `isKnownTag` keeps this testable in Node.
+ * first or ordinary prose can disappear.
  */
-export function escapeUnknownTags(text, isKnownTag) {
+function escapeUnknownTags(text) {
   if (!text) return text || "";
   let out = "";
   let cursor = 0;
   PASSTHROUGH_RE.lastIndex = 0;
   for (let region = PASSTHROUGH_RE.exec(text); region; region = PASSTHROUGH_RE.exec(text)) {
-    out += _escapeSpan(text.slice(cursor, region.index), isKnownTag) + region[0];
+    out += _escapeSpan(text.slice(cursor, region.index)) + region[0];
     cursor = region.index + region[0].length;
   }
-  return out + _escapeSpan(text.slice(cursor), isKnownTag);
+  return out + _escapeSpan(text.slice(cursor));
 }
 
-function _escapeSpan(span, isKnownTag) {
+function _escapeSpan(span) {
   let out = "";
   let cursor = 0;
   for (let at = span.indexOf("<"); at !== -1; at = span.indexOf("<", cursor)) {
@@ -173,7 +173,7 @@ function isKnownTag(name) {
  * Drop an unfinished tag or style block during streaming. Open fences stay in
  * place because formatProse renders their body as escaped code.
  */
-export function trimIncompleteMarkup(text) {
+function trimIncompleteMarkup(text) {
   if (!text) return text || "";
   const tail = /<\/?[a-zA-Z][^>]*$/.exec(text);
   let out = tail ? text.slice(0, tail.index) : text;
@@ -520,7 +520,7 @@ export function renderMessageHtml(text, { streaming = false, scope = null } = {}
   // restarting even retained DOM nodes. Custom scopes must not read or populate the source-only render cache.
   const cached = scope === null ? cacheGet(source) : undefined;
   if (cached !== undefined) return cached;
-  const html = finish(formatProse(escapeUnknownTags(source, isKnownTag)), scope ?? cssScope(source));
+  const html = finish(formatProse(escapeUnknownTags(source)), scope ?? cssScope(source));
   // Streaming snapshots are transient and are not cached.
   if (!streaming && scope === null) cachePut(source, html);
   return html;
@@ -528,7 +528,7 @@ export function renderMessageHtml(text, { streaming = false, scope = null } = {}
 
 /** Render an editor sentence diff through the same pipeline. */
 export function renderMessageDiffHtml(ops) {
-  const escaped = ops.map((op) => ({ ...op, text: escapeUnknownTags(op.text, isKnownTag) }));
+  const escaped = ops.map((op) => ({ ...op, text: escapeUnknownTags(op.text) }));
   return finish(formatProseWithDiff(escaped), cssScope(ops.map((op) => op.text).join("\0")));
 }
 

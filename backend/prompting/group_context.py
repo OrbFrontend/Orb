@@ -111,7 +111,7 @@ def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> st
     return f"\n\n{DOSSIER_HEADING}{member.name}\n" + "\n\n".join(body)
 
 
-def render_active_card(speaker: CastMember, macros: Macros | None, roster: str) -> str:
+def _render_active_card(speaker: CastMember, macros: Macros | None, roster: str) -> str:
     """Classic card swap: the selected member's identity fields, card-style.
 
     Appended after the public cast, so the speaker is described twice on purpose: the short public line the rest of the cast
@@ -146,7 +146,7 @@ def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
     # Swap alone appends a card, and only once a speaker is chosen -- the Director and the pre-pipeline hooks run before that
     # and stop at the public cast, which is exactly the base each speaker then extends.
     if prefix_is_speaker_scoped(cast.context_mode) and cast.speaker is not None:
-        parts.append(render_active_card(cast.speaker, macros, roster))
+        parts.append(_render_active_card(cast.speaker, macros, roster))
     return "".join(parts)
 
 
@@ -179,7 +179,7 @@ def context_size_components(
     # call. An all-muted scene generates nothing and measures 0.
     speakers = [member for member in cast.members if not member.muted]
     if prefix_is_speaker_scoped(mode):
-        cards = [render_active_card(member, macros, roster) for member in speakers]
+        cards = [_render_active_card(member, macros, roster) for member in speakers]
         components.append(("largest_active_card", max(cards, key=len, default="")))
     tails = [
         "\n\n".join(

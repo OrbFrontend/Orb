@@ -400,7 +400,7 @@ function _gateRowHtml(d) {
     </div>`;
 }
 
-export function updateInteractiveFragmentExample(fieldType) {
+function updateInteractiveFragmentExample(fieldType) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[fieldType] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
   const isDecision = fieldType === "decision";
   const set = (elId, placeholder) => {
@@ -590,7 +590,7 @@ function _readInteractiveFragForm() {
   return fieldType === "decision" ? { ...base, ...readDecisionFields() } : base;
 }
 
-export function showInteractiveFragmentModal(fragId = null) {
+function showInteractiveFragmentModal(fragId = null) {
   const f = fragId ? S.interactiveFragments.find((x) => x.id === fragId) : null;
   const isEdit = !!f;
   const d = f || {
@@ -618,7 +618,7 @@ export function showInteractiveFragmentModal(fragId = null) {
   );
 }
 
-export async function saveInteractiveFragment(isEdit) {
+async function saveInteractiveFragment(isEdit) {
   const d = _readInteractiveFragForm();
   const validation = validate.validateInteractiveFragment(d);
   if (!validation.valid) {

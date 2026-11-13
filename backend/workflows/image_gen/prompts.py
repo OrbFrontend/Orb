@@ -186,7 +186,7 @@ def _strict(properties: dict) -> dict:
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
 
 
-COMPOSE_TOOL_SCHEMA = {
+_COMPOSE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "compose_image_prompt",
@@ -211,7 +211,7 @@ COMPOSE_TOOL_SCHEMA = {
 }
 
 
-READ_IMAGE_SKILLS_SCHEMA = {
+_READ_IMAGE_SKILLS_SCHEMA = {
     "type": "function",
     "function": {
         "name": "read_image_skills",
@@ -235,7 +235,7 @@ READ_IMAGE_SKILLS_SCHEMA = {
 }
 
 
-REFINE_TOOL_SCHEMA = {
+_REFINE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "refine_image_prompt",
@@ -261,7 +261,7 @@ REFINE_TOOL_SCHEMA = {
 
 COMPOSE_TOOL = ToolSpec(
     name="compose_image_prompt",
-    schema=COMPOSE_TOOL_SCHEMA,
+    schema=_COMPOSE_TOOL_SCHEMA,
     choice={"type": "function", "function": {"name": "compose_image_prompt"}},
     standalone=True,
 )
@@ -269,7 +269,7 @@ COMPOSE_TOOL = ToolSpec(
 
 READ_IMAGE_SKILLS_TOOL = ToolSpec(
     name="read_image_skills",
-    schema=READ_IMAGE_SKILLS_SCHEMA,
+    schema=_READ_IMAGE_SKILLS_SCHEMA,
     choice={"type": "function", "function": {"name": "read_image_skills"}},
     standalone=True,
 )
@@ -277,7 +277,7 @@ READ_IMAGE_SKILLS_TOOL = ToolSpec(
 
 REFINE_TOOL = ToolSpec(
     name="refine_image_prompt",
-    schema=REFINE_TOOL_SCHEMA,
+    schema=_REFINE_TOOL_SCHEMA,
     choice={"type": "function", "function": {"name": "refine_image_prompt"}},
     standalone=True,
 )

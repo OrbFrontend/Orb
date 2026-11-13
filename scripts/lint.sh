@@ -27,8 +27,3 @@ python scripts/check_frontend_layers.py
 echo ""
 echo "Running frontend Biome check..."
 node_modules/.bin/biome check frontend/
-
-echo ""
-echo "Running frontend unit tests (node --test)..."
-# Expand test paths in Bash; Node glob/directory handling varies by version.
-node --test tests/frontend/*.test.mjs

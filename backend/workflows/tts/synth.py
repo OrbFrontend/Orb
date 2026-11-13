@@ -29,7 +29,7 @@ WORKFLOW_ID = "tts"
 # Field set of a per-character voice profile, stored in ``character_cards.workflow_state['tts']`` (read via
 # get_workflow_character_state). Voice identity and credentials both live here; ``enabled`` gates automatic per-turn generation
 # for the character.
-PROFILE_DEFAULTS: dict = {
+_PROFILE_DEFAULTS: dict = {
     "backend": "spark",
     "voice_id": "cloned",
     "language": "en-US",
@@ -75,14 +75,14 @@ def _as_float(value: object, default: float) -> float:
 
 
 def normalize_profile(raw: object) -> dict:
-    """Merge a stored/partial profile over ``PROFILE_DEFAULTS``.
+    """Merge a stored/partial profile over ``_PROFILE_DEFAULTS``.
 
     Missing or null fields fall back to defaults; ``rate``/``pitch`` are coerced to float so a value that round-tripped through
     JSON as a string still reaches the adapter as a number.
     """
-    out = dict(PROFILE_DEFAULTS)
+    out = dict(_PROFILE_DEFAULTS)
     if isinstance(raw, dict):
-        for key in PROFILE_DEFAULTS:
+        for key in _PROFILE_DEFAULTS:
             val = raw.get(key)
             if val is not None:
                 out[key] = val
@@ -98,7 +98,7 @@ def normalize_profile(raw: object) -> dict:
     return out
 
 
-def speaks_advanced(profile: Mapping[str, Any]) -> bool:
+def _speaks_advanced(profile: Mapping[str, Any]) -> bool:
     """Whether *profile* uses its advanced reference."""
     return bool(
         profile.get("backend") == "spark"
@@ -110,8 +110,8 @@ def speaks_advanced(profile: Mapping[str, Any]) -> bool:
 
 def _voice_record(profile: Mapping[str, Any]) -> dict:
     """Return reproduction fields, including the reference only when used."""
-    record = {k: profile.get(k, PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
-    if not speaks_advanced(profile):
+    record = {k: profile.get(k, _PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
+    if not _speaks_advanced(profile):
         record.update(clone_mode="basic", reference_tokens=[], reference_text="")
     return record
 
@@ -179,7 +179,7 @@ def _estimate_mp3_duration_ms(audio: bytes) -> int:
     return round(samples / sample_rate * 1000)
 
 
-def estimate_audio_duration_ms(audio: bytes, content_type: str) -> int:
+def _estimate_audio_duration_ms(audio: bytes, content_type: str) -> int:
     """Return a cheap duration estimate for encoded formats used by TTS."""
     if content_type.lower().split(";", 1)[0].strip() == "audio/mpeg":
         return _estimate_mp3_duration_ms(audio)
@@ -217,7 +217,7 @@ def _backend_kwargs(profile: dict, settings: Settings | None) -> dict:
     Include Spark speaker/reference tokens only for its profile. Preserve absent
     settings for preview/reroll rather than adding unnecessary database reads.
     """
-    advanced = speaks_advanced(profile)
+    advanced = _speaks_advanced(profile)
     return {
         "speaker_tokens": list(profile.get("speaker_tokens") or []),
         "reference_tokens": list(profile.get("reference_tokens") or []) if advanced else [],
@@ -238,8 +238,8 @@ async def synthesize(text: str, profile: dict, *, settings: Settings | None = No
     chunks = [SpeakableChunk(text=spoken, spoken_text=spoken)] if spoken else []
     result = await adapter.synthesize(
         chunks=chunks,
-        voice_id=profile.get("voice_id") or PROFILE_DEFAULTS["voice_id"],
-        language=profile.get("language") or PROFILE_DEFAULTS["language"],
+        voice_id=profile.get("voice_id") or _PROFILE_DEFAULTS["voice_id"],
+        language=profile.get("language") or _PROFILE_DEFAULTS["language"],
         rate=_as_float(profile.get("rate"), 1.0),
         pitch=_as_float(profile.get("pitch"), 1.0),
         api_url=profile.get("api_url") or "",
@@ -267,7 +267,7 @@ def _alignable_tokens(text: str) -> list[str]:
     return [token for token in text.split() if _alignment_key(token)]
 
 
-def estimate_word_spans(dialogue_text: str) -> list[dict]:
+def _estimate_word_spans(dialogue_text: str) -> list[dict]:
     """Char-proportional clip-relative spans, one per alignable token.
 
     Used when a backend reports no native word timing. The ms scale is nominal: the karaoke driver re-anchors every span set to
@@ -284,7 +284,7 @@ def estimate_word_spans(dialogue_text: str) -> list[dict]:
     return spans
 
 
-def reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dict] | None:
+def _reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dict] | None:
     """Map native word boundaries to alignable token spans by forward character search.
 
     Union overlapping boundaries per token. Return None if any token lacks timing
@@ -360,8 +360,8 @@ async def synthesize_blocks(
             input_prepared=not legacy,
         )
     pause_after = [chunks[i + 1].pause_before_ms if i + 1 < len(chunks) else 0 for i in range(len(chunks))]
-    voice_id = profile.get("voice_id") or PROFILE_DEFAULTS["voice_id"]
-    language = profile.get("language") or PROFILE_DEFAULTS["language"]
+    voice_id = profile.get("voice_id") or _PROFILE_DEFAULTS["voice_id"]
+    language = profile.get("language") or _PROFILE_DEFAULTS["language"]
     rate = _as_float(profile.get("rate"), 1.0)
     pitch = _as_float(profile.get("pitch"), 1.0)
     api_url = profile.get("api_url") or ""
@@ -390,13 +390,13 @@ async def synthesize_blocks(
         clip = result.audio_bytes or b""
         parts.append(clip)
         spoken = chunk.spoken_text or chunk.text
-        words = reconcile_boundaries(spoken, result.word_boundaries) if result.word_boundaries else None
+        words = _reconcile_boundaries(spoken, result.word_boundaries) if result.word_boundaries else None
         if words is None:
-            words = estimate_word_spans(spoken)
+            words = _estimate_word_spans(spoken)
         duration_ms = max(
             int(result.duration_ms or 0),
             max((int(word.get("end_ms") or 0) for word in (result.word_boundaries or [])), default=0),
-            estimate_audio_duration_ms(clip, result.content_type),
+            _estimate_audio_duration_ms(clip, result.content_type),
         )
         blocks.append(
             {

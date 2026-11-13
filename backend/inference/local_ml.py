@@ -37,17 +37,9 @@ from .local_models.llama_server import LaunchProfile, LlamaServerClient, Managed
 #: a monkeypatch belongs on the module that OWNS the name (``assets.download``,
 #: ``dependencies.deps_ok``), not on the re-export.
 __all__ = [
-    "DIALOGUE_COLS",
     "GO_EMOTIONS",
-    "MARKUP_INPUT_CHARS",
     "MARKUP_INPUT_VERSION",
     "MODELS",
-    "NARRATION_ROWS",
-    "POV_ROWS",
-    "SUBJECT_CATEGORIES",
-    "SUBJECT_LEVELS",
-    "SUBJECT_PAIR_SIDE_IDS",
-    "TENSE_COLS",
     "ModelSpec",
     "ModelVariantSpec",
     "acomplete",
@@ -63,20 +55,12 @@ __all__ = [
     "deps_ok",
     "download",
     "install_cmd",
-    "markup_from_logits",
-    "markup_input",
     "model_deletion",
     "model_dir",
-    "pov_from_logits",
-    "pov_input",
     "present",
     "prune_stale",
     "release",
     "resolve_path",
-    "subject_pair_ids",
-    "subject_repeats_from_logits",
-    "subjects_from_logits",
-    "tense_from_logits",
     "variant_path",
     "variant_present",
     "variant_spec",
@@ -117,12 +101,10 @@ GO_EMOTIONS: tuple[str, ...] = (
 )
 
 # The povtense head's 12 logits are a row-major 4x3 grid: POV rows x tense columns. Row-sum the softmax for the POV, column-sum
-# it for the tense. Order MUST match the GGUF head's logit order -- a transposed reading still returns a plausible label, so
-# every cell is pinned by test: the rows in tests/unit/workflows/image_gen/test_pov.py, the columns in
-# tests/unit/test_local_ml.py.
-POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
-TENSE_COLS: tuple[str, ...] = ("past", "present", "ambiguous")
-_TENSE_COUNT = len(TENSE_COLS)
+# it for the tense. Order MUST match the GGUF head's logit order -- a transposed reading still returns a plausible label.
+_POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
+_TENSE_COLS: tuple[str, ...] = ("past", "present", "ambiguous")
+_TENSE_COUNT = len(_TENSE_COLS)
 
 _REPEAT_PENALTY = 1.1
 _FREQUENCY_PENALTY = 0.1
@@ -184,10 +166,10 @@ _SLOP_MAX_CHARS = 2000  # ~n_ctx guard: one over-long "sentence" can't blow past
 # A head reads the first n_ctx ids, as training cut them; a non-causal encoder needs the whole sequence in one ubatch.
 _SCORER_CTX = 512
 # The pair comparer is the subject analyzer's companion file, not a feature of its own; this key names its child.
-SUBJECT_COMPARER = "subjects_comparer"
-_SCORER_CTX_BY_FEATURE: dict[str, int] = {"subjects_classifier": 1024, SUBJECT_COMPARER: 2048}
+_SUBJECT_COMPARER = "subjects_comparer"
+_SCORER_CTX_BY_FEATURE: dict[str, int] = {"subjects_classifier": 1024, _SUBJECT_COMPARER: 2048}
 # Flash attention where it was parity-checked against the HF model: 8 comparer pairs take ~40% less CPU time with it.
-_SCORER_FLASH_ATTN: frozenset[str] = frozenset({SUBJECT_COMPARER})
+_SCORER_FLASH_ATTN: frozenset[str] = frozenset({_SUBJECT_COMPARER})
 # Slots where one call sends several inputs: four cut a message's slop scoring by a quarter. One elsewhere, where four were
 # measured no faster.
 _SCORER_SLOTS: dict[str, int] = {"slop_classifier": 4, "pov_classifier": 4}
@@ -196,7 +178,7 @@ _TOKENIZE_CONCURRENCY = 8
 
 
 def _scorer_path(feature: str) -> str:
-    if feature == SUBJECT_COMPARER:
+    if feature == _SUBJECT_COMPARER:
         return file_path(next(iter(MODELS["subjects_classifier"].extra_files)))
     return resolve_path(feature)
 
@@ -272,7 +254,7 @@ async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
 
 
 def _handles(feature: str) -> tuple[str, ...]:
-    return (feature, SUBJECT_COMPARER) if feature == "subjects_classifier" else (feature,)
+    return (feature, _SUBJECT_COMPARER) if feature == "subjects_classifier" else (feature,)
 
 
 async def release(feature: str) -> None:
@@ -310,7 +292,7 @@ async def aclassify(feature: str, text: str) -> str:
 
 # The v2 model still needs short windows. Keep narration extraction in callers: empirical dialogue-insertion probes favor it
 # over trusting native markers. The model card asks for 1-4 sentences, not a whole reply: the encoder's trained context is 256
-# tokens, and a raw tail slice of that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes the span
+# tokens, and a raw tail slice of that size is 5-10 sentences that usually starts mid-word. So `_pov_input` shapes the span
 # instead of just capping it. Tail-anchored like the emotion path: the composer freezes the FINAL visible instant of a reply, so
 # the end of the message is the part whose POV matters. _POV_MAX_CHARS survives only as a runaway guard for text with no
 # sentence breaks at all.
@@ -318,22 +300,21 @@ _POV_MAX_CHARS = 800
 _POV_SENTENCES = 3
 
 
-def pov_input(text: str) -> str:
+def _pov_input(text: str) -> str:
     """The span of *text* the povtense model should see: the last few narration sentences, dialogue removed.
 
-    Pure, so the shaping -- which decides what the model is even asked about -- is testable without loading it. Returns "" for a
-    reply that is all dialogue; the caller reads that as "ambiguous" and walks back to the previous message, which is the right
+    Returns "" for a reply that is all dialogue; the caller reads that as "ambiguous" and walks back to the previous message, which is the right
     answer for a turn that shows no narration.
     """
-    chunks = pov_chunks(text)
+    chunks = _pov_chunks(text)
     return chunks[0] if chunks else ""
 
 
-def pov_chunks(text: str) -> list[str]:
-    """Every narration sentence of *text* in `pov_input`-sized windows, newest first.
+def _pov_chunks(text: str) -> list[str]:
+    """Every narration sentence of *text* in `_pov_input`-sized windows, newest first.
 
     The model reads a few sentences at a time, so a whole-message question is asked
-    window by window. Windows are cut from the tail, and the first is `pov_input`.
+    window by window. Windows are cut from the tail, and the first is `_pov_input`.
     """
     sentences = split_sentences(remove_quoted_spans(text or ""))
     chunks = (
@@ -362,49 +343,49 @@ def _grid_margins(logits: Sequence[float], rows: Sequence[str], cols: Sequence[s
 
 
 def _pov_tense_from_logits(logits: Sequence[float]) -> tuple[str, str]:
-    return _grid_margins(logits, POV_ROWS, TENSE_COLS)
+    return _grid_margins(logits, _POV_ROWS, _TENSE_COLS)
 
 
-def pov_from_logits(logits: Sequence[float]) -> str:
+def _pov_from_logits(logits: Sequence[float]) -> str:
     """Marginalize the 4x3 joint head to one POV row label."""
     return _pov_tense_from_logits(logits)[0]
 
 
-def tense_from_logits(logits: Sequence[float]) -> str:
+def _tense_from_logits(logits: Sequence[float]) -> str:
     """Marginalize the 4x3 joint head to one tense column label."""
     return _pov_tense_from_logits(logits)[1]
 
 
 async def aclassify_pov(text: str) -> str:
-    """One message -> one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
+    """One message -> one of _POV_ROWS ("first" | "second" | "third" | "ambiguous").
 
-    Only the span `pov_input` selects is read, not the whole message.
+    Only the span `_pov_input` selects is read, not the whole message.
 
     "ambiguous" is a real class the model was trained to emit, not a confidence floor we impose, so the caller treats it as "ask
     the previous message" rather than as a failure.
     """
-    shaped = pov_input(text)
+    shaped = _pov_input(text)
     if not shaped:
         return "ambiguous"
-    (logits,) = await _logits("pov_classifier", [shaped], len(POV_ROWS) * _TENSE_COUNT)
-    return pov_from_logits(logits)
+    (logits,) = await _logits("pov_classifier", [shaped], len(_POV_ROWS) * _TENSE_COUNT)
+    return _pov_from_logits(logits)
 
 
 async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
-    """One (POV, tense) pair per `pov_chunks` window, newest first; ``[]`` for a reply with no narration.
+    """One (POV, tense) pair per `_pov_chunks` window, newest first; ``[]`` for a reply with no narration.
 
     For callers that judge a whole message rather than its final instant. One request for every window; both grid margins of
     each come off its one forward pass, so asking for the tense separately would pay for the model twice.
     """
-    windows = pov_chunks(text)
-    return [_pov_tense_from_logits(v) for v in await _logits("pov_classifier", windows, len(POV_ROWS) * _TENSE_COUNT)]
+    windows = _pov_chunks(text)
+    return [_pov_tense_from_logits(v) for v in await _logits("pov_classifier", windows, len(_POV_ROWS) * _TENSE_COUNT)]
 
 
 # Classify markup from the whole message, excluding classify_axes protected runs. Keep quote/emphasis variants; turn genuine
 # markdown bullet stars into hyphens. Ranking truncates to n_batch ids, including loss of SEP, matching training.
-# MARKUP_INPUT_CHARS is a runaway guard; bump MARKUP_INPUT_VERSION when shaping changes.
+# _MARKUP_INPUT_CHARS is a runaway guard; bump MARKUP_INPUT_VERSION when shaping changes.
 MARKUP_INPUT_VERSION = "markup-input-v2"
-MARKUP_INPUT_CHARS = 4000
+_MARKUP_INPUT_CHARS = 4000
 
 _LINE_BREAKS = re.compile(f"({HARD_LINE_BREAK_RE.pattern})")
 _BULLET_STAR = re.compile(r"([ \t]*)\*(?=[ \t])")
@@ -420,45 +401,42 @@ def _dash_bullets(text: str) -> str:
     return "".join(parts)
 
 
-def markup_input(text: str) -> str:
-    """The text the markup classifier sees: protected runs removed, bullet stars dashed, then capped.
-
-    Pure, so the shaping that training and serving share is testable without loading the model.
-    """
-    return _dash_bullets(strip_protected_markup(text or ""))[:MARKUP_INPUT_CHARS]
+def _markup_input(text: str) -> str:
+    """The text the markup classifier sees: protected runs removed, bullet stars dashed, then capped."""
+    return _dash_bullets(strip_protected_markup(text or ""))[:_MARKUP_INPUT_CHARS]
 
 
 # The markup head is one 9-way softmax over a row-major 3x3 grid: narration rows x dialogue columns
 # (../RP-Markup-Classifier/src/schema.py). Read like povtense: row sums for the narration, column sums for the dialogue, never
-# both off the top cell. Order MUST match the GGUF head's logit order -- a transposed read still returns plausible labels, so
-# tests/unit/test_local_ml.py pins every cell. "unknown" is a trained class (nothing to read, or both styles mixed in this one
+# both off the top cell. Order MUST match the GGUF head's logit order -- a transposed read still returns plausible labels.
+# "unknown" is a trained class (nothing to read, or both styles mixed in this one
 # message), not a confidence floor: callers read it as "leave this alone".
-NARRATION_ROWS: tuple[str, ...] = ("asterisk", "bare", "unknown")
-DIALOGUE_COLS: tuple[str, ...] = ("quoted", "bare", "unknown")
-_MARKUP_CELLS = len(NARRATION_ROWS) * len(DIALOGUE_COLS)
+_NARRATION_ROWS: tuple[str, ...] = ("asterisk", "bare", "unknown")
+_DIALOGUE_COLS: tuple[str, ...] = ("quoted", "bare", "unknown")
+_MARKUP_CELLS = len(_NARRATION_ROWS) * len(_DIALOGUE_COLS)
 
 
-def markup_from_logits(logits: Sequence[float]) -> tuple[str, str]:
+def _markup_from_logits(logits: Sequence[float]) -> tuple[str, str]:
     """Marginalize the 3x3 markup head to (narration, dialogue)."""
-    return _grid_margins(logits, NARRATION_ROWS, DIALOGUE_COLS)
+    return _grid_margins(logits, _NARRATION_ROWS, _DIALOGUE_COLS)
 
 
 async def aclassify_markup(text: str) -> tuple[str, str]:
-    """One whole message -> (NARRATION_ROWS label, DIALOGUE_COLS label). One model call.
+    """One whole message -> (_NARRATION_ROWS label, _DIALOGUE_COLS label). One model call.
 
-    The model reads `markup_input(text)`, of which the first 512 tokens are kept, exactly as training cut it.
+    The model reads `_markup_input(text)`, of which the first 512 tokens are kept, exactly as training cut it.
     """
-    shaped = markup_input(text)
+    shaped = _markup_input(text)
     if not shaped.strip():
         return "unknown", "unknown"  # nothing to read: never load the model for it
     (logits,) = await _logits("markup_classifier", [shaped], _MARKUP_CELLS)
-    return markup_from_logits(logits)
+    return _markup_from_logits(logits)
 
 
 # The subjects head is 20 categories x 3 levels, row-major: 20 separate 3-way softmaxes, categories in the trained head's
-# order. A transposed read still returns plausible labels, so tests/unit/test_local_ml.py pins the layout. The caller shapes
+# order. A transposed read still returns plausible labels. The caller shapes
 # the narration (dialogue stripped), as training did; its first 1024 ids are kept.
-SUBJECT_CATEGORIES: tuple[str, ...] = (
+_SUBJECT_CATEGORIES: tuple[str, ...] = (
     "eyes",
     "hair",
     "face",
@@ -480,14 +458,14 @@ SUBJECT_CATEGORIES: tuple[str, ...] = (
     "sound",
     "weather",
 )
-SUBJECT_LEVELS: tuple[str, ...] = ("absent", "action", "description")
+_SUBJECT_LEVELS: tuple[str, ...] = ("absent", "action", "description")
 
 
-def subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
-    """Read the 60-logit head as ``{category: probs}``, *probs* a softmax in SUBJECT_LEVELS order."""
-    width = len(SUBJECT_LEVELS)
+def _subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
+    """Read the 60-logit head as ``{category: probs}``, *probs* a softmax in _SUBJECT_LEVELS order."""
+    width = len(_SUBJECT_LEVELS)
     out: dict[str, list[float]] = {}
-    for i, category in enumerate(SUBJECT_CATEGORIES):
+    for i, category in enumerate(_SUBJECT_CATEGORIES):
         row = logits[i * width : (i + 1) * width]
         top = max(row)
         exp = [math.exp(x - top) for x in row]
@@ -497,44 +475,44 @@ def subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
 
 
 async def aclassify_subjects(narration: str) -> dict[str, list[float]]:
-    """One reply's narration -> ``{category: probs}`` for every SUBJECT_CATEGORIES entry. One model call."""
+    """One reply's narration -> ``{category: probs}`` for every _SUBJECT_CATEGORIES entry. One model call."""
     if not narration.strip():
-        return {category: [1.0, 0.0, 0.0] for category in SUBJECT_CATEGORIES}  # nothing to read: never load the model for it
-    (logits,) = await _logits("subjects_classifier", [narration], len(SUBJECT_CATEGORIES) * len(SUBJECT_LEVELS))
-    return subjects_from_logits(logits)
+        return {category: [1.0, 0.0, 0.0] for category in _SUBJECT_CATEGORIES}  # nothing to read: never load the model for it
+    (logits,) = await _logits("subjects_classifier", [narration], len(_SUBJECT_CATEGORIES) * len(_SUBJECT_LEVELS))
+    return _subjects_from_logits(logits)
 
 
 # The subject pair comparer reads one (earlier reply, draft) pair as [CLS] + earlier part + draft part + [SEP], each part
-# tokenized on its own and cut to SUBJECT_PAIR_SIDE_IDS, exactly as training built it; n_ctx 2048 holds both sides. Its head is
-# 20 logits in SUBJECT_CATEGORIES order, one sigmoid each: the probability that the draft repeats that subject's description
+# tokenized on its own and cut to _SUBJECT_PAIR_SIDE_IDS, exactly as training built it; n_ctx 2048 holds both sides. Its head is
+# 20 logits in _SUBJECT_CATEGORIES order, one sigmoid each: the probability that the draft repeats that subject's description
 # from the earlier reply.
-SUBJECT_PAIR_SIDE_IDS = 1000
+_SUBJECT_PAIR_SIDE_IDS = 1000
 
 
-def subject_pair_ids(cls: int, sep: int, earlier_ids: Sequence[int], draft_ids: Sequence[int]) -> list[int]:
+def _subject_pair_ids(cls: int, sep: int, earlier_ids: Sequence[int], draft_ids: Sequence[int]) -> list[int]:
     """The comparer's input ids from each shaped part's own special-free ids (`subjects.subject_pair_parts`)."""
-    return [cls, *earlier_ids[:SUBJECT_PAIR_SIDE_IDS], *draft_ids[:SUBJECT_PAIR_SIDE_IDS], sep]
+    return [cls, *earlier_ids[:_SUBJECT_PAIR_SIDE_IDS], *draft_ids[:_SUBJECT_PAIR_SIDE_IDS], sep]
 
 
-def subject_repeats_from_logits(logits: Sequence[float]) -> dict[str, float]:
+def _subject_repeats_from_logits(logits: Sequence[float]) -> dict[str, float]:
     """Read the 20-logit pair head as ``{category: repeat probability}``."""
-    return {category: 1.0 / (1.0 + math.exp(-x)) for category, x in zip(SUBJECT_CATEGORIES, logits, strict=True)}
+    return {category: 1.0 / (1.0 + math.exp(-x)) for category, x in zip(_SUBJECT_CATEGORIES, logits, strict=True)}
 
 
 async def _pair_logits(pairs: Sequence[tuple[str, str]], n: int) -> list[list[float]]:
-    async with _host(SUBJECT_COMPARER).use(_head_profile(SUBJECT_COMPARER)) as server:
-        if SUBJECT_COMPARER not in _special_ids:
+    async with _host(_SUBJECT_COMPARER).use(_head_profile(_SUBJECT_COMPARER)) as server:
+        if _SUBJECT_COMPARER not in _special_ids:
             cls, sep = await server.tokenize("", add_special=True)
-            _special_ids[SUBJECT_COMPARER] = (cls, sep)
-        cls, sep = _special_ids[SUBJECT_COMPARER]
+            _special_ids[_SUBJECT_COMPARER] = (cls, sep)
+        cls, sep = _special_ids[_SUBJECT_COMPARER]
         parts = [part for pair in pairs for part in pair]
         ids = await _bounded([lambda part=part: server.tokenize(part) for part in parts])
-        seqs = [subject_pair_ids(cls, sep, ids[2 * i], ids[2 * i + 1]) for i in range(len(pairs))]
+        seqs = [_subject_pair_ids(cls, sep, ids[2 * i], ids[2 * i + 1]) for i in range(len(pairs))]
         return await server.head_logits(seqs, n)
 
 
 async def acompare_subjects(pairs: Sequence[tuple[str, str]]) -> list[dict[str, float]]:
-    """Per (earlier part, draft part), ``{category: repeat probability}`` for every SUBJECT_CATEGORIES entry. One request."""
+    """Per (earlier part, draft part), ``{category: repeat probability}`` for every _SUBJECT_CATEGORIES entry. One request."""
     if not pairs:
         return []  # nothing to read: never load the model for it
-    return [subject_repeats_from_logits(v) for v in await _pair_logits(list(pairs), len(SUBJECT_CATEGORIES))]
+    return [_subject_repeats_from_logits(v) for v in await _pair_logits(list(pairs), len(_SUBJECT_CATEGORIES))]

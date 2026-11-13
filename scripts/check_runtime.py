@@ -12,7 +12,7 @@ import sys
 
 # requirements.txt distributions and their import surfaces. Import Image as well
 # as PIL to exercise Pillow's native extension; socksio covers httpx[socks].
-RUNTIME_IMPORTS = (
+_RUNTIME_IMPORTS = (
     ("fastapi", "fastapi"),
     ("uvicorn", "uvicorn"),
     ("aiosqlite", "aiosqlite"),
@@ -27,10 +27,10 @@ RUNTIME_IMPORTS = (
 )
 
 
-def runtime_dependency_errors() -> list[str]:
+def _runtime_dependency_errors() -> list[str]:
     """Return missing or broken required imports; never import application code."""
     errors = []
-    for distribution, module in RUNTIME_IMPORTS:
+    for distribution, module in _RUNTIME_IMPORTS:
         try:
             importlib.import_module(module)
         except Exception as exc:
@@ -39,7 +39,7 @@ def runtime_dependency_errors() -> list[str]:
 
 
 def main() -> int:
-    errors = runtime_dependency_errors()
+    errors = _runtime_dependency_errors()
     if errors:
         print("Required runtime dependencies are unavailable:", file=sys.stderr)
         for error in errors:

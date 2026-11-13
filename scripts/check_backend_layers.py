@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+BACKEND = ROOT / "backend"
 
 # The source of truth for cross-package imports. Same-package imports are
 # allowed implicitly. Features and workflows deliberately remain siblings.
@@ -32,29 +33,29 @@ ROOT_LAYER = "root"
 WORKFLOW_PLUGIN_API_MODULES = frozenset({"toolkit"})
 
 
-def _module_parts(path: Path, *, root: Path = ROOT) -> list[str]:
+def _module_parts(path: Path) -> list[str]:
     """``backend/api/routes/local_ml.py`` -> ``['backend', 'api', 'routes', 'local_ml']``."""
-    rel = path.relative_to(root).with_suffix("")
+    rel = path.relative_to(ROOT).with_suffix("")
     parts = list(rel.parts)
     if parts[-1] == "__init__":
         parts.pop()
     return parts
 
 
-def _exists(parts: list[str], *, root: Path = ROOT) -> bool:
+def _exists(parts: list[str]) -> bool:
     """Whether *parts* names a real module or package under the repo."""
-    base = root.joinpath(*parts)
+    base = ROOT.joinpath(*parts)
     return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
 
 
-def _package_parts(path: Path, *, root: Path = ROOT) -> list[str]:
+def _package_parts(path: Path) -> list[str]:
     """The package a file lives in -- the base a relative import counts up from.
 
     The same for ``cards/parsing.py`` and ``cards/__init__.py``: an
     ``__init__`` IS its package, so deriving this from the module path would
     count one level too many and report every intra-slice import as a peer edge.
     """
-    return list(path.relative_to(root).parent.parts)
+    return list(path.relative_to(ROOT).parent.parts)
 
 
 def _import_from_base(node: ast.ImportFrom, package: list[str]) -> list[str]:
@@ -65,7 +66,7 @@ def _import_from_base(node: ast.ImportFrom, package: list[str]) -> list[str]:
     return [*base, *node.module.split(".")] if node.module else base
 
 
-def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[list[str]]:
+def _targets(node: ast.AST, package: list[str]) -> list[list[str]]:
     """Every backend module *node* imports, as absolute part lists.
 
     A ``from .. import database`` resolves to the package ``backend``, and the
@@ -87,7 +88,7 @@ def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[li
     out.append(base)
     for alias in node.names:  # `from .. import database` -- the name is the module
         candidate = [*base, alias.name]
-        if _exists(candidate, root=root) and candidate not in out:
+        if _exists(candidate) and candidate not in out:
             out.append(candidate)
     return out
 
@@ -101,22 +102,22 @@ def _slice_of(parts: list[str]) -> tuple[str, str] | None:
     return parts[1], (parts[2] if len(parts) > 2 else "")
 
 
-def _python_packages(backend: Path) -> set[str]:
+def _python_packages() -> set[str]:
     return {
         path.name
-        for path in backend.iterdir()
+        for path in BACKEND.iterdir()
         if path.name != "data" and path.is_dir() and any("__pycache__" not in module.parts for module in path.rglob("*.py"))
     }
 
 
-def _unclassified_top_level_modules(backend: Path) -> set[str]:
+def _unclassified_top_level_modules() -> set[str]:
     """Root modules other than the two explicit composition-root modules."""
-    return {path.name for path in backend.glob("*.py") if path.name not in {"__init__.py", "main.py"}}
+    return {path.name for path in BACKEND.glob("*.py") if path.name not in {"__init__.py", "main.py"}}
 
 
-def _workflow_plugin_slice(path: Path, backend: Path) -> str:
+def _workflow_plugin_slice(path: Path) -> str:
     """Return the workflow plug-in directory containing *path*, if any."""
-    parts = path.relative_to(backend).parts
+    parts = path.relative_to(BACKEND).parts
     return parts[1] if len(parts) >= 3 and parts[0] == "workflows" else ""
 
 
@@ -184,37 +185,36 @@ def _private_names(node: ast.AST) -> set[str]:
     return {alias.name for alias in node.names if alias.name.startswith("_") and not alias.name.startswith("__")}
 
 
-def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
-    backend = backend or root / "backend"
+def check() -> list[str]:
     problems: list[str] = []
-    toolkit_path = backend / "workflows" / "toolkit.py"
+    toolkit_path = BACKEND / "workflows" / "toolkit.py"
     toolkit_exports = _literal_all(toolkit_path)
     if toolkit_path.is_file() and toolkit_exports is None:
         problems.append("backend/workflows/toolkit.py: workflow plug-in API must declare a literal __all__")
-    for package in sorted(_python_packages(backend) - ALLOWED_EDGES.keys()):
+    for package in sorted(_python_packages() - ALLOWED_EDGES.keys()):
         problems.append(f"backend/{package}/: unclassified Python package (add it to ALLOWED_EDGES)")
-    for module in sorted(_unclassified_top_level_modules(backend)):
+    for module in sorted(_unclassified_top_level_modules()):
         problems.append(f"backend/{module}: unclassified top-level Python module")
-    for path in sorted(backend.rglob("*.py")):
-        if "__pycache__" in path.parts or path.is_relative_to(backend / "data"):
+    for path in sorted(BACKEND.rglob("*.py")):
+        if "__pycache__" in path.parts or path.is_relative_to(BACKEND / "data"):
             continue
-        parts = _module_parts(path, root=root)
-        package = _package_parts(path, root=root)
+        parts = _module_parts(path)
+        package = _package_parts(path)
         own_layer, own_slice = _slice_of(parts) or ("", "")
-        workflow_plugin = _workflow_plugin_slice(path, backend)
+        workflow_plugin = _workflow_plugin_slice(path)
         allowed = ROOT_ALLOWED if own_layer in ("", ROOT_LAYER) else ALLOWED_EDGES.get(own_layer, frozenset())
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:  # a file that will not parse is its own failure
-            problems.append(f"{path.relative_to(root)}: {exc}")
+            problems.append(f"{path.relative_to(ROOT)}: {exc}")
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
-            where = f"{path.relative_to(root)}:{node.lineno}"
+            where = f"{path.relative_to(ROOT)}:{node.lineno}"
             for name in sorted(_private_names(node)):
                 problems.append(f"{where}: imports private name {name!r} from another module (give it a public name)")
-            targets = _targets(node, package, root=root)
+            targets = _targets(node, package)
             # One import statement resolves to both the package and the name beside it (`from ..features import cards`), which
             # is the same edge said twice; report each layer and each peer slice once.
             edges = {edge for target in targets if (edge := _slice_of(target)) and edge[0] in {*ALLOWED_EDGES, ROOT_LAYER}}

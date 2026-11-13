@@ -80,7 +80,7 @@ function toggleCard(on, name, inputAttrs, body, cardAttrs = "", labelAttrs = "")
   </div>`;
 }
 
-export function renderSettings() {
+function renderSettings() {
   $("settings-form").innerHTML = `
     ${toggleCard(S.hideUntilBaked, "Hide until baked", 'data-setting-toggle="hideUntilBaked"', '<div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>', "", " data-setting-stop")}
     ${toggleCard(S.preventPromptOverrides, "Prevent prompt overrides", 'data-setting-toggle="preventPromptOverrides"', '<div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>', "", " data-setting-stop")}

@@ -57,7 +57,7 @@ async function handleImportFile(inp) {
   }
 }
 
-export async function deleteCharacter(id) {
+async function deleteCharacter(id) {
   const charName = charactersView().find((c) => c.id === id)?.name;
   const usage = await api.get(`/characters/${id}/usage`).catch(() => null);
   // The choice only exists when there is something to take along. The server
@@ -508,7 +508,7 @@ function clearCharEditStatus() {
   if ($("ce-save-status")?.textContent) setCharEditStatus("");
 }
 
-export async function saveCharEdit(id, exportAfter = false) {
+async function saveCharEdit(id, exportAfter = false) {
   const validation = _validateCharForm("ce", { advanced: true });
   if (!validation.valid) {
     setCharEditStatus(validation.error, { error: true });
@@ -554,7 +554,7 @@ export async function saveCharEdit(id, exportAfter = false) {
   }
 }
 
-export async function saveImportedChar() {
+async function saveImportedChar() {
   const validation = _validateCharForm("ce", { advanced: true });
   if (!validation.valid) {
     toast(validation.error, true);

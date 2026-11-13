@@ -13,7 +13,7 @@ import regex
 logger = logging.getLogger(__name__)
 MAX_SCRIPTS = 50
 MAX_PATTERN_LENGTH = 4096
-MAX_TEXT_LENGTH = 100_000
+_MAX_TEXT_LENGTH = 100_000
 TIMEOUT_SECONDS = 0.05
 JS_FLAGS = frozenset("gmixXsuUAJ")  # Accepted by the source engine's parser.
 ENGINE_FLAGS = frozenset("gimsu")  # Supported by both projections.
@@ -140,7 +140,7 @@ class CardScripts(NamedTuple):
     def apply(self, text: str, channel: Channel, role: str, resolve: Resolver | None = None) -> str:
         """Apply matching scripts to one message."""
         placement = {"user": 1, "assistant": 2}.get(role)
-        if not placement or not self.scripts or len(text) > MAX_TEXT_LENGTH:
+        if not placement or not self.scripts or len(text) > _MAX_TEXT_LENGTH:
             return text
         original = text
         deadline = monotonic() + TIMEOUT_SECONDS
@@ -160,7 +160,7 @@ class CardScripts(NamedTuple):
                     count=0 if script.global_replace else 1,
                     timeout=remaining,
                 )
-                if len(text) > MAX_TEXT_LENGTH:
+                if len(text) > _MAX_TEXT_LENGTH:
                     logger.warning("Card regex output exceeded message limit; using original text")
                     return original
         except TimeoutError:

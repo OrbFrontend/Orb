@@ -100,7 +100,7 @@ def clean_context(context: str, assisted: bool) -> str:
     return "\n".join(lines)[-DOC_AUDIT_CONTEXT_CHARS:]
 
 
-def doc_audit_toggles(toggles: Mapping[str, Any] | None) -> dict:
+def _doc_audit_toggles(toggles: Mapping[str, Any] | None) -> dict:
     """The stored per-scanner map restricted to the doc-applicable subset.
 
     Missing keys take the scanner's release default, like run_audit.
@@ -137,7 +137,7 @@ def _audit_sync(
     Phrase repetition and negated narration are run here, not by run_audit: its versions compare chat messages and read the
     draft alone."""
     text = f"{context}\n\n{draft_core}" if context else draft_core
-    on = doc_audit_toggles(toggles)
+    on = _doc_audit_toggles(toggles)
     report = run_audit(text, phrase_bank, audit_toggles={**on, "negated_narration": False})
     if on["phrase_repetition"]:
         report.phrase_result = detect_phrase_reuse(context, draft_core)
@@ -146,21 +146,21 @@ def _audit_sync(
     return filter_audit_report_to_text(report, draft_core)
 
 
-def build_fix_instruction(report_text: str) -> str:
+def _build_fix_instruction(report_text: str) -> str:
     """The patch call's trailing instruction: the audit report + the JSON
     patch contract. A pure suffix -- the generation framing is the persona."""
     return f"{report_text}\n\n{_PATCH_JSON_INSTRUCTION}"
 
 
-def build_patch_prompt_raw(base: str, draft_core: str, report_text: str) -> str:
+def _build_patch_prompt_raw(base: str, draft_core: str, report_text: str) -> str:
     """Byte-extend the exact rendered generation prompt with draft_core and audit suffix.
 
     Do not insert a joiner: the draft continued directly from base, preserving KV parity.
     """
-    return f"{base}{draft_core}\n\n----\n[Prose audit]\n{build_fix_instruction(report_text)}\n"
+    return f"{base}{draft_core}\n\n----\n[Prose audit]\n{_build_fix_instruction(report_text)}\n"
 
 
-def build_patch_messages(context: str, draft_core: str, report_text: str, *, assisted: bool) -> list[ChatMessage]:
+def _build_patch_messages(context: str, draft_core: str, report_text: str, *, assisted: bool) -> list[ChatMessage]:
     """Replay chat-generation messages verbatim, close the draft as an assistant turn, and append the fix request.
 
     A trailing assistant turn is the prose the draft continued, so the draft joins it. Text mode byte-extends the rendered
@@ -172,7 +172,7 @@ def build_patch_messages(context: str, draft_core: str, report_text: str, *, ass
         closed: list[ChatMessage] = [*head, {"role": "assistant", "content": f"{last['content']}{draft_core}"}]
     else:
         closed = [*gen_messages, {"role": "assistant", "content": draft_core}]
-    return [*closed, {"role": "user", "content": build_fix_instruction(report_text)}]
+    return [*closed, {"role": "user", "content": _build_fix_instruction(report_text)}]
 
 
 def _extract_patches(resp: Mapping[str, Any]) -> list:
@@ -289,10 +289,10 @@ async def patch_document(
         else:
             base = context
         stream = client.complete_raw(
-            build_patch_prompt_raw(base, core, report_text), model, json_schema=schema["function"]["parameters"], **params
+            _build_patch_prompt_raw(base, core, report_text), model, json_schema=schema["function"]["parameters"], **params
         )
     else:
-        messages = build_patch_messages(context, core, report_text, assisted=assisted)
+        messages = _build_patch_messages(context, core, report_text, assisted=assisted)
         stream = client.complete(
             messages,
             model,

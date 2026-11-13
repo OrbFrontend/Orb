@@ -62,16 +62,16 @@ UPDATE_SHEET_TOOL = {
 # sheet's natural length is the card's and cards differ by an order of magnitude -- a fixed ceiling would either reject every
 # long card's update or wave through an essay on a short one.
 MAX_SHEET_GROWTH_CHARS = 600
-MIN_SHEET_CEILING_CHARS = 1200
+_MIN_SHEET_CEILING_CHARS = 1200
 
 
 def _sheet_ceiling(base: str) -> int:
     """The longest proposal this base may grow into."""
-    return max(MIN_SHEET_CEILING_CHARS, len(base) + MAX_SHEET_GROWTH_CHARS)
+    return max(_MIN_SHEET_CEILING_CHARS, len(base) + MAX_SHEET_GROWTH_CHARS)
 
 
 # One short line for the review row. Longer than this is the model narrating the exchange instead of naming the change.
-MAX_SUMMARY_WORDS = 25
+_MAX_SUMMARY_WORDS = 25
 
 
 class SheetUpdate(TypedDict):
@@ -115,7 +115,7 @@ def _clean_summary(value: Any) -> str:
     if not text or any(brace in text for brace in BRACES):
         return ""
     words = text.split(" ")
-    return " ".join(words[:MAX_SUMMARY_WORDS]) if len(words) > MAX_SUMMARY_WORDS else text
+    return " ".join(words[:_MAX_SUMMARY_WORDS]) if len(words) > _MAX_SUMMARY_WORDS else text
 
 
 def build_exchange_transcript(lines: Sequence[tuple[str, str]]) -> str:

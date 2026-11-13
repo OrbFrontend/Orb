@@ -22,14 +22,11 @@ def _empty_models_dir(tmp_path_factory) -> str:
 
 
 @pytest.fixture(autouse=True)
-def _no_downloaded_models(request, monkeypatch, _empty_models_dir):
+def _no_downloaded_models(monkeypatch, _empty_models_dir):
     """Hide downloaded Local ML weights to keep tests isolated from real inference.
 
     An empty model_dir selects the same fallback on developer machines and CI.
-    Classifier tests explicitly stub their lane; real_model_dir opts out.
     """
-    if request.node.get_closest_marker("real_model_dir"):
-        return
     monkeypatch.setattr(assets, "model_dir", lambda: _empty_models_dir)
     # The GGUF env overrides (assets._ENV_OVERRIDES) bypass model_dir entirely.
     monkeypatch.delenv("ORB_AUTOCOMPLETE_MODEL", raising=False)

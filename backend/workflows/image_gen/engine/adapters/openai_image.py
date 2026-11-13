@@ -27,10 +27,10 @@ from .base import ImageAdapter, replayed_reference_source, replayed_target, repl
 
 logger = logging.getLogger(__name__)
 
-CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
+_CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
 # Synthetic because a cloud provider has no node graph to key a slot against, and stable because a stored reference is re-keyed
 # by it on replay. Only the node half is read by `references.plan_slots`, which numbers the rest itself.
-CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
+_CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
 
 CAPABILITIES: ImageBackendCapabilities = {
     "can_generate": True,
@@ -140,9 +140,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         capacity = reference_capacity(preset, MAX_REFERENCE_SLOTS) if usable and preset is not None else 0
         template = (
             {
-                "slot_prefix": CLOUD_REFERENCE_SLOT[0],
+                "slot_prefix": _CLOUD_REFERENCE_SLOT[0],
                 "mimes": list(preset.reference_mimes),
-                "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
+                "max_bytes": _CLOUD_REFERENCE_MAX_BYTES,
                 # A cloud slot is never required: the same model has a plain generations endpoint one field away, so a render
                 # whose source resolves to nothing degrades with a note instead of failing.
                 "required": False,

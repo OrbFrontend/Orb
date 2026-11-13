@@ -328,7 +328,7 @@ async function auditAgain() {
   await postAudit(r);
 }
 
-export async function runPatch() {
+async function runPatch() {
   const r = S.docAuditResults;
   if (!r || S.docAuditBusy || r.skipped || !r.report || r.report.total_issues === 0) return;
   if (!runIsCurrent(r)) {

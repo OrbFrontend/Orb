@@ -33,13 +33,13 @@ Everything lives in `scripts/`. The scripts create and sync `.venv` themselves. 
 
 - **Tests** - `./scripts/tests.sh all`
 - **Format** - `./scripts/format_backend.sh` and `./scripts/format_frontend.sh`
-- **Lint** - `./scripts/lint.sh` (Ruff, Pyright, the backend and frontend layer checks, Biome, and the frontend unit tests)
+- **Lint** - `./scripts/lint.sh` (Ruff, Pyright, the backend and frontend layer checks, and Biome)
 - **Compatibility** - `./scripts/compatibility_test.sh`
 - **Security** - `./scripts/security_check.sh` (pip-audit and Bandit)
 
 If any of these fail, fix it before submitting. CI runs the tests, format, and lint checks.
 
-For a focused backend run, use `./scripts/tests.sh tests/unit/test_example.py`;
+For a focused backend run, use `./scripts/tests.sh tests/integration/test_example.py`;
 `PYTEST_WORKERS=0` disables parallel workers when debugging. Add regression
 coverage for changed behavior; [Where to Extend](docs/architecture/extending.md#tests)
 describes the shared fixtures.

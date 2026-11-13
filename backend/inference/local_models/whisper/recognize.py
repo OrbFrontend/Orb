@@ -19,8 +19,8 @@ MAX_SECONDS = 30
 #: Generation allowance per second of audio. Fast English is about six tokens
 #: a second and Chinese can reach ten, so a transcript that needs more than
 #: this is a decoding loop, not speech.
-TOKENS_PER_SECOND = 16
-TOKEN_SLACK = 16
+_TOKENS_PER_SECOND = 16
+_TOKEN_SLACK = 16
 
 
 @dataclass(frozen=True)
@@ -129,7 +129,7 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
 
     budget = min(
         int(generation.get("max_length") or config["max_target_positions"]) - len(prompt),
-        int(TOKENS_PER_SECOND * audio.size / SAMPLE_RATE) + TOKEN_SLACK,
+        int(_TOKENS_PER_SECOND * audio.size / SAMPLE_RATE) + _TOKEN_SLACK,
     )
     logits = decoder.start(prompt)
     generated: list[int] = []

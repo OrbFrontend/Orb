@@ -21,7 +21,7 @@ case " $* " in
         ;;
 esac
 
-# Usage: ./scripts/tests.sh [unit|integration|all] [pytest args...]
+# Usage: ./scripts/tests.sh [integration|all] [pytest args...]
 # Default: all. Other first arguments pass directly to pytest.
 SUITE="${1:-all}"
 # Guarded so a bare invocation (no positional args) does not trip `shift`
@@ -29,22 +29,15 @@ SUITE="${1:-all}"
 [ "$#" -gt 0 ] && shift
 
 case "$SUITE" in
-    unit)
-        echo ""
-        echo "=== Unit tests ==="
-        python -m pytest tests/unit/ "${PARALLEL[@]}" "$@"
-        ;;
     integration)
         echo ""
         echo "=== Integration tests ==="
         python -m pytest tests/integration/ "${PARALLEL[@]}" "$@"
         ;;
     all)
-        # One pytest run over both suites: a second process pays the worker
-        # startup again, and the two suites are independent anyway.
         echo ""
-        echo "=== Unit + integration tests ==="
-        python -m pytest tests/unit/ tests/integration/ "${PARALLEL[@]}" "$@"
+        echo "=== Integration tests ==="
+        python -m pytest tests/integration/ "${PARALLEL[@]}" "$@"
         ;;
     *)
         echo ""

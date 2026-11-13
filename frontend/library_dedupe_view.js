@@ -157,13 +157,13 @@ function clusterHtml(ids, pairs, tier, byId) {
 }
 
 /** Render every strong connected component with the evidence that formed it. */
-export function strongGroupsHtml(groups = [], cards = []) {
+function strongGroupsHtml(groups = [], cards = []) {
   const byId = cardsById(cards);
   return groups.map((group) => clusterHtml(group.cards || [], group.pairs || [], "strong", byId)).join("");
 }
 
 /** Render ungrouped weak evidence. Possible pairs never imply a three-way group. */
-export function possiblePairsHtml(pairs = [], cards = []) {
+function possiblePairsHtml(pairs = [], cards = []) {
   const byId = cardsById(cards);
   return pairs.map((pair) => clusterHtml([pair.a, pair.b], [pair], "possible", byId)).join("");
 }

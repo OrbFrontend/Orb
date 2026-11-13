@@ -50,7 +50,7 @@ const SWAP_TOKENS_PER_MEMBER = 500;
 
 const MIN_CAST_FOR_ADVICE = 2;
 
-export function cardDefTokens(card) {
+function cardDefTokens(card) {
   const chars = Number(card?.def_chars);
   return Number.isFinite(chars) && chars > 0 ? Math.round(chars / CHARS_PER_TOKEN) : 0;
 }
@@ -170,7 +170,7 @@ function messagePersona(msg) {
 }
 
 /** Return a message's avatar markup. */
-export function speakerAvatar(msg) {
+function speakerAvatar(msg) {
   if (msg?.role === "user") {
     const persona = messagePersona(msg);
     const src = personaAvatarSrc(persona);
@@ -201,7 +201,7 @@ export function eligibleMembers() {
   return (S.groupCast?.members || []).filter((member) => !member.muted);
 }
 
-export function joinNames(names) {
+function joinNames(names) {
   if (!names.length) return "";
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} and ${names[1]}`;

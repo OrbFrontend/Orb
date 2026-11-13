@@ -61,7 +61,7 @@ def parse_speaking_plan(raw: object, members: Sequence[Mapping], cap: int) -> li
     return out if out or not raw else None
 
 
-def plan_cue(raw: object, members: Sequence[Mapping], member_id: str) -> str:
+def _plan_cue(raw: object, members: Sequence[Mapping], member_id: str) -> str:
     """Return the Director cue for one cast member."""
     if not isinstance(raw, list):
         return ""
@@ -71,7 +71,7 @@ def plan_cue(raw: object, members: Sequence[Mapping], member_id: str) -> str:
     return ""
 
 
-def round_robin_member(members: Sequence[Mapping], messages: Sequence[Mapping]) -> Mapping | None:
+def _round_robin_member(members: Sequence[Mapping], messages: Sequence[Mapping]) -> Mapping | None:
     eligible = [m for m in members if m.get("active") and not m.get("muted")]
     if not eligible:
         return None
@@ -100,14 +100,14 @@ def choose_speakers(
     """
     if pinned_id:
         pinned = next(m for m in members if m["id"] == pinned_id and not m.get("muted"))
-        return [(pinned, plan_cue(raw_plan, members, pinned_id))]
+        return [(pinned, _plan_cue(raw_plan, members, pinned_id))]
     if mode == "manual":
         return []
     if mode == "round_robin":
-        member = round_robin_member(members, messages)
-        return [(member, plan_cue(raw_plan, members, str(member["id"])))] if member else []
+        member = _round_robin_member(members, messages)
+        return [(member, _plan_cue(raw_plan, members, str(member["id"])))] if member else []
     parsed = parse_speaking_plan(raw_plan, members, cap)
     if parsed is not None:
         return parsed
-    member = round_robin_member(members, messages)
+    member = _round_robin_member(members, messages)
     return [(member, "")] if member else []

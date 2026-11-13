@@ -15,11 +15,11 @@ from ...analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from .scoring import overuse_lb, rise_z
 from .shapes import FOLDED_WARDS
 
-STRICT = "strict"
-LOOSE = "loose"
+_STRICT = "strict"
+_LOOSE = "loose"
 
 _PRONOUN = r"\b(?:s?he|i|you|we|they|h(?:im|er|is)|me|us|them|my|your|our|their)"
-_SLOT = {STRICT: r"[\w'’-]+(?:\s+[\w'’-]+){0,2}", LOOSE: r"[^,.;:!?—–…\"“”*]{1,40}?"}
+_SLOT = {_STRICT: r"[\w'’-]+(?:\s+[\w'’-]+){0,2}", _LOOSE: r"[^,.;:!?—–…\"“”*]{1,40}?"}
 # A pattern-final slot is one word in both widths: a lazy slot with nothing after it would match a single character.
 _TRAILING_SLOT = r"[\w'’-]+"
 _MARK_PIECES = {
@@ -82,7 +82,7 @@ def _literal(word: str) -> str:
     return text + "s?" if word in FOLDED_WARDS else text
 
 
-def build_regex(shape: Shape, width: str = STRICT, *, capture: bool = False) -> str:
+def _build_regex(shape: Shape, width: str = _STRICT, *, capture: bool = False) -> str:
     """Return the bank pattern for *shape*; a capturing copy puts each slot in a group."""
     if shape.literal:
         return r"^[\W_]*" + r"[\W_]+".join(_literal(w) for w in shape.tokens) + r"[\W_]*$"
@@ -222,12 +222,12 @@ def score_shape(shape: Shape, width: str, corpus: SentenceCorpus) -> PatternScor
 
     The generated patterns hold only words, marks, and fixed constructs, so length is the one bank limit they can break.
     """
-    pattern = build_regex(shape, width)
+    pattern = _build_regex(shape, width)
     if len(pattern) > MAX_PHRASE_REGEX:
         return None
     # The capturing copy matches exactly the sentences the stored pattern does,
     # so one search per sentence serves both the count and the fillers.
-    rx = re.compile(build_regex(shape, width, capture=True), re.IGNORECASE)
+    rx = re.compile(_build_regex(shape, width, capture=True), re.IGNORECASE)
     terms = prefilter_terms(shape)
     score = PatternScore(shape, width, pattern, fillers=[Counter() for _ in range(shape.slot_count)])
     rate = 0.0
@@ -270,7 +270,7 @@ def best_pattern(shape: Shape, corpus: SentenceCorpus) -> PatternScore | None:
     A slot whose commonest filler covers 40% of its matches is also tried as that literal; the specialized pattern wins when its
     ``lb`` is at least as high (``X enough that`` becomes ``close enough that``).
     """
-    widths = (STRICT, LOOSE) if shape.has_width else (STRICT,)
+    widths = (_STRICT, _LOOSE) if shape.has_width else (_STRICT,)
     scored = [s for s in (score_shape(shape, width, corpus) for width in widths) if s is not None]
     if not scored:
         return None

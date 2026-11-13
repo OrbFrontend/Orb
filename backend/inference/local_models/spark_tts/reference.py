@@ -14,10 +14,10 @@ if TYPE_CHECKING:
     import numpy as np
 
 SAMPLE_RATE = silence.SAMPLE_RATE
-FRAME = silence.FRAME_SAMPLES
+_FRAME = silence.FRAME_SAMPLES
 
 #: Maximum excerpt length after pause shortening.
-TARGET_SECONDS = 10.0
+_TARGET_SECONDS = 10.0
 #: Minimum speech needed for a useful reference.
 MIN_SPEECH_SECONDS = 2.0
 #: Minimum gap between phrases.
@@ -27,9 +27,9 @@ BREAK_PAUSE_MS = 400
 #: Minimum speech share required to prefer break-aligned excerpts.
 BREAK_PREFERENCE = 0.5
 #: Maximum pause kept inside the excerpt.
-KEEP_PAUSE_MS = 200
+_KEEP_PAUSE_MS = 200
 #: Context kept around the excerpt.
-EDGE_MS = 100
+_EDGE_MS = 100
 
 
 class NoUsableExcerpt(ValueError):
@@ -45,7 +45,7 @@ class Reference:
 
 
 def _frames(ms: float) -> int:
-    return max(1, round(ms * SAMPLE_RATE / 1000 / FRAME))
+    return max(1, round(ms * SAMPLE_RATE / 1000 / _FRAME))
 
 
 def _phrases(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -81,7 +81,7 @@ def _split_long(phrase: tuple[int, int], rms: np.ndarray, limit: int) -> list[tu
 
 def _window(phrases: list[tuple[int, int]], first: int, last: int, total: int) -> list[tuple[int, int]]:
     """Return sample-frame ranges for a phrase window with shortened pauses."""
-    keep, edge = _frames(KEEP_PAUSE_MS), _frames(EDGE_MS)
+    keep, edge = _frames(_KEEP_PAUSE_MS), _frames(_EDGE_MS)
     floor = phrases[first - 1][1] if first > 0 else 0
     ceiling = phrases[last + 1][0] if last + 1 < len(phrases) else total
     ranges = []
@@ -95,21 +95,21 @@ def _window(phrases: list[tuple[int, int]], first: int, last: int, total: int) -
     return ranges
 
 
-def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
+def _excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
     """Return the best ``[start, end)`` sample ranges for *wav*."""
     import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
     mask = silence.speech_mask(audio)
-    rms = silence.frame_rms(audio, FRAME, FRAME)
-    limit = int(TARGET_SECONDS * SAMPLE_RATE / FRAME)
+    rms = silence.frame_rms(audio, _FRAME, _FRAME)
+    limit = int(_TARGET_SECONDS * SAMPLE_RATE / _FRAME)
     phrases = [piece for phrase in _phrases(mask) for piece in _split_long(phrase, rms, limit)]
     gaps = [b[0] - a[1] for a, b in zip(phrases, phrases[1:])]
     brk = _frames(BREAK_PAUSE_MS)
     opens = [i == 0 or gaps[i - 1] >= brk for i in range(len(phrases))]
     closes = [i == len(phrases) - 1 or gaps[i] >= brk for i in range(len(phrases))]
     voiced = np.concatenate([[0], np.cumsum(mask, dtype=np.int64)])
-    enough = MIN_SPEECH_SECONDS * SAMPLE_RATE / FRAME
+    enough = MIN_SPEECH_SECONDS * SAMPLE_RATE / _FRAME
 
     def best(at_breaks: bool) -> tuple[int, int, int] | None:
         found: tuple[int, int, int] | None = None
@@ -132,7 +132,7 @@ def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
     if chosen is None:
         raise NoUsableExcerpt(f"The clip needs at least {MIN_SPEECH_SECONDS:g} seconds of clear speech for advanced cloning.")
     _, first, last = chosen
-    return [(start * FRAME, min(end * FRAME, audio.size)) for start, end in _window(phrases, first, last, mask.size)]
+    return [(start * _FRAME, min(end * _FRAME, audio.size)) for start, end in _window(phrases, first, last, mask.size)]
 
 
 def select_excerpt(wav: np.ndarray) -> np.ndarray:
@@ -140,7 +140,7 @@ def select_excerpt(wav: np.ndarray) -> np.ndarray:
     import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
-    return np.ascontiguousarray(np.concatenate([audio[start:end] for start, end in excerpt_ranges(audio)]))
+    return np.ascontiguousarray(np.concatenate([audio[start:end] for start, end in _excerpt_ranges(audio)]))
 
 
 @onnx_runtime.using
@@ -152,7 +152,7 @@ def semantic_tokens(signal: np.ndarray) -> list[int]:
     session = onnx_runtime.load(catalog.semantic_tokenizer_path())
     raw = session.run(["semantic_tokens"], {"wav": audio})[0]
     tokens = [int(value) for value in np.asarray(raw).reshape(-1)]
-    expected = audio.shape[1] // FRAME
+    expected = audio.shape[1] // _FRAME
     if abs(len(tokens) - expected) > 2:
         raise RuntimeError(f"semantic tokenizer returned {len(tokens)} tokens for {expected} frames")
     return validate_reference_tokens(tokens)
@@ -168,8 +168,6 @@ __all__ = [
     "NoUsableExcerpt",
     "Reference",
     "SEMANTIC_RATE",
-    "TARGET_SECONDS",
-    "excerpt_ranges",
     "release",
     "select_excerpt",
     "semantic_tokens",

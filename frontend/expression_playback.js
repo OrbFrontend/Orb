@@ -131,7 +131,7 @@ export function expressionPlaybackCue() {
   return { charId: row.charId, loading: p.loading, label: p.loading ? null : row.runs[p.runIndex].label };
 }
 
-export function advanceExpressionPlayback() {
+function advanceExpressionPlayback() {
   const p = activeExpressionPlayback();
   if (!p || p.loading || p.complete) return false;
   if (p.runIndex + 1 < p.rows[p.rowIndex].runs.length) p.runIndex++;

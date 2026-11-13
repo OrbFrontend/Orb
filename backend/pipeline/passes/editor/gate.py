@@ -32,7 +32,7 @@ GATE_RECORD_NAME = "post_processing_gate"
 
 # Validated against the configured Judge on fixed drafts: bare "Yes."/"No." put
 # a borderline two-action reply exactly on the cutoff, where it fires.
-GATE_CRITERIA: Mapping[str, str] = {
+_GATE_CRITERIA: Mapping[str, str] = {
     "true": "The answer to the question is yes based on the reply.",
     "false": "The answer to the question is no based on the reply.",
 }
@@ -53,7 +53,7 @@ def gate_replies(fragment: Mapping[str, Any]) -> int:
     return value if isinstance(value, int) and value > 0 else 0
 
 
-def gate_state(effective_msg: str, draft: str, previous_replies: Sequence[str] = ()) -> str:
+def _gate_state(effective_msg: str, draft: str, previous_replies: Sequence[str] = ()) -> str:
     """The Judge's view: *previous_replies* (oldest first), the request, the draft."""
     context = "".join(f"Previous reply:\n{reply}\n\n" for reply in previous_replies)
     return f"{context}Current request:\n{effective_msg}\n\nReply:\n{draft}"
@@ -97,9 +97,9 @@ async def judge_gate(
     if config is None or not config.configured:
         return record(fired=True, reason=SkipReason.NOT_CONFIGURED)
 
-    state = gate_state(effective_msg, draft, previous)
+    state = _gate_state(effective_msg, draft, previous)
     state_bytes = len(state.encode())
-    question_bytes = len(question.encode()) + sum(len(text.encode()) for text in GATE_CRITERIA.values())
+    question_bytes = len(question.encode()) + sum(len(text.encode()) for text in _GATE_CRITERIA.values())
     if state_bytes > MAX_STATE_BYTES or question_bytes > MAX_QUESTION_BYTES:
         return record(
             fired=True,
@@ -120,7 +120,7 @@ async def judge_gate(
         # httpx times each phase separately; this bounds the whole request.
         async with asyncio.timeout(timeout):
             response = await client.decide(
-                state, [DecisionQuestion(key, question, GATE_CRITERIA)], timeout=timeout, abort=abort
+                state, [DecisionQuestion(key, question, _GATE_CRITERIA)], timeout=timeout, abort=abort
             )
     except (httpx.TimeoutException, TimeoutError):
         return record(fired=True, reason=SkipReason.TIMEOUT)

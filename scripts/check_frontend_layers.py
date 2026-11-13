@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FE = ROOT / "frontend"
+WORKFLOWS = FE / "workflows"
 
 # -- 1. Layer manifest --------------------------------------------------------
 # Lower number = lower layer. A file may import its own layer or lower.
@@ -34,8 +35,7 @@ LAYERS = {
     "icons.js": 0,
     "drag_reorder.js": 0,
     "dom_reconcile.js": 0,
-    # The Character Library's search + tag predicate. A leaf on purpose: the filter is the one piece of the browser worth
-    # testing directly, and library_browser.js drags in the whole L5 chat chain.
+    # The Character Library's search + tag predicate.
     "library_filter.js": 0,
     # The desktop-width card rescue: measures a rendered bubble and re-widens a
     # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
@@ -293,20 +293,17 @@ _EXPORTED_DECL = re.compile(r"^export\s+(?:async\s+)?(?:function\*?|const|let|va
 _EXPORT_LIST = re.compile(r'^export\s*\{([^{}]*)\}\s*(?:from\s+["\']([^"\']+)["\'])?', re.MULTILINE)
 _IMPORT_NAMED = re.compile(r'\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}\s*from\s+["\']([^"\']+)["\']')
 _IMPORT_NAMESPACE = re.compile(r'\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["\']([^"\']+)["\']')
-# `const { a, b: c } = await import("x")` and `const ns = await import("x")`, the forms tests use.
-_DYNAMIC_DESTRUCTURE = re.compile(r'\{([^{}]*)\}\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
-_DYNAMIC_NAMESPACE = re.compile(r'\b([A-Za-z_$][\w$]*)\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
 # A page or stylesheet loading an asset from another origin, including protocol-relative `//host`.
 _REMOTE_ASSET = re.compile(r"""(?:\b(?:src|href)\s*=\s*["']?|@import\s+["']|url\(\s*["']?)\s*(?:https?:)?//""", re.IGNORECASE)
 
 
-def served_specifier(spec: str) -> bool:
+def _served_specifier(spec: str) -> bool:
     """Users run the frontend as served, with no install or build: an import names a file under frontend/."""
     return spec.startswith(("./", "../", "/static/"))
 
 
-def remote_asset_count(text: str) -> int:
+def _remote_asset_count(text: str) -> int:
     return len(_REMOTE_ASSET.findall(text))
 
 
@@ -317,7 +314,7 @@ def rel_basename(importer: Path, spec: str) -> str | None:
     return (importer.parent / spec).resolve().name
 
 
-def imported_paths(text: str) -> list[str]:
+def _imported_paths(text: str) -> list[str]:
     return (
         _IMPORT_FROM.findall(text)
         + _SIDE_EFFECT_IMPORT.findall(text)
@@ -325,21 +322,21 @@ def imported_paths(text: str) -> list[str]:
     )
 
 
-def has_computed_dynamic_import(text: str) -> bool:
+def _has_computed_dynamic_import(text: str) -> bool:
     return len(_DYNAMIC_IMPORT_CALL.findall(text)) != len(_DYNAMIC_IMPORT_LITERAL.findall(text))
 
 
-def workflow_import_allowed(path: Path, spec: str, workflow_root: Path = FE / "workflows") -> bool:
+def _workflow_import_allowed(path: Path, spec: str) -> bool:
     """An import may use the facade or remain inside its own workflow slice."""
     if spec == "/static/workflow_api.js":
         return True
     if not (spec.startswith("./") or spec.startswith("../")) or "${" in spec:
         return False
-    own_slice = workflow_root / path.relative_to(workflow_root).parts[0]
+    own_slice = WORKFLOWS / path.relative_to(WORKFLOWS).parts[0]
     return (path.parent / spec).resolve().is_relative_to(own_slice.resolve())
 
 
-def import_cycle(graph: dict[str, set[str]]) -> list[str] | None:
+def _import_cycle(graph: dict[str, set[str]]) -> list[str] | None:
     """Return one closed import path when the graph contains a cycle."""
     visited: set[str] = set()
     active: list[str] = []
@@ -368,9 +365,9 @@ def import_cycle(graph: dict[str, set[str]]) -> list[str] | None:
     return None
 
 
-def registered_actions(path: Path, text: str, workflow_root: Path = FE / "workflows") -> set[str]:
+def registered_actions(path: Path, text: str) -> set[str]:
     """Every "scope:name" *text* registers; WORKFLOW_ID is the plugin's directory."""
-    plugin = path.relative_to(workflow_root).parts[0] if path.is_relative_to(workflow_root) else None
+    plugin = path.relative_to(WORKFLOWS).parts[0] if path.is_relative_to(WORKFLOWS) else None
     names = {f"{scope or plugin}:{name}" for scope, name in _REGISTER_ONE.findall(text)}
     for scope, body in _REGISTER_MANY.findall(text):
         keys = _HANDLER_KEY.findall(body)
@@ -391,20 +388,20 @@ def underscore_import_count(text: str) -> int:
     return n
 
 
-def resolve_spec(importer: Path, spec: str, frontend: Path = FE) -> Path | None:
+def resolve_spec(importer: Path, spec: str) -> Path | None:
     """The file a relative or /static/ import specifier names, else None."""
     if spec.startswith("/static/"):
-        return (frontend / spec.removeprefix("/static/")).resolve()
+        return (FE / spec.removeprefix("/static/")).resolve()
     if spec.startswith(("./", "../")):
         return (importer.parent / spec).resolve()
     return None
 
 
-def module_exports(path: Path, text: str, frontend: Path = FE) -> dict[str, tuple[Path, str] | None]:
+def module_exports(path: Path, text: str) -> dict[str, tuple[Path, str] | None]:
     """Each exported name, mapped to the (module, name) it re-exports, or None when declared here."""
     names: dict[str, tuple[Path, str] | None] = dict.fromkeys(_EXPORTED_DECL.findall(text))
     for body, spec in _EXPORT_LIST.findall(text):
-        source = resolve_spec(path, spec, frontend) if spec else None
+        source = resolve_spec(path, spec) if spec else None
         for raw in _COMMENT.sub("", body).split(","):
             original, _, public = raw.strip().partition(" as ")
             if original:
@@ -412,31 +409,29 @@ def module_exports(path: Path, text: str, frontend: Path = FE) -> dict[str, tupl
     return names
 
 
-def imported_names(path: Path, text: str, frontend: Path = FE) -> set[tuple[Path, str]]:
-    """Every (module, name) *text* imports, statically, through a dynamic import, or as a namespace member."""
+def imported_names(path: Path, text: str) -> set[tuple[Path, str]]:
+    """Every (module, name) *text* imports, by name or as a namespace member."""
     used: set[tuple[Path, str]] = set()
-    for body, spec in _IMPORT_NAMED.findall(text) + _DYNAMIC_DESTRUCTURE.findall(text):
-        if target := resolve_spec(path, spec, frontend):
+    for body, spec in _IMPORT_NAMED.findall(text):
+        if target := resolve_spec(path, spec):
             names = (re.split(r"\s+as\s+|:", raw)[0].strip() for raw in _COMMENT.sub("", body).split(","))
             used |= {(target, name) for name in names if name}
-    for namespace, spec in _IMPORT_NAMESPACE.findall(text) + _DYNAMIC_NAMESPACE.findall(text):
-        if target := resolve_spec(path, spec, frontend):
+    for namespace, spec in _IMPORT_NAMESPACE.findall(text):
+        if target := resolve_spec(path, spec):
             members = re.findall(rf"(?<![\w$.]){re.escape(namespace)}\.([A-Za-z_$][\w$]*)", text)
             used |= {(target, name) for name in members}
     return used
 
 
-def unused_exports(
-    modules: dict[Path, str], consumers: dict[Path, str], roots: set[Path], frontend: Path = FE
-) -> dict[Path, set[str]]:
+def _unused_exports(modules: dict[Path, str], roots: set[Path]) -> dict[Path, set[str]]:
     """Exports nothing imports, per module. *roots* export a public surface and count as used.
 
     A re-export counts as a use of its source only while something imports the re-export itself.
     """
-    exports = {path: module_exports(path, text, frontend) for path, text in modules.items()}
+    exports = {path: module_exports(path, text) for path, text in modules.items()}
     used: set[tuple[Path, str]] = {(root, name) for root in roots for name in exports.get(root, {})}
-    for path, text in {**modules, **consumers}.items():
-        used |= imported_names(path, text, frontend)
+    for path, text in modules.items():
+        used |= imported_names(path, text)
     pending = list(used)
     while pending:
         path, name = pending.pop()
@@ -467,7 +462,7 @@ def state_declarations(text: str) -> tuple[set[str], set[str]]:
     return declared, set(conversation.group(1).split()) if conversation else set()
 
 
-def state_writes(text: str, conversation_keys: set[str]) -> set[str]:
+def _state_writes(text: str, conversation_keys: set[str]) -> set[str]:
     """The S keys *text* writes; `state.key` counts only for a per-conversation key."""
     text = _COMMENT.sub("", text)
     keys: set[str] = set()
@@ -479,7 +474,7 @@ def state_writes(text: str, conversation_keys: set[str]) -> set[str]:
     return keys
 
 
-def state_ownership_errors(writers: dict[str, set[str]], declared: set[str], shared: dict[str, set[str]]) -> list[str]:
+def _state_ownership_errors(writers: dict[str, set[str]], declared: set[str], shared: dict[str, set[str]]) -> list[str]:
     errors = []
     for key, modules in sorted(writers.items()):
         names = ", ".join(sorted(modules))
@@ -494,7 +489,7 @@ def state_ownership_errors(writers: dict[str, set[str]], declared: set[str], sha
     return errors
 
 
-def unregistered_actions(text: str, registered: set[str], *, workflow_id: str | None = None) -> set[str]:
+def _unregistered_actions(text: str, registered: set[str], *, workflow_id: str | None = None) -> set[str]:
     """Unknown literal actions, including a plug-in's WORKFLOW_ID templates."""
     if workflow_id is not None:
         text = text.replace("${WORKFLOW_ID}", workflow_id)
@@ -514,11 +509,11 @@ def main() -> int:
 
     # 0. Runtime self-containment: package names need a bundler or node_modules, URLs need a CDN at play time.
     for path in sorted(FE.rglob("*.js")):
-        for spec in imported_paths(path.read_text(encoding="utf-8")):
-            if not served_specifier(spec):
+        for spec in _imported_paths(path.read_text(encoding="utf-8")):
+            if not _served_specifier(spec):
                 errors.append(f"[runtime] {path.relative_to(FE)}: imports '{spec}'; vendor it under frontend/vendor/")
     for path in [FE / "index.html", *sorted(FE.rglob("*.css"))]:
-        if n := remote_asset_count(path.read_text(encoding="utf-8")):
+        if n := _remote_asset_count(path.read_text(encoding="utf-8")):
             errors.append(f"[runtime] {path.relative_to(FE)}: {n} remote asset reference(s); ship the file under frontend/")
 
     # 1. Layer import-direction.
@@ -528,7 +523,7 @@ def main() -> int:
             errors.append(f"[layer] {name}: unclassified — add it to LAYERS in check_frontend_layers.py")
             continue
         text = path.read_text(encoding="utf-8")
-        for spec in imported_paths(text):
+        for spec in _imported_paths(text):
             dependency = top_by_path.get((path.parent / spec).resolve())
             if dependency:
                 graph[name].add(dependency)
@@ -539,7 +534,7 @@ def main() -> int:
             if lo > hi:
                 errors.append(f"[layer] {name} (L{hi}) imports {base} (L{lo}) — invert the dependency instead")
 
-    cycle = import_cycle(graph)
+    cycle = _import_cycle(graph)
     if cycle:
         errors.append(f"[cycle] {' -> '.join(cycle)}")
 
@@ -557,7 +552,7 @@ def main() -> int:
             registered |= registered_actions(path, text)
     for path, text in texts.items():
         workflow_id = path.relative_to(FE / "workflows").parts[0] if path in workflow_files else None
-        for name in sorted(unregistered_actions(text, registered, workflow_id=workflow_id)):
+        for name in sorted(_unregistered_actions(text, registered, workflow_id=workflow_id)):
             errors.append(f'[action] {path.relative_to(FE)}: "{name}" is not registered')
 
     # 2b. Module-private names stay in their module.
@@ -568,10 +563,10 @@ def main() -> int:
     # 3. Plugin boundary: imports remain within the workflow or use its facade.
     for path in workflow_files:
         text = path.read_text(encoding="utf-8")
-        if has_computed_dynamic_import(text):
+        if _has_computed_dynamic_import(text):
             errors.append(f"[plugin] {path.relative_to(FE)}: computed dynamic import is forbidden")
-        for spec in imported_paths(text):
-            if not workflow_import_allowed(path, spec):
+        for spec in _imported_paths(text):
+            if not _workflow_import_allowed(path, spec):
                 rel = path.relative_to(FE)
                 errors.append(
                     f"[plugin] {rel}: forbidden import '{spec}' (plugins import only their own files or /static/workflow_api.js)"
@@ -605,11 +600,7 @@ def main() -> int:
 
     # 5. An export is a contract with an importer. workflow_api.js is exempt: plug-ins outside this tree import it.
     modules = {path.resolve(): text for path, text in texts.items() if path.suffix == ".js"}
-    tests = ROOT / "tests" / "frontend"
-    consumers = {
-        path.resolve(): path.read_text(encoding="utf-8") for path in tests.rglob("*") if path.suffix in (".js", ".mjs")
-    }
-    unused = unused_exports(modules, consumers, {(FE / "workflow_api.js").resolve()})
+    unused = _unused_exports(modules, {(FE / "workflow_api.js").resolve()})
     for path, names in sorted(unused.items()):
         errors.append(
             f"[export] {path.relative_to(FE)}: nothing imports {', '.join(sorted(names))}; drop the export or the declaration"
@@ -620,9 +611,9 @@ def main() -> int:
     declared, conversation_keys = state_declarations(state_text)
     writers: dict[str, set[str]] = {}
     for path in top_files:
-        for key in state_writes(path.read_text(encoding="utf-8"), conversation_keys):
+        for key in _state_writes(path.read_text(encoding="utf-8"), conversation_keys):
             writers.setdefault(key, set()).add(path.name)
-    errors.extend(state_ownership_errors(writers, declared, SHARED_STATE))
+    errors.extend(_state_ownership_errors(writers, declared, SHARED_STATE))
 
     # Report.
     print(

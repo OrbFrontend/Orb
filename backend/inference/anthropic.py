@@ -16,7 +16,7 @@ from .schema import strictify_schema
 # route; OpenAI-shaped escape hatches therefore cannot turn an otherwise-valid request into a hard 400. A configured
 # ``cache_control`` (automatic caching) replaces Orb's breakpoints.
 EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"cache_control", "metadata", "service_tier"})
-DEFAULT_MAX_TOKENS = 4096
+_DEFAULT_MAX_TOKENS = 4096
 
 # Sampling support is a capability of the concrete endpoint/model pair, not something that can be inferred from a provider-owned
 # model id. Send the caller's controls optimistically and remember an explicit rejection.
@@ -82,7 +82,7 @@ def _tool_use_blocks(tool_calls: object) -> list[dict[str, Any]]:
     return out
 
 
-def translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
+def _translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
     """Hoist system text and translate/coalesce Anthropic user/assistant turns.
 
     A cache breakpoint on the system text turns ``system`` into a one-block list carrying it; the text is the same either way. A
@@ -140,7 +140,7 @@ def translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | lis
     return system, translated
 
 
-def translate_tools(tools: object) -> list[dict[str, Any]]:
+def _translate_tools(tools: object) -> list[dict[str, Any]]:
     if not isinstance(tools, Sequence) or isinstance(tools, (str, bytes)):
         return []
     out: list[dict[str, Any]] = []
@@ -166,7 +166,7 @@ def translate_tools(tools: object) -> list[dict[str, Any]]:
     return out
 
 
-def translate_tool_choice(choice: object) -> dict[str, Any] | None:
+def _translate_tool_choice(choice: object) -> dict[str, Any] | None:
     if choice is None:
         return None
     if choice == "auto":
@@ -194,19 +194,19 @@ def build_request_body(
     openai_body: Mapping[str, Any], endpoint_url: str, model: str, extra_body: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     """Build a native Messages body from an allowlist."""
-    system, messages = translate_messages(openai_body.get("messages") or [])
+    system, messages = _translate_messages(openai_body.get("messages") or [])
     body: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "stream": True,
-        "max_tokens": openai_body.get("max_tokens") or DEFAULT_MAX_TOKENS,
+        "max_tokens": openai_body.get("max_tokens") or _DEFAULT_MAX_TOKENS,
     }
     if system:
         body["system"] = system
-    tools = translate_tools(openai_body.get("tools"))
+    tools = _translate_tools(openai_body.get("tools"))
     if tools:
         body["tools"] = tools
-    choice = translate_tool_choice(openai_body.get("tool_choice"))
+    choice = _translate_tool_choice(openai_body.get("tool_choice"))
     if choice is not None and tools:
         body["tool_choice"] = choice
 

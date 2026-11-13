@@ -61,8 +61,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Also keeps every exchange within the gateway's MAX_QUESTIONS_PER_REQUEST: each decision asks exactly one question.
-MAX_DECISIONS_PER_EXCHANGE = 32
-MAX_DECISIONS_PER_CARD = 8
+_MAX_DECISIONS_PER_EXCHANGE = 32
+_MAX_DECISIONS_PER_CARD = 8
 # Batches go out concurrently under one timeout, so this cap and the timeout are
 # the whole stage budget: the stage costs at most one REQUEST_TIMEOUT_SECONDS.
 MAX_BATCHES = 4
@@ -252,7 +252,9 @@ def _over_budget(running: Sequence[DecisionCandidate]) -> set[str]:
     for index, candidate in enumerate(running):
         if candidate.card_id:
             per_card[candidate.card_id] = per_card.get(candidate.card_id, 0) + 1
-        if index >= MAX_DECISIONS_PER_EXCHANGE or (candidate.card_id and per_card[candidate.card_id] > MAX_DECISIONS_PER_CARD):
+        if index >= _MAX_DECISIONS_PER_EXCHANGE or (
+            candidate.card_id and per_card[candidate.card_id] > _MAX_DECISIONS_PER_CARD
+        ):
             over.add(candidate.definition.fragment_id)
     return over
 

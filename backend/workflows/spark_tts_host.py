@@ -80,7 +80,7 @@ def reference_ready(settings: Settings) -> tuple[bool, str]:
     return whisper.ready()
 
 
-def synthesis_ready(settings: Settings) -> tuple[bool, str]:
+def _synthesis_ready(settings: Settings) -> tuple[bool, str]:
     """Can a line be spoken right now? Needs both halves and both toggles."""
     if not _enabled(settings, FEATURE_LLM):
         return False, "The Spark-TTS voice model is switched off. Turn it on from the cloned voice in TTS settings."
@@ -176,7 +176,7 @@ async def synthesize(
     reference_text: str = "",
 ) -> tuple[bytes, int]:
     """Speak *text* in an enrolled voice."""
-    ok, reason = synthesis_ready(settings)
+    ok, reason = _synthesis_ready(settings)
     if not ok:
         raise service.SynthesisFailed(reason)
     excerpt = reference.Reference(reference_text, reference_tokens) if reference_tokens and reference_text.strip() else None

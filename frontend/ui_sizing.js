@@ -36,19 +36,19 @@ const BOX_SELECTOR = BOXES.map((b) => b.selector).join(", ");
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
 /** The scale a wheel or pinch step of *deltaY* moves *scale* to. */
-export function steppedScale(scale, deltaY) {
+function steppedScale(scale, deltaY) {
   const step = clamp(-deltaY, -WHEEL_STEP_CAP, WHEEL_STEP_CAP) * WHEEL_GAIN;
   return clamp(scale * Math.exp(step), SCALE_MIN, SCALE_MAX);
 }
 
 /** The scale applied for a stored one: exactly 1 near 1, two decimals otherwise. */
-export function shownScale(scale) {
+function shownScale(scale) {
   if (!(scale >= SCALE_MIN && scale <= SCALE_MAX) || Math.abs(scale - 1) < SCALE_SNAP) return 1;
   return Math.round(scale * 100) / 100;
 }
 
 /** A panel's own (unscaled) width for an on-screen width of *visible* px, kept inside the window's bounds. */
-export function panelWidth(visible, scale, windowWidth) {
+function panelWidth(visible, scale, windowWidth) {
   const most = Math.max(PANEL_MIN_PX, windowWidth * PANEL_MAX_FRACTION);
   return Math.round(clamp(visible, PANEL_MIN_PX, most) / scale);
 }
@@ -65,7 +65,7 @@ const numbers = (value) =>
   Object.fromEntries(Object.entries(value || {}).filter(([, n]) => typeof n === "number" && Number.isFinite(n)));
 
 /** Stored sizing as `{ scale, width, box }` maps of numbers; anything unreadable is dropped. */
-export function parseSizing(text) {
+function parseSizing(text) {
   let raw = null;
   try {
     raw = JSON.parse(text || "null");

@@ -126,7 +126,7 @@ function boundedRequired(value, max, label, emptyError) {
   return trimmed.length > max ? { valid: false, error: `${label} must be ${max} characters or less` } : { valid: true };
 }
 
-export function validateChatInput(value) {
+function validateChatInput(value) {
   return boundedRequired(value, MAX_CHAT_INPUT, "Message", "Message cannot be empty");
 }
 
@@ -266,7 +266,7 @@ function boundedNumber(value, min, max, label, integer = false) {
   return !range.valid || !integer ? range : isInteger(number.parsed, label);
 }
 
-export function validateSetting(key, value) {
+function validateSetting(key, value) {
   if (key === "endpoint_url") {
     return value === "claude-code://local" ? { valid: true } : formatMatch(value, "Endpoint URL", "url");
   }
@@ -322,11 +322,11 @@ function validateBrowseSearch(query) {
   return maxLength(query, MAX_BROWSE_SEARCH, "Search query");
 }
 
-export function validateConversationTitle(value) {
+function validateConversationTitle(value) {
   return boundedRequired(value, MAX_CONVERSATION_TITLE, "Title", "Title cannot be empty");
 }
 
-export const validateEditMessage = validateChatInput;
+const validateEditMessage = validateChatInput;
 
 export const validate = {
   validateImageFile,

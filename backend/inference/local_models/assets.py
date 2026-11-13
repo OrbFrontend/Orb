@@ -9,14 +9,12 @@ from .catalog import MODELS, ModelFileSpec, ModelVariantSpec
 
 #: Extensions ``prune_stale`` is allowed to delete. Every artifact the catalog
 #: puts on disk must end in one of these, or the file becomes unclaimable
-#: garbage that nothing ever cleans up on a model bump. Asserted by
-#: ``test_local_models_catalog``.
-MANAGED_SUFFIXES = (".gguf", ".onnx", ".json")
+#: garbage that nothing ever cleans up on a model bump.
+_MANAGED_SUFFIXES = (".gguf", ".onnx", ".json")
 
 #: The repo root: four directories up from ``backend/inference/local_models/``.
 #: A wrong count here does not raise -- it silently creates a second, empty
-#: models directory and reports every downloaded weight as missing. Pinned by
-#: ``tests/unit/test_local_models_paths.py``.
+#: models directory and reports every downloaded weight as missing.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
@@ -110,7 +108,7 @@ def prune_stale(root: str | None = None) -> None:
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d != ".cache"]  # hf's bookkeeping is its own business
         for name in files:
-            if name.endswith(MANAGED_SUFFIXES) and name not in keep:
+            if name.endswith(_MANAGED_SUFFIXES) and name not in keep:
                 os.remove(os.path.join(dirpath, name))
         if dirpath != root:
             walked.append(dirpath)
@@ -134,7 +132,7 @@ def variant_spec(feature: str, variant_id: str | None) -> tuple[str, str, str, s
     return spec.repo_id, spec.filename, spec.revision, spec.local_name
 
 
-def file_sha256(path: str) -> str:
+def _file_sha256(path: str) -> str:
     """Hex sha256 of a file, read in chunks so a 4.7 GB weight is not a 4.7 GB read."""
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -152,7 +150,7 @@ def _verify(path: str, expected: str) -> None:
     """
     if not expected:
         return
-    actual = file_sha256(path)
+    actual = _file_sha256(path)
     if actual == expected:
         return
     os.remove(path)

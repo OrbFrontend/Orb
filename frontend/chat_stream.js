@@ -285,7 +285,7 @@ function stopGeneration() {
   S.streamOp?.stop();
 }
 
-export function createStreamingDiv(name = null, memberId = null) {
+function createStreamingDiv(name = null, memberId = null) {
   cancelStreamingPaint();
   const div = document.createElement("div");
   div.className = "message assistant";
@@ -391,7 +391,7 @@ function streamingRefineDiff(baseline, text) {
   return hasDiffChange(ops) ? { original, ops } : null;
 }
 
-export async function afterStream(op, { settled = true } = {}) {
+async function afterStream(op, { settled = true } = {}) {
   const state = op.state || conversationState(op.convId);
   if (isViewing(state)) {
     cancelStreamingPaint();
@@ -540,7 +540,7 @@ export async function afterStream(op, { settled = true } = {}) {
   refreshCharacters();
 }
 
-export async function processSSEStream(resp, container, holder, signal, state = S) {
+async function processSSEStream(resp, container, holder, signal, state = S) {
   // Writer tokens, the last announced rewrite, and the last cosmetic preview are
   // kept apart: only the first two are ever what the turn saves.
   let fullResponse = "",
@@ -1267,7 +1267,7 @@ async function resolveQueuedEdit(change) {
   renderMessages();
 }
 
-export function retryQueuedEdits() {
+function retryQueuedEdits() {
   return resolveQueuedEdit((cid) => saveQueuedEdits(cid));
 }
 

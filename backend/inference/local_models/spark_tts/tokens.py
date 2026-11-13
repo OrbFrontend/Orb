@@ -5,19 +5,19 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 # Verified against models/Spark-TTS-0.5B/LLM/tokenizer.json.
-GLOBAL_BASE = 151665
-GLOBAL_COUNT = 4096
-SEMANTIC_BASE = 155761
+_GLOBAL_BASE = 151665
+_GLOBAL_COUNT = 4096
+_SEMANTIC_BASE = 155761
 SEMANTIC_COUNT = 8192
 
-SEMANTIC_LAST = SEMANTIC_BASE + SEMANTIC_COUNT - 1  # 163952
+_SEMANTIC_LAST = _SEMANTIC_BASE + SEMANTIC_COUNT - 1  # 163952
 
 TASK_TTS = 165137
 START_CONTENT = 165146
 END_CONTENT = 165152
 START_GLOBAL = 165150
-END_GLOBAL = 165156
-START_SEMANTIC = 165151
+_END_GLOBAL = 165156
+_START_SEMANTIC = 165151
 
 #: GGUF end-of-generation tokens.
 STOP_TOKENS = (151643, 151645)
@@ -37,7 +37,7 @@ MAX_REFERENCE_TEXT = 400
 
 #: Maximum semantic tokens for one line.
 TOKENS_PER_CHAR = 8
-TOKEN_FLOOR = 256
+_TOKEN_FLOOR = 256
 TOKEN_CEILING = 3000
 
 
@@ -51,7 +51,7 @@ class InvalidReferenceTokens(ValueError):
 
 def token_budget(text: str) -> int:
     """Cap generation at what this line could plausibly need."""
-    return min(TOKEN_CEILING, TOKEN_FLOOR + TOKENS_PER_CHAR * len(text))
+    return min(TOKEN_CEILING, _TOKEN_FLOOR + TOKENS_PER_CHAR * len(text))
 
 
 def validate_speaker_tokens(raw: object) -> list[int]:
@@ -65,8 +65,8 @@ def validate_speaker_tokens(raw: object) -> list[int]:
         # bool is an int in Python and would index the codebook at 0 or 1.
         if isinstance(value, bool) or not isinstance(value, int):
             raise InvalidSpeakerTokens("speaker tokens must all be integers")
-        if not 0 <= value < GLOBAL_COUNT:
-            raise InvalidSpeakerTokens(f"speaker token {value} is outside [0, {GLOBAL_COUNT})")
+        if not 0 <= value < _GLOBAL_COUNT:
+            raise InvalidSpeakerTokens(f"speaker token {value} is outside [0, {_GLOBAL_COUNT})")
         out.append(value)
     return out
 
@@ -109,15 +109,15 @@ def clone_prompt(text_tokens: Sequence[int], speaker_tokens: Sequence[int], refe
         *text_tokens,
         END_CONTENT,
         START_GLOBAL,
-        *(GLOBAL_BASE + index for index in speaker),
-        END_GLOBAL,
+        *(_GLOBAL_BASE + index for index in speaker),
+        _END_GLOBAL,
     ]
     if reference_tokens:
         reference = validate_reference_tokens(list(reference_tokens))
-        prompt += [START_SEMANTIC, *(SEMANTIC_BASE + index for index in reference)]
+        prompt += [_START_SEMANTIC, *(_SEMANTIC_BASE + index for index in reference)]
     return prompt
 
 
 def semantic_indices(generated: Iterable[int]) -> list[int]:
     """Extract in-range semantic codebook indices from generated ids."""
-    return [token - SEMANTIC_BASE for token in generated if SEMANTIC_BASE <= token <= SEMANTIC_LAST]
+    return [token - _SEMANTIC_BASE for token in generated if _SEMANTIC_BASE <= token <= _SEMANTIC_LAST]

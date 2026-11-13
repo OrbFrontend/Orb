@@ -61,7 +61,7 @@ def strip_speaker_label(text: str, speaker_name: str) -> str:
 
 # Private perspective places identity after history for shared-prefix caching. Tell the model to prefer transcript updates over
 # the sheet without dating it: reviewed mid-scene sheet updates can make a scene-start label inaccurate.
-SHEET_FRAMING = (
+_SHEET_FRAMING = (
     "Reference sheet for this scene. Where the transcript above shows it has changed "
     "— appearance, dress, injuries, what they carry — follow the transcript."
 )
@@ -89,7 +89,7 @@ def build_writer_content(
         tail += f"## You are writing as {speaker.name}\n"
         if tail_carries_identity(context_mode):
             if speaker.private_sheet:
-                tail += f"{SHEET_FRAMING}\n"
+                tail += f"{_SHEET_FRAMING}\n"
                 tail += resolve(speaker.private_sheet) + "\n\n"
             if speaker.mes_example:
                 example = resolve(speaker.mes_example)

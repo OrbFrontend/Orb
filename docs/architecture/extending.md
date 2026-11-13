@@ -38,7 +38,6 @@ and its in-memory locks are not shared across workers.
 ## Tests
 
 Backend integration tests use temporary databases and a shared fake LLM in
-`tests/integration/conftest.py`. Frontend tests live in `tests/frontend/` and run
-with `node --test tests/frontend/*.test.mjs`. Add regression coverage for changed
+`tests/integration/conftest.py`. Add regression coverage for changed
 contracts and behavior, and reuse the existing fixtures rather than calling live
 providers or downloaded models.

@@ -9,9 +9,9 @@ from ....core import CastMember, DecisionDefinition, Macros, outside_literals, r
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
-RECENT_HISTORY_DEPTH = 6
+_RECENT_HISTORY_DEPTH = 6
 # {{recent_history::N}} renders the last N messages instead of the default.
-MAX_RECENT_HISTORY_DEPTH = 50
+_MAX_RECENT_HISTORY_DEPTH = 50
 STATE_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description"})
 TEXT_MACROS = frozenset({"user", "char", "cast"})
 # Names, resolved before inline macros as the main prompt path does, so they can
@@ -32,7 +32,7 @@ _VALIDATION_SEED = "validate"
 class DecisionSnapshot:
     last_message: str = ""
     last_assistant_message: str = ""
-    # Labelled completed messages, oldest first, up to MAX_RECENT_HISTORY_DEPTH.
+    # Labelled completed messages, oldest first, up to _MAX_RECENT_HISTORY_DEPTH.
     history: tuple[str, ...] = ()
     user: str = ""
     char: str = ""
@@ -42,10 +42,10 @@ class DecisionSnapshot:
     anchor_message_id: int | None = None
     seed: str = ""
 
-    def recent_history(self, depth: int = RECENT_HISTORY_DEPTH) -> str:
+    def recent_history(self, depth: int = _RECENT_HISTORY_DEPTH) -> str:
         return "\n\n".join(self.history[-depth:])
 
-    def value(self, macro: str, depth: int = RECENT_HISTORY_DEPTH) -> str | None:
+    def value(self, macro: str, depth: int = _RECENT_HISTORY_DEPTH) -> str | None:
         if macro == "recent_history":
             return self.recent_history(depth)
         return self.description if macro == "description" else getattr(self, macro, None)
@@ -107,7 +107,7 @@ def build_snapshot(
         last_assistant_message=previous_reply,
         history=tuple(
             _labelled(message, _message_text(message, macros, scripts_for(message)), names, grouped)
-            for message in completed[-MAX_RECENT_HISTORY_DEPTH:]
+            for message in completed[-_MAX_RECENT_HISTORY_DEPTH:]
         ),
         user=macros.user,
         char=macros.char,
@@ -136,9 +136,9 @@ def _depth(name: str, argument: str | None) -> int | None:
     Only ``{{recent_history::N}}`` takes one; other macros render bare.
     """
     if argument is None:
-        return RECENT_HISTORY_DEPTH
+        return _RECENT_HISTORY_DEPTH
     value = argument.strip()
-    valid = name == "recent_history" and value.isdecimal() and 1 <= int(value) <= MAX_RECENT_HISTORY_DEPTH
+    valid = name == "recent_history" and value.isdecimal() and 1 <= int(value) <= _MAX_RECENT_HISTORY_DEPTH
     return int(value) if valid else None
 
 
@@ -186,7 +186,7 @@ def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: st
     for name, argument in dict.fromkeys(_macro_uses(text)):
         if name in allowed and _depth(name, argument) is None:
             reason = (
-                f"the count must be a whole number from 1 to {MAX_RECENT_HISTORY_DEPTH}"
+                f"the count must be a whole number from 1 to {_MAX_RECENT_HISTORY_DEPTH}"
                 if name == "recent_history"
                 else f"{{{{{name}}}}} takes no argument"
             )

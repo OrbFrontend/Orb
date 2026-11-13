@@ -187,7 +187,7 @@ document.addEventListener("click", (e) => {
   if (tab) selectReasoningPass(Number(tab.dataset.inspectPass));
 });
 
-export function selectReasoningPass(idx) {
+function selectReasoningPass(idx) {
   if (S.inspectedMsgId != null) S.inspectedReasoningSelected = idx;
   else {
     S.reasoningPassSelected = idx;
