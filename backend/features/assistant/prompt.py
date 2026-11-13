@@ -16,18 +16,17 @@ _INSTRUCTIONS = (
     "You are an uncensored helper inside Orb, a roleplay and writing app. "
     "Help the user with their characters, chats, worlds, personas, documents and settings.\n\n"
 )
-_STEPS = (
+_STEP_CALL = (
     f"Work in steps. In each step call {STEP_TOOL_NAME} with `tool` set to one tool name, or to `{REPLY}` to finish, "
     "and `message` set to a brief note for the user. "
-    f"With `{REPLY}`, `message` is your complete final answer. "
-    "With a tool, `message` states what you are about to do, as an intention and never as a result. "
-    "For a tool that takes arguments you are then asked for them, and the tool's result follows.\n\n"
 )
-_STEPS_THEN_ANSWER = (
-    f"Work in steps. In each step call {STEP_TOOL_NAME} with `tool` set to one tool name, or to `{REPLY}` to finish, "
-    "and `message` set to a brief note for the user. "
+_TOOL_STEP = (
     "With a tool, `message` states what you are about to do, as an intention and never as a result. "
-    "For a tool that takes arguments you are then asked for them, and the tool's result follows. "
+    "For a tool that takes arguments you are then asked for them, and the tool's result follows."
+)
+_STEPS = f"{_STEP_CALL}With `{REPLY}`, `message` is your complete final answer. {_TOOL_STEP}\n\n"
+_STEPS_THEN_ANSWER = (
+    f"{_STEP_CALL}{_TOOL_STEP} "
     f"With `{REPLY}`, leave `message` empty: you are then asked for your complete final answer, written as plain text.\n\n"
 )
 _ONE_CALL = (

@@ -299,15 +299,17 @@ async def run_assistant(
     """
     by_name = {tool.name: tool for tool in tools}
     latest = request_message(request, view, note=note)
+    endpoint = str(getattr(client, "base_url", ""))
     # Restrict the tool list when forced choice is unreliable.
     thinking = reasoning_cfg(reasoning, preserve=True)
-    shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, thinking)
+    shared_tools = honors_forced_tool_choice(endpoint, model, thinking)
+    native_tools = client.sends_tool_schemas([latest], model)
     if single_call is None:
         # Decided once for the run, so every call in it shares one tool blob. Structured output and text completion send no
         # schemas to choose among, and an endpoint that ignores forced choice may ignore ``required`` too.
-        single_call = shared_tools and client.sends_tool_schemas([latest], model)
+        single_call = shared_tools and native_tools
     # A JSON grammar ends a string at the first bare quote, so a grammar-decoded step cannot carry the answer.
-    plain_answer = not single_call and not client.sends_tool_schemas([latest], model)
+    plain_answer = not single_call and not native_tools
     step = step_tool(tools, plain_answer=plain_answer)
     if single_call:
         schemas = [reply_tool(), *(tool_schema(tool, described=True) for tool in tools)]
@@ -321,7 +323,6 @@ async def run_assistant(
         "role": "system",
         "content": system_prompt(tools, single_call=single_call, plain_answer=plain_answer),
     }
-    endpoint = str(getattr(client, "base_url", ""))
     history: list[WireMessage] = []
     if transcript is not None:
         own = reasoning and (transcript.model, transcript.endpoint) == (model, endpoint)
@@ -337,9 +338,10 @@ async def run_assistant(
 
     def fit() -> bool:
         """Whether the conversation fits its budget, once its oldest requests have gone if it did not. This request stays."""
-        if _chars([*history, latest, *run]) > CONTEXT_BUDGET_CHARS:
-            history[:] = _newest_requests(history, CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS - _chars([latest, *run]))
-        return _chars([*history, latest, *run]) <= CONTEXT_BUDGET_CHARS
+        request_chars = _chars([latest, *run])
+        if _chars(history) + request_chars > CONTEXT_BUDGET_CHARS:
+            history[:] = _newest_requests(history, CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS - request_chars)
+        return _chars(history) + request_chars <= CONTEXT_BUDGET_CHARS
 
     def done(reason: str, message: str = "") -> AssistantEvent:
         """The terminal event; an early end names the confirmed changes, so it still reports the work already committed."""
@@ -446,14 +448,13 @@ async def run_assistant(
             if single_call:
                 response, name, arguments = await ask(None)
                 message = str(arguments.get("message") or "").strip() if name == REPLY else ""
+                call_id = f"call{step_number}"
+                called = assistant_tool_call(response, name, arguments, call_id)
             else:
                 response, _, chosen = await ask(STEP_TOOL_NAME)
                 name, message = _step_choice(chosen, by_name, plain_answer=plain_answer) or (REPLY, "")
                 arguments = {}
-            call_id = f"call{step_number}" if single_call else f"step{step_number}"
-            if single_call:
-                called = assistant_tool_call(response, name, arguments, call_id)
-            else:
+                call_id = f"step{step_number}"
                 called = assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id)
             if name == REPLY:
                 if plain_answer:
