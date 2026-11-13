@@ -163,7 +163,7 @@ test("a committed change is read again by id, and a run cut short reads everythi
 });
 
 // A storage that keeps what is written, as a page that is about to be reloaded would find it.
-test("turning to another character starts the conversation over; a view with no character keeps it", async () => {
+test("a request about another character asks to start over first; a view with no character keeps the conversation", async () => {
   $("assistant-clear").click();
   const { notify } = await import("../../frontend/state.js");
   const answer = async (text) => {
@@ -192,12 +192,34 @@ test("turning to another character starts the conversation over; a view with no 
   const second = await answer("And her rival?");
   assert.equal(second.body.session, first.body.session);
   assert.equal(S.assistant.items.length, 4);
-  // Another character: the log empties and the next request names a conversation the server has never seen.
+  // Another character: the log stays until a request is sent, which asks first; Cancel sends nothing and keeps the text.
   S.activeConvId = "chat-b";
   notify("conversations");
-  assert.equal(S.assistant.items.length, 0);
-  const third = await answer("Who is Wren?");
+  assert.equal(S.assistant.items.length, 4);
+  const runs = () => requests.filter((request) => request.url.includes("/assistant/run")).length;
+  const before = runs();
+  $("assistant-input").value = "Who is Wren?";
+  $("assistant-send").click();
+  await settled();
+  const choice = (action) => $("modal-root").querySelector(`[data-confirm-action="${action}"]`);
+  choice("cancel").click();
+  assert.equal(runs(), before);
+  assert.equal(S.assistant.items.length, 4);
+  assert.equal($("assistant-input").value, "Who is Wren?");
+  // Agreeing clears the log, and the request names a conversation the server has never seen.
+  $("assistant-send").click();
+  await settled();
+  choice(0).click();
+  await settled();
+  const third = requests.find((request) => request.url.includes("/assistant/run") && request.writer && !request.used);
+  third.used = true;
+  emit(third, "assistant_message", { text: "Done.", final: true });
+  emit(third, "done", { reason: "reply", message: "" });
+  third.writer.close();
+  await settled();
   assert.notEqual(third.body.session, first.body.session);
+  assert.equal(S.assistant.items.length, 2);
+  assert.equal($("assistant-input").value, "");
   S.activeConvId = null;
   $("assistant-clear").click();
 });

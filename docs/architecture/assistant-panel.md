@@ -227,11 +227,13 @@ with thinking on it sends all of it, unless the model or endpoint has changed,
 since reasoning one provider signed is not valid on another. Reasoning never
 reaches the browser.
 
-The conversation is about one character at a time. When the reader turns to
-another character (a solo chat's or the library's; a group counts as one of its
-own), the browser clears the transcript and starts a new session, as Clear
-does. A view with no character, a document or the bare library, changes
-nothing, and a swap made while a run goes takes effect once it has settled.
+The conversation is about one character at a time: the one in view when its
+first request was sent (a solo chat's or the library's; a group counts as one
+of its own), stored beside the transcript. Turning to another character leaves
+the transcript in place. A request sent from there first asks to start over,
+and on Clear and send the browser clears the transcript and starts a new session,
+as Clear does, then sends; Cancel sends nothing and keeps the text. A view with
+no character, a document or the bare library, never asks.
 
 ## Tools
 

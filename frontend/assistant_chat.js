@@ -37,6 +37,7 @@ import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments
 import { loadCharacters } from "./library_sidebar.js";
 import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
+import { showConfirmModal } from "./modal.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
@@ -44,12 +45,13 @@ import { loadPersonas } from "./settings_personas.js";
 import { reloadSettingKeys } from "./settings_store.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import { $, toast } from "./utils.js";
+import { $, esc, toast } from "./utils.js";
 
 const LS_TRANSCRIPT = "orb-assistant-transcript";
 const LS_SESSION = "orb-assistant-session";
 const LS_OPEN = "orb-assistant-open";
 const LS_THINK = "orb-assistant-think";
+const LS_CHARACTER = "orb-assistant-character";
 const PANEL = "assistant-panel";
 // The layout where panels slide over the page and an on-screen keyboard may rise with focus.
 const NARROW = "(max-width: 900px)";
@@ -76,7 +78,7 @@ let run = null;
 let following = true;
 // A Tools panel repaint held back while the reader is typing in it.
 let toolsRepaintHeld = false;
-// The character the transcript is about, null until a view names one.
+// The character the transcript is about, null until a request is sent from a view that names one.
 let character = null;
 // The view the empty log's suggestions were drawn for, null once the log holds entries.
 let suggestedFor = null;
@@ -423,11 +425,11 @@ function submit(text, replaced = null) {
     return null;
   }
   if (!requestSendPermission()) return null;
-  followCharacter();
+  adoptCharacter();
   // Captured once, here: switching chats or documents while this runs changes the next request, not this one.
   const context = captureContext();
   const items = S.assistant.items;
-  // Gone when the log was cleared for another character just above: the text is then a request of its own.
+  // Gone when the log was cleared for another character first: the text is then a request of its own.
   const at = replaced ? items.indexOf(replaced) : -1;
   const edit = at >= 0;
   if (edit) items.length = at;
@@ -443,13 +445,12 @@ function submit(text, replaced = null) {
   return stream({ ...body, reasoning, pending }, context, text);
 }
 
-async function send() {
+function send() {
   const input = $("assistant-input");
-  const sent = submit(input.value.trim());
-  if (!sent) return;
-  input.value = "";
-  fitInput();
-  await sent;
+  return request(input.value.trim(), null, () => {
+    input.value = "";
+    fitInput();
+  });
 }
 
 /** The request *el* names by its place in the log, or null. */
@@ -497,7 +498,7 @@ function editDraft(el, e) {
 async function editSend(el) {
   const item = requestOf(el);
   if (!item?.editing) return;
-  await submit((item.draft ?? item.text).trim(), item);
+  await request((item.draft ?? item.text).trim(), item);
 }
 
 /**
@@ -676,6 +677,7 @@ function newSession() {
 function clear() {
   if (activeOperation()) return;
   S.assistant.items.length = 0;
+  setCharacter(null);
   newSession();
   persist();
   paint();
@@ -689,17 +691,54 @@ function characterInView() {
   return S.activeCharId || null;
 }
 
-/**
- * Start over when the reader turns to another character: the conversation is about one character at a time, so nothing
- * about the last one is carried into the next. A view with no character (a document, the bare library) changes nothing,
- * and a swap made while a run goes takes effect once it has settled.
- */
-function followCharacter() {
+function setCharacter(key) {
+  character = key;
+  store(LS_CHARACTER, key || "");
+}
+
+/** The transcript is about the character in view from its first request on; a view with no character changes nothing. */
+function adoptCharacter() {
   const now = characterInView();
-  if (!now || now === character || activeOperation()) return;
-  const swapped = character !== null;
-  character = now;
-  if (swapped && S.assistant.items.length) clear();
+  if (now && now !== character) setCharacter(now);
+}
+
+function characterName(key) {
+  if (key.startsWith("group:"))
+    return S.conversations.find((conv) => `group:${conv.id}` === key)?.title || "a group chat";
+  return charactersView().find((card) => card.id === key)?.name || "another character";
+}
+
+/**
+ * Send *text* as submit does, calling *sent* once it goes out. The conversation is about one character at a time, so a
+ * request from another character's view first asks to start over; the log stays as it is until the reader agrees.
+ */
+function request(text, replaced = null, sent = () => {}) {
+  if (activeOperation() || !text) return null;
+  const now = characterInView();
+  const go = () => {
+    const started = submit(text, replaced);
+    if (started) sent();
+    return started;
+  };
+  if (!now || !character || now === character || !S.assistant.items.length) return go();
+  const pending = pendingProposalIds(S.assistant.items).length;
+  const waiting = pending
+    ? ` ${pending === 1 ? "A change still waiting" : `${pending} changes still waiting`} for Apply will be discarded.`
+    : "";
+  showConfirmModal(
+    {
+      title: "Start a new assistant chat?",
+      message: `This assistant chat is about <strong>${esc(characterName(character))}</strong>. Sending about <strong>${esc(characterName(now))}</strong> will clear it.${waiting}`,
+      confirmText: "Clear and send",
+      confirmClass: "btn-accent",
+    },
+    () => {
+      if (activeOperation()) return;
+      clear();
+      go();
+    },
+  );
+  return null;
 }
 
 export function initAssistant() {
@@ -708,6 +747,7 @@ export function initAssistant() {
   S.assistant.items = parseTranscript(stored(LS_TRANSCRIPT));
   S.assistant.session = (stored(LS_SESSION) || "").slice(0, 64);
   if (!S.assistant.session) newSession();
+  character = stored(LS_CHARACTER) || null;
   registerActions("assistant", {
     toggle: () => togglePanel(),
     clear: () => clear(),
@@ -758,14 +798,8 @@ export function initAssistant() {
   // The view can change without a notice; refresh the label when the reader turns to the panel.
   panel.addEventListener("focusin", paintControls);
   panel.addEventListener("pointerenter", paintControls);
-  subscribe("operations", () => {
-    followCharacter();
-    paintControls();
-  });
-  subscribe("conversations", () => {
-    followCharacter();
-    paintControls();
-  });
+  subscribe("operations", paintControls);
+  subscribe("conversations", paintControls);
   subscribe("documents", paintControls);
   subscribe("lorebook", paintControls);
   // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.
