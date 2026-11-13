@@ -5,12 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
+from ..features.assistant import MAX_ITEM_CHARS
 
 
 class _PartialUpdate(BaseModel):
@@ -934,3 +935,73 @@ class PresetExportRequest(BaseModel):
     domains: list[str]
     strip_keys: bool = True
     label: str = ""
+
+
+class AssistantViewContext(BaseModel):
+    """The view an assistant request was sent from. The server checks each id and how they relate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["chat", "document", "library"]
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=64)
+    character_id: str | None = Field(default=None, min_length=1, max_length=64)
+    document_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # The lorebook drawer's open world and selected entry, over whichever view is behind it.
+    world_id: str | None = Field(default=None, min_length=1, max_length=64)
+    entry_id: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def entry_needs_its_world(self) -> AssistantViewContext:
+        if self.entry_id is not None and self.world_id is None:
+            raise ValueError("A lore entry is named with its world")
+        return self
+
+
+class AssistantRunRequest(BaseModel):
+    """One assistant request: the user's words, the conversation they extend, and the view captured at Send."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=MAX_ITEM_CHARS)
+    context: AssistantViewContext
+    # The browser's own name for its conversation. The server holds that conversation's messages; the browser sends none.
+    session: str = Field(min_length=1, max_length=64)
+    # The browser's name for this request. With ``edit`` it names a request already sent: the conversation goes back to
+    # where that one began, and this text takes its place.
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
+    edit: bool = False
+    reasoning: bool = False
+    # The proposals earlier requests made that the user's card still holds pending: the request is told of them, and a further
+    # edit or delete of the same thing replaces one. Ids only; the texts are the server's.
+    pending: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=32)
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("A request needs some text")
+        return value
+
+    @model_validator(mode="after")
+    def edit_names_its_request(self) -> AssistantRunRequest:
+        if self.edit and self.request_id is None:
+            raise ValueError("An edit names the request it replaces")
+        return self
+
+
+class AssistantApplyRequest(BaseModel):
+    """Apply names server-held proposals and nothing else: their targets and texts are the server's, never the client's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # As many as the server holds at once.
+    proposal_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(min_length=1, max_length=32)
+
+
+class AssistantReviseRequest(BaseModel):
+    """The user's own text for one pending edit, which Apply then writes in place of the proposed one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(max_length=200_000)

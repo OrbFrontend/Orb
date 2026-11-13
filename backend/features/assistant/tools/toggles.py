@@ -1,0 +1,168 @@
+"""The assistant's pipeline switches: the table of stored switches, the tool that sets one, and the summary that reports
+them all."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from pydantic import Field, create_model
+
+from ....core.settings import Settings
+from ....database import get_settings, set_enabled_tool, update_settings
+from ..contracts import AssistantTool, ToolArguments, ToolOutput, ToolSet
+from .host import WorkflowSwitches
+
+
+def _gated(stored: object, master: bool) -> dict[str, bool] | bool:
+    """A stored switch, or both values when it is stored on but a master switch above it is off."""
+    return bool(stored) if master or not stored else {"stored": True, "effective": False}
+
+
+def switch_summary(settings: Settings, host: WorkflowSwitches) -> dict[str, Any]:
+    """Pipeline switches under the names set_pipeline_toggle takes, with the effective value beside any a master overrides.
+
+    The audit checks and the agent's other tools are stored values; each group says once when its master keeps it from running.
+    """
+    table = _switch_table(host)
+    agent_on = table["agent"].read(settings)
+    auditor_on = _effective("output_auditor", table, settings)
+    named = {switch.item for switch in table.values() if switch.key == "enabled_tools"}
+    checks = {name: bool(on) for name, on in (settings.get("editor_audit_toggles") or {}).items()}
+    agent_tools = {name: bool(on) for name, on in (settings.get("enabled_tools") or {}).items() if name not in named}
+    return {
+        **{
+            name: _gated(switch.read(settings), switch.gate is None or _effective(switch.gate, table, settings))
+            for name, switch in table.items()
+        },
+        "length_guard_limits": {
+            "enforce": bool(settings.get("length_guard_enforce")),
+            "max_words": settings.get("length_guard_max_words"),
+            "max_paragraphs": settings.get("length_guard_max_paragraphs"),
+        },
+        "prevent_prompt_overrides": bool(settings.get("prevent_prompt_overrides")),
+        # The audit checks run only inside the Output Auditor, which runs only with the Agent on.
+        "editor_audit_checks": checks,
+        **({} if auditor_on or not any(checks.values()) else {"editor_audit_checks_in_effect": False}),
+        "agent_tools": agent_tools,
+        **({} if agent_on or not any(agent_tools.values()) else {"agent_tools_in_effect": False}),
+    }
+
+
+@dataclass(frozen=True)
+class _Switch:
+    """One stored pipeline switch: its label, the settings key it lives in (and its flag's key in a map there), its master."""
+
+    label: str
+    key: str
+    gate: str | None = None
+    item: str = ""
+    default: bool = False
+
+    def read(self, settings: Settings) -> bool:
+        stored = settings.get(self.key, int(self.default))
+        if self.item:
+            stored = (stored if isinstance(stored, dict) else {}).get(self.item, self.default)
+        return bool(stored)
+
+    async def write(self, on: bool, host: WorkflowSwitches) -> None:
+        if self.key == "enabled_tools":
+            # One key of the map, so a concurrent change to another tool's flag is kept.
+            await set_enabled_tool(self.item, on)
+        elif self.key == "workflow_enabled":
+            # The workflow route's own path, runtime callbacks included.
+            await host.set_workflow_enabled(self.item, on)
+        elif self.key == "workflows_globally_enabled":
+            await host.set_workflows_enabled(on)
+        else:
+            # The settings route's own writer: one column, so a concurrent change to any other key is untouched.
+            await update_settings({self.key: int(on)})
+
+
+def _switch_table(host: WorkflowSwitches) -> dict[str, _Switch]:
+    """Every toggle name with one stored switch behind it, in a stable order; workflow names follow the registry."""
+    table = {
+        "agent": _Switch("Agent", "enable_agent", default=True),
+        "director": _Switch("Director", "enabled_tools", "agent", item="direct_scene"),
+        "director_individual_fragments": _Switch("Individual fragment processing", "director_individual_fragments", "agent"),
+        "output_auditor": _Switch("Output Auditor", "enabled_tools", "agent", item="editor_apply_patch"),
+        "length_guard": _Switch("Length Guard", "length_guard_enabled", "agent"),
+        "agentic_lorebook": _Switch("Agentic Lorebook", "agentic_lorebook_enabled", "agent"),
+        "workflows": _Switch("Secondary workflows", "workflows_globally_enabled", default=True),
+    }
+    for workflow in host.workflows():
+        name = f"{workflow.display_name} workflow"
+        table[f"workflow:{workflow.id}"] = _Switch(name, "workflow_enabled", "workflows", item=workflow.id, default=True)
+    return table
+
+
+# "Editor" names the Editor pass, which the Output Auditor and the Length Guard each start. Turning it off turns both off;
+# turning it on turns on the Output Auditor alone, since the Length Guard is an optional limit the user sets separately.
+_EDITOR = ("output_auditor", "length_guard")
+
+
+def _effective(name: str, table: Mapping[str, _Switch], settings: Settings) -> bool:
+    switch = table[name]
+    return switch.read(settings) and (switch.gate is None or _effective(switch.gate, table, settings))
+
+
+def build_toggle_tools(host: WorkflowSwitches) -> list[AssistantTool]:
+    """The one tool that sets a pipeline switch."""
+    tools = ToolSet()
+
+    table = _switch_table(host)
+    toggle_names = ("editor", *table)
+    _ToggleArgs = create_model(
+        "_ToggleArgs",
+        __base__=ToolArguments,
+        toggle=(Literal[toggle_names], ...),
+        enabled=(bool, Field(description="true to turn it on, false to turn it off.")),
+    )
+
+    def state(name: str, settings: Settings) -> dict[str, bool] | bool:
+        return _gated(table[name].read(settings), _effective(name, table, settings))
+
+    description = (
+        "Turn one pipeline switch on or off. "
+        "editor is the Editor pass: off turns off output_auditor and length_guard, on turns on output_auditor only. "
+        "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback and "
+        "post-processing; workflows (secondary workflows) is the master of each workflow:<id>. A master that is off keeps "
+        "the switches under it from taking effect; it is reported, not changed. director_individual_fragments: the Director "
+        "fills each fragment in its own call. agentic_lorebook: the agent picks the lore entries to use."
+    )
+
+    @tools.add("write", _ToggleArgs, description, idempotent=True)
+    async def set_pipeline_toggle(args: Any) -> ToolOutput:
+        editor, on = args.toggle == "editor", args.enabled
+        names = _EDITOR[: 1 if on else 2] if editor else (args.toggle,)
+        before = await get_settings()
+        changed = [name for name in names if table[name].read(before) != on]
+        for name in changed:
+            await table[name].write(on, host)
+        after = await get_settings()
+        # The Editor reports both of its switches whichever way it was set, so turning it on cannot hide the Length Guard.
+        switches = {name: state(name, after) for name in (_EDITOR if editor else names)}
+        gates = [gate for gate in dict.fromkeys(table[name].gate for name in names) if gate is not None]
+        effective = any(_effective(name, table, after) for name in names)
+        blocked = [table[gate].label for gate in gates if on and not _effective(gate, table, after)]
+        label, wanted = "Editor" if editor else table[args.toggle].label, "on" if on else "off"
+        summary = f"Turned {label} {wanted}." if changed else f"{label} was already {wanted}."
+        if editor and on:
+            # On sets the Output Auditor alone; the Length Guard is a limit the user sets separately.
+            guard = "on" if table["length_guard"].read(after) else "off; it is set separately"
+            summary += f" The Output Auditor is on; the Length Guard stays {guard}."
+        if blocked and not effective:
+            summary += f" It has no effect while {', '.join(blocked)} is off."
+        data: dict[str, Any] = {"changed": changed, "switches": switches}
+        if editor and not on:
+            data["note"] = "Post-processing and feedback fragments can still run an Editor pass; they are set per fragment."
+        if blocked:
+            data["note_gates"] = (
+                f"{', '.join(blocked)} is off, so this has no effect yet. Tell the user; turn it on only if they ask."
+            )
+        keys = list(dict.fromkeys(table[name].key for name in changed))
+        committed = ({"kind": "settings", "keys": keys},) if keys else ()
+        return ToolOutput(data, summary, {"toggle": args.toggle, "keys": keys}, committed=committed)
+
+    return tools

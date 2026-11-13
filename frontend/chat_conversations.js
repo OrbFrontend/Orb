@@ -16,7 +16,14 @@ import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./moda
 import { begin, beginStream, finish, ownsView, runningFor, settle, streamEvents } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { unescapeSSE } from "./sse.js";
-import { charactersView, conversationState, releaseConversationState, S, upgradeLegacyFragment } from "./state.js";
+import {
+  charactersView,
+  conversationState,
+  notify,
+  releaseConversationState,
+  S,
+  upgradeLegacyFragment,
+} from "./state.js";
 import { refreshState } from "./state_panel.js";
 import {
   $,
@@ -36,6 +43,7 @@ import { clearTextEffect } from "./workflow_text_effects.js";
 
 export async function loadConversations() {
   S.conversations = await api.get("/conversations");
+  notify("conversations");
   renderGroupList();
 }
 
@@ -107,6 +115,7 @@ export function resetChatUI() {
   stopAllAudio();
   S.activeCharId = null;
   S.activeConvId = null;
+  notify("conversations");
   S.groupCast = null;
   S.pinnedSpeakerId = null;
   S.consumedSpeakerId = null;
@@ -206,6 +215,7 @@ export async function selectConversation(id) {
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
   S.activeConvId = id;
+  notify("conversations");
   if (previousId !== id) releaseConversationState(previousId);
   S.conversationLoading = true;
   try {
@@ -229,7 +239,7 @@ export async function selectConversation(id) {
     const prevCharId = S.activeCharId;
     if (conv?.kind === "group") S.activeCharId = null;
     else if (conv?.character_card_id) S.activeCharId = conv.character_card_id;
-    if (S.activeCharId !== prevCharId) renderCharacters();
+    if (S.activeCharId !== prevCharId) refreshCharacters();
     renderGroupList();
     updateUserBtn();
     $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
@@ -296,6 +306,32 @@ export async function selectConversation(id) {
   }
 }
 
+/** Let go of chat *id*, deleted on the server: if it is the one open, the chat view empties. */
+function closeDeletedConversation(id) {
+  if (S.activeConvId !== id) return;
+  const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
+  S.activeConvId = null;
+  notify("conversations");
+  S.messages = [];
+  $("chat-input").disabled = true;
+  $("send-btn").disabled = true;
+  if (wasGroup) {
+    S.groupCast = null;
+    S.pinnedSpeakerId = null;
+    S.consumedSpeakerId = null;
+    $("chat-title-text").textContent = "Select a character";
+    $("chat-avatar").textContent = CHAT_AVATAR_ICON;
+    renderGroupCast();
+  }
+  renderMessages();
+}
+
+/** A chat deleted elsewhere, by the assistant's Apply: closed if open, then gone from the chat list. */
+export async function forgetConversation(id) {
+  closeDeletedConversation(id);
+  await loadConversations();
+}
+
 function confirmDeleteConversation(id, msgCount, afterDelete) {
   const what = msgCount ? `this conversation and its ${plural(msgCount, "message")}` : "this conversation";
   showConfirmModal(
@@ -309,22 +345,7 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
     async () => {
       try {
         await api.del(`/conversations/${id}`);
-        if (S.activeConvId === id) {
-          const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
-          S.activeConvId = null;
-          S.messages = [];
-          $("chat-input").disabled = true;
-          $("send-btn").disabled = true;
-          if (wasGroup) {
-            S.groupCast = null;
-            S.pinnedSpeakerId = null;
-            S.consumedSpeakerId = null;
-            $("chat-title-text").textContent = "Select a character";
-            $("chat-avatar").textContent = CHAT_AVATAR_ICON;
-            renderGroupCast();
-          }
-          renderMessages();
-        }
+        closeDeletedConversation(id);
         await afterDelete();
       } catch (e) {
         toast(e.message, true);

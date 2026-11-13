@@ -78,6 +78,7 @@ nav:
       - KV Cache Reuse: architecture/kv-cache.md
       - SSE Turn Stream: architecture/sse-stream.md
       - Secondary Workflows: architecture/secondary-workflow.md
+      - Assistant Panel: architecture/assistant-panel.md
       - Dynamic Worlds: architecture/dynamic-worlds.md
       - Group Chats: architecture/group-chats.md
   - Features:

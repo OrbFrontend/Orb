@@ -13,15 +13,18 @@ import httpx
 from ...core import WireMessage, agent_lane_cut_off, agent_lane_max_tokens
 from ...core.llm_types import CompletionMessage
 from ...core.settings import Settings
-from ...database import run_library_query
+from ...database import LIBRARY_VIEWS, run_library_query
 from ...inference import (
     LLMCallError,
     LLMClient,
+    assistant_tool_call,
+    fence_quote,
     forced_turn,
     honors_forced_tool_choice,
     normalize,
     parse_tool_calls,
     reasoning_cfg,
+    tool_result,
 )
 from .generator import (
     CARD_FLOOR,
@@ -29,13 +32,10 @@ from .generator import (
     FIELD_GUIDANCE,
     GENERATE_CARD_TOOL,
     CardGenerationUnavailable,
-    assistant_tool_call,
     card_arguments,
     clean_card,
-    fence_quote,
     idea_text,
     not_accepted_feedback,
-    tool_result,
     with_image,
 )
 
@@ -57,39 +57,6 @@ DEEP_SYSTEM_PROMPT = (
     "Look for subtle patterns rather than most popular picks. "
     "Be extremely thorough and nosy when exploring the library, reference as many characters and chats as needed across multiple turns."
 )
-# Keep these in sync with the views exposed by ``run_library_query``.
-LIBRARY_VIEWS: dict[str, tuple[str, ...]] = {
-    "conversations": (
-        "id",
-        "title",
-        "character_card_id",
-        "character_name",
-        "persona_id",
-        "kind",
-        "created_at",
-        "updated_at",
-        "last_accessed_at",
-        "active_leaf_id",
-    ),
-    "messages": ("id", "conversation_id", "role", "content", "parent_id", "turn_index", "created_at"),
-    "characters": (
-        "id",
-        "name",
-        "description",
-        "personality",
-        "scenario",
-        "first_mes",
-        "mes_example",
-        "creator_notes",
-        "tags",
-        "alternate_greetings",
-        "creator",
-        "source_format",
-        "created_at",
-        "updated_at",
-    ),
-    "user_personas": ("id", "name", "description", "created_at", "updated_at"),
-}
 VIEW_DOCS = "\n".join(
     [
         "You can query only these read-only SQLite views with one SELECT per query:",
@@ -101,7 +68,8 @@ VIEW_DOCS = "\n".join(
         "- conversations.character_card_id joins characters.id (NULL for group chats); "
         "conversations.persona_id joins user_personas.id and is the persona the user plays there.",
         "- Use aliases when joining views and LIMIT row-producing queries. Use substr on long text fields.",
-        "- characters.tags and characters.alternate_greetings are JSON arrays; expand them with json_each, e.g. "
+        "- characters.tags, characters.alternate_greetings and lorebook_entries.keywords are JSON arrays; expand them with "
+        "json_each, e.g. "
         "SELECT tag.value, count(*) FROM characters AS ch, json_each(ch.tags) AS tag GROUP BY tag.value.",
         "- Timestamps are ISO 8601 text, so they sort and compare as strings.",
     ]

@@ -195,6 +195,25 @@ async def test_prompter_reference_requests_the_current_story_instead_of_a_captio
     assert "earlier chat picture only for details the story leaves unchanged" in review
 
 
+async def test_a_users_direction_outranks_the_reply_in_the_compose_and_in_every_review(monkeypatch):
+    calls: list[dict] = []
+    await _compose(
+        monkeypatch,
+        {"scene": "1girl, solo, from behind", "unwanted": None, "visible_subjects": []},
+        direction="From behind,\n at dusk.",
+        calls=calls,
+    )
+    request = calls[0]["tail_messages"][0]["content"]
+    assert "The user asked for this particular image, in their words: “From behind, at dusk.”." in request
+    assert "Resolve conflicts in this order: the user's direction above, then current story facts" in request
+    plain: list[dict] = []
+    await _compose(monkeypatch, {"scene": "1girl, solo", "unwanted": None, "visible_subjects": []}, calls=plain)
+    assert "The user asked" not in plain[0]["tail_messages"][0]["content"]
+    # A review of a directed image holds it to the direction first, so a departure the user asked for is never fixed away.
+    assert "against the user's direction for this image first" in prompts.refine_ooc(1, 1, directed=True)
+    assert "direction" not in prompts.refine_ooc(1, 1)
+
+
 async def test_composer_uses_its_own_visibility_without_a_valid_selector(monkeypatch):
     scene, _, mode = await _compose(
         monkeypatch,
@@ -278,3 +297,42 @@ async def test_background_draws_a_place_card_as_the_setting_with_zero_count_firs
 async def test_empty_composition_remains_failure_critical(monkeypatch):
     with pytest.raises(ValueError, match="couldn't compose"):
         await _compose(monkeypatch, {"scene": "", "unwanted": None, "visible_subjects": []}, pov=THIRD)
+
+
+@pytest.mark.parametrize("prompt_format", ["tags", "hybrid", "prose"])
+async def test_standalone_keeps_a_camera_that_is_the_requested_subject(monkeypatch, prompt_format):
+    calls = []
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {"compose_image_prompt": {"scene": "pov, vintage camera, wooden desk", "unwanted": "", "visible_subjects": []}},
+            calls,
+        ),
+    )
+    prompt, _ = await composer.compose_standalone(
+        client=object(),
+        model_name="agent",
+        settings={"model_name": "writer"},
+        description="A first-person view holding a vintage camera above a wooden desk.",
+        style={"prompt_format": prompt_format},
+        profile={},
+        subjects=(),
+        supports_negative=True,
+        has_references=False,
+        reasoning_on=False,
+    )
+    assert "vintage camera" in prompt
+    if prompt_format != "prose":
+        assert "pov" in prompt
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("prompt_format", ["tags", "hybrid", "prose"])
+async def test_rp_composer_preserves_camera_words(monkeypatch, prompt_format):
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {"scene": "vintage camera, wooden desk, low camera angle", "unwanted": "", "visible_subjects": []},
+        prompt_format=prompt_format,
+    )
+    assert "vintage camera" in scene and "low camera angle" in scene

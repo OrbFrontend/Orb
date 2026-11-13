@@ -30,6 +30,56 @@ _VIEWS: dict[str, str] = {
     "user_personas": """
         SELECT id, name, description, created_at, updated_at
         FROM main.user_personas""",
+    "lorebook_entries": """
+        SELECT e.id, e.world_id, w.name AS world_name, e.name, e.content, e.keywords, e.constant, e.enabled, e.archived,
+               e.updated_at
+        FROM main.lorebook_entries AS e
+        JOIN main.worlds AS w ON w.id = e.world_id""",
+}
+# The columns each view exposes, in SELECT order, for callers that describe the projection to a model.
+LIBRARY_VIEWS: dict[str, tuple[str, ...]] = {
+    "conversations": (
+        "id",
+        "title",
+        "character_card_id",
+        "character_name",
+        "persona_id",
+        "kind",
+        "created_at",
+        "updated_at",
+        "last_accessed_at",
+        "active_leaf_id",
+    ),
+    "messages": ("id", "conversation_id", "role", "content", "parent_id", "turn_index", "created_at"),
+    "characters": (
+        "id",
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "tags",
+        "alternate_greetings",
+        "creator",
+        "source_format",
+        "created_at",
+        "updated_at",
+    ),
+    "user_personas": ("id", "name", "description", "created_at", "updated_at"),
+    "lorebook_entries": (
+        "id",
+        "world_id",
+        "world_name",
+        "name",
+        "content",
+        "keywords",
+        "constant",
+        "enabled",
+        "archived",
+        "updated_at",
+    ),
 }
 _TABLE_FUNCTIONS = frozenset({"json_each", "json_tree"})
 _REFUSED_FUNCTIONS = frozenset({"load_extension"})

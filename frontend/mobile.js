@@ -1,6 +1,7 @@
 import { registerActions } from "./actions.js";
 import { ARROW_LEFT_ICON } from "./icons.js";
 import { closeTopModal, isModalOpen } from "./modal.js";
+import { closeUtilityPanel } from "./panels.js";
 import { $ } from "./utils.js";
 
 const MOBILE_SIDEBAR_BREAKPOINT = 900;
@@ -20,6 +21,10 @@ const IDS = Object.freeze({
   toolsPanelToggle: "tools-panel-btn",
   inspector: "inspector",
   inspectorToggle: "inspector-toggle",
+  assistantPanel: "assistant-panel",
+  assistantToggle: "assistant-btn",
+  docAssistantMobileToggle: "doc-assistant-mobile-btn",
+  drawerAssistantToggle: "lb-assistant-btn",
   modalRoot: "modal-root",
   subModalRoot: "modal-sub-root",
   cropModalRoot: "modal-crop-root",
@@ -29,19 +34,25 @@ const APP_STATE = Object.freeze({
   sidebarOpen: "mobile-sidebar-open",
   toolsOpen: "mobile-tools-open",
   inspectorOpen: "mobile-inspector-open",
+  assistantOpen: "mobile-assistant-open",
 });
 
+// A tap anywhere but the panel, one of its toggles or the header actions menu closes the panel.
 const MOBILE_SIDE_PANELS = Object.freeze([
   {
     elementId: IDS.toolsPanel,
-    toggleId: IDS.toolsPanelToggle,
-    altToggleId: IDS.docWorkflowMobileToggle,
+    toggleIds: [IDS.toolsPanelToggle, IDS.docWorkflowMobileToggle],
     appStateClass: APP_STATE.toolsOpen,
   },
   {
     elementId: IDS.inspector,
-    toggleId: IDS.inspectorToggle,
+    toggleIds: [IDS.inspectorToggle],
     appStateClass: APP_STATE.inspectorOpen,
+  },
+  {
+    elementId: IDS.assistantPanel,
+    toggleIds: [IDS.assistantToggle, IDS.docAssistantMobileToggle, IDS.drawerAssistantToggle],
+    appStateClass: APP_STATE.assistantOpen,
   },
 ]);
 
@@ -132,10 +143,7 @@ function syncMobilePanelState() {
 }
 
 function closeMobileUtilityPanels() {
-  for (const panel of MOBILE_SIDE_PANELS) {
-    setElementOpen(panel.elementId, false);
-    getElement(panel.toggleId)?.classList.remove("btn-active");
-  }
+  for (const panel of MOBILE_SIDE_PANELS) closeUtilityPanel(panel.elementId);
   syncMobilePanelState();
 }
 
@@ -217,15 +225,10 @@ function handleDocumentClick(event) {
   let closedUtilityPanel = false;
   for (const panel of MOBILE_SIDE_PANELS) {
     if (!isElementOpen(panel.elementId)) continue;
-    if (
-      matcher.hasId(panel.elementId) ||
-      matcher.hasId(panel.toggleId) ||
-      (panel.altToggleId && matcher.hasId(panel.altToggleId)) ||
-      clickedMobileActionsMenu
-    )
+    if (matcher.hasId(panel.elementId) || panel.toggleIds.some((id) => matcher.hasId(id)) || clickedMobileActionsMenu)
       continue;
 
-    setElementOpen(panel.elementId, false);
+    closeUtilityPanel(panel.elementId);
     closedUtilityPanel = true;
   }
 

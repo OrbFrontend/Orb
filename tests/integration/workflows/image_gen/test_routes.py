@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-import backend.api.routes.workflows as workflow_routes
+import backend.api.workflow_dispatch as workflow_dispatch
 from backend.database import (
     add_message,
     create_character_card,
@@ -138,7 +138,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     await set_workflow_character_state("ig-char", "image_gen", {"appearance_prompt": "long silver hair"})
 
     lane: dict = {}
-    resolve_agent_lane = workflow_routes.agent_lane_from_settings
+    resolve_agent_lane = workflow_dispatch.agent_lane_from_settings
 
     def capture_agent_lane(settings, *, writer_client=None, abort_token=None):
         resolved = resolve_agent_lane(settings, writer_client=writer_client, abort_token=abort_token)
@@ -146,7 +146,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
         lane["agent_client"], lane["agent_model_name"] = resolved
         return resolved
 
-    monkeypatch.setattr(workflow_routes, "agent_lane_from_settings", capture_agent_lane)
+    monkeypatch.setattr(workflow_dispatch, "agent_lane_from_settings", capture_agent_lane)
     captured = _stub(
         monkeypatch, "1girl, long silver hair, sitting, window, rain, night", "day", backend_model="anime.safetensors"
     )

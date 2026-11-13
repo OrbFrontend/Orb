@@ -79,7 +79,7 @@ class CachedBase:
     prefix: tuple[Mapping[str, Any], ...]
     tools: tuple[dict, ...]
     model: str
-    resolve: Callable[[Sequence[Mapping[str, Any]]], list[dict]] | None = None
+    resolve: Callable[[Sequence[Mapping[str, Any]]], Sequence[Mapping[str, Any]]] | None = None
     # The lane renders text-mode prompts with thinking on (see ``lane_template_thinking``).
     template_thinking: bool = False
     # The tracker's lane shape for a prefix that is intentionally one of several on the same server (see ``KVCacheTracker``).

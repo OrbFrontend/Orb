@@ -1024,7 +1024,7 @@ export async function sendMessage() {
   if (!S.activeConvId || !canStartGeneration()) return;
 
   const inp = $("chat-input");
-  let content = inp.value.trim();
+  const content = inp.value.trim();
 
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role === "user" && lastMsg.id) {
@@ -1040,7 +1040,6 @@ export async function sendMessage() {
 
   if (!content) return;
 
-  content = resolvePlaceholders(content);
   inp.value = "";
   inp.style.height = "auto";
   conversationState(S.activeConvId).draft = "";
@@ -1050,6 +1049,11 @@ export async function sendMessage() {
   S.attachments.length = 0;
   $("attachment-preview").innerHTML = "";
   refreshCastRailIntent();
+  await postUserMessage(content, attachments);
+}
+
+function postUserMessage(text, attachments) {
+  const content = resolvePlaceholders(text);
   const userMsg = {
     role: "user",
     content,
@@ -1061,7 +1065,7 @@ export async function sendMessage() {
     user_attachments: attachments,
   };
 
-  await runStreamRequest(
+  return runStreamRequest(
     convUrl(S.activeConvId, "send"),
     { content, attachments, ...turnPayload() },
     {
@@ -1087,9 +1091,74 @@ async function regenerateFromUser(userMsgId) {
 
 async function regenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
-  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
+  await startRegenerate(msgId);
+}
+
+function startRegenerate(msgId) {
+  return runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
+}
+
+/**
+ * Why a reply another surface captured earlier cannot be regenerated or rewritten here now: its chat is no longer the one
+ * open, or the reply is no longer on the branch it shows. Empty when it can.
+ */
+function capturedReplyBlocked(convId, msgId) {
+  if (S.documentMode || !convId || S.activeConvId !== convId) return "not_open";
+  const target = S.messages.find((m) => m.id === msgId);
+  return target?.role === "assistant" ? "" : "moved";
+}
+
+/**
+ * Regenerate reply *msgId* of chat *convId*, both captured by a caller outside the message toolbar (the assistant), with the
+ * toolbar's own busy and tab checks. Starts the chat's ordinary stream, which owns Stop and settlement from then on, and does
+ * not wait for it. Returns why nothing started, or "" once it has.
+ */
+export function regenerateCapturedReply(convId, msgId) {
+  const blocked = capturedReplyBlocked(convId, msgId);
+  if (blocked) return blocked;
+  if (!S.messages.find((m) => m.id === msgId)?.parent_id) return "moved";
+  if (!canStartGeneration()) return "busy";
+  startRegenerate(msgId).catch((e) => console.error("Regenerate failed:", e));
+  return "";
+}
+
+/**
+ * Write the next reply in chat *convId* after message *lastMsgId*, both captured by a caller outside the composer (the
+ * assistant), with the composer's own busy and tab checks: the answer to an unanswered user message, or in a group a turn by
+ * member *memberId*. It starts only while that chat is open and *lastMsgId* is still its last message. Starts the chat's
+ * ordinary stream, which owns Stop and settlement from then on, and does not wait for it. Returns why nothing started, or ""
+ * once it has.
+ */
+export function continueCapturedChat(convId, lastMsgId, memberId = null) {
+  if (S.documentMode || !convId || S.activeConvId !== convId) return "not_open";
+  const last = S.messages.at(-1);
+  if (last?.id !== lastMsgId || (last.role !== "user" && !memberId)) return "moved";
+  if (!canStartGeneration()) return "busy";
+  const started =
+    last.role === "user"
+      ? runStreamRequest(
+          convUrl(convId, "continue"),
+          memberId ? { ...turnPayload(), speaker_member_id: memberId } : turnPayload(),
+        )
+      : runStreamRequest(convUrl(convId, "speak"), { speaker_member_id: memberId });
+  started.catch((e) => console.error("Continue failed:", e));
+  return "";
+}
+
+/**
+ * Send *content* as the user's message in chat *convId*, captured by the assistant, as the composer's Send does but leaving
+ * the box and its attachments alone. It starts only while that chat is open and *lastMsgId* is still its last message, a
+ * reply. Returns why nothing started, or "" once it has.
+ */
+export function sendCapturedMessage(convId, lastMsgId, content) {
+  if (S.documentMode || !convId || S.activeConvId !== convId) return "not_open";
+  const last = S.messages.at(-1);
+  if (last?.id !== lastMsgId || last.role === "user") return "moved";
+  if (!canStartGeneration()) return "busy";
+  postUserMessage(content, []).catch((e) => console.error("Send failed:", e));
+  return "";
 }
 
 async function superRegenerate(msgId) {
@@ -1142,13 +1211,29 @@ async function submitMagicRewrite(msgId) {
   if (!direction) return;
   if (!S.activeConvId || !canStartGeneration()) return;
   S.magicInputMsgId = null;
-  await runStreamRequest(
+  await startMagicRewrite(msgId, direction);
+}
+
+function startMagicRewrite(msgId, direction) {
+  return runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"),
     { direction },
     {
       cutoffMsgId: msgId,
     },
   );
+}
+
+/** Magic Rewrite of reply *msgId* of chat *convId* in *direction*, all captured earlier; as `regenerateCapturedReply`. */
+export function rewriteCapturedReply(convId, msgId, direction) {
+  const blocked = capturedReplyBlocked(convId, msgId);
+  if (blocked) return blocked;
+  if (!direction?.trim()) return "moved";
+  if (!canStartGeneration()) return "busy";
+  // The reply's own direction box, if it is open, would otherwise stay open over the rewrite it asked for.
+  if (S.magicInputMsgId === msgId) S.magicInputMsgId = null;
+  startMagicRewrite(msgId, direction.trim()).catch((e) => console.error("Magic Rewrite failed:", e));
+  return "";
 }
 
 async function saveQueuedEdits(convId = S.activeConvId) {

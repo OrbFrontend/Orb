@@ -59,6 +59,7 @@ Deep mode can query only these read-only views and columns:
 | `messages` | `id`, `conversation_id`, `role`, `content`, `parent_id`, `turn_index`, `created_at` |
 | `characters` | `id`, `name`, `description`, `personality`, `scenario`, `first_mes`, `mes_example`, `creator_notes`, `tags`, `alternate_greetings`, `creator`, `source_format`, `created_at`, `updated_at` |
 | `user_personas` | `id`, `name`, `description`, `created_at`, `updated_at` |
+| `lorebook_entries` | `id`, `world_id`, `world_name`, `name`, `content`, `keywords`, `constant`, `enabled`, `archived`, `updated_at` |
 
 </details>
 

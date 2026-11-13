@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..toolkit import HookType, Workflow, subscription
-from . import export, hooks, queries
+from . import export, hooks, queries, standalone
 from .config import CONFIG_DEFAULTS, MAX_REFINE_TURNS, SOURCES, normalize_config
 from .pov import POV_MODES
 from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL, REFINE_TOOL
@@ -38,6 +38,7 @@ WORKFLOW = Workflow(
     config_normalizer=normalize_config,
     subscriptions=[
         subscription(HookType.ON_DEMAND, hooks.on_demand),
+        subscription(HookType.STANDALONE, standalone.standalone),
         subscription(HookType.QUERY, queries.query),
         subscription(HookType.REGENERATE, hooks.regenerate),
         subscription(HookType.REROLL_GEN, hooks.reroll_gen),

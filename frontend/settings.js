@@ -429,9 +429,9 @@ export const AUDIT_TYPE_DEFS = [
 
 function toggleToolsPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
-    closeUtilityPanel("tools-panel", "tools-panel-btn");
+    closeUtilityPanel("tools-panel");
   } else {
-    openUtilityPanel("tools-panel", "tools-panel-btn", renderToolsPanel);
+    openUtilityPanel("tools-panel", renderToolsPanel);
   }
 }
 
@@ -1059,14 +1059,20 @@ async function showResetConfirmModal() {
   );
 }
 
+// Shown as the whole map, sent as the one flag: the server keeps a concurrent change to any other tool, such as the
+// assistant's, that this tab has not seen yet.
+function saveToolFlag(id, on) {
+  const shown = { enabled_tools: { ...S.enabledTools, [id]: on } };
+  return persistSettings(shown, renderToolsPanel, { enabled_tools: { [id]: on } });
+}
+
 registerActions("settings", {
   theme: (el) => applyTheme(el.value),
   accessPasswordKey: (_el, e) => e.key === "Enter" && setAccessPassword(),
   accessPasswordSet: () => setAccessPassword(),
   toggleToolsPanel: () => toggleToolsPanel(),
   agentEnabled: (el) => persistSettings({ enable_agent: el.checked }, renderToolsPanel),
-  toolEnabled: (el) =>
-    persistSettings({ enabled_tools: { ...S.enabledTools, [el.dataset.toolId]: el.checked } }, renderToolsPanel),
+  toolEnabled: (el) => saveToolFlag(el.dataset.toolId, el.checked),
   auditType: (el) =>
     persistSettings(
       { editor_audit_toggles: { ...S.editorAuditToggles, [el.dataset.auditKey]: el.checked } },

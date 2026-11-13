@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException, Request
 from ...core import scrub_log
 from ...database import (
     create_document,
-    delete_document,
     get_document,
     get_documents,
     get_phrase_bank,
@@ -21,7 +20,8 @@ from ...database.queries.documents import DocumentConflict
 from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
 from ...workflows.contracts import PublicEvent
-from ..deps import CleanupStreamingResponse, deleting_resources, sse_stream, stop_active_stream
+from ..deletions import delete_document_settled
+from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
 from ..schemas import (
     DocumentAuditRequest,
     DocumentAuditResponse,
@@ -66,9 +66,8 @@ async def api_update_document(did: str, data: DocumentUpdate):
 
 @router.delete("/api/documents/{did}")
 async def api_delete_document(did: str):
-    async with deleting_resources([f"doc:{did}"]):
-        if not await delete_document(did):
-            raise HTTPException(status_code=404, detail="Document not found")
+    if not await delete_document_settled(did):
+        raise HTTPException(status_code=404, detail="Document not found")
     return {"ok": True}
 
 

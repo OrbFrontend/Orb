@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
-from ..connection import build_set_clause, get_db, select_rows
+from ..connection import build_set_clause, check_expected, get_db, select_rows
 from ..models import MoodFragmentRow
 
 
@@ -37,8 +38,15 @@ async def create_mood_fragment(data: dict) -> MoodFragmentRow:
         return result
 
 
-async def update_mood_fragment(fid: str, data: dict) -> MoodFragmentRow | None:
+async def update_mood_fragment(fid: str, data: dict, *, expected: Mapping[str, Any] | None = None) -> MoodFragmentRow | None:
+    """Update the fragment's allowlisted fields; ``None`` when there is no such fragment.
+
+    With *expected*, the named fields are compared and the update written in one transaction, raising ``StaleWrite`` if any
+    changed since the caller read them.
+    """
     async with get_db() as db:
+        if expected is not None and not await check_expected(db, "mood_fragments", fid, expected):
+            return None
         allowed = ["label", "description", "prompt_text", "negative_prompt", "cooldown_turns", "enabled"]
         sets, vals = build_set_clause(allowed, data)
         if sets:
@@ -47,6 +55,9 @@ async def update_mood_fragment(fid: str, data: dict) -> MoodFragmentRow | None:
                 f"UPDATE mood_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
+            await db.commit()
+        elif expected is not None:
+            # Ends the transaction the comparison opened.
             await db.commit()
         return await get_mood_fragment(fid)
 

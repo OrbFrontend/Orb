@@ -11,8 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ...core.macros import Macros, card_description, resolve_inline
 from ...core.settings import Settings
 from ...database import (
-    clear_writer_draft,
-    delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
     get_group_members,
@@ -26,14 +24,12 @@ from ...database import (
     get_user_persona,
     get_worlds,
     mark_changesets_stale_for_messages,
-    mark_orphaned_changesets_stale,
     reroll_unfrozen_greetings,
-    set_workflow_message_state,
+    save_message_edit,
     switch_to_branch,
     update_message_content,
 )
 from ...database.models import ConversationRow
-from ...database.queries.messages import get_message_subtree_ids
 from ...features import autocomplete
 from ...inference import AbortToken, local_ml, until_aborted
 from ...pipeline import (
@@ -50,10 +46,10 @@ from ...pipeline import (
 from ...prompting import resolve_persona_id
 from ...workflows.contracts import PublicEvent
 from ...workflows.prose_rewriter_host import ProseRewriteConfig, resolve_config, rewrite_events
+from ..deletions import delete_message_subtree
 from ..deps import (
     attachment_content_response,
     conversation_stream_lock,
-    deleting_message_sources,
     pipeline_sse_response,
     require_conversation,
     rows_response,
@@ -146,20 +142,7 @@ async def api_edit_message(
 
         # Plain edits bypass the pipeline's persist boundary, so inline macros
         # ({{roll}}/{{random}}) typed into an edit fire once here.
-        await update_message_content(msg_id, resolve_inline(data.content))
-        # Editing an unfrozen greeting drops its stashed template -- otherwise
-        # the next fetch would re-roll from it and clobber the manual edit.
-        if original["role"] == "assistant" and original["parent_id"] is None:
-            await set_workflow_message_state(msg_id, "macros", None)
-        # Same clobber, one surface over: the retained pre-rewriter draft describes the text this edit just replaced, and the
-        # on-demand prose rewriter prefers it over the saved content -- so a rewrite after an edit would quietly restore the
-        # pre-edit prose. Dropping it makes the rewriter fall back to what the user actually wrote, which is what they mean by
-        # "rewrite this message".
-        if original["role"] == "assistant":
-            await clear_writer_draft(msg_id)
-        # An unreviewed world-change proposal was derived from this exact text. Editing either source message invalidates that
-        # evidence, so the proposal goes stale and must be re-evaluated rather than applied.
-        await mark_changesets_stale_for_messages([msg_id])
+        await save_message_edit(original, resolve_inline(data.content))
         return {"ok": True}
 
 
@@ -182,16 +165,9 @@ async def api_fork_edit_message(
 @router.delete("/api/conversations/{cid}/messages/{msg_id}")
 async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     """Delete a message and all its descendants. Returns updated message list."""
-    # Serialize against an in-flight streaming pipeline on this cid: ON DELETE CASCADE on messages.parent_id would otherwise
-    # wipe the in-flight assistant row mid-INSERT (IntegrityError) or right after commit (silent disappearance).
-    async with conversation_stream_lock(cid), deleting_message_sources(cid, await get_message_subtree_ids(cid, msg_id)):
-        if not await delete_message_with_descendants(cid, msg_id):
-            raise HTTPException(status_code=404, detail="Message not found")
-        # The cascade has already NULLed every changeset pointer into the deleted subtree, so orphanhood is what identifies the
-        # affected proposals -- an id list read before the delete would match nothing after it. Applied history survives the same
-        # cascade with its denormalised labels intact.
-        await mark_orphaned_changesets_stale()
-        return await _message_rows_for_client(await get_messages_with_branch_info(cid))
+    if not await delete_message_subtree(cid, msg_id):
+        raise HTTPException(status_code=404, detail="Message not found")
+    return await _message_rows_for_client(await get_messages_with_branch_info(cid))
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/switch-branch")

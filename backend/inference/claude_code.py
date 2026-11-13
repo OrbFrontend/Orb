@@ -209,6 +209,8 @@ def _structured_message(output: Any, schema: dict, forced: str | None) -> Comple
 
 
 class ClaudeCodeClient(LLMClient):
+    supports_image_inputs = False
+
     def __init__(self, *, abort_token: AbortToken | None = None) -> None:
         super().__init__(ENDPOINT, abort_token=abort_token)
 

@@ -369,6 +369,20 @@ async def test_truncated_and_empty_replies_are_not_evidence():
     assert supports_structured_tool_calls("https://nano-gpt.com/api/v1", "TEE/glm-5.2:thinking")
 
 
+async def test_a_reply_padded_with_whitespace_to_its_limit_demotes_and_retries():
+    """Strict mode requires every optional key; a model that will not write one pads with whitespace until it is cut off."""
+    client = LLMClient("https://nano-gpt.com/api/v1")
+    padded = '{"history-summary": "so far"' + "\n  " * 200
+    runaway = [
+        f"data: {json.dumps({'choices': [{'delta': {'content': padded}, 'finish_reason': 'length'}]})}",
+        "data: [DONE]",
+    ]
+    bodies, _ = await _run_raw(client, [runaway, _content_lines(ARGS_JSON)], tools=[DIRECT_SCENE], tool_choice=FORCED)
+    assert len(bodies) == 2 and "response_format" in bodies[0]
+    assert bodies[1]["tools"] == [DIRECT_SCENE] and bodies[1]["tool_choice"] == FORCED
+    assert not supports_structured_tool_calls("https://nano-gpt.com/api/v1", "TEE/glm-5.2:thinking")
+
+
 async def test_a_scalar_reply_is_evidence_too():
     # Valid JSON, but no schema on this path describes anything but an object.
     client = LLMClient("https://nano-gpt.com/api/v1")

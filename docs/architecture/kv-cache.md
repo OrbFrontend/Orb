@@ -206,6 +206,69 @@ and the chat's earlier picture when prompter reference is on -- ride in the comp
 tail and never in the prefix, so the selector and compose calls share it and each
 review extends the compose request byte for byte.
 
+### Keep the assistant off the turn's prefix
+
+The [panel assistant](assistant-panel.md) is a lane of its own on the Agent
+model: its system prompt, which lists its tools and stays stable for a tool set,
+then one conversation that only grows. Its tools never enter the turn's tool
+catalog, and it shares nothing with a chat's prefix.
+
+Within a run each call extends the last, and each request extends the one
+before it byte for byte: the server holds the conversation as the model was
+sent it, every call and result whole (see
+[The conversation](assistant-panel.md#the-conversation)). The `CachedBase`
+prefix ends where the previous request did, and the 1 h anchor sits there.
+Tool-returned image previews append as normal user-role multimodal content after
+their text tool result. They stay byte-stable in this conversation and are not
+counted as new user requests. A text-only transport is sent each preview as its
+caption and a limitation note on every call; the transcript keeps the preview. Nothing the model has read is shortened or
+summarized between requests on the same transport.
+One thing rewrites the prefix: a conversation past its budget loses its oldest
+requests, a quarter of the budget at a time, so it happens once in several
+requests rather than on each. A start that moved with every request re-read
+the whole history each time: on Gemma 4, 6,200 tokens and 2.0 s a request
+against 300 tokens and 0.6 s.
+
+A native tool endpoint takes the single-call protocol, where every call is
+offered every schema anyway. Elsewhere every call forces one tool, yet an
+endpoint that honours forced choice is still sent every schema on every call:
+the tool blob renders ahead of the messages on a native tool endpoint, so
+sending only the forced schema would change it between the step call and the
+argument call and re-read the whole request each time. A run keeps its protocol
+to the end, so its system prompt and tool blob never change mid-run.
+Each schema's description is a pointer to the system prompt's tool list, which
+keeps the blob small. An endpoint that ignores forced tool choice is sent only
+the forced schema, so its tool blob changes between calls; text completion and
+structured output send no tool blob at all.
+
+### Give the assistant's lane a slot
+
+The assistant's prefix is about 6,500 tokens of system prompt and tool schemas,
+and it opens differently from a chat's from the first token. A llama.cpp server
+with one slot holds one of the two: each assistant request evicts the chat, and
+the chat's next turn evicts the assistant. llama.cpp's host-memory prompt cache
+(`--cache-ram`) parks the evicted side, but one chat of 21,000 tokens with its
+checkpoints is 3 GB there, so a 4 GB cache holds one lane and drops the other.
+
+Measured on Gemma 4 26B, one RTX 3090, a 21,000-token chat, the first call after
+switching lanes:
+
+| Server flags | Chat's next Director call | Assistant's next request |
+|---|---|---|
+| `-np 1 -cram 4096` | 21,000 tokens re-read, 7.9 s | 8,000 re-read, 4.1 s |
+| `-np 1 -cram 12288` | 680 re-read, 3.0 s | 85 re-read, 2.9 s |
+| `-np 2 -cram 4096` | 680 re-read, 2.9 s | 85 re-read, 2.8 s |
+| `-np 2 --no-cache-idle-slots` | 680 re-read, 1.0 s | 85 re-read, 0.8 s |
+
+The last row equals a chat that was never interrupted. Two slots keep both lanes
+on the GPU, and llama.cpp routes each request to the slot whose prompt it most
+resembles, so Orb sends no slot id. Without `--no-cache-idle-slots` the server
+still copies the idle slot to host memory on every switch, which is the 2 s in
+the middle rows. `-c` is divided between slots, so double it to keep each
+slot's context; the second slot cost 1.3 GB of VRAM here. A larger `--cache-ram`
+alone also keeps both lanes, for that copy on each switch and 3 GB or more of
+host memory per parked chat.
+
 ## One turn, briefly
 
 For a user message such as `I draw my sword`:
@@ -267,6 +330,16 @@ In chat mode the server renders the template, so differing
 prompt cache restores each side on hybrid-attention models such as Qwen3.8, but
 not on sliding-window models such as Gemma 4. Keep the setting uniform when
 cross-pass reuse matters on chat endpoints.
+
+Templates such as Gemma 4's and Qwen3.8's render an assistant turn's reasoning
+only after the latest user message unless `preserve_thinking` is set, and GLM's
+unless `clear_thinking` is false. Without them a replayed turn loses its
+reasoning once a newer request follows, and the prefix changes at that turn.
+llama.cpp sets both by default (`--reasoning-preserve`); most other servers do
+not. The assistant's thinking runs send both, and the request's own value wins
+over the server's default. On Gemma 4 31B a thinking follow-up re-read 235–306
+tokens with them and 462–1,071 without. Toggling Think still moves the first
+bytes, as above.
 
 ## Providers that cache only where asked
 

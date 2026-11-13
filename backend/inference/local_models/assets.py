@@ -20,6 +20,11 @@ MANAGED_SUFFIXES = (".gguf", ".onnx", ".json")
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
+#: Features whose GGUF a local file can replace, e.g. a classifier fresh out of training. Keep the file outside
+#: ``model_dir()``: ``prune_stale`` deletes any .gguf there that the catalog does not claim.
+_ENV_OVERRIDES = {"autocomplete": "ORB_AUTOCOMPLETE_MODEL", "slop_classifier": "ORB_SLOP_MODEL"}
+
+
 def model_dir() -> str:
     d = os.path.join(_ROOT, "backend", "data", "models")
     os.makedirs(d, exist_ok=True)
@@ -28,10 +33,9 @@ def model_dir() -> str:
 
 def resolve_path(feature: str) -> str:
     """Where feature's GGUF lives: env override -> data/models -> repo root (back-compat)."""
-    if feature == "autocomplete":
-        env = os.environ.get("ORB_AUTOCOMPLETE_MODEL")
-        if env and os.path.exists(env):  # stale override must not hide a downloaded model
-            return env
+    env = os.environ.get(_ENV_OVERRIDES[feature]) if feature in _ENV_OVERRIDES else None
+    if env and os.path.exists(env):  # stale override must not hide a downloaded model
+        return env
     spec = MODELS[feature]
     if spec.local_filename:
         # An explicit alias separates versions whose upstream basenames collide.

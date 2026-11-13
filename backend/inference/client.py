@@ -17,7 +17,7 @@ from . import anthropic, endpoint_profiles, gpu_swap, prompt_cache, text_complet
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
 from .errors import EndpointConfigError, LLMCallError, llm_call_error
-from .gemma_tool_format import parse_gemma_tool_calls
+from .gemma_tool_format import gemma_call_json, parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
 
@@ -46,6 +46,7 @@ class AbortToken:
 
 
 _T = TypeVar("_T")
+_M = TypeVar("_M", bound=Mapping[str, Any])
 
 
 async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncGenerator[_T, None]:
@@ -83,13 +84,22 @@ async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncGe
                 await aclose()
 
 
-def reasoning_cfg(on: bool, prefill: str = "") -> dict:
-    """Return per-call reasoning parameters for model."""
+def reasoning_cfg(on: bool, prefill: str = "", *, preserve: bool = False) -> dict:
+    """Return per-call reasoning parameters for model.
+
+    *preserve* asks a template that drops reasoning before the latest user message to keep it on earlier tool-call turns, so a
+    conversation that replays its reasoning renders the same bytes from one request to the next.
+    """
     return (
         {
             "reasoning": {"enabled": True},
-            "chat_template_kwargs": {"enable_thinking": True, "thinking": True},
-            "thinking": {"type": "enabled"},
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "thinking": True,
+                **({"preserve_thinking": True, "clear_thinking": False} if preserve else {}),
+            },
+            # Z.ai's API reads clear_thinking here rather than in the template's kwargs.
+            "thinking": {"type": "enabled", **({"clear_thinking": False} if preserve else {})},
             **({"reasoning_prefill": prefill} if prefill else {}),
         }
         if on
@@ -122,6 +132,13 @@ def replay_reasoning(response: Mapping[str, Any]) -> ReasoningReplay:
     """
     fields = {field: response[field] for field in endpoint_profiles.REASONING_REPLAY_FIELDS if response.get(field)}
     return cast(ReasoningReplay, fields)
+
+
+def without_reasoning(message: _M) -> _M:
+    """*message* without the reasoning :func:`replay_reasoning` copied onto it, for a request that sends no reasoning back."""
+    if not any(field in message for field in endpoint_profiles.REASONING_REPLAY_FIELDS):
+        return message
+    return cast(_M, {key: value for key, value in message.items() if key not in endpoint_profiles.REASONING_REPLAY_FIELDS})
 
 
 def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
@@ -247,7 +264,14 @@ async def _read_error_body(resp: httpx.Response, url: str) -> str:
     return err_text
 
 
+# Trailing whitespace on a cut-off structured reply that marks it as padding rather than an honest truncation.
+_PADDING_RUNAWAY_CHARS = 256
+
+
 class LLMClient:
+    # The transport accepts image parts; the selected model must still support vision.
+    supports_image_inputs: bool = True
+
     def __init__(
         self,
         base_url: str,
@@ -492,9 +516,23 @@ class LLMClient:
             return True  # full delay elapsed, no abort
 
     def _audit_structured_reply(self, model: str, content: str, finish_reason: str | None) -> bool:
-        """Record that a structured reply did not honor its requested schema."""
-        if not content or finish_reason == "length" or self.abort_token.is_aborted:
+        """Record that a structured reply did not honor its requested schema, or could not finish under it."""
+        if not content or self.abort_token.is_aborted:
             return False
+        if finish_reason == "length":
+            # A plain cut-off proves nothing. One that spent its tail on whitespace does: the grammar wanted a key the model
+            # would not write (strict mode makes every optional field required), whitespace was the only other legal token,
+            # and the model padded to its budget. Observed on NanoGPT's Gemma 4 route on most calls with optional fields.
+            if len(content) - len(content.rstrip()) < _PADDING_RUNAWAY_CHARS:
+                return False
+            endpoint_profiles.note_structured_output_ignored(self.base_url, model)
+            logger.warning(
+                "LLM structured output: %s padded a strict json_schema reply with whitespace to its token limit; "
+                "demoting to tools+tool_choice for the rest of the session: %s",
+                model,
+                _preview(content),
+            )
+            return True
         try:
             decoded = json.loads(content)
         except json.JSONDecodeError:
@@ -528,6 +566,7 @@ class LLMClient:
         # How many leading messages every call on this base shares; the cache
         # breakpoint that carries reuse across passes and turns sits there.
         cache_prefix_len = params.pop("cache_prefix_len", None)
+        single_tool_call = bool(params.pop("single_tool_call", False))
         affinity = prompt_cache.affinity_headers(model, messages)
 
         def _plan() -> tuple[dict, str | None, bool]:
@@ -561,6 +600,10 @@ class LLMClient:
             body = {"model": model, "messages": messages, "stream": True, **extra}
             if call_tools:
                 body["tools"] = call_tools
+                # OpenAI's field, valid only beside ``tools``. The Messages translation is an allowlist and drops it, and an
+                # OpenAI-compatible server that refuses it by name is walked past it by ``recover_refused_field``.
+                if single_tool_call:
+                    body["parallel_tool_calls"] = False
             if call_choice:
                 body["tool_choice"] = call_choice
             # Requests usage in the terminal SSE chunk; servers that don't support it silently ignore this field.
@@ -718,6 +761,7 @@ class LLMClient:
                                     model=model,
                                     api_key=self.api_key,
                                     is_aborted=lambda: self.is_aborted,
+                                    max_tokens=outbound.get("max_tokens"),
                                 ):
                                     yield event
                     endpoint_profiles.note_successful_route(self.base_url, model, route)
@@ -930,6 +974,7 @@ class LLMClient:
         reasoning: bool,
         fmt: rf.ReasoningFormat | None,
         template_thinking: bool,
+        preserve: bool = False,
     ) -> str:
         """:meth:`render_prompt` without the GPU lease, for the text transport's own call inside its lease."""
         close_thought = template_thinking and not reasoning and not prefill
@@ -941,6 +986,8 @@ class LLMClient:
         ctk: dict[str, Any] | None = None
         if not prefill:
             ctk = {"enable_thinking": reasoning, "thinking": reasoning}
+            if preserve and reasoning:
+                ctk.update(preserve_thinking=True, clear_thinking=False)
             # Text mode's only seam for the per-model effort level: the chat transport's apply_reasoning_effort writes a request
             # body this transport never sends. Reasoning-off calls are skipped for the same reason apply_reasoning_effort skips
             # them. Read off self rather than taken as an argument so the doc-mode auditor's re-render (which reuses this
@@ -986,11 +1033,19 @@ class LLMClient:
         template_thinking = bool(params.pop("template_thinking", False))
         server_root = self.server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
+        sent_kwargs = params.get("chat_template_kwargs")
+        preserve = isinstance(sent_kwargs, Mapping) and bool(sent_kwargs.get("preserve_thinking"))
         fmt = await self._reasoning_format(server_root, model=model)
         # Let the chat template control tag-pair reasoning; prefills own their trailing assistant turn.
         try:
             prompt = await self._render_prompt(
-                messages, model=model, prefill=prefill, reasoning=reasoning_on, fmt=fmt, template_thinking=template_thinking
+                messages,
+                model=model,
+                prefill=prefill,
+                reasoning=reasoning_on,
+                fmt=fmt,
+                template_thinking=template_thinking,
+                preserve=preserve,
             )
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
@@ -1316,6 +1371,68 @@ def _make_tool_call(name: str, arguments: Any) -> ParsedToolCall:
         )
         arguments = {}
     return {"name": name, "arguments": _sanitize_args(arguments)}
+
+
+class _DuplicateKey(ValueError):
+    """A JSON object named one key twice, so which value was meant is unknown."""
+
+
+def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise _DuplicateKey(key)
+        out[key] = value
+    return out
+
+
+def _strict_object(value: Any, *, unwrap: bool = False) -> dict[str, Any] | None:
+    """*value* as a JSON object only when it is one already or a string that decodes, whole, to one with no repeated key.
+
+    *unwrap* also takes one as a list's only item: some servers wrap a single forced call in one.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value, object_pairs_hook=_unique_pairs)
+        except (json.JSONDecodeError, _DuplicateKey):
+            return None
+    if unwrap and isinstance(value, list) and len(value) == 1:
+        value = value[0]
+    return _sanitize_args(value) if isinstance(value, dict) else None
+
+
+_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\n(.*?)\n?[ \t]*```", re.DOTALL | re.IGNORECASE)
+_HERMES_BLOCK = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+
+
+def strict_tool_arguments(message: Mapping[str, Any], name: str) -> dict[str, Any] | None:
+    """The arguments of the one call to *name*, or ``None`` unless they arrived as one complete JSON object.
+
+    :func:`parse_tool_calls` reads best-effort: it salvages an object from a wrapper and degrades arguments it cannot read to
+    ``{}``, which a caller filling optional defaults would then run as a different call. A caller that acts on the arguments
+    uses this instead. A ``tool_calls`` array must hold exactly that one call: a reply with several asked for more than the
+    forced call, and taking one of them would silently drop the rest. Content without a ``tool_calls`` array counts only as
+    one whole call: JSON bare, in Hermes tags or in a code fence, alone or as a list's only item, or one complete Gemma
+    native call.
+    """
+    tool_calls = message.get("tool_calls")
+    if tool_calls:
+        function = (tool_calls[0].get("function") or {}) if len(tool_calls) == 1 else {}
+        return _strict_object(function.get("arguments")) if function.get("name") == name else None
+    content = (message.get("content") or "").strip()
+    # A complete call in another wrapper: one Gemma native call, one Hermes block, or one whole object in a code fence, with
+    # nothing else around it. None is salvage: a cut-off or partial call, a second call, or prose beside one is refused.
+    native = gemma_call_json(content)
+    if native is not None:
+        return _strict_object(native[1]) if native[0] == name else None
+    tagged = _HERMES_BLOCK.fullmatch(content)
+    if tagged is not None and "<tool_call>" in tagged.group(1):
+        return None
+    wrapped = _JSON_FENCE.fullmatch(content) or tagged
+    call = _strict_object(wrapped.group(1).strip() if wrapped else content, unwrap=True)
+    if call is not None and call.get("name") == name and "arguments" in call:
+        return _strict_object(call["arguments"])
+    return None
 
 
 def parse_tool_calls(message: Mapping[str, Any]) -> list[ParsedToolCall]:

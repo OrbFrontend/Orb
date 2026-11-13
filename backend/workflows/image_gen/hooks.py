@@ -56,7 +56,9 @@ from .engine import (
 )
 from .engine.contracts import ImageResult, ResolvedReference
 from .engine.display_encode import shrink_for_review
+from .prompts import DIRECTION_CHARS
 from .references import last_reply_image, plan_slots, previous_image, refetch_references, replay_slots, resolve_references
+from .scrub import bounded
 from .subjects import Subject
 
 logger = logging.getLogger(__name__)
@@ -146,7 +148,7 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _reporting(emit: Callable[[str], None], *, reason: str = "") -> ProgressCallback:
+def render_progress(emit: Callable[[str], None], *, reason: str = "") -> ProgressCallback:
     def report(stage: str, detail: Mapping[str, Any]) -> None:
         label = _progress_label(stage, detail)
         if label is not None:
@@ -200,6 +202,7 @@ def _metadata(
     pov_source: str,
     composition_skills: Sequence[Mapping[str, str]] = (),
     prompter_reference: str = "",
+    direction: str = "",
 ) -> dict:
     info: Mapping[str, Any] = result.backend_info
     record = {
@@ -216,6 +219,8 @@ def _metadata(
     if prompter_reference:
         # The origin of the chat picture the prompter saw, not one the image model got.
         record["prompter_reference"] = prompter_reference
+    if direction:
+        record["direction"] = direction
     return record
 
 
@@ -344,7 +349,7 @@ def _rendered_seed(requested: int, result) -> int:
     return reported if isinstance(reported, int) and not isinstance(reported, bool) else requested
 
 
-async def _review_url(image: bytes, mime: str) -> str:
+async def review_image_url(image: bytes, mime: str) -> str:
     data, mime = await asyncio.to_thread(shrink_for_review, image, mime)
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
@@ -373,8 +378,11 @@ async def _generate_fresh(
     keep: Keep,
     phase: Callable[[str], None],
     history: Sequence[Mapping[str, Any]] | None = None,
+    direction: str = "",
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
+
+    `direction` is the user's own ask for this image; the composer follows it over the reply on what the shot shows.
 
     With refinement on, every revision is kept too, as it lands: the prompter's pick is only the last one, and the user may
     prefer an earlier render or stop the run once one is good enough. Review reasons appear only in live progress.
@@ -430,7 +438,7 @@ async def _generate_fresh(
     shown = last_reply_image(history, int(message["id"])) if config.get("prompter_reference") else None
     if shown is not None:
         shown_bytes, shown_mime, prompter_reference = shown
-        prompter_reference_url = await _review_url(shown_bytes, shown_mime)
+        prompter_reference_url = await review_image_url(shown_bytes, shown_mime)
         logger.info("[image_gen] prompter reference: %s", prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
@@ -456,6 +464,7 @@ async def _generate_fresh(
             thread=thread,
             prompter_reference_url=prompter_reference_url,
             prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
+            direction=direction,
         )
     except PrompterCallError as exc:
         # Only a compose that carried the image raises; composing blind instead would
@@ -483,7 +492,7 @@ async def _generate_fresh(
                 references=references,
             ),
             target=target,
-            progress=_reporting(phase, reason=reason),
+            progress=render_progress(phase, reason=reason),
         )
 
     reviewed = 0
@@ -501,6 +510,7 @@ async def _generate_fresh(
             pov_source=pov_source,
             composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
             prompter_reference=prompter_reference,
+            direction=direction,
         )
         consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
         if unfilled > 0:
@@ -526,7 +536,7 @@ async def _generate_fresh(
                 prefix=prefix,
                 settings=ctx.settings,
                 thread=thread,
-                image_url=await _review_url(attachment["data"], attachment["mime"]),
+                image_url=await review_image_url(attachment["data"], attachment["mime"]),
                 render=current,
                 turns_left=refine_turns - reviewed,
                 prompt_format=selected_style["prompt_format"],
@@ -585,6 +595,7 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
         return _failed_stream("That message is no longer part of this conversation")
     if message.get("role") != "assistant":
         return _failed_stream("Images can only be generated for assistant messages")
+    direction = bounded(body.get("direction"), DIRECTION_CHARS)
     config, style_id, profile = await _render_inputs(ctx, body)
     try:
         resolve_style(config, style_id)
@@ -625,6 +636,7 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
                 prefix=prefix,
                 keep=keep,
                 phase=phase,
+                direction=direction,
             )
         )
         try:

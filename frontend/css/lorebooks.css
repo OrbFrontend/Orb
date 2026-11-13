@@ -30,6 +30,8 @@
 .lb-header-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .lb-close-btn { --btn-square-size: 26px; margin-left: auto; opacity: .6; }
 .lb-close-btn:hover { opacity: 1; }
+.lb-assistant-btn { margin-left: auto; }
+.lb-assistant-btn + .lb-close-btn { margin-left: 0; }
 .lb-body { flex: 1; display: flex; overflow: hidden; }
 .lb-entry-list { width: 300px; min-width: 300px; border-right: 1px solid var(--border); display: flex;
   flex-direction: column; background: var(--bg-primary); }

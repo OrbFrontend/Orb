@@ -31,7 +31,7 @@ import { isUtilityPanelOpen } from "./panels.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { renderToolsPanel } from "./settings.js";
 import { unescapeSSE } from "./sse.js";
-import { S } from "./state.js";
+import { notify, S } from "./state.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
 const LS_MODE = "orb-doc-mode";
@@ -149,6 +149,7 @@ function docRedo() {
 
 function setDocumentMode(on) {
   S.documentMode = on;
+  notify("documents");
   document.getElementById("app")?.classList.toggle("document-mode", on);
   localStorage.setItem(LS_MODE, on ? "1" : "0");
   if (!on) document.dispatchEvent(new window.Event("chat-view-resumed"));
@@ -333,6 +334,7 @@ export async function openDocument(id) {
   }
   if (token !== S.documentViewToken) return;
   S.activeDocId = id;
+  notify("documents");
   let session = S.documentSessions.get(id);
   if (!session?.draft) session = createSession(doc);
   else if (session.row.revision !== doc.revision) session.rebase(doc);
@@ -388,6 +390,7 @@ export async function openDocument(id) {
 
 function clearEditor() {
   S.activeDocId = null;
+  notify("documents");
   localStorage.removeItem(LS_ACTIVE);
   $("app")?.classList.remove("doc-open");
   const page = $("doc-page");
@@ -452,15 +455,20 @@ function deleteDocument(id) {
           if (S.docStreaming) throw new Error("Document generation has not settled yet");
         }
         await api.del(`/documents/${id}`);
-        S.documents = S.documents.filter((d) => d.id !== id);
-        if (S.activeDocId === id) clearEditor();
-        renderDocuments();
+        forgetDocument(id);
         toast("Deleted");
       } catch (e) {
         toast(e.message, true);
       }
     },
   );
+}
+
+/** Let go of document *id*, deleted on the server: gone from the list, and the editor cleared if it is the one open. */
+function forgetDocument(id) {
+  S.documents = S.documents.filter((d) => d.id !== id);
+  if (S.activeDocId === id) clearEditor();
+  renderDocuments();
 }
 
 function scheduleSave() {

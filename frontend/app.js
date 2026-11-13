@@ -1,5 +1,6 @@
 import { registerActions } from "./actions.js";
 import { onRefreshRequired, reloadPage } from "./api.js";
+import { initAssistant } from "./assistant_chat.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
   initAutoscroll,
@@ -135,6 +136,7 @@ initTabLock();
 initWorkflowMutationListener();
 initGroupSetup();
 initSidebarSections();
+initAssistant();
 
 if (!S.activeConvId) {
   renderMessages();

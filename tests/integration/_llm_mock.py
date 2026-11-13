@@ -424,6 +424,8 @@ class _EndpointBound:
     def __getattr__(self, name: str):
         return getattr(self._fake, name)
 
+    supports_image_inputs = True
+
     def sends_tool_schemas(self, messages, model: str, *, tools_in_prompt: bool = True) -> bool:
         """Use the real transport predicate with this wrapper's endpoint.
 

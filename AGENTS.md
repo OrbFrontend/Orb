@@ -22,6 +22,8 @@ Lower layers must not import higher layers or peer feature slices. Use dependenc
 
 Feature slices should expose a small facade, keep local contracts near their logic, and persist through the database layer rather than reaching into unrelated features.
 
+A feature's API-side composition lives in a package `api/<feature>/`, not in flat `api/` modules.
+
 Before changing prompt assembly, pass ordering, tool schemas, or streaming behavior, read the relevant document in `docs/architecture/`.
 
 ## Backend conventions

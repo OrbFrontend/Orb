@@ -23,15 +23,32 @@ _NON_STRICT_KEYWORDS = frozenset(
 )
 
 
-def strictify_schema(schema: dict) -> dict:
-    """Copy *schema* into OpenAI strict-mode shape recursively."""
-    node = {key: value for key, value in schema.items() if key not in _NON_STRICT_KEYWORDS}
+# Anthropic's strict tool use also rejects value and size bounds.
+_BOUND_KEYWORDS = frozenset(
+    {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+    }
+)
+
+
+def strictify_schema(schema: dict, *, bounds: bool = True) -> dict:
+    """Copy *schema* into OpenAI strict-mode shape recursively; ``bounds=False`` also drops value and size bounds."""
+    dropped = _NON_STRICT_KEYWORDS if bounds else _NON_STRICT_KEYWORDS | _BOUND_KEYWORDS
+    node = {key: value for key, value in schema.items() if key not in dropped}
     properties = node.get("properties")
     if isinstance(properties, dict):
         required = set(node.get("required") or [])
         output_properties: dict = {}
         for key, property_schema in properties.items():
-            sub = strictify_schema(property_schema) if isinstance(property_schema, dict) else property_schema
+            sub = strictify_schema(property_schema, bounds=bounds) if isinstance(property_schema, dict) else property_schema
             if key not in required and isinstance(sub, dict) and "type" in sub:
                 property_type = sub["type"]
                 if isinstance(property_type, list):
@@ -44,5 +61,5 @@ def strictify_schema(schema: dict) -> dict:
         node["required"] = list(properties.keys())
         node["additionalProperties"] = False
     if isinstance(node.get("items"), dict):
-        node["items"] = strictify_schema(node["items"])
+        node["items"] = strictify_schema(node["items"], bounds=bounds)
     return node

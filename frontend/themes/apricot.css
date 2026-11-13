@@ -39,9 +39,9 @@ body {
     !important;
   background-attachment: fixed !important;
 }
-#sidebar, #inspector, #tools-panel { background: var(--bg-primary) !important; }
+#sidebar, #inspector, #tools-panel, #assistant-panel { background: var(--bg-primary) !important; }
 #sidebar { border-right: 2px solid var(--ink) !important; }
-#inspector.open, #tools-panel.open { border-left: 2px solid var(--ink) !important; }
+#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 2px solid var(--ink) !important; }
 .sidebar-header, #chat-header, #doc-header { background: var(--band) !important;
   border-bottom: 2px solid var(--ink) !important; }
 #chat-header .chat-title, #doc-header .doc-title { color: var(--ink) !important; }
@@ -51,8 +51,8 @@ body {
 @media (min-width: 901px) {
   #app { padding: 12px; }
   #sidebar { margin-right: 12px; }
-  #inspector.open, #tools-panel.open { margin-left: 12px; }
-  #sidebar, #inspector.open, #tools-panel.open {
+  #inspector.open, #tools-panel.open, #assistant-panel.open { margin-left: 12px; }
+  #sidebar, #inspector.open, #tools-panel.open, #assistant-panel.open {
     border: 2px solid var(--ink) !important; border-radius: 16px !important; box-shadow: var(--shadow-card) !important;
   }
   #chat-header, #doc-header, #chat-input-area, #doc-footer { border: 2px solid var(--ink) !important;
@@ -68,20 +68,20 @@ body {
   border-radius: 999px !important; color: var(--ink) !important; font-weight: 500;
   box-shadow: var(--shadow-btn) !important; transition: background .15s, transform .08s, box-shadow .08s !important; }
 .btn:hover { background: var(--bg-hover) !important; }
-.btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover,
+.btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover,
 .btn-danger:hover, #stop-btn:hover, #burger-btn:hover {
   transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--shadow-ink) !important;
 }
-.btn:active, .btn-accent:active, .btn-active:active, #send-btn:active,
+.btn:active, .btn-accent:active, .btn-active:active, #send-btn:active, .asst-send:active,
 .btn-danger:active, #stop-btn:active, #burger-btn:active {
   transform: translate(2px, 2px); box-shadow: 0 0 0 transparent !important;
 }
-.btn-accent, .btn-active, #send-btn { background: var(--mint) !important; border: 2px solid var(--ink) !important;
+.btn-accent, .btn-active, #send-btn, .asst-send { background: var(--mint) !important; border: 2px solid var(--ink) !important;
   color: var(--ink) !important; text-shadow: none !important; box-shadow: var(--shadow-btn) !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover { background: #d5ecbb !important; color: var(--ink) !important; }
-.btn-danger, #stop-btn { background: var(--coral) !important; border: 2px solid var(--ink) !important;
+.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover { background: #d5ecbb !important; color: var(--ink) !important; }
+.btn-danger, #stop-btn, .asst-send.asst-stop { background: var(--coral) !important; border: 2px solid var(--ink) !important;
   color: var(--ink) !important; box-shadow: var(--shadow-btn) !important; }
-.btn-danger:hover, #stop-btn:hover { background: #f5b49d !important; color: var(--ink) !important; }
+.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: #f5b49d !important; color: var(--ink) !important; }
 #send-btn, #stop-btn { border-radius: 999px !important; }
 #burger-btn { background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
   border-radius: 999px !important; color: var(--ink) !important; box-shadow: var(--shadow-btn) !important; }
@@ -109,6 +109,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .cb-control:hover { box-shadow: none !important; }
 .cb-control.open, .cb-control:focus-within { border-color: var(--ink) !important;
   box-shadow: 0 0 0 3px var(--accent-glow) !important; }
+.asst-compose { background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
+  border-radius: 16px !important; }
+.asst-compose:focus-within { box-shadow: 0 0 0 3px var(--accent-glow) !important; }
 .cb-root .cb-input { background: transparent !important; border: none !important; color: var(--ink) !important; }
 .cb-arrow { color: var(--text-secondary) !important; }
 .cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, .avatar-popup-content {
@@ -203,9 +206,10 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 ::-webkit-scrollbar-thumb:hover { background: #b9906a; background-clip: padding-box; }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover, .btn-danger:hover, #stop-btn:hover,
+  .btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover, .btn-danger:hover, #stop-btn:hover,
   #burger-btn:hover, .stat-card-clickable:hover, .btn:active, .btn-accent:active, .btn-active:active,
-  #send-btn:active, .btn-danger:active, #stop-btn:active, #burger-btn:active, .stat-card-clickable:active {
+  #send-btn:active, .asst-send:active, .btn-danger:active, #stop-btn:active, #burger-btn:active,
+  .stat-card-clickable:active {
     transform: none;
   }
 }

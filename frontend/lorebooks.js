@@ -3,7 +3,7 @@ import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
-import { charactersView, S } from "./state.js";
+import { charactersView, notify, S } from "./state.js";
 import { $, boolFlag, downloadBlob, esc, fromMessageBody, plural, toast } from "./utils.js";
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
@@ -21,6 +21,8 @@ const _entries = {}; // world id -> entries
 let _entrySearch = ""; // entry name/content filter
 let _selectedEntryId = null;
 let _dirty = false;
+// The open entry changed on the server while the reader had unsaved edits to it; their draft is kept, and the editor says so.
+let _changedElsewhere = false;
 
 const _emptyDraft = () => ({
   name: "",
@@ -214,6 +216,16 @@ async function updateSceneWorlds(change) {
   if (S.activeConvId === cid && S.conversationViewToken === token) reflectConversationWorldActivation(world_ids);
 }
 
+/** Show chat *cid*'s World choices as the server has them now, while it is the chat in view; any other chat paints nothing. */
+export async function refreshChatWorlds(cid) {
+  if (!cid || S.activeConvId !== cid) return;
+  try {
+    await updateSceneWorlds((id) => api.get(`/conversations/${id}/worlds`));
+  } catch (e) {
+    console.error("Failed to refresh the chat's worlds:", e);
+  }
+}
+
 function showRenameWorldModal(worldId) {
   const world = _getWorld(worldId);
   if (!world) return;
@@ -320,18 +332,23 @@ async function deleteWorld(worldId) {
     async () => {
       try {
         await api.del(`/worlds/${worldId}`);
-        _worlds = _worlds.filter((w) => w.id !== worldId);
-        delete _entries[worldId];
-        for (const c of charactersView()) {
-          if (c.world_id === worldId) c.world_id = null;
-        }
-        if (_focusWorldId === worldId) _closeDrawer();
-        renderWorldsSidebar();
+        forgetWorld(worldId);
       } catch (_e) {
         toast("Failed to delete lorebook", true);
       }
     },
   );
+}
+
+/** Let go of World *worldId*, deleted on the server: gone from the sidebar, its drawer closed, its characters unlinked. */
+export function forgetWorld(worldId) {
+  _worlds = _worlds.filter((w) => w.id !== worldId);
+  delete _entries[worldId];
+  for (const c of charactersView()) {
+    if (c.world_id === worldId) c.world_id = null;
+  }
+  if (_focusWorldId === worldId) _closeDrawer();
+  renderWorldsSidebar();
 }
 
 function _guardDirty(proceed, message, confirmText) {
@@ -356,6 +373,7 @@ async function _openDrawer(worldId) {
   _selectedEntryId = null;
   _entrySearch = "";
   _dirty = false;
+  _changedElsewhere = false;
   _draft = _emptyDraft();
   _drawerTab = "entries";
   renderWorldsSidebar();
@@ -374,6 +392,7 @@ function closeLorebook() {
 
 function _closeDrawer() {
   _lorebookOpen = false;
+  notify("lorebook");
   _dirty = false;
   $("lorebook-drawer")?.classList.add("hidden");
   renderWorldsSidebar();
@@ -381,6 +400,22 @@ function _closeDrawer() {
 
 function _getWorld(worldId) {
   return _worlds.find((w) => w.id === worldId);
+}
+
+/**
+ * The world the drawer has open and the saved entry selected in it, which a request to the assistant is about; null while
+ * the drawer is closed. An entry is named only on the Entries tab, where the reader sees it.
+ */
+export function lorebookFocus() {
+  if (!_lorebookOpen || !_focusWorldId) return null;
+  const entry = _drawerTab === "entries" && _selectedEntryId != null ? _getEntry(_selectedEntryId) : null;
+  const saved = Number.isSafeInteger(entry?.id) && entry.id > 0;
+  return {
+    worldId: _focusWorldId,
+    worldName: _getWorld(_focusWorldId)?.name || "",
+    entryId: saved ? entry.id : null,
+    entryName: saved ? entry.name || "" : "",
+  };
 }
 
 function _mergeWorld(worldId, updated) {
@@ -396,29 +431,14 @@ function _getEntry(entryId) {
   return null;
 }
 
-function renderLorebookDrawer() {
-  const drawer = $("lorebook-drawer");
-  if (!drawer) return;
-
-  const world = _getWorld(_focusWorldId);
-  if (!world) {
-    _closeDrawer();
-    return;
-  }
-
-  const allEntries = _entries[_focusWorldId] || [];
-  const liveEntries = allEntries.filter((e) => !boolFlag(e.archived));
-  const activeCount = liveEntries.filter((e) => boolFlag(e.enabled)).length;
-  const dynamicOn = boolFlag(world.dynamic_enabled);
-  const dynamicCount = liveEntries.filter((e) => e.entry_layer === "dynamic").length;
-  const pendingCount = _pendingCount(_focusWorldId);
-
+// The entry rows of the open World, filtered by the drawer's search.
+function _entryListHtml(liveEntries) {
   const q = _entrySearch.trim().toLowerCase();
   const entries = q
     ? liveEntries.filter((e) => (e.name || "").toLowerCase().includes(q) || (e.content || "").toLowerCase().includes(q))
     : liveEntries;
 
-  const entryListHtml = entries.length
+  return entries.length
     ? entries
         .map((e) => {
           const enabled = boolFlag(e.enabled);
@@ -445,6 +465,27 @@ function renderLorebookDrawer() {
         })
         .join("")
     : `<div class="lb-empty-state">${q ? "No matching entries" : "No entries yet"}</div>`;
+}
+
+function renderLorebookDrawer() {
+  notify("lorebook");
+  const drawer = $("lorebook-drawer");
+  if (!drawer) return;
+
+  const world = _getWorld(_focusWorldId);
+  if (!world) {
+    _closeDrawer();
+    return;
+  }
+
+  const allEntries = _entries[_focusWorldId] || [];
+  const liveEntries = allEntries.filter((e) => !boolFlag(e.archived));
+  const activeCount = liveEntries.filter((e) => boolFlag(e.enabled)).length;
+  const dynamicOn = boolFlag(world.dynamic_enabled);
+  const dynamicCount = liveEntries.filter((e) => e.entry_layer === "dynamic").length;
+  const pendingCount = _pendingCount(_focusWorldId);
+
+  const entryListHtml = _entryListHtml(liveEntries);
 
   const editorHtml = _selectedEntryId
     ? _buildEditorHtml()
@@ -463,6 +504,7 @@ function renderLorebookDrawer() {
   drawer.innerHTML = `
     <div class="lb-header">
       <span class="lb-header-title">Lorebook</span>
+      <button type="button" class="btn btn-sm asst-launch lb-assistant-btn" id="lb-assistant-btn" data-wf-action="assistant:toggle" title="Assistant" aria-controls="assistant-panel">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></button>
       <button class="btn btn-sm btn-square lb-close-btn" data-wf-action="lorebook:close" title="Close" aria-label="Close lorebook">${CLOSE_ICON}</button>
     </div>
     <div class="lb-body">
@@ -552,6 +594,9 @@ function renderLorebookDrawer() {
   }
 }
 
+const _CHANGED_ELSEWHERE = `<div class="lb-layer-banner lb-changed-elsewhere" role="status">A field you are editing was
+  changed elsewhere too. Save keeps your version of it; Discard loads the new one.</div>`;
+
 function _buildEditorHtml() {
   const unsavedBadge = _dirty ? `<span class="lb-unsaved-badge">Unsaved changes</span>` : "";
   const discardBtn = _dirty
@@ -566,6 +611,7 @@ function _buildEditorHtml() {
       : "";
   return `
     <div class="lb-editor-inner">
+      ${_changedElsewhere ? _CHANGED_ELSEWHERE : ""}
       ${layerBanner}
       <div class="lb-editor-header">
         <input id="lb-entry-name" class="lb-entry-name-input" value="${esc(_draft.name)}"
@@ -719,6 +765,7 @@ function lbBackToList() {
 function _doSelectEntry(entryId) {
   _selectedEntryId = entryId;
   _dirty = false;
+  _changedElsewhere = false;
   const entry = _getEntry(entryId);
   if (entry) _draft = _draftFromEntry(entry);
   renderLorebookDrawer();
@@ -770,6 +817,7 @@ async function lbSaveEntry() {
     const idx = (_entries[worldId] || []).findIndex((e) => e.id === _selectedEntryId);
     if (idx !== -1) _entries[worldId][idx] = { ..._entries[worldId][idx], ...updated };
     _dirty = false;
+    _changedElsewhere = false;
     renderLorebookDrawer();
     toast("Entry saved");
   } catch (_e) {
@@ -781,6 +829,7 @@ function lbDiscardChanges() {
   const entry = _getEntry(_selectedEntryId);
   if (entry) _draft = _draftFromEntry(entry);
   _dirty = false;
+  _changedElsewhere = false;
   renderLorebookDrawer();
 }
 
@@ -873,6 +922,111 @@ async function _refreshAfterWorldChange(worldId) {
   } catch (e) {
     console.error("Failed to refresh chat proposals:", e);
   }
+}
+
+/**
+ * Read one World again after something outside the drawer changed it: the sidebar, its cached entries, and the open
+ * drawer. While the reader is working in the drawer only its entry list is redrawn, so the field they are typing in
+ * keeps focus and their unsaved draft stays as it is.
+ */
+export async function refreshWorld(worldId) {
+  // The open entry as the editor last read it, to tell whether this refresh changed it.
+  const before = _focusWorldId === worldId && _selectedEntryId != null ? _getEntry(_selectedEntryId) : null;
+  try {
+    const worlds = await api.get("/worlds");
+    if (_entries[worldId] || _focusWorldId === worldId) await _loadEntries(worldId);
+    _worlds = worlds;
+  } catch (e) {
+    console.error("Failed to refresh world:", e);
+    return;
+  }
+  renderWorldsSidebar();
+  if (!_lorebookOpen || _focusWorldId !== worldId) return;
+  const drawer = $("lorebook-drawer");
+  const after = before ? _getEntry(_selectedEntryId) : null;
+  if (before && !after) {
+    // The open entry was deleted elsewhere: there is nothing left for the editor, or its Save, to work on.
+    _selectedEntryId = null;
+    _dirty = false;
+    _changedElsewhere = false;
+    _draft = _emptyDraft();
+    renderLorebookDrawer();
+    return;
+  }
+  const changed = after && !_same(_draftFromEntry(before), _draftFromEntry(after));
+  // Nothing unsaved: the editor takes the new text, so its next Save cannot send the old one back.
+  if (changed && !_dirty) {
+    _draft = _draftFromEntry(after);
+    _renderDrawerKeepingFocus(drawer);
+    return;
+  }
+  // Unsaved edits: field by field, what the reader left alone takes the new value, so Save cannot send the old one back over
+  // a change made elsewhere, and what they changed stays theirs. Only a field changed in both places brings the notice.
+  if (changed) {
+    const { took, conflict } = _mergeElsewhere(_draftFromEntry(before), _draftFromEntry(after));
+    if (conflict) _changedElsewhere = true;
+    if (took || conflict) {
+      _renderDrawerKeepingFocus(drawer);
+      return;
+    }
+  }
+  if (!drawer?.contains(document.activeElement)) {
+    _renderDrawerKeepingFocus(drawer);
+    return;
+  }
+  const live = (_entries[worldId] || []).filter((e) => !boolFlag(e.archived));
+  const list = drawer.querySelector(".lb-entries-scroll");
+  if (list) {
+    const top = list.scrollTop;
+    list.innerHTML = _entryListHtml(live);
+    list.scrollTop = top;
+  }
+  const countEl = drawer.querySelector(".lb-active-count");
+  if (countEl) countEl.textContent = `${live.filter((e) => boolFlag(e.enabled)).length} active`;
+}
+
+const _same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Merge a change made elsewhere into the unsaved draft. *base* is the entry the draft was edited from and *theirs* the entry
+ * now stored. A field the reader has not changed takes the stored value; one they changed is kept. Returns whether any field
+ * was taken, and whether a field they changed was changed elsewhere too (to something else).
+ */
+function _mergeElsewhere(base, theirs) {
+  let took = false;
+  let conflict = false;
+  for (const key of Object.keys(theirs)) {
+    if (_same(base[key], theirs[key])) continue;
+    if (_same(_draft[key], base[key])) {
+      _draft[key] = theirs[key];
+      took = true;
+    } else if (!_same(_draft[key], theirs[key])) conflict = true;
+  }
+  return { took, conflict };
+}
+
+// Keyword text typed but not yet added as a chip: part of the reader's edit, though not yet in the draft.
+const _CHIP_INPUTS = ["lb-chip-text", "lb-sec-chip-text"];
+
+/**
+ * Redraw the drawer, then put focus and the caret back in the field that had them, if it is still drawn, along with any
+ * keyword typed and not yet added.
+ */
+function _renderDrawerKeepingFocus(drawer) {
+  const focused = drawer?.contains(document.activeElement) ? document.activeElement : null;
+  const id = focused?.id;
+  const caret =
+    id && typeof focused.selectionStart === "number" ? [focused.selectionStart, focused.selectionEnd] : null;
+  const typed = _CHIP_INPUTS.map((key) => [key, $(key)?.value || ""]).filter(([, value]) => value);
+  renderLorebookDrawer();
+  for (const [key, value] of typed) {
+    const input = $(key);
+    if (input) input.value = value;
+  }
+  const again = id ? $(id) : null;
+  if (!again) return;
+  again.focus();
+  if (caret) again.setSelectionRange(...caret);
 }
 
 function _findChangeset(worldId, id) {

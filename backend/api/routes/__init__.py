@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from . import (
     access,
+    assistant,
     characters,
     conversations,
     decisions,
@@ -52,4 +53,5 @@ ROUTERS = [
     local_ml.router,
     documents.router,
     access.router,
+    assistant.router,
 ]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 OPEN = "<|tool_call>"
@@ -27,6 +29,39 @@ def parse_gemma_tool_calls(content: str) -> list[dict]:
         if call is not None:
             out.append(call)
     return out
+
+
+_NAME = re.compile(r"[A-Za-z_][\w.-]*")
+# One token of the native grammar as JSON: a closed string, a key (a name before its colon), a literal, punctuation, or space.
+_TOKEN = re.compile(
+    r'<\|"\|>(.*?)<\|"\|>|([A-Za-z_][\w.-]*)(?=\s*:)|(-?\d[\d.eE+-]*|true|false|null)|([{}\[\]:,])|\s+', re.DOTALL
+)
+
+
+def gemma_call_json(text: str) -> tuple[str, str] | None:
+    """The one complete native call that *text* is, as ``(name, arguments as JSON text)``, or ``None``.
+
+    Unlike :func:`parse_gemma_tool_calls`, which reads what it can, every character must translate: a value is a closed string,
+    a number, ``true``, ``false``, ``null``, or an array or object of the same. The caller's JSON decoding then refuses what is
+    still malformed, such as a call cut off mid-way, a segment without a colon, or a repeated key.
+    """
+    text = text.strip()
+    if not (text.startswith(OPEN) and text.endswith(CLOSE)):
+        return None
+    span = text[len(OPEN) : -len(CLOSE)].strip()
+    name, brace, body = span.removeprefix("call:").partition("{")
+    if not span.startswith("call:") or not brace or OPEN in span or CLOSE in span or not _NAME.fullmatch(name.strip()):
+        return None
+    parts: list[str] = []
+    body, pos = brace + body, 0
+    while pos < len(body):
+        token = _TOKEN.match(body, pos)
+        if token is None:
+            return None
+        string, key, literal, mark = token.groups()
+        parts.append(json.dumps(string) if string is not None else json.dumps(key) if key else literal or mark or "")
+        pos = token.end()
+    return name.strip(), "".join(parts)
 
 
 def _parse_call(span: str) -> dict | None:

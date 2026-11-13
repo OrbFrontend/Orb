@@ -32,6 +32,15 @@ def test_resolve_path_env_override_wins(monkeypatch, tmp_path):
     assert assets.resolve_path("autocomplete") == str(custom)
 
 
+def test_resolve_path_slop_override(monkeypatch, tmp_path):
+    custom = tmp_path / "slop.gguf"
+    monkeypatch.setenv("ORB_SLOP_MODEL", str(custom))
+    assert assets.resolve_path("slop_classifier") != str(custom)  # missing file: fall through to the catalog model
+    custom.write_bytes(b"")
+    assert assets.resolve_path("slop_classifier") == str(custom)
+    assert assets.resolve_path("pov_classifier") != str(custom)
+
+
 def test_present_reflects_disk(monkeypatch):
     monkeypatch.setattr(assets, "resolve_path", lambda f: "/nope/missing.gguf")
     assert assets.present("autocomplete") is False

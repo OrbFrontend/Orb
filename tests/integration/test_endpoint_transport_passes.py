@@ -71,8 +71,12 @@ def _data(payload: dict) -> str:
     return f"data: {json.dumps(payload)}"
 
 
-def _openai_tool(name: str) -> list[str]:
-    call = {"index": 0, "id": f"call-{name}", "function": {"name": name, "arguments": '{"value":"ok"}'}}
+def _openai_tool(name: str, arguments: dict | None = None) -> list[str]:
+    call = {
+        "index": 0,
+        "id": f"call-{name}",
+        "function": {"name": name, "arguments": json.dumps(arguments if arguments is not None else {"value": "ok"})},
+    }
     return [_data({"choices": [{"delta": {"tool_calls": [call]}, "finish_reason": "tool_calls"}]}), "data: [DONE]"]
 
 
@@ -80,7 +84,7 @@ def _openai_text() -> list[str]:
     return [_data({"choices": [{"delta": {"content": "draft"}, "finish_reason": "stop"}]}), "data: [DONE]"]
 
 
-def _anthropic_tool(name: str) -> list[str]:
+def _anthropic_tool(name: str, arguments: dict | None = None) -> list[str]:
     return [
         _data(
             {
@@ -90,7 +94,14 @@ def _anthropic_tool(name: str) -> list[str]:
             }
         ),
         _data(
-            {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"value":"ok"}'}}
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": json.dumps(arguments if arguments is not None else {"value": "ok"}),
+                },
+            }
         ),
         _data({"type": "message_delta", "delta": {"stop_reason": "tool_use"}}),
         _data({"type": "message_stop"}),
@@ -207,3 +218,58 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
         "anthropic": (6342, "18123577c3adcd25c7a9c0d7628bd6aa4870d5e4b7ae5c484f45d3c2d7082372"),
     }
     assert (len(captured[0]), hashlib.sha256(captured[0].encode()).hexdigest()) == expected_bytes[provider]
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "gemini"])
+async def test_assistant_picture_uses_existing_image_transport_after_its_tool_result(provider):
+    from backend.core.settings import Settings
+    from backend.features.assistant import AssistantTool, ToolOutput, ViewContext, run_assistant
+    from backend.features.assistant.contracts import NoArguments
+
+    ep._RESOLVED_ROUTES.clear()
+    step = {"tool": "picture", "message": "Making a picture."}
+    reply = {"tool": "reply", "message": "I can see the picture."}
+    if provider == "anthropic":
+        endpoint, model = "https://api.anthropic.com/v1/messages", "claude-haiku-4-5"
+        scripts = [_anthropic_tool("assistant_step", step), _anthropic_tool("assistant_step", reply)]
+    elif provider == "gemini":
+        endpoint, model = "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3-pro"
+        scripts = [
+            [_data({"choices": [{"delta": {"content": json.dumps(args)}, "finish_reason": "stop"}]}), "data: [DONE]"]
+            for args in (step, {**reply, "message": ""})
+        ]
+        scripts.append(_openai_text())
+    else:
+        endpoint, model = "https://openai.test/v1/chat/completions", "openai-model"
+        scripts = [_openai_tool("assistant_step", step), _openai_tool("assistant_step", reply)]
+    transport = _Transport(scripts)
+    image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}
+
+    async def picture(args):
+        return ToolOutput({"image_id": "test-image"}, "Created a picture.", images=(image,))
+
+    client = LLMClient(endpoint, "secret")
+    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport):
+        events = [
+            event
+            async for event in run_assistant(
+                client,
+                model,
+                settings=Settings({}),
+                tools=[AssistantTool("picture", "Make a picture.", NoArguments, "write", picture)],
+                request="Make and inspect a picture.",
+                view=ViewContext("library"),
+                single_call=False,
+            )
+        ]
+    assert events[-1]["reason"] == "reply"
+    body = transport.requests[1]["body"]
+    if provider == "anthropic":
+        blocks = body["messages"][-1]["content"]
+        assert blocks[0]["type"] == "tool_result"
+        assert blocks[-1] == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "eA=="}}
+    else:
+        assert body["messages"][-2]["role"] == "tool"
+        assert body["messages"][-1]["role"] == "user"
+        assert body["messages"][-1]["content"][-1] == image
+    assert "base64" not in json.dumps(events)

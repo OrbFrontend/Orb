@@ -12,10 +12,10 @@
 *, *::before, *::after { border-radius: 0 !important; }
 body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%) !important;
   background-attachment: fixed !important; }
-#sidebar, #inspector, #tools-panel { background: #d4d0c8 !important;
+#sidebar, #inspector, #tools-panel, #assistant-panel { background: #d4d0c8 !important;
   box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #808080 !important; }
 #sidebar { border-right: 1px solid #404040 !important; }
-#inspector.open, #tools-panel.open { border-left: 1px solid #404040 !important; }
+#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 1px solid #404040 !important; }
 .sidebar-header, #chat-header { background: linear-gradient(90deg, #33507a 0%, #45658f 100%) !important;
   border-bottom: 1px solid #22344e !important; }
 .sidebar-header h1 { color: #ffffff !important; font-size: 16px !important; font-weight: normal !important;
@@ -33,16 +33,16 @@ body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%
 .btn:hover { background: #dcd8d0 !important; }
 .btn:active { background: #c4c0b8 !important; border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
   box-shadow: inset 1px 1px 2px rgba(0,0,0,0.2) !important; }
-.btn-accent, .btn-active, #send-btn { background: linear-gradient(180deg, #d88a34 0%, #c46418 100%) !important;
+.btn-accent, .btn-active, #send-btn, .asst-send { background: linear-gradient(180deg, #d88a34 0%, #c46418 100%) !important;
   border: 1px solid !important; border-color: #e0b470 #683008 #683008 #e0b470 !important; color: #1a0c02 !important;
   font-weight: normal; text-shadow: none !important; box-shadow: 1px 1px 0 #404040 !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover {
   background: linear-gradient(180deg, #e09844 0%, #d07024 100%) !important; }
-.btn-accent:active, .btn-active:active, #send-btn:active { border-color: #683008 #e0b470 #e0b470 #683008 !important; }
-.btn-danger, #stop-btn { background: linear-gradient(180deg, #ca4a3b 0%, #b03424 100%) !important;
+.btn-accent:active, .btn-active:active, #send-btn:active, .asst-send:active { border-color: #683008 #e0b470 #e0b470 #683008 !important; }
+.btn-danger, #stop-btn, .asst-send.asst-stop { background: linear-gradient(180deg, #ca4a3b 0%, #b03424 100%) !important;
   border: 1px solid !important; border-color: #e89080 #702014 #702014 #e89080 !important; color: #ffffff !important;
   box-shadow: 1px 1px 0 #404040 !important; }
-.btn-danger:hover, #stop-btn:hover { background: linear-gradient(180deg, #c74d3e 0%, #bc4030 100%) !important; }
+.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: linear-gradient(180deg, #c74d3e 0%, #bc4030 100%) !important; }
 #burger-btn { background: #d4d0c8 !important; border: 1px solid !important;
   border-color: #f4f2ee #606060 #606060 #f4f2ee !important; color: #1a1a1a !important; }
 #burger-btn:hover { background: #dcd8d0 !important; }
@@ -50,6 +50,8 @@ body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%
   box-shadow: 0 -1px 0 #404040 !important; }
 #chat-input-area textarea, #chat-input-area input { background: #ffffff !important; border: 1px solid !important;
   border-color: #606060 #f4f2ee #f4f2ee #606060 !important; color: #1a1a1a !important; }
+.asst-compose { background: #ffffff !important; border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important; }
 input[type="text"], input[type="number"], input[type="password"], textarea, select { background: #ffffff !important;
   border: 1px solid !important; border-color: #606060 #f4f2ee #f4f2ee #606060 !important; color: #1a1a1a !important; }
 .image-gen-edit[readonly] { background: transparent !important; border-color: transparent !important;

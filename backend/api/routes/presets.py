@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 
 from ...core import maintenance_lock
 from ...features.presets import engine as presets
+from ...workflows import gpu_swap_host
 from ..admission import dataset_maintenance
 from ..schemas import PresetExportRequest
 
@@ -98,6 +99,8 @@ async def api_apply_preset(name: str):
             summary = await _finish_thread(presets.apply_preset, path)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+    # A preset can switch workflows on, and the GPU swap plan is off while they are off.
+    gpu_swap_host.invalidate()
     return {"backup": backup, "summary": summary}
 
 
@@ -116,6 +119,7 @@ async def api_restore_preset(name: str):
                 summary = await _finish_thread(presets.restore_partial, path)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+    gpu_swap_host.invalidate()
     return {"backup": backup, "ok": True, "summary": summary}
 
 

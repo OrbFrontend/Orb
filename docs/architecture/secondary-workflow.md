@@ -152,11 +152,17 @@ framework-owned catalog API. The catalog itself is not part of the plug-in API.
 | `PRE_PIPELINE` | During a turn, before the main passes; all hooks in priority order | Async stream of events or pipeline instructions |
 | `POST_PIPELINE` | During a turn, after the main passes; all hooks in priority order | Async stream of events, draft changes, state, or attachments |
 | `ON_DEMAND` | Conversation-scoped trigger route | A JSON object or `WorkflowEventStream` |
+| `STANDALONE` | Host-driven render without a conversation | A `StandaloneResult` with `data`, `mime`, and a model-facing `preview_url` the workflow fills only when its settings say the Agent model takes pictures; no attachment is saved |
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
 | `UPLOAD` | Character-scoped file upload route | One response object |
 | `EXPORT` | Attachment export route; optional | An `ExportedFile`, or `None` when nothing is left to export |
+
+`STANDALONE` takes only `StandaloneCtx`; the host owns enablement, the description's bounds, progress,
+cancellation, and storage of the returned bytes. It needs no conversation job
+registry or message attachment. Image Generation implements it for the
+[assistant panel](assistant-panel.md#media).
 
 `QUERY` has no conversation or LLM client. It is for setup and discovery, such
 as checking an external server before a conversation exists. `UPLOAD` receives
@@ -183,7 +189,9 @@ routes remain available so a disabled workflow can be configured and existing
 attachments can still be viewed.
 
 The frontend mirrors the same predicate and hides disabled workflow controls.
-Existing attachment renderers remain available by design.
+Existing attachment renderers remain available by design. The trigger route's
+dispatch lives in `backend/api/workflow_dispatch.py`; the
+[panel assistant's](assistant-panel.md#media) media tools share it, gate included.
 
 ## Hook contexts
 
@@ -196,6 +204,7 @@ framework.
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
 | `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
+| `StandaloneCtx` | Description, settings, Agent client/model, optional character, optional `StandaloneReference`, `phase(label)` | No conversation or history; caller owns cancellation |
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |

@@ -49,12 +49,6 @@ _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", 
 _POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
 
 
-# A text encoder has no idea "camera" is meta: it draws one, in frame, in someone's hands. The word is unavoidable in the
-# instructions, so drop the whole chunk that echoes it back. Word-bounded search so "camerawork" goes too while the real booru
-# tag "looking at viewer" survives.
-_CAMERA_CHUNK_RE = re.compile(r"\bcamera\w*", re.IGNORECASE)
-
-
 # The composer writes the literal contact ("arm gripping viewer's shirt collar") because that is what happened. The encoder has
 # never seen it -- booru tagged the reach *toward* the lens, never the viewer's body -- so the literal phrase draws an
 # improvised limb. The model states the fact; this table owns the vocabulary.
@@ -245,7 +239,7 @@ def clean_scene(scene: str, *, prompt_format: str, pov: str) -> str:
     """
     if normalize_prompt_format(prompt_format) == "prose":
         # Prose goes to a natural-language encoder, and every rewrite below answers a booru/CLIP failure that encoder does not
-        # have: it reads negation, it takes "camera" as the framing word every photo caption uses, and it parses grammar.
+        # have: it reads negation and parses grammar.
         # Scrubbing it there only costs the model its wording -- and because a comma bounds nothing in prose, the comma-chunk
         # cut took whole sentences back to the previous comma, or the entire scene when it had no commas. So prose keeps what
         # the composer wrote, the call `rewrite_viewer_contact` already makes. Leaked booru count tags still go: those are the
@@ -255,11 +249,9 @@ def clean_scene(scene: str, *, prompt_format: str, pov: str) -> str:
     # the tags from the comma-based peeling and pinning below.
     scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
     # Tags and hybrid are comma-delimited by contract, so a chunk is one tag or one bound clause and dropping it stays surgical.
-    # Their encoders draw "no longer wearing X" as X, a booru-trained composer writes "pov" unprompted, and "camera" puts a
-    # literal one in the frame.
+    # Their encoders draw "no longer wearing X" as X, and a booru-trained composer writes "pov" unprompted.
     scene = strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
     scene = strip_chunks(scene, _POV_CHUNK_RE)
-    scene = strip_chunks(scene, _CAMERA_CHUNK_RE, whole=False)
     # Only first-person has a viewer to touch.
     if pov == FIRST:
         scene = rewrite_viewer_contact(scene)

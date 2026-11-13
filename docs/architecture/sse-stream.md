@@ -349,6 +349,11 @@ Queued history edits save in order after the reply and before Send returns; a
 failed one stays on its message with Retry and Discard. Media refreshes merge into
 their origin chat and wait while a message is being edited.
 
+The [panel assistant](assistant-panel.md) runs through the same wrapper and
+settlement under the reserved key `assistant:run`, one run server-wide, with its
+own event set and `done` reasons. Its targets use wire-style keys, so only an
+Apply of its chat edits appears in a chat's delete dialog.
+
 Conversation, group and document deletion closes admission, stops registered work,
 waits for it to settle and holds the turn lanes through the delete; a timeout
 answers 409 and deletes nothing. Message deletion settles the media of the

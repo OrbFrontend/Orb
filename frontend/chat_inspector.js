@@ -401,9 +401,9 @@ function clearRefineDiff() {
 
 export function toggleInspector() {
   if (isUtilityPanelOpen("inspector")) {
-    closeUtilityPanel("inspector", "inspector-toggle");
+    closeUtilityPanel("inspector");
   } else {
-    openUtilityPanel("inspector", "inspector-toggle", () => {
+    openUtilityPanel("inspector", () => {
       renderInspector();
       if (S.inspectorTab === "state") renderStatePanel();
     });

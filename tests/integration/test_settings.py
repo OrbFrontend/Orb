@@ -117,11 +117,18 @@ async def test_endpoint_update_rejects_bad_proxy_scheme(client):
 
 
 async def test_update_enabled_tools_json_field(client, db):
+    before = json.loads((await db.one("SELECT enabled_tools FROM settings WHERE id = 1"))["enabled_tools"])
     tools = {"direct_scene": True, "editor_apply_patch": False}
-    assert (await client.put_json("/api/settings", json={"enabled_tools": tools}))["enabled_tools"] == tools
+    assert (await client.put_json("/api/settings", json={"enabled_tools": tools}))["enabled_tools"] == {**before, **tools}
+    # Each flag sent is set on its own: a flag the request does not name keeps its stored value.
+    assert (await client.put_json("/api/settings", json={"enabled_tools": {"direct_scene": False}}))["enabled_tools"] == {
+        **before,
+        **tools,
+        "direct_scene": False,
+    }
 
     row = await db.one("SELECT enabled_tools FROM settings WHERE id = 1")
-    assert json.loads(row["enabled_tools"]) == tools
+    assert json.loads(row["enabled_tools"]) == {**before, **tools, "direct_scene": False}
 
 
 async def test_enabled_tools_sanitized_to_registered_tools(client, db):
@@ -130,10 +137,11 @@ async def test_enabled_tools_sanitized_to_registered_tools(client, db):
     resp = await client.put_json(
         "/api/settings", json={"enabled_tools": {"direct_scene": True, "length_guard": True, "not_a_tool": True}}
     )
-    assert resp["enabled_tools"] == {"direct_scene": True}
+    assert resp["enabled_tools"]["direct_scene"] is True
+    assert not {"length_guard", "not_a_tool"} & set(resp["enabled_tools"])
 
     row = await db.one("SELECT enabled_tools FROM settings WHERE id = 1")
-    assert json.loads(row["enabled_tools"]) == {"direct_scene": True}
+    assert json.loads(row["enabled_tools"]) == resp["enabled_tools"]
 
 
 async def test_length_guard_flags_roundtrip(client, db):

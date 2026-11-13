@@ -54,7 +54,13 @@ async def _status(body) -> dict:
 
 async def _styles(body) -> dict:
     config = await _config_from_query(body)
-    return {"source": config["source"], "default_style": config["default_style"], "styles": config["styles"]}
+    return {
+        "source": config["source"],
+        "default_style": config["default_style"],
+        # Where the next on-demand render runs: the host's GPU swap check asks, since only ComfyUI renders swap.
+        "default_source": style_source(config, active_style(config))[0],
+        "styles": config["styles"],
+    }
 
 
 def _style_by_id(config, style_id: str):

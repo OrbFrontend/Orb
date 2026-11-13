@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 from ..toolkit import Settings, forced_tool_call
 from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
-from .prompts import OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc
+from .prompts import DIRECTION_CHARS, OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc, standalone_ooc
 from .scrub import (
     SubjectAppearance,
     bounded,
@@ -48,13 +48,15 @@ class RefineThread:
 
     `messages` extends the shared prefix: the compose tail, then per render the replayed call, its tool result, and the image
     under review. `call_id` names the call the next render answers. `prompter_reference` says the compose tail carried the
-    chat's earlier picture, so each review checks against it too.
+    chat's earlier picture, so each review checks against it too. `directed` says the compose tail carried the user's direction
+    for this image, so each review holds the render to it first rather than pulling it back to the reply.
     """
 
     messages: list[dict] = field(default_factory=list)
     visible: list[SubjectAppearance] = field(default_factory=list)
     call_id: str = ""
     prompter_reference: bool = False
+    directed: bool = False
 
 
 @dataclass
@@ -99,6 +101,7 @@ async def _forced_result(
     reasoning_on,
     call_id: str | None = None,
     raise_errors: bool = False,
+    offer_tools: Sequence[str] = OFFER_TOOLS,
 ) -> dict:
     """The forced call's result event: `args`, plus `replay` when `call_id` asked for it.
 
@@ -116,7 +119,7 @@ async def _forced_result(
             model_name=model_name,
             reasoning_on=reasoning_on,
             temperature=0.2,
-            offer_tools=OFFER_TOOLS,
+            offer_tools=offer_tools,
             call_id=call_id,
             raise_errors=raise_errors,
         ):
@@ -236,12 +239,14 @@ async def compose_scene(
     thread: RefineThread | None = None,
     prompter_reference_url: str = "",
     prompter_reference_sent: bool = False,
+    direction: str = "",
 ) -> tuple[str, str, str]:
     """Compose scene text as ``(scene, unwanted, mode)``.
 
     A `thread` is filled with the call as the model made it, so a review can follow. `prompter_reference_url` is the chat's
     earlier picture, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
     image model receives that picture as well. A provider that rejects the image raises rather than composing blind.
+    `direction` is the user's own ask for this one image, which outranks the reply on what the shot shows.
     """
     sheets = _sheets(subjects)
     request = compose_ooc(
@@ -258,6 +263,7 @@ async def compose_scene(
         profile_negative_prompt=profile_negative_prompt,
         prompter_reference=bool(prompter_reference_url),
         prompter_reference_sent=prompter_reference_sent,
+        direction=direction,
     )
     content: str | list[dict] = (
         [{"type": "image_url", "image_url": {"url": prompter_reference_url}}, {"type": "text", "text": request}]
@@ -288,6 +294,7 @@ async def compose_scene(
         thread.visible = visible
         thread.call_id = _call_id(0)
         thread.prompter_reference = bool(prompter_reference_url)
+        thread.directed = bool(bounded(direction, DIRECTION_CHARS))
     scene = inject_profile_appearance(scene, visible, prompt_format)
     return scene, bounded(args.get("unwanted")), "scene_skills" if visible_subjects is not None else "single_call"
 
@@ -325,6 +332,7 @@ async def refine_scene(
         supports_negative=supports_negative,
         supports_seed=supports_seed,
         prompter_reference=thread.prompter_reference,
+        directed=thread.directed,
     )
     turn = [
         {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render, reseeded=reseeded)},
@@ -379,3 +387,49 @@ def assemble_prompts(style: Mapping[str, Any], profile: Mapping[str, Any], scene
         positive = join((count_lead, style.get("prompt"), scene_body))
     negative = join((profile.get("negative_prompt"), unwanted, style.get("negative_prompt")))
     return positive, negative
+
+
+async def compose_standalone(
+    *,
+    client: Any,
+    model_name: str,
+    settings: Settings,
+    description: str,
+    style: dict,
+    profile: dict,
+    subjects: Sequence[Subject],
+    supports_negative: bool,
+    has_references: bool,
+    reasoning_on: bool,
+) -> tuple[str, str]:
+    """One prompter call for a standalone picture; no skills, scene prefix, camera resolution, or review."""
+    sheets = _sheets(subjects)
+    result = await _forced_result(
+        client=client,
+        model_name=model_name,
+        prefix=[],
+        tail=[
+            {
+                "role": "user",
+                "content": standalone_ooc(
+                    description,
+                    style,
+                    profile,
+                    sheets,
+                    supports_negative=supports_negative,
+                    has_references=has_references,
+                ),
+            }
+        ],
+        tool_name="compose_image_prompt",
+        settings=settings,
+        reasoning_on=reasoning_on,
+        raise_errors=True,
+        offer_tools=("compose_image_prompt",),
+    )
+    # No RP-specific POV or clause filtering: the description may request any subject or perspective.
+    scene = bounded(result["args"].get("scene"))
+    if not scene:
+        raise ValueError("couldn't compose an image prompt for this description")
+    scene = inject_profile_appearance(scene, sheets, style["prompt_format"])
+    return assemble_prompts(style, profile, scene, bounded(result["args"].get("unwanted")))

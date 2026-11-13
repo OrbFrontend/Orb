@@ -8,28 +8,23 @@ import logging
 import os
 import re
 import secrets
-from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Mapping
 from functools import partial
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, Response, UploadFile
 
-from ...core import scrub_log, workflow_character_state_lock, workflow_config_lock, workflow_state_lock
+from ...core import scrub_log, workflow_config_lock
 from ...core.settings import Settings
 from ...database import (
     conversation_attachment_ids,
     get_character_card,
-    get_conversation,
-    get_group_member,
     get_message_by_id,
-    get_messages,
     get_messages_before,
     get_settings,
     get_workflow_attachment_by_id,
     get_workflow_attachment_bytes,
     get_workflow_attachment_meta,
-    set_workflow_enabled,
 )
 from ...database.models import ConversationRow
 from ...inference import agent_lane_from_settings, client_from_settings
@@ -37,7 +32,6 @@ from ...workflows import (
     ExportCtx,
     ExportedFile,
     HookType,
-    OnDemandCtx,
     PublicEvent,
     QueryCtx,
     RegenCtx,
@@ -50,10 +44,10 @@ from ...workflows import (
     get_workflow_config,
     gpu_swap_host,
     list_workflows,
-    prose_rewriter_host,
     public_event_error,
     readonly_view,
     set_workflow_config,
+    set_workflow_toggle,
 )
 from ...workflows.attachment_cache import (
     EVICTED_MARKER,
@@ -69,8 +63,7 @@ from ...workflows.attachment_cache import (
     validate_workflow_attachment_shape,
     variant_on_show,
 )
-from ...workflows.contracts import RerollGenHook, WorkflowHook
-from ...workflows.enablement import effective_workflow_enabled
+from ...workflows.contracts import RerollGenHook
 from ..deps import (
     attachment_content_response,
     committing_workflow_job,
@@ -83,71 +76,11 @@ from ..deps import (
 )
 from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
+from ..workflow_dispatch import gate_workflow_sub, hook_failures, resolve_workflow_character, run_on_demand
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-_HookT = TypeVar("_HookT", bound=WorkflowHook)
-
-
-async def _resolve_workflow_character(
-    conv: Mapping[str, Any],
-    messages: Sequence[Mapping[str, Any]],
-    *,
-    target_message: Mapping[str, Any] | None = None,
-    speaker_member_id: str | None = None,
-) -> tuple[str | None, Mapping[str, Any] | None]:
-    """Resolve the solo card or a group message/member's current card."""
-    card_id = conv.get("character_card_id")
-    if conv.get("kind", "solo") == "group":
-        member_id = speaker_member_id
-        if member_id is None and target_message is not None:
-            member_id = target_message.get("speaker_member_id")
-        if member_id is None:
-            member_id = next(
-                (message.get("speaker_member_id") for message in reversed(messages) if message.get("speaker_member_id")), None
-            )
-        if member_id:
-            member = await get_group_member(str(member_id), conversation_id=str(conv["id"]))
-            card_id = member.get("character_card_id") if member else None
-        else:
-            card_id = None
-    card = await get_character_card(card_id) if card_id else None
-    return card_id, card
-
-
-def _gate_workflow_sub(
-    sub: Subscription[_HookT] | None, wid: str, settings: Settings, *, action: str, detail: str
-) -> Subscription[_HookT]:
-    """Shared missing-handler / disabled gate, applied before any lock is taken.
-
-    Returns the live subscription; raises 404 otherwise. A disabled workflow is indistinguishable from a missing handler to the
-    caller (both 404); the log disambiguates server-side. Gating before the lock means a disabled-workflow request never
-    contends for the same lock the live consumption routes hold.
-    """
-    if sub is None or not effective_workflow_enabled(wid, settings):
-        if sub is not None:
-            logger.info("workflow %r %s suspended (disabled)", scrub_log(wid), action)
-        raise HTTPException(status_code=404, detail=detail)
-    return sub
-
-
-@contextmanager
-def _hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str) -> Iterator[None]:
-    """Map workflow hook failures to the API response shape."""
-
-    def where() -> str:
-        # Built on the failing path only, so the happy path pays nothing for it.
-        target = f"{label} {scrub_log(wid)!r} failed"
-        return target if aid is None else f"{target} for attachment {scrub_log(aid)!r}"
-
-    try:
-        yield
-    except API_PASSTHROUGH_ERRORS:
-        raise
-    except Exception:
-        logger.exception("%s", where())
-        raise HTTPException(status_code=500, detail=defect) from None
 
 
 @router.get("/api/workflows")
@@ -203,7 +136,7 @@ async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  
     if sub is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} has no query handler")
     settings_snapshot = await get_settings()
-    with _hook_failures("query hook", workflow_id, defect="Query handler raised; see server logs"):
+    with hook_failures("query hook", workflow_id, defect="Query handler raised; see server logs"):
         return await sub.callable(QueryCtx(settings=readonly_view(settings_snapshot)), body)
 
 
@@ -222,7 +155,7 @@ async def api_upload_workflow_file(card_id: str, workflow_id: str, request: Requ
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     settings_snapshot = await get_settings()
-    sub = _gate_workflow_sub(
+    sub = gate_workflow_sub(
         get_subscription(workflow_id, HookType.UPLOAD),
         workflow_id,
         settings_snapshot,
@@ -235,7 +168,7 @@ async def api_upload_workflow_file(card_id: str, workflow_id: str, request: Requ
     data = await file.read(MAX_WORKFLOW_UPLOAD + 1)
     if len(data) > MAX_WORKFLOW_UPLOAD:
         raise HTTPException(status_code=400, detail=f"Uploads must be under {MAX_WORKFLOW_UPLOAD // (1024 * 1024)} MB")
-    with _hook_failures("upload hook", workflow_id, defect="Upload handler raised; see server logs"):
+    with hook_failures("upload hook", workflow_id, defect="Upload handler raised; see server logs"):
         upload_ctx = UploadCtx(
             settings=readonly_view(settings_snapshot),
             character_id=card_id,
@@ -256,11 +189,7 @@ async def api_set_workflow_enabled(workflow_id: str, data: WorkflowEnabledUpdate
     """
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
-    await set_workflow_enabled(workflow_id, data.enabled)
-    if workflow_id == prose_rewriter_host.FEATURE:
-        # Its model can hold gigabytes of VRAM: free it now rather than after
-        # the idle timeout, and warm it when the rewriter is switched back on.
-        await prose_rewriter_host.on_enabled(data.enabled)
+    await set_workflow_toggle(workflow_id, data.enabled)
     settings = await get_settings()
     logger.info("workflow %r enabled=%s", scrub_log(workflow_id), data.enabled)
     return {"workflow_enabled": settings.get("workflow_enabled", {})}
@@ -281,64 +210,14 @@ async def api_trigger_workflow(
     # The body is free-form; only an integer message id names a source a message delete must stop.
     source = body.get("message_id")
     message_id = source if type(source) is int else None
-    result = await _finished_job(start_workflow_job(cid, _trigger(cid, workflow_id, body), job=job, message_id=message_id))
+    result = await _finished_job(start_workflow_job(cid, run_on_demand(cid, workflow_id, body), job=job, message_id=message_id))
     # A streaming result is wrapped by the API layer -- the workflow returns a transport-neutral WorkflowEventStream, never an
     # HTTP response. The response is built after the workflow locks release: the event iterator is lazy, so the hook's DB/prefix
-    # prep ran under the locks while the stream itself runs lock-free (matching the pre-refactor behavior). A dict is a plain
+    # prep ran under the locks while the stream itself runs lock-free. A dict is a plain
     # JSON body.
     if isinstance(result, WorkflowEventStream):
         return workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
     return result
-
-
-async def _trigger(cid: str, workflow_id: str, body: dict) -> Any:
-    if get_workflow(workflow_id) is None:
-        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
-    # Gate before the lock so a disabled-workflow request does no DB work.
-    settings_snapshot = await get_settings()
-    sub = _gate_workflow_sub(
-        get_subscription(workflow_id, HookType.ON_DEMAND),
-        workflow_id,
-        settings_snapshot,
-        action="on-demand trigger",
-        detail=f"Workflow {workflow_id!r} has no on_demand handler",
-    )
-    # Serialize against the pre/post hook iteration of an in-flight pipeline and against any other /trigger for the same (cid,
-    # workflow_id), so the prior workflow_state read the hook depends on cannot be clobbered between read and write by a
-    # concurrent caller.
-    async with workflow_state_lock(cid, workflow_id):
-        conv = await get_conversation(cid)
-        if conv is None:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        msgs = await get_messages(cid)
-        explicit_message = None
-        if type(body.get("message_id")) is int:
-            candidate = await get_message_by_id(body["message_id"])
-            if candidate is not None and candidate.get("conversation_id") == cid:
-                explicit_message = candidate
-        card_id, card = await _resolve_workflow_character(
-            conv,
-            msgs,
-            target_message=explicit_message,
-            speaker_member_id=body.get("speaker_member_id") if isinstance(body.get("speaker_member_id"), str) else None,
-        )
-        last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
-        client = client_from_settings(settings_snapshot)
-        agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
-        async with workflow_character_state_lock(card_id or "", workflow_id):
-            with _hook_failures("on_demand hook", workflow_id, defect="On-demand handler raised; see server logs"):
-                od_ctx = OnDemandCtx(
-                    conversation_id=cid,
-                    history=readonly_view(msgs),
-                    last_user_message=last_user,
-                    settings=readonly_view(settings_snapshot),
-                    client=client,
-                    agent_client=agent_client,
-                    agent_model_name=agent_model_name,
-                    character_id=card_id,
-                    character=readonly_view(card),
-                )
-                return await sub.callable(od_ctx, body)
 
 
 async def _finished_job(task: asyncio.Task[Any]) -> Any:
@@ -460,7 +339,7 @@ async def _regenerate(
         raise HTTPException(status_code=404, detail="Attachment not found on this message")
     wid = att.get("workflow_id")
     settings_snapshot = await get_settings()
-    sub = _gate_workflow_sub(
+    sub = gate_workflow_sub(
         get_subscription(wid, HookType.REGENERATE) if wid else None,
         wid,
         settings_snapshot,
@@ -480,7 +359,7 @@ async def _regenerate(
         client = client_from_settings(settings_snapshot)
         agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
-        card_id, card = await _resolve_workflow_character(conv, list(msgs), target_message=anchor)
+        card_id, card = await resolve_workflow_character(conv, list(msgs), target_message=anchor)
         initially_shown = await variant_on_show(root_id)
         kept: list[int] = []
         rejections: list[dict] = []
@@ -509,7 +388,7 @@ async def _regenerate(
             landed(new_id)
             return new_id
 
-        with _hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
+        with hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
             regen_ctx = RegenCtx(
                 conversation_id=cid,
                 message_id=mid,
@@ -666,7 +545,7 @@ async def api_reroll_gen_attachment(
         raise HTTPException(status_code=404, detail="Message not found in conversation")
     wid = att.get("workflow_id")
     settings_snapshot = await get_settings()
-    sub = _gate_workflow_sub(
+    sub = gate_workflow_sub(
         get_subscription(wid, HookType.REROLL_GEN) if wid else None,
         wid,
         settings_snapshot,
@@ -696,7 +575,7 @@ async def _reroll_gen(
         seed = _generated_seed()
         client = client_from_settings(settings_snapshot)
 
-        with _hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
+        with hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
             # Not a replay: this route promises another variant of the same subject, not the stored image back, so a workflow
             # whose configuration has moved renders on today's.
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client, replay=False)
@@ -783,7 +662,7 @@ async def api_rehydrate_attachment(
     # in-lock re-read, so the pre-lock att is a safe source for the gate.
     wid = att.get("workflow_id")
     settings_snapshot = await get_settings()
-    _gate_workflow_sub(
+    gate_workflow_sub(
         get_subscription(wid, HookType.REROLL_GEN) if wid else None,
         wid,
         settings_snapshot,
@@ -815,7 +694,7 @@ async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot:
 
         client = client_from_settings(settings_snapshot)
 
-        with _hook_failures("reroll_gen (rehydrate)", wid, aid, defect="reroll_gen handler raised; see server logs"):
+        with hook_failures("reroll_gen (rehydrate)", wid, aid, defect="reroll_gen handler raised; see server logs"):
             # A replay: these bytes are meant to be the ones this row lost, so every
             # stored parameter is reproduced rather than re-read from settings.
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client, replay=True)
@@ -944,7 +823,7 @@ async def api_export_workflow_attachment(aid: int):
         consumption_metadata=readonly_view(consumption) if consumption is not None else None,
         stored_bytes=partial(get_workflow_attachment_bytes, aid),
     )
-    with _hook_failures("export hook", wid, aid, defect="Export handler raised; see server logs"):
+    with hook_failures("export hook", wid, aid, defect="Export handler raised; see server logs"):
         exported = await sub.callable(ctx)
     if exported is None:
         raise HTTPException(status_code=410, detail="Attachment bytes were evicted")

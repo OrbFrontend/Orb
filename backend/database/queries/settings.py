@@ -179,7 +179,7 @@ async def get_workflow_config(workflow_id: str) -> dict:
 
 
 _JSON_MAP_COLUMNS = frozenset(
-    {"workflow_config", "workflow_enabled", "local_ml_enabled", "local_ml_config", "card_source_auth"}
+    {"workflow_config", "workflow_enabled", "local_ml_enabled", "local_ml_config", "card_source_auth", "enabled_tools"}
 )
 
 
@@ -212,6 +212,15 @@ async def set_workflow_config(workflow_id: str, payload: dict) -> None:
 async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
     """Atomically set one workflow flag; absent flags read as enabled."""
     await _write_json_key("workflow_enabled", workflow_id, bool(enabled))
+
+
+async def set_enabled_tool(tool: str, enabled: bool) -> None:
+    """Atomically set one ``enabled_tools`` flag, leaving every other tool's flag as it is stored now.
+
+    ``update_settings`` replaces the whole map, which suits a client sending the map it shows; a caller naming one tool uses this
+    so a concurrent change to another tool is kept. The caller checks that *tool* is a registered tool.
+    """
+    await _write_json_key("enabled_tools", tool, bool(enabled))
 
 
 async def set_local_ml_enabled(feature: str, enabled: bool) -> None:

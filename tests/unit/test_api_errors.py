@@ -6,9 +6,9 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 
+from backend.api import workflow_dispatch
 from backend.api.deps import profile_draft_failures
 from backend.api.errors import register_error_handlers
-from backend.api.routes import workflows
 from backend.inference import DecisionTransportError, EndpointConfigError
 from backend.inference.errors import llm_call_error
 from backend.workflows.errors import WorkflowInputError, WorkflowUnavailableError
@@ -48,7 +48,7 @@ async def test_expected_http_failures_keep_their_status_and_message(guard, error
             with profile_draft_failures("Profile draft"):
                 raise error
         if guard == "workflow":
-            with workflows._hook_failures("query hook", "test", defect="Hook failed"):
+            with workflow_dispatch.hook_failures("query hook", "test", defect="Hook failed"):
                 raise error
         raise error
 

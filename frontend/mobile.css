@@ -32,18 +32,18 @@ html { height: 100%; }
   #app.mobile-sidebar-open #sidebar { transform: translateX(0); }
   #app::before { content: ""; position: fixed; inset: 0; background: var(--mobile-overlay-color); opacity: 0;
     pointer-events: none; transition: opacity var(--mobile-slide-duration); z-index: var(--mobile-overlay-z); }
-  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open)::before { opacity: 1; pointer-events: auto;
+  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open, .mobile-assistant-open)::before { opacity: 1; pointer-events: auto;
   }
-  #tools-panel, #inspector {
+  #tools-panel, #inspector, #assistant-panel {
     position: fixed; right: 0; top: 0; bottom: 0; width: var(--mobile-panel-width); min-width: 0;
     z-index: var(--mobile-panel-z); transform: translateX(100%); transition: transform var(--mobile-slide-duration);
     box-shadow: var(--mobile-panel-shadow-right); pointer-events: none;
   }
-  #tools-panel.open, #inspector.open {
+  #tools-panel.open, #inspector.open, #assistant-panel.open {
     width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;
   }
-  .inspector-inner, .tools-inner { width: 100%; }
-  #user-profile-btn, #tools-panel-btn, #inspector-toggle { display: none; }
+  .inspector-inner, .tools-inner, .asst-inner { width: 100%; }
+  #user-profile-btn, #assistant-btn, #tools-panel-btn, #inspector-toggle { display: none; }
   #mobile-chat-actions-toggle { display: inline-flex; }
   #main { width: 100%; }
   .char-item-actions { opacity: 1; }

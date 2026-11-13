@@ -80,6 +80,14 @@ names the field as invalid drops it for one retry and for the rest of the
 session. Providers' accepted sets move, so this is learned from the response
 rather than held as a per-provider list.
 
+An endpoint that always reasons refuses a request that turns reasoning off:
+OpenRouter answers "Reasoning is mandatory for this endpoint and cannot be
+disabled" to a disabling `reasoning` object, and takes the `thinking` and
+template-kwarg off switches beside it. Orb then drops that object from every
+reasoning-off call to the same URL and model for the session, and the call
+runs, reasoning. A reasoning-on call keeps its `reasoning` object, and the
+effort level in it.
+
 A 401 or 403 can trigger one alternate native/Bearer auth attempt for a Messages
 route or an ambiguous route. An explicit OpenAI resource only retries when the
 response names the native `x-api-key` header. This retry is independently
@@ -264,6 +272,12 @@ value; the rejection is learned per model like any other capability fact.
 
 `logprobs` is not supported on this surface, so Document mode's per-token
 steering is unavailable on Gemini for the same reason it is on Anthropic.
+
+The client advertises `supports_image_inputs` for the transport format, not the
+selected model's vision capability. HTTP chat transports accept image parts;
+text-completion mode uses its existing chat fallback for them. Claude Code's
+text-only transport advertises false. The panel assistant uses this to send
+that transport a caption and a limitation note in place of each preview part.
 
 Text Completion calls on a llama-server router name the model on every native
 route: `/props?model=`, and `model` in the `/apply-template` and `/completion`
