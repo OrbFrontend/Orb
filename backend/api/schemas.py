@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
-from ..features.assistant import MAX_ITEM_CHARS, MAX_REPLAY_ITEMS, MAX_VIEW_LABEL_CHARS
+from ..features.assistant import MAX_ITEM_CHARS
 
 
 class _PartialUpdate(BaseModel):
@@ -957,44 +957,26 @@ class AssistantViewContext(BaseModel):
         return self
 
 
-class AssistantTranscriptItem(BaseModel):
-    """One entry of the browser's transcript. Everything but the last user entry is replayed as an unverified record."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["user", "assistant", "tool", "outcome"]
-    text: str = Field(max_length=MAX_ITEM_CHARS)
-    tool: str = Field(default="", max_length=64)
-    # A user entry's own label for the view it was sent from. It is display text quoted back as a record, so a long one is
-    # shortened rather than refused: refusing it would refuse every later request that replays it.
-    view: str = ""
-
-    @field_validator("view", mode="before")
-    @classmethod
-    def _clip_view(cls, value: object) -> object:
-        return value[:MAX_VIEW_LABEL_CHARS] if isinstance(value, str) else value
-
-
 class AssistantRunRequest(BaseModel):
-    """One assistant request: the bounded transcript, ending with the new user entry, and the view captured at Send."""
+    """One assistant request: the user's words, the conversation they extend, and the view captured at Send."""
 
     model_config = ConfigDict(extra="forbid")
 
-    items: list[AssistantTranscriptItem] = Field(min_length=1, max_length=MAX_REPLAY_ITEMS)
+    text: str = Field(min_length=1, max_length=MAX_ITEM_CHARS)
     context: AssistantViewContext
-    # The token the previous reply's ``done`` carried: that run's context, held by the server, then stands in for the replay.
-    resume: str = Field(default="", max_length=64)
+    # The browser's own name for its conversation. The server holds that conversation's messages; the browser sends none.
+    session: str = Field(min_length=1, max_length=64)
     reasoning: bool = False
     # The proposals earlier requests made that the user's card still holds pending: the request is told of them, and a further
     # edit or delete of the same thing replaces one. Ids only; the texts are the server's.
     pending: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=32)
 
-    @model_validator(mode="after")
-    def ends_with_a_request(self) -> AssistantRunRequest:
-        latest = self.items[-1]
-        if latest.kind != "user" or not latest.text.strip():
-            raise ValueError("The transcript must end with the user's request")
-        return self
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("A request needs some text")
+        return value
 
 
 class AssistantApplyRequest(BaseModel):

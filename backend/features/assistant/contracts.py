@@ -17,14 +17,13 @@ MAX_TOOL_EXECUTIONS = 12
 MAX_MODEL_CALLS = 30
 # The same tool with the same arguments, back to back: the model is not taking in the results.
 MAX_SAME_CALLS = 3
-# Bounds on what a browser may replay and on the working context built from it.
-MAX_REPLAY_ITEMS = 100
+# The longest request the browser may send.
 MAX_ITEM_CHARS = 8000
-# A user entry's view label, as the browser wrote it.
-MAX_VIEW_LABEL_CHARS = 200
-CONTEXT_BUDGET_CHARS = 20_000
-# How far the working context is brought under its budget once it passes it, and the step the replayed history's start
-# moves in: each rewrite of what the model already read re-reads everything after it, so they are made rarely and in bulk.
+# The conversation the model is sent, excluding the system prompt and tool schemas: every request, call and result so far.
+# Orb has no setting for an endpoint's context window, so this is a fixed size, about 20,000 tokens.
+CONTEXT_BUDGET_CHARS = 80_000
+# How far under the budget the conversation is brought once it passes it. Dropping its oldest requests rewrites what the
+# model already read and re-reads everything after, so it is done rarely and in bulk.
 CONTEXT_SLACK_CHARS = CONTEXT_BUDGET_CHARS // 4
 MAX_RESULT_CHARS = 6000
 
@@ -104,7 +103,7 @@ class ToolOutput:
     """One tool result, already projected to its allowlist and bounded by the tool."""
 
     data: Mapping[str, Any]
-    # One line for the transcript, and what remains of the result once its body is dropped to save context.
+    # One line for the browser's transcript.
     summary: str
     ids: Mapping[str, Any] = field(default_factory=dict)
     # For a write: the resources it committed, each ``{"kind": ..., <ids>}``. Returned only after the commit.
@@ -169,17 +168,6 @@ class ToolSet(list[AssistantTool]):
 
 
 @dataclass(frozen=True)
-class HistoryItem:
-    """One replayed transcript entry. It comes from the browser, so it is a record to quote, never proof of an action."""
-
-    kind: Literal["user", "assistant", "tool", "outcome"]
-    text: str
-    tool: str = ""
-    # For a user entry: the view it was sent from, as the browser labelled it.
-    view: str = ""
-
-
-@dataclass(frozen=True)
 class ViewContext:
     """The view a request was sent from, with its ids already validated by the caller."""
 
@@ -199,29 +187,16 @@ class ViewContext:
 
 
 @dataclass(frozen=True)
-class HeldRead:
-    """A read a working context holds: the call, and its encoded result as last known.
+class Transcript:
+    """The assistant's conversation so far, as the model was sent it: every request, call and result, in order.
 
-    *whole* says the context still shows that result in full; otherwise it shows an older one and what differed since.
-    """
-
-    tool: str
-    arguments: str
-    content: str
-    whole: bool = True
-
-
-@dataclass(frozen=True)
-class Continuation:
-    """A run's working context as it ended, kept by the server so the next request extends it byte for byte.
-
-    *fingerprint* names the system prompt, tool blob, model and endpoint it was made under; any other set cannot extend it.
-    *reads* are the reads it holds, oldest first, which the next request runs again to say what changed.
+    *model* and *endpoint* made it. Reasoning one provider signed is not valid on another, so a different pair replays it
+    without its reasoning.
     """
 
     messages: tuple[WireMessage, ...]
-    fingerprint: str
-    reads: tuple[HeldRead, ...] = ()
+    model: str
+    endpoint: str
 
 
 # One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.

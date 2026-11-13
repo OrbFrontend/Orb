@@ -80,7 +80,10 @@ test("a request keeps the view captured at Send, and Stop names that operation a
   const operationId = new URL(run.url, "https://orb.invalid").searchParams.get("operation_id");
   assert.ok(operationId);
   assert.deepEqual(run.body.context, { mode: "chat", conversation_id: "chat-a" });
-  assert.deepEqual(run.body.items, [{ kind: "user", text: "Who is here?", view: "Chat: Harbour" }]);
+  // Only the request goes out; the server holds the conversation the session names.
+  assert.equal(run.body.text, "Who is here?");
+  assert.equal(run.body.session, S.assistant.session);
+  assert.equal("items" in run.body, false);
   assert.equal([...S.operations.values()].find((op) => op.kind === "assistant").target.conversation_id, "chat-a");
 
   // While it runs: Clear is off, the button is Stop, and a second Send starts nothing.
@@ -109,12 +112,12 @@ test("a request keeps the view captured at Send, and Stop names that operation a
   assert.equal($("assistant-clear").disabled, false);
   assert.equal($("assistant-scope").textContent, "Group chat: Campfire", "the next request is about the view now open");
 
-  // The next request replays the earlier one under its own view, and a group names no character.
+  // The next request goes out under its own view and the same session, and a group names no character.
   const next = await ask("And now?");
   next.used = true;
   assert.deepEqual(next.body.context, { mode: "chat", conversation_id: "chat-b" });
-  assert.deepEqual(next.body.items.at(-1), { kind: "user", text: "And now?", view: "Group chat: Campfire" });
-  assert.equal(next.body.items[0].view, "Chat: Harbour");
+  assert.equal(next.body.text, "And now?");
+  assert.equal(next.body.session, run.body.session);
   assert.equal(document.querySelectorAll("#assistant-log .asst-sep").length, 2);
   // A stream that just ends is reported as a failure, never shown as an answer.
   emit(next, "assistant_message", { text: "Half an answer", final: false });
@@ -134,8 +137,6 @@ test("a committed change is read again by id, and a run cut short reads everythi
   S.settings = { ...S.settings, user_name: "local" };
   const run = await ask("Turn the Editor off, then add lore for the ferry.");
   run.used = true;
-  // A long title is shortened at Send, so replaying it can never push a later request past the server's limit.
-  assert.ok(run.body.items.at(-1).view.length < 200);
 
   const keys = { kind: "settings", keys: ["enabled_tools"] };
   emit(run, "tool_start", { call_id: "call1", tool: "set_pipeline_toggle" });
@@ -162,6 +163,45 @@ test("a committed change is read again by id, and a run cut short reads everythi
 });
 
 // A storage that keeps what is written, as a page that is about to be reloaded would find it.
+test("turning to another character starts the conversation over; a view with no character keeps it", async () => {
+  $("assistant-clear").click();
+  const { notify } = await import("../../frontend/state.js");
+  const answer = async (text) => {
+    const run = await ask(text);
+    run.used = true;
+    emit(run, "assistant_message", { text: "Done.", final: true });
+    emit(run, "done", { reason: "reply", message: "" });
+    run.writer.close();
+    await settled();
+    return run;
+  };
+  S.conversations = [
+    { id: "chat-a", title: "Harbour", kind: "solo", character_card_id: "mara" },
+    { id: "chat-a2", title: "Harbour, later", kind: "solo", character_card_id: "mara" },
+    { id: "chat-b", title: "Forge", kind: "solo", character_card_id: "wren" },
+  ];
+  S.activeConvId = "chat-a";
+  notify("conversations");
+  const first = await answer("Who is Mara?");
+  // Another chat with the same character, then a document: the conversation and its session go on.
+  S.activeConvId = "chat-a2";
+  notify("conversations");
+  S.documentMode = true;
+  notify("conversations");
+  S.documentMode = false;
+  const second = await answer("And her rival?");
+  assert.equal(second.body.session, first.body.session);
+  assert.equal(S.assistant.items.length, 4);
+  // Another character: the log empties and the next request names a conversation the server has never seen.
+  S.activeConvId = "chat-b";
+  notify("conversations");
+  assert.equal(S.assistant.items.length, 0);
+  const third = await answer("Who is Wren?");
+  assert.notEqual(third.body.session, first.body.session);
+  S.activeConvId = null;
+  $("assistant-clear").click();
+});
+
 function keepingStorage() {
   const kept = new Map();
   return { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, String(value)), kept };
@@ -193,7 +233,7 @@ async function propose(...previews) {
 
 const applyButton = () => document.querySelector('#assistant-log [data-wf-action="assistant:apply"]');
 
-test("a reload mid-tool stores it as unanswered, and the next request carries it only as a record", async () => {
+test("a reload mid-tool stores it as unanswered", async () => {
   $("assistant-clear").click();
   const saved = globalThis.localStorage;
   globalThis.localStorage = keepingStorage();
@@ -205,12 +245,9 @@ test("a reload mid-tool stores it as unanswered, and the next request carries it
     emit(run, "tool_start", { call_id: "call1", tool: "create_lore_entry" });
     await settled();
     // The page closes here: what it stored already says the tool got no result.
-    const { parseTranscript, runItems } = await import("../../frontend/assistant_view.js");
+    const { parseTranscript } = await import("../../frontend/assistant_view.js");
     const reloaded = parseTranscript(globalThis.localStorage.kept.get("orb-assistant-transcript"));
     assert.equal(reloaded.at(-1).text, "No result was received; check before asking again.");
-    const replay = runItems([...reloaded, { kind: "user", text: "Which worlds do I have?", context: reloaded[0].context }]);
-    assert.deepEqual(replay.at(-1), { kind: "user", text: "Which worlds do I have?", view: "Chat: Harbour" });
-    assert.match(replay.at(-2).text, /^failed: No result was received; check before asking again\.$/);
     run.writer.close();
     await settled();
   } finally {

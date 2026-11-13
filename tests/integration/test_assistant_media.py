@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import uuid
 
 from backend.api import deps
 from backend.database import get_message_by_id, message_workflow_attachment_ids, set_workflow_enabled
@@ -17,7 +18,8 @@ from tests.integration.workflows._fixtures import (  # noqa: F401
 
 def _body(chat):
     return {
-        "items": [{"kind": "user", "text": "Make an image of the last reply."}],
+        "text": "Make an image of the last reply.",
+        "session": uuid.uuid4().hex,
         "context": {"mode": "chat", "conversation_id": chat},
     }
 

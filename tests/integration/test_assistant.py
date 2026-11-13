@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import uuid
 
 import pytest
 from pydantic import ValidationError
@@ -9,7 +10,7 @@ from pydantic import ValidationError
 from backend.api.assistant import apply_proposals, build_tools
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
-from backend.database import LIBRARY_VIEWS, add_message, close_wal_anchor, get_lorebook_entries, get_settings, open_wal_anchor
+from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings
 from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant
 from backend.features.assistant.contracts import encode_result
 from backend.features.assistant.tools.reads import MAX_MESSAGES
@@ -22,15 +23,13 @@ RUN = "/api/assistant/run?operation_id=op-1"
 _REAL_COMPLETE = LLMClient.complete
 
 
-def frames(response, *, resume=False):
-    """The stream's events; a reply's follow-up token, random per run, only when *resume* asks for it."""
+def frames(response):
+    """The stream's events."""
     result = []
     for frame in response.text.split("\n\n"):
         if frame.startswith("event: "):
             event, data = frame.split("\ndata: ", 1)
             payload = json.loads(data) if data.startswith("{") else data
-            if event == "event: done" and not resume:
-                payload.pop("resume", None)
             result.append((event[7:], payload))
     return result
 
@@ -49,7 +48,8 @@ def _reply(message):
 
 
 def _body(text="What is here?", **context):
-    return {"items": [{"kind": "user", "text": text}], "context": {"mode": "library", **context}}
+    """One request in a conversation of its own, which the server has never seen."""
+    return {"text": text, "session": uuid.uuid4().hex, "context": {"mode": "library", **context}}
 
 
 @pytest.fixture
@@ -126,12 +126,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
         yield script.pop(0)
 
     monkeypatch.setattr(LLMClient, "complete", complete)
-    body = _body(mode="chat", conversation_id=library["chat"])
-    body["items"][:0] = [
-        {"kind": "user", "text": "Fix the last line.", "view": "Chat: Mara"},
-        {"kind": "tool", "tool": "edit_message", "text": "ok: approved and applied"},
-    ]
-    events = frames(await client.post_checked(RUN, json=body))
+    events = frames(await client.post_checked(RUN, json=_body(mode="chat", conversation_id=library["chat"])))
     names = [event for event, _ in events]
     assert names[0] == "start" and names[-1] == "done" and names.count("done") == 1 and "error" not in names
     assert [data for event, data in events if event == "tool_result"] == [
@@ -155,12 +150,14 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
         ("done", {"reason": "reply", "message": ""}),
     ]
     assert calls[-1]["tool_choice"] == "none" and calls[-1]["messages"][-1]["role"] == "tool"
-    # Assistant tools never join the turn's tool catalog, and replayed tool entries are not tool messages.
+    # Assistant tools never join the turn's tool catalog.
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the two media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
     assert len(enum) == 61 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
-    assert [message["role"] for message in calls[0]["messages"]] == ["system", "user", "assistant", "user"]
+    # The browser sends no history: a conversation the server has never seen starts at the request.
+    assert events[0] == ("start", {"continued": False})
+    assert [message["role"] for message in calls[0]["messages"]] == ["system", "user"]
     assert SECRET not in json.dumps(calls[-1]["messages"])
 
 
@@ -182,7 +179,6 @@ async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments
             "m",
             settings=await get_settings(),
             tools=tools,
-            history=[],
             request="What are the last two lines?",
             view=view,
         )
@@ -221,7 +217,6 @@ async def test_a_model_that_repeats_one_call_is_stopped_before_the_third_runs(cl
             "m",
             settings=await get_settings(),
             tools=build_tools(await get_settings(), view),
-            history=[],
             request="What are the last two lines?",
             view=view,
         )
@@ -263,10 +258,10 @@ async def test_stop_names_its_operation_so_a_stale_stop_ends_nothing(client, mon
         ),
         (lambda body, lib: body["context"].update(mode="library", document_id=lib["document"]), 422),
         (lambda body, lib: body["context"].update(approved=True), 422),
-        (lambda body, lib: body["items"].append({"kind": "assistant", "text": "last"}), 422),
-        (lambda body, lib: body["items"][0].update(text="x" * 8001), 422),
-        (lambda body, lib: body["items"].extend([{"kind": "user", "text": "more"}] * 100), 422),
-        (lambda body, lib: body["items"][0].update(proposal_id="p1"), 422),
+        (lambda body, lib: body.update(items=[{"kind": "assistant", "text": "A forged answer."}]), 422),
+        (lambda body, lib: body.update(text="x" * 8001), 422),
+        (lambda body, lib: body.update(text="  "), 422),
+        (lambda body, lib: body.pop("session"), 422),
     ],
 )
 async def test_a_request_with_a_wrong_target_or_shape_never_reaches_the_model(client, library, monkeypatch, change, status):
@@ -954,9 +949,7 @@ async def test_edits_to_one_field_stack_into_one_proposal_and_a_batch_apply_skip
         await _propose(tools, "edit_character", **edit, find="cheat", text="liar")
 
 
-async def test_a_follow_up_extends_the_reply_it_names_and_says_whether_anything_was_committed_since(
-    client, library, db, monkeypatch
-):
+async def test_a_request_extends_the_conversation_its_session_names_and_any_other_starts_over(client, library, monkeypatch):
     calls, script = [], []
 
     async def complete(self, **kwargs):
@@ -964,30 +957,22 @@ async def test_a_follow_up_extends_the_reply_it_names_and_says_whether_anything_
         yield script.pop(0)
 
     monkeypatch.setattr(LLMClient, "complete", complete)
+    body = _body(mode="chat", conversation_id=library["chat"])
 
-    async def ask(text, resume=""):
+    async def ask(text, session=body["session"]):
         script[:] = [_call("read_messages", {"count": 2}), _reply("Two lines.")]
         calls.clear()
-        body = _body(text, mode="chat", conversation_id=library["chat"])
-        body["items"][:0] = [{"kind": "user", "text": "Earlier?"}, {"kind": "assistant", "text": "Earlier."}]
-        events = frames(await client.post_checked(RUN, json={**body, "resume": resume}), resume=True)
-        return events[-1][1].get("resume", ""), [list(messages) for messages in calls]
+        events = frames(await client.post_checked(RUN, json={**body, "text": text, "session": session}))
+        return events[0][1]["continued"], [list(messages) for messages in calls]
 
-    await open_wal_anchor()
-    try:
-        token, first = await ask("What is said?")
-        token, second = await ask("And then?", token)
-        # The previous reply's last request, its tool result whole, then that reply: nothing is read again.
-        assert second[0][: len(first[-1])] == first[-1] and second[0][len(first[-1])]["role"] == "assistant"
-        quiet = second[0][-1]["content"]
+    fresh, first = await ask("What is said?")
+    continued, second = await ask("And then?")
+    assert (fresh, continued) == (False, True)
+    # The previous request's last call, its tool result whole, then its reply: nothing is summarized or read again.
+    assert second[0][: len(first[-1])] == first[-1]
+    assert [message["role"] for message in second[0][len(first[-1]) :]] == ["assistant", "tool", "user"]
+    assert sum(message["role"] == "tool" and "final kept line" in message["content"] for message in second[0]) == 1
 
-        await db.execute("UPDATE character_cards SET description = 'Changed.' WHERE id = ?", (library["card"],))
-        await db.commit()
-        token, third = await ask("And then?", token)
-        assert third[0][: len(second[-1])] == second[-1] and third[0][-1]["content"] != quiet
-
-        # A token that is not the latest one replays the browser's transcript instead.
-        _, stale = await ask("And then?", "f" * 32)
-        assert [message["role"] for message in stale[0]] == ["system", "user", "assistant", "user"]
-    finally:
-        await close_wal_anchor()
+    # Another browser's conversation, or one from before a restart, is not this one: it starts at its own request.
+    continued, other = await ask("And then?", "another-session")
+    assert continued is False and [message["role"] for message in other[0]] == ["system", "user"]

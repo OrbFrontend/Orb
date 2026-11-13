@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from ...core.settings import Settings
-from ...features.assistant import AssistantTool, ViewContext, keep_follow_up, take_follow_up, tools
+from ...features.assistant import AssistantTool, ViewContext, held_transcript, hold_transcript, tools
 from ...features.assistant.tools import MediaRun, Proposal, open_proposals, pending_note
 from .host import HOST
 
@@ -19,11 +19,11 @@ __all__ = [
     "Proposal",
     "apply_proposals",
     "build_tools",
-    "keep_follow_up",
+    "held_transcript",
+    "hold_transcript",
     "open_proposals",
     "pending_note",
     "revise_proposal",
-    "take_follow_up",
     "undo_proposals",
 ]
 

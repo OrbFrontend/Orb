@@ -14,7 +14,7 @@ browser stores and refreshes what changed.
 
 | Path | Owns |
 |---|---|
-| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the follow-up slot (`follow_up.py`). It imports no API, pipeline, workflow or peer feature code. |
+| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the conversation the server holds (`session.py`). It imports no API, pipeline, workflow or peer feature code. |
 | `backend/features/assistant/tools/` | The tools over the library's readers and writers, the proposal store, and Apply, Undo and Revise. `__init__.py` holds `build_tools`, which assembles them for one run against a host. |
 | `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
 | `backend/features/assistant/tools/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
@@ -31,7 +31,7 @@ browser stores and refreshes what changed.
 | `backend/api/fragments/` | The interactive fragment write rules the fragment routes and the assistant share: type-scoped settings, defaults and the decision check |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
 | `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, and the view check |
-| `frontend/assistant_view.js` (layer 1) | Transcript validation, replay, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
+| `frontend/assistant_view.js` (layer 1) | Transcript validation, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
 | `frontend/assistant_chat.js` (layer 5) | The panel, its run, Stop, Apply, handoffs and refreshes |
 
 Tools are built per run, bound to the view captured at Send. The assistant's
@@ -41,13 +41,14 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 
 ```text
 POST /api/assistant/run?operation_id=<id>
-  { items: [... , {kind: "user", text}],
+  { text, session,
     context: {mode, conversation_id?, character_id?, document_id?, world_id?, entry_id?},
-    resume?, reasoning?, pending? }
+    reasoning?, pending? }
 ```
 
-`items` is the browser's transcript, at most 100 entries of at most 8,000
-characters, ending with the new request. `context` is the view captured at Send.
+`text` is the new request, at most 8,000 characters, and nothing else of the
+transcript is sent: the server holds the conversation `session` names (see
+[The conversation](#the-conversation)). `context` is the view captured at Send.
 The server checks every id and how they relate before the model is called: a
 chat view names its chat, a document view names its document and nothing else,
 a character must be the chat's own or a member of the group. A group view never
@@ -109,7 +110,7 @@ one of two protocols when it starts and keeps it:
   On an endpoint that does not honour forced tool choice, each call is sent
   only the schema it forces.
 
-The tool runs and its bounded result is appended. Every replayed call has its
+The tool runs and its bounded result is appended. Every call has its
 own id and exactly one result, including a step call before its argument call.
 `run_assistant(single_call=...)` forces either protocol; the benchmark
 (`scripts/bench/assistant_bench.py`) uses it to compare them. On Gemma 4 31B
@@ -136,75 +137,63 @@ executions are spent the model gets one more step to reply. The same tool
 called with the same arguments three times in a row ends the run with `limit`
 before the third executes: the model is not taking in the results.
 
-### Working context
+### The conversation
 
-The system prompt is stable for a given tool set and protocol, and each tool
-is described in exactly one place. Under two calls the system prompt lists the
+The assistant is prompted the way a coding agent is, with different tools. The
+system prompt is stable for a given tool set and protocol, and each tool is
+described in exactly one place. Under two calls the system prompt lists the
 tools, with their signatures, markers (`[changes]`, `[proposes]`,
 `[hands off]`) and descriptions, since a text-completion or structured-output
 endpoint is sent no tool list; each schema's own description only points
 there. Under single call the schemas are always on the wire, so each schema
 carries its tool's marker and description and the system prompt lists nothing.
-Replayed history comes next, then the latest request with its view note after
-the user's own words.
 
-Replay and run together are held to 20,000 characters, excluding the system
-prompt. When they pass it, the oldest full tool results are replaced by their
-summaries and ids, then the oldest history goes; the newest result and the
-request are never dropped. Each of these rewrites text the model has read, so
-it frees 5,000 characters more than it must and the next calls only append; a
-history too long to replay is cut at a request, in 5,000-character steps from
-its start, so consecutive requests replay the same opening (see
+After it comes one conversation that only grows: each request with its view
+note after the user's own words, then every call that request made and every
+result, whole, as native tool messages, then its answer. The next request is
+appended to that. Nothing is shortened, summarized, replaced by a pointer or
+read again on the model's behalf between requests: a result the model was shown
+once stays where it was, so the model never spends calls finding it again, and
+the server's prefix cache holds through the whole conversation (see
 [Keep the assistant off the turn's prefix](kv-cache.md#keep-the-assistant-off-the-turns-prefix)).
-A request that cannot fit at all is refused. Each
-result is at most 6,000 characters as encoded; tools bound their own output, and
-an oversized one becomes an error result rather than a cut value.
+A result shows what was true when it ran; the prompt says the user may have
+changed things since, and the model reads again when a request depends on it.
 
-### Follow-ups
+The server holds the conversation, in process memory, one at a time, under the
+`session` id the browser made for it (`session.py`). The browser sends only the
+new request, so nothing it stores can be replayed as something the model said
+or a tool returned. `start` says whether the request extended the held
+conversation (`continued`). It does not after a restart or when another browser
+ran in between; the request then starts a conversation of its own, and the
+browser marks where the model's memory begins.
 
-A run that ends with a reply is held by the server, whole:
-its working context as the reply was made, that reply's call, and a result
-closing it. A run that ends with a handoff is held the same way, ending at the
-handoff's result. Its `done` carries a `resume` token, and the browser sends that
-token with the next request. The server holds one, and every run takes it,
-matched or not, so a request from another tab or after Clear replays its own
-transcript. When the token matches, the held context was made under the same
-system prompt, tools, model and endpoint, and it leaves a quarter of the budget for the
-run, it stands in for the replayed history: the model sees its earlier results
-whole and the server's cache holds through them. A run that proposed is held
-too: the next request's pending note says which of its proposals still wait,
-and an Apply in between is a commit like any other. After an hour the transcript
-replays instead. A follow-up with thinking off sends none of the held
-reasoning back; with thinking on, it sends all of it. Reasoning never enters
-the browser's transcript, so a replay carries none.
+However a run ends, the conversation keeps it. A reply ends with its call and a
+result closing it, or with the plain answer; a handoff ends at the handoff's
+result. A run that was stopped, hit a limit or failed keeps what it did: a call
+cut off before its result is answered "no result was received; it may have
+happened", and one line on the assistant's side says how the request ended, so
+the next request is never read as part of an unanswered one. The prompt allows
+a `[changes]` tool only for what the latest request asks.
 
-The request then says whether anything was committed since. `PRAGMA
-data_version` on the idle WAL anchor changes with every other connection's
-commit, and every write opens its own, so the version when the run settled
-against the version when the next one starts says whether the data moved. A
-commit by the run itself leaves its results current; any other commit during
-the run counts as a change. With nothing committed, the earlier results still
-hold and the model reads again only what they do not cover; otherwise it reads
-again whatever it relies on.
+Each result is at most 6,000 characters as encoded; tools bound their own
+output, and an oversized one becomes an error result rather than a cut value.
+The conversation, excluding the system prompt and tool schemas, is held to
+80,000 characters: a fixed size, since Orb has no setting for an endpoint's
+context window. One request can gather at most twelve results, so it always
+fits. Only past the budget does anything go: the oldest requests, whole, until
+the conversation is a quarter under it, so the cut that rewrites the prefix is
+made rarely. A request that cannot fit even alone ends with `limit`.
 
-A held context also carries its reads: each read call still shown whole, with
-its arguments and encoded result. When something was committed since, the next
-request runs them again before its first model call. Its follow-up note names
-the reads that return exactly what they did, and for each that differs gives
-the keys that changed; a list shows only its new or edited rows and counts the
-rows it shares with the earlier result. A difference over 3,000 characters is
-named without its content, and that read is no longer held. Anything a held
-read does not cover is left to the general warning.
+A request with thinking off sends none of the conversation's reasoning back;
+with thinking on it sends all of it, unless the model or endpoint has changed,
+since reasoning one provider signed is not valid on another. Reasoning never
+reaches the browser.
 
-In any run, a read whose result is exactly one the context still shows whole
-is answered with its summary and a pointer to that result, not a second copy.
-
-Browser history is untrusted. Tool and outcome entries replay as quoted
-records on the assistant's side, never as `tool` messages; consecutive ones
-share one heading and one quote, a line each. A user entry with no
-answer after it replays as a quoted record of an interrupted request, so it can
-never authorise a write again. Only results produced inside the current run are
-native tool messages.
+The conversation is about one character at a time. When the reader turns to
+another character (a solo chat's or the library's; a group counts as one of its
+own), the browser clears the transcript and starts a new session, as Clear
+does. A view with no character, a document or the bare library, changes
+nothing, and a swap made while a run goes takes effect once it has settled.
 
 ## Tools
 
@@ -246,8 +235,7 @@ only what the call and the request do not already say:
 - A note is conditional: it reports something about this call's outcome. What
   holds for every call of a tool is in that tool's description.
 
-The `summary` and `ids` of a result go to the browser's transcript, and stand
-in for the result once its body is dropped to save context.
+The `summary` and `ids` of a result go to the browser's transcript.
 
 Reads project explicit allowlists, never whole rows: no avatars, extensions,
 prompt overrides, workflow state, endpoints, models or credentials. The
@@ -529,7 +517,7 @@ render.
 
 | Event | Payload | Meaning |
 |---|---|---|
-| `start` | `{}` | The run was admitted. |
+| `start` | `{continued}` | The run was admitted. `continued` is false when the server held no conversation under the request's `session`. |
 | `progress` | `{label}` | What the run is doing now, or a media job's phase. Not stored. |
 | `assistant_message` | `{text, final}` | A step's note (`final: false`) or the answer. |
 | `tool_start` | `{call_id, tool}` | A tool is about to run. |
@@ -537,7 +525,7 @@ render.
 | `tool_result` | `{call_id, tool, ok, summary, ids}` | Its outcome, paired by `call_id`. |
 | `confirm` | `{call_id, tool, proposal}` | A proposal's preview (`action` is `edit` or `delete`); a later one with the same `proposal_id` replaces it, and one naming an earlier request's proposal in `replaces` supersedes that one. |
 | `handoff` | `{call_id, tool, handoff}` | The checked chat target to start. |
-| `done` | `{reason, message, resume?}` | Terminal: `reply`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. `resume` names the held context of a reply (see [Follow-ups](#follow-ups)). |
+| `done` | `{reason, message}` | Terminal: `reply`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. |
 | `error` | Failure | Terminal: an unusable model reply, a request that cannot fit, or a provider failure. |
 
 EOF without `done` or `error` is a lost connection, never an answer.
@@ -561,16 +549,17 @@ A run and its cards outlive a closed panel. Every control that opens it marks a
 run in progress and counts the changes waiting for Apply; the marks are painted
 from attributes on `#app`, so a control rendered later shows them too.
 
-The transcript lives in `localStorage` under `orb-assistant-transcript`, at most
-100 entries (past that the oldest 20 go together, so the replayed history keeps
-its start), whether the panel is open under `orb-assistant-open`, which is
+The transcript the reader sees lives in `localStorage` under
+`orb-assistant-transcript`, at most 100 entries, the session id under
+`orb-assistant-session`, whether the panel is open under `orb-assistant-open`, which is
 restored at load on the wide layout only, and the Think box under
 `orb-assistant-think`. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
 leaves the assistant working from memory. What is stored is user text, answers,
 tool summaries and ids, and each proposed edit's labels, lengths and state,
-never raw results, progress, live operations, proposal texts and ids or the
-follow-up token, which lives in memory and is dropped by Clear. A tool
+never raw results, progress, live operations or proposal texts and ids. The
+stored transcript is the reader's record only; none of it is sent back. Clear
+empties it and starts a new session. A tool
 still waiting when the page closes, or when the run ends, reads "No result was
 received; check before asking again."
 
@@ -604,7 +593,7 @@ the drawer is open) sits under it beside the Think box, and the corner
 button sends, or stops while a run goes. Think applies from the next request. An empty transcript offers a few requests suited to the view;
 picking one fills the input and sends nothing. Each request captures its view at Send; changing
 view affects the next request, not a running one. The transcript shows a separator where the view changes,
-and replays the view label with each request. Clear is disabled while work runs.
+and where the model's memory begins when the server no longer held the conversation above. Clear is disabled while work runs.
 Send uses `tabLock.js`'s send permission. Assistant prose renders through the
 message renderer inside `.msg-body`, where no element can name an action;
 proposal diffs, user text and tool lines are escaped.

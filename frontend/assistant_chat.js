@@ -1,4 +1,5 @@
-// The assistant's own right panel: one transcript kept in this browser for every view, one run at a time owned through
+// The assistant's own right panel: one transcript, about one character at a time, shown from this browser while the server
+// holds the conversation the model reads; one run at a time owned through
 // S.operations, and the cards of changes its runs proposed, each applied, discarded, edited or undone on its own. A card stays
 // live across later requests, which are told what it still holds. A run and its cards outlive a closed panel.
 import { registerActions } from "./actions.js";
@@ -13,7 +14,6 @@ import {
   parseTranscript,
   pendingProposalIds,
   reviseEntry,
-  runItems,
   serializeTranscript,
   settleRun,
   transcriptEntries,
@@ -47,6 +47,7 @@ import { requestSendPermission } from "./tabLock.js";
 import { $, toast } from "./utils.js";
 
 const LS_TRANSCRIPT = "orb-assistant-transcript";
+const LS_SESSION = "orb-assistant-session";
 const LS_OPEN = "orb-assistant-open";
 const LS_THINK = "orb-assistant-think";
 const PANEL = "assistant-panel";
@@ -75,6 +76,8 @@ let run = null;
 let following = true;
 // A Tools panel repaint held back while the reader is typing in it.
 let toolsRepaintHeld = false;
+// The character the transcript is about, null until a view names one.
+let character = null;
 // The view the empty log's suggestions were drawn for, null once the log holds entries.
 let suggestedFor = null;
 
@@ -103,7 +106,7 @@ function persist() {
   store(LS_TRANSCRIPT, serializeTranscript(S.assistant.items));
 }
 
-// A title is the reader's own text and can be any length; the label is replayed with every later request.
+// A title is the reader's own text and can be any length; the label is stored with every request in the log.
 const titled = (prefix, title) =>
   `${prefix}: ${title.length > LABEL_TITLE_CHARS ? `${title.slice(0, LABEL_TITLE_CHARS)}…` : title}`;
 
@@ -389,7 +392,6 @@ async function stream(body, context, request) {
     failure = error?.message || "The assistant failed.";
   } finally {
     settleRun(current, { stopped: record.stream.stopping, failure });
-    S.assistant.resume = current.resume || "";
     persist();
     paint();
     await settle(record);
@@ -418,6 +420,7 @@ async function send() {
     return;
   }
   if (!requestSendPermission()) return;
+  followCharacter();
   // Captured once, here: switching chats or documents while this runs changes the next request, not this one.
   const context = captureContext();
   const items = S.assistant.items;
@@ -425,13 +428,15 @@ async function send() {
   trimTranscript(items);
   input.value = "";
   fitInput();
-  // The previous reply's context, held by the server: sent once, since this run takes it either way.
-  const resume = S.assistant.resume;
-  S.assistant.resume = "";
   const reasoning = $("assistant-think").checked;
   // The changes earlier cards still hold, so this request can build on them; the server reads their texts itself.
   const pending = pendingProposalIds(items);
-  await stream({ items: runItems(items), context: wireContext(context), resume, reasoning, pending }, context, text);
+  // Only the new request goes out: the server holds the conversation this session names, every call and result in it.
+  await stream(
+    { text, context: wireContext(context), session: S.assistant.session, reasoning, pending },
+    context,
+    text,
+  );
 }
 
 /**
@@ -601,18 +606,48 @@ function fillInput(text) {
   input.focus();
 }
 
+/** Start a conversation the server has never seen: its next request extends nothing. */
+function newSession() {
+  S.assistant.session =
+    globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  store(LS_SESSION, S.assistant.session);
+}
+
 function clear() {
   if (activeOperation()) return;
   S.assistant.items.length = 0;
-  S.assistant.resume = "";
+  newSession();
   persist();
   paint();
+}
+
+/** The character the page is about: a solo chat's or the library's, a group as one of its own, null where there is none. */
+function characterInView() {
+  if (S.documentMode) return null;
+  const conv = S.conversations.find((item) => item.id === S.activeConvId);
+  if (conv) return conv.kind === "group" ? `group:${conv.id}` : conv.character_card_id || null;
+  return S.activeCharId || null;
+}
+
+/**
+ * Start over when the reader turns to another character: the conversation is about one character at a time, so nothing
+ * about the last one is carried into the next. A view with no character (a document, the bare library) changes nothing,
+ * and a swap made while a run goes takes effect once it has settled.
+ */
+function followCharacter() {
+  const now = characterInView();
+  if (!now || now === character || activeOperation()) return;
+  const swapped = character !== null;
+  character = now;
+  if (swapped && S.assistant.items.length) clear();
 }
 
 export function initAssistant() {
   const panel = $(PANEL);
   if (!panel) return;
   S.assistant.items = parseTranscript(stored(LS_TRANSCRIPT));
+  S.assistant.session = (stored(LS_SESSION) || "").slice(0, 64);
+  if (!S.assistant.session) newSession();
   registerActions("assistant", {
     toggle: () => togglePanel(),
     clear: () => clear(),
@@ -655,8 +690,14 @@ export function initAssistant() {
   // The view can change without a notice; refresh the label when the reader turns to the panel.
   panel.addEventListener("focusin", paintControls);
   panel.addEventListener("pointerenter", paintControls);
-  subscribe("operations", paintControls);
-  subscribe("conversations", paintControls);
+  subscribe("operations", () => {
+    followCharacter();
+    paintControls();
+  });
+  subscribe("conversations", () => {
+    followCharacter();
+    paintControls();
+  });
   subscribe("documents", paintControls);
   subscribe("lorebook", paintControls);
   // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.

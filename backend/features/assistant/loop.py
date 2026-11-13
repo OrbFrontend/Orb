@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import itertools
 import json
 import logging
@@ -40,17 +39,14 @@ from .contracts import (
     AssistantEvent,
     AssistantTool,
     AssistantUnavailable,
-    Continuation,
-    HeldRead,
-    HistoryItem,
     ToolArguments,
     ToolFailure,
     ToolOutput,
+    Transcript,
     ViewContext,
     encode_result,
 )
-from .held_reads import held_copy, read_again
-from .prompt import history_messages, reply_tool, request_message, step_tool, system_prompt, tool_schema
+from .prompt import reply_tool, request_message, step_tool, system_prompt, tool_schema
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +60,10 @@ _CONTEXT_CHANGED = "This request ends here, since what it would read next has ch
 _DELIVERED = "Shown to the user."
 _ANSWER_NOW = "Write your complete final answer to the user now, as plain text."
 _NO_ANSWER = "The model's reply held no answer."
+# What the conversation keeps of a request that ended without an answer, for the requests after it.
+_NO_RESULT = "No result was received: the request ended while this ran. It may have happened; check before running it again."
+_STOPPED = "The user stopped this request before it finished."
+_FAILED = "This request ended early and was not answered."
 
 _T = TypeVar("_T")
 _PROGRESS_LABEL_CHARS = 200
@@ -132,20 +132,25 @@ def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
     return total
 
 
-def _replay_window(replay: Sequence[WireMessage], room: int) -> list[WireMessage]:
-    """The newest part of *replay* that fits *room* characters, starting at a request.
-
-    The start moves a whole ``CONTEXT_SLACK_CHARS`` at a time, measured from the transcript's own start, so one request and
-    the next replay the same opening and the server's prefix cache holds through it. A start that moved with every request
-    would re-read the whole history each time.
-    """
-    drop = max(0, -(-(_chars(replay) - room) // CONTEXT_SLACK_CHARS)) * CONTEXT_SLACK_CHARS
+def _newest_requests(history: Sequence[WireMessage], room: int) -> list[WireMessage]:
+    """The newest part of *history* that fits *room* characters, starting at a request."""
+    over = _chars(history) - room
     passed = 0
-    for index, message in enumerate(replay):
-        if message["role"] == "user" and passed >= drop:
-            return list(replay[index:])
+    for index, message in enumerate(history):
+        if message["role"] == "user" and passed >= over:
+            return list(history[index:])
         passed += _chars([message])
     return []
+
+
+def _closed(messages: list[WireMessage], note: str) -> list[WireMessage]:
+    """*messages* as the next request can extend them: every call answered, and *note* saying how an unanswered request ended."""
+    last: Mapping[str, Any] = messages[-1]
+    if calls := last.get("tool_calls"):
+        messages.append(tool_result(calls[0]["id"], _NO_RESULT))
+    if note:
+        messages.append({"role": "assistant", "content": note})
+    return messages
 
 
 def _repeated(output: ToolOutput) -> str:
@@ -250,22 +255,26 @@ async def run_assistant(
     *,
     settings: Settings,
     tools: Sequence[AssistantTool],
-    history: Sequence[HistoryItem],
     request: str,
     view: ViewContext,
+    transcript: Transcript | None = None,
     progress: asyncio.Queue[str] | None = None,
     single_call: bool | None = None,
-    resume: Continuation | None = None,
-    unchanged: bool = False,
-    keep: Callable[[Continuation], None] | None = None,
+    keep: Callable[[Transcript], None] | None = None,
     reasoning: bool = False,
     note: str = "",
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
-    The transcript only grows: an unusable reply is retried against the same prefix, told to make one call when it made several,
-    and every replayed call has its own id and one matching result. Old result bodies give way to their summaries when the
-    working context passes its budget.
+    *transcript* is the conversation so far, and the run extends it: the request, then each call and its whole result, in
+    order, as a coding agent's session does. Nothing in it is shortened or summarized, so the model never has to read again
+    what it has already been shown, and the server's prefix cache holds through all of it. An unusable reply is retried
+    against the same prefix, told to make one call when it made several, and every call has its own id and one matching
+    result. However the run ends, *keep* is handed the conversation with this request in it: a call cut off before its
+    result is answered as unknown, and a request that got no answer is closed with a line saying how it ended.
+
+    Only a conversation past ``CONTEXT_BUDGET_CHARS`` loses anything: its oldest requests, whole, a quarter of the budget at
+    a time. A single request that cannot fit ends with ``limit``.
 
     The same call made ``MAX_SAME_CALLS`` times in a row ends the run before the last of them executes.
 
@@ -278,18 +287,12 @@ async def run_assistant(
     argument call. Left ``None``, the run takes it wherever the endpoint sends native tool schemas and honours forced tool
     choice, and two calls a step elsewhere; the assistant benchmark (scripts/bench/assistant_bench.py) measures both.
 
-    *resume* is the previous run's :class:`Continuation`. Made under this run's system prompt, tools and model, and with room
-    left for a run, it takes the place of *history*, and the request says whether anything was committed since (*unchanged*).
-    When something was, the reads it holds are run again and the request says which still hold and how the others differ. A
-    read that returns exactly what the context already shows whole is answered with a pointer to it. A run that ends with a
-    reply or a handoff hands its own to *keep*.
-
     *note* is the caller's word about state the request should know of, such as changes earlier requests proposed that still
     wait for the user; it follows the view note.
 
     *reasoning* turns thinking on for every call of the run. Its reasoning replays under the names it streamed, and the template
-    is asked to keep it on earlier turns, so a follow-up renders what this run read. A run with thinking off sends no reasoning
-    back, a resumed one's included.
+    is asked to keep it on earlier turns, so a later request renders what this run read. A run with thinking off sends no
+    reasoning back, the conversation's earlier reasoning included.
     """
     by_name = {tool.name: tool for tool in tools}
     latest = request_message(request, view, note=note)
@@ -308,43 +311,21 @@ async def run_assistant(
     else:
         schemas = [step, *(tool_schema(tool) for tool in tools if tool.takes_arguments)]
     # The same call path and samplers as the pipeline's agent passes: the lane's own hyperparameters, its max_tokens included,
-    # with the system prompt and the replayed history as the cached prefix every call of the run shares.
+    # with the system prompt and the conversation so far as the cached prefix every call of the run shares.
     samplers = extract_hyperparams(settings, lane="agent")
 
     system: ChatMessage = {
         "role": "system",
         "content": system_prompt(tools, single_call=single_call, plain_answer=plain_answer),
     }
-    fingerprint = hashlib.sha256(
-        # The endpoint as well as the model: reasoning signed or encrypted by one provider is not valid on another.
-        json.dumps(
-            [system["content"], schemas, model, getattr(client, "base_url", "")], sort_keys=True, ensure_ascii=False
-        ).encode()
-    ).hexdigest()
-    replay: list[WireMessage] = []
-    # The reads the resumed context holds, and this run's own that are still whole, by their place in ``run``.
-    held: list[HeldRead] = []
-    whole: dict[int, HeldRead] = {}
-    resumed = False
-    if resume is not None and resume.fingerprint == fingerprint:
-        # The previous run's own messages, its results whole: the server's cache holds through them and nothing is read again.
-        since, reads = ("", list(resume.reads)) if unchanged else await read_again(resume.reads, by_name, _encode)
-        followed = request_message(request, view, follow_up=unchanged, since=since, note=note)
-        if _chars([*resume.messages, followed]) <= CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS:
-            latest, resumed, held = followed, True, reads
-            replay = [*resume.messages] if reasoning else [without_reasoning(message) for message in resume.messages]
+    endpoint = str(getattr(client, "base_url", ""))
+    history: list[WireMessage] = []
+    if transcript is not None:
+        own = reasoning and (transcript.model, transcript.endpoint) == (model, endpoint)
+        history = [*transcript.messages] if own else [without_reasoning(message) for message in transcript.messages]
     if _chars([latest]) > CONTEXT_BUDGET_CHARS:
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
-    if not resumed:
-        # An earlier request that got no answer is replayed as a quoted record, never as part of this one: it is what authorises
-        # a write, and an interrupted write must not run again. History therefore never ends with a user turn.
-        replay = [*history_messages(history)]
-        if replay and replay[-1]["role"] == "user":
-            replay.pop()
-        replay = _replay_window(replay, CONTEXT_BUDGET_CHARS - _chars([latest]))
     run: list[WireMessage] = []
-    # Positions in ``run`` of the results that still carry their full body, oldest first, with what replaces each.
-    full_results: list[tuple[int, str, str]] = []
     model_calls = executions = 0
     # What this run's writes committed: one line each for an early ``done``, and each exact call so it is never made twice.
     committed: list[str] = []
@@ -352,36 +333,16 @@ async def run_assistant(
     last_call, same_calls = "", 0
 
     def fit() -> bool:
-        """Bring the working context under its budget; the newest result and the latest request are never dropped.
-
-        Every change here rewrites text the model has read, and the server re-reads the request from that point. So one pass
-        frees ``CONTEXT_SLACK_CHARS`` more than it must, and the calls after it only add to the end until the budget is
-        passed again. Results go first, since they sit after the history.
-        """
-
-        def size() -> int:
-            return _chars([*replay, latest, *run])
-
-        if size() <= CONTEXT_BUDGET_CHARS:
-            return True
-        low = CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS
-        while size() > low and len(full_results) > 1:
-            index, call_id, compact = full_results.pop(0)
-            run[index] = tool_result(call_id, compact)
-            whole.pop(index, None)
-        if size() > CONTEXT_BUDGET_CHARS:
-            replay[:] = _replay_window(replay, low - _chars([latest, *run]))
-            held.clear()
-        return size() <= CONTEXT_BUDGET_CHARS
+        """Whether the conversation fits its budget, once its oldest requests have gone if it did not. This request stays."""
+        if _chars([*history, latest, *run]) > CONTEXT_BUDGET_CHARS:
+            history[:] = _newest_requests(history, CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS - _chars([latest, *run]))
+        return _chars([*history, latest, *run]) <= CONTEXT_BUDGET_CHARS
 
     def done(reason: str, message: str = "") -> AssistantEvent:
         """The terminal event; an early end names the confirmed changes, so it still reports the work already committed."""
         if committed and reason != "reply":
             message = f"{message} Already done: {'; '.join(committed)}".strip()
         return {"type": "done", "reason": reason, "message": message}
-
-    def kept() -> tuple[HeldRead, ...]:
-        return (*held, *whole.values())
 
     def result(call_id: str, name: str, summary: str, output: ToolOutput | None = None) -> AssistantEvent:
         ids = dict(output.ids) if output else {}
@@ -401,9 +362,9 @@ async def run_assistant(
             # refused reply is replayed, so every call still has its one result and the prefix before it is unchanged.
             trailing[-1] = {**trailing[-1], "content": f"{trailing[-1]['content']}\n\n{note}"}
         response: CompletionMessage = {}
-        # The base ends after the replayed history: a provider that caches only at marked positions then finds the
-        # previous request's history under this one's, where the latest request and its run never repeat.
-        async for event in CachedBase(prefix=(system, *replay), tools=tuple(offered), model=model).complete(
+        # The base ends where the previous request did: a provider that caches only at marked positions then finds that
+        # request's conversation under this one's.
+        async for event in CachedBase(prefix=(system, *history), tools=tuple(offered), model=model).complete(
             client,
             label=f"assistant:{label}",
             trailing=trailing,
@@ -473,6 +434,9 @@ async def run_assistant(
             logger.warning("Assistant: answer unusable on attempt %d: %s", attempt + 1, problem)
         raise AssistantUnavailable(f"{problem} The assistant stopped after one retry.")
 
+    # How a request that got no answer ended, for the conversation to keep; a reply or a handoff needs no such line.
+    ending = _FAILED
+    fit()
     try:
         for step_number in itertools.count(1):
             yield {"type": "progress", "label": "Thinking…"}
@@ -489,16 +453,14 @@ async def run_assistant(
             else:
                 called = assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id)
             if name == REPLY:
-                closing: list[WireMessage] = [called, tool_result(call_id, _DELIVERED)]
                 if plain_answer:
                     run.extend([called, tool_result(call_id, _ANSWER_NOW)])
                     yield {"type": "progress", "label": "Writing…"}
                     response, message = await answer()
-                    closing = [{"role": "assistant", "content": message, **replay_reasoning(response)}]
-                if keep is not None:
-                    # A proposal it made is settled by Apply or Cancel after the run; the next request's note says which
-                    # are still pending, and the commit check says whether any was applied.
-                    keep(Continuation((*replay, latest, *run, *closing), fingerprint, kept()))
+                    run.append({"role": "assistant", "content": message, **replay_reasoning(response)})
+                else:
+                    run.extend([called, tool_result(call_id, _DELIVERED)])
+                ending = ""
                 yield {"type": "assistant_message", "text": message, "final": True}
                 yield done("reply")
                 return
@@ -571,26 +533,7 @@ async def run_assistant(
                     committed.append(output.summary)
                     resources = [dict(resource) for resource in output.committed]
                     yield {"type": "mutation", "call_id": call_id, "tool": name, "resources": resources}
-                dropped = {
-                    "write": "it already happened.",
-                    "confirm": "the edit is still proposed; do not propose it again.",
-                }.get(tool.behavior, "run the tool again.")
-                compact = {
-                    "summary": output.summary,
-                    "ids": dict(output.ids),
-                    "note": f"Full result dropped to save space; {dropped}",
-                }
-                content = _encode(output.data, output.summary)
-                copy = held_copy(kept(), name, content) if tool.behavior == "read" else None
-                if copy is not None:
-                    # The model asked for what it already has: the body is sent once.
-                    same = {"summary": output.summary, "note": f"Exactly the result of {name} {copy.arguments} above."}
-                    run.append(tool_result(call_id, f"{encode_result(same)}{last}"))
-                else:
-                    run.append(tool_result(call_id, f"{content}{last}"))
-                    full_results.append((len(run) - 1, call_id, encode_result(compact)))
-                    if tool.behavior == "read" and not isinstance(checked, str):
-                        whole[len(run) - 1] = HeldRead(name, checked.model_dump_json(exclude_defaults=True), content)
+                run.append(tool_result(call_id, f"{_encode(output.data, output.summary)}{last}"))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
                     # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.
@@ -600,27 +543,34 @@ async def run_assistant(
                     # never after a Stop.
                     if client.is_aborted:
                         raise _Stopped
-                    if keep is not None:
-                        # What the chat then writes is the next request's to be told of.
-                        keep(Continuation((*replay, latest, *run), fingerprint, kept()))
+                    ending = ""
                     yield {"type": "handoff", "call_id": call_id, "tool": name, "handoff": dict(output.handoff)}
                     yield done("handoff", _HANDED_OFF)
                     return
                 if write and output.ends_run:
                     # Every change this request made, since the model gives no answer after this one.
-                    yield {"type": "assistant_message", "text": f"{' '.join(committed)} {_CONTEXT_CHANGED}", "final": True}
+                    ending = f"{' '.join(committed)} {_CONTEXT_CHANGED}"
+                    yield {"type": "assistant_message", "text": ending, "final": True}
                     yield done("reply")
                     return
             if not fit():
-                yield done("limit", "This request gathered more than the assistant can hold at once. Ask for less at a time.")
+                ending = "This request gathered more than the assistant can hold at once. Ask for less at a time."
+                yield done("limit", ending)
                 return
     except _Stopped:
+        ending = _STOPPED
         yield done("stopped")
     except _Repeating:
-        yield done(
-            "limit",
-            f"The model made the same {last_call.split(':', 1)[0]} call {MAX_SAME_CALLS} times in a row, so it was stopped.",
+        ending = (
+            f"The model made the same {last_call.split(':', 1)[0]} call {MAX_SAME_CALLS} times in a row, so it was stopped."
         )
+        yield done("limit", ending)
     except _Limit:
         spent = f"{MAX_TOOL_EXECUTIONS} tool runs" if executions >= MAX_TOOL_EXECUTIONS else f"{MAX_MODEL_CALLS} model calls"
-        yield done("limit", f"The assistant reached its limit of {spent} for one request.")
+        ending = f"The assistant reached its limit of {spent} for one request."
+        yield done("limit", ending)
+    finally:
+        if keep is not None:
+            # A Stop can also end the run by cancelling it, where no ``_Stopped`` is raised.
+            note = _STOPPED if ending == _FAILED and client.is_aborted else ending
+            keep(Transcript(tuple(_closed([*history, latest, *run], note)), model, endpoint))

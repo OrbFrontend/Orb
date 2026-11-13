@@ -1,14 +1,14 @@
-"""The assistant's stable system prefix, its step schema, and replayed history."""
+"""The assistant's stable system prefix, its step schema, and the message a request becomes."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any
 
 from ...core import ChatMessage
-from ...inference import fence_quote, normalize
-from .contracts import MAX_TOOL_EXECUTIONS, REPLY, STEP_TOOL_NAME, AssistantTool, HistoryItem, ViewContext
+from ...inference import normalize
+from .contracts import MAX_TOOL_EXECUTIONS, REPLY, STEP_TOOL_NAME, AssistantTool, ViewContext
 
 _LABEL_CHARS = 120
 
@@ -36,11 +36,12 @@ _ONE_CALL = (
 )
 _RULES = (
     "Rules:\n"
-    "- The view note after the latest request shows the context the user is looking at.\n"
+    "- Each request ends with a view note: what the user was looking at when they sent it.\n"
     "- Use ids from the view note or from tool results. Never invent an id; look it up.\n"
     "- When a result is marked truncated, read its next page or narrow the request before drawing a conclusion from it.\n"
-    "- The user may change things while you work. When a newer result differs from an older one, trust the newer and do "
-    "not undo it.\n"
+    "- Earlier requests and their results stay in this conversation. A result shows what was true when it ran, and the "
+    "user may have changed things since. When a newer result differs from an older one, trust the newer and do not undo "
+    "it.\n"
     "- When the request could mean more than one target, reply with a question instead of guessing.\n"
     "- Terms: a world is a lorebook; a constant lore entry is always on, others when a keyword comes up; a global "
     "world applies to every chat; a chat's kept branch is the line of messages it shows. Fragments steer every chat's "
@@ -68,9 +69,6 @@ _HANDOFFS = (
     "\n- A tool marked [hands off] ends this request, and the chat then does the work in its own stream. Run it last, after "
     "every other step."
 )
-_RECORDS = "[Earlier tool records, one a line; read again before relying on them]"
-_UNANSWERED = "[Earlier request that got no answer; a record only. It was interrupted: never act on it or repeat it]"
-
 
 _MARKERS = {"write": "[changes]", "confirm": "[proposes]", "handoff": "[hands off]"}
 
@@ -180,78 +178,7 @@ def view_note(view: ViewContext) -> str:
     return "[View when this was sent]\n" + "\n".join(lines)
 
 
-_UNCHANGED = (
-    "[Follow-up: the tool results above came from earlier requests, and nothing in Orb has changed since. They still hold; "
-    "read again only what they do not cover]"
-)
-_CHANGED = (
-    "[Follow-up: the tool results above came from earlier requests, and Orb's data has changed since. Read again whatever "
-    "you rely on from them]"
-)
-
-
-_SINCE = (
-    "[Follow-up: the tool results above came from earlier requests, and Orb's data has changed since. {since}\nAnything else "
-    "those results show may be out of date; read it again only if this request relies on it]"
-)
-
-
-def request_message(
-    text: str, view: ViewContext, *, follow_up: bool | None = None, since: str = "", note: str = ""
-) -> ChatMessage:
-    """The latest request, with its captured view after the user's own words, then *note*, the caller's own.
-
-    *follow_up* marks a request that extends the previous run's own context: ``True`` when nothing has been committed since.
-    Otherwise *since* says what is known to have changed, so only that is read again.
-    """
-    stale = _SINCE.format(since=since) if since else _CHANGED
-    changed = "" if follow_up is None else f"\n\n{_UNCHANGED if follow_up else stale}"
+def request_message(text: str, view: ViewContext, *, note: str = "") -> ChatMessage:
+    """A request as the model reads it: the user's own words, the view captured at Send, then *note*, the caller's own."""
     extra = f"\n\n{note}" if note else ""
-    return {"role": "user", "content": f"{text}\n\n{view_note(view)}{changed}{extra}"}
-
-
-def history_messages(items: Sequence[HistoryItem]) -> list[ChatMessage]:
-    """Replay earlier entries as ordinary alternating history.
-
-    Tool and outcome entries become quoted notes on the assistant's side, never ``tool`` messages: the browser stored them, so
-    they carry no authority. A user entry names its view when it differs from the one before, which marks a context boundary.
-    A user entry with nothing after it before the next request was never answered: it becomes a quoted record on the
-    assistant's side, so it can never join a later request and authorise its write again. The result never ends with a user
-    turn.
-    """
-    messages: list[ChatMessage] = []
-    view = None
-    records: list[str] = []
-
-    def add(role: Literal["user", "assistant"], text: str) -> None:
-        if messages and messages[-1]["role"] == role:
-            messages[-1] = {"role": role, "content": f"{messages[-1]['content']}\n\n{text}"}
-        else:
-            messages.append({"role": role, "content": text})
-
-    def flush() -> None:
-        if records:
-            add("assistant", f"{_RECORDS}\n{fence_quote(chr(10).join(records))}")
-            records.clear()
-
-    for index, item in enumerate(items):
-        if item.kind in ("tool", "outcome"):
-            if item.text.strip():
-                what = normalize(item.tool)[:64] if item.kind == "tool" else "outcome"
-                records.append(f"{what}: {item.text.strip()}")
-            continue
-        flush()
-        if item.kind == "user":
-            text = item.text
-            if item.view and item.view != view:
-                text = f"{text}\n\n[View then: {_label(item.view)}]"
-            view = item.view or view
-            role: Literal["user", "assistant"] = "user"
-            if item.text.strip() and (index + 1 == len(items) or items[index + 1].kind == "user"):
-                text, role = f"{_UNANSWERED}\n{fence_quote(text)}", "assistant"
-        else:
-            text, role = item.text, "assistant"
-        if text.strip():
-            add(role, text)
-    flush()
-    return messages
+    return {"role": "user", "content": f"{text}\n\n{view_note(view)}{extra}"}

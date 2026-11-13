@@ -12,7 +12,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from ...core import scrub_log
 from ...database import (
-    data_version,
     get_character_card,
     get_conversation,
     get_document,
@@ -21,7 +20,7 @@ from ...database import (
     get_world,
     resolve_cast,
 )
-from ...features.assistant import AssistantUnavailable, Continuation, HistoryItem, ViewContext, run_assistant
+from ...features.assistant import AssistantUnavailable, ViewContext, run_assistant
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
@@ -29,11 +28,11 @@ from ..assistant import (
     MediaRun,
     apply_proposals,
     build_tools,
-    keep_follow_up,
+    held_transcript,
+    hold_transcript,
     open_proposals,
     pending_note,
     revise_proposal,
-    take_follow_up,
     undo_proposals,
 )
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
@@ -135,9 +134,7 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     """Stream one assistant request. The run is registered under *operation_id*, which its Stop must name."""
     settings = await get_settings()
     view = await resolve_view(data.context)
-    *earlier, latest = data.items
     abort_token = AbortToken()
-    history = [HistoryItem(item.kind, item.text, item.tool, item.view) for item in earlier]
     # A media tool's render runs as a workflow job filed under this run, which the run's Stop cancels and waits for alone.
     progress: asyncio.Queue[str] = asyncio.Queue()
     media = MediaRun(job=f"assistant:{operation_id}", abort=abort_token, report=progress.put_nowait)
@@ -146,12 +143,10 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
 
     async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         try:
-            yield {"event": "start", "data": {}}
-            # Taken once the run is admitted, so a request another run refused leaves the follow-up to the tab it belongs to.
-            started = await data_version()
-            resume, unchanged = take_follow_up(data.resume, started)
-            kept: list[Continuation] = []
-            wrote = False
+            # Read once the run is admitted. The browser is told whether the conversation it shows is the one the model reads:
+            # after a restart, or a request from another browser, it is not.
+            transcript = held_transcript(data.session)
+            yield {"event": "start", "data": {"continued": transcript is not None}}
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
             async for event in run_assistant(
@@ -159,22 +154,15 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 model,
                 settings=settings,
                 tools=build_tools(settings, view, media=media, held=held),
-                history=history,
-                request=latest.text.strip(),
+                transcript=transcript,
+                request=data.text.strip(),
                 view=view,
                 note=pending_note(held),
                 progress=progress,
-                resume=resume,
-                unchanged=unchanged,
-                keep=kept.append,
+                keep=lambda kept: hold_transcript(data.session, kept),
                 reasoning=data.reasoning,
             ):
                 payload = {key: value for key, value in event.items() if key != "type"}
-                # A commit of the run's own leaves its results current; any other one during the run leaves them in doubt.
-                wrote = wrote or event["type"] == "mutation"
-                if event["type"] == "done" and kept:
-                    settled_at = await data_version()
-                    payload["resume"] = keep_follow_up(kept[-1], settled_at if wrote or started == settled_at else None)
                 yield cast(PublicEvent, {"event": event["type"], "data": payload})
         except AssistantUnavailable as exc:
             logger.warning("Assistant run %s failed: %s", scrub_log(operation_id), exc)

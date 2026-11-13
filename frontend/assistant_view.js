@@ -1,4 +1,4 @@
-// The assistant transcript as data: what may be stored, what is replayed to the server, how a run's events change it,
+// The assistant transcript as data: what may be stored, how a run's events change it,
 // and its markup. No DOM lookups and no requests, so every rule here can be tested on its own.
 import { esc, escAttr, sentenceDiff } from "./utils.js";
 
@@ -7,7 +7,6 @@ const MAX_ITEMS = 100;
 const TRIMMED_ITEMS = 80;
 const MAX_LABEL_CHARS = 200;
 const MAX_NOTE_CHARS = 500;
-const MAX_RESUME_CHARS = 64;
 const MAX_IDS_CHARS = 2000;
 // A run proposes at most one change per tool run, so one card holds every change a run can propose.
 const MAX_PROPOSALS = 12;
@@ -15,8 +14,11 @@ const MAX_DETAIL_CHARS = 500;
 // Unchanged text shown on each side of a change; the whole new text stays one click away.
 const DIFF_CONTEXT = 120;
 const MODES = new Set(["chat", "document", "library"]);
-// `opened` is a chat the assistant opened, drawn as the view change it is.
-const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff", "opened"]);
+// `opened` is a chat the assistant opened, drawn as the view change it is; `reset` is where the server's copy of the
+// conversation starts, when it no longer holds the entries above.
+const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff", "opened", "reset"]);
+const SEPARATORS = new Set(["opened", "reset"]);
+const RESET = "The assistant no longer remembers the messages above.";
 const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
 const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_chat", "send_as_user", "open_chat"]);
@@ -203,49 +205,15 @@ export function serializeTranscript(items) {
   return JSON.stringify(items.map(storedItem).filter(Boolean).slice(-MAX_ITEMS));
 }
 
-/**
- * Drop the oldest entries past the cap, in place, a block at a time: the server replays the transcript from its start, and
- * a start that moved with every new entry would make the model read the whole history again on every request.
- */
+/** Drop the oldest entries past the cap, in place. The log is the reader's record only: the server holds the conversation. */
 export function trimTranscript(items) {
   if (items.length > MAX_ITEMS) items.splice(0, items.length - TRIMMED_ITEMS);
 }
-
-const PROPOSAL_RECORDS = {
-  pending: "proposed, not applied",
-  applied: "applied by the user",
-  cancelled: "cancelled by the user; nothing changed",
-  superseded: "replaced by a later proposal",
-  historical: "proposed, never applied",
-  stale: "not applied: the text changed first",
-  missing: "not applied: the target was gone",
-  expired: "not applied: the proposal expired",
-};
 
 const edited = (entry) =>
   entry.action === "delete"
     ? `deletion of ${entry.label}`
     : `${entry.field ? `${entry.field.toLowerCase()} of ` : ""}${entry.label}`;
-
-/** The entries a run replays to the server. Tool and outcome entries go as text records; the server quotes them. */
-export function runItems(items) {
-  const out = [];
-  for (const item of items.slice(-MAX_ITEMS)) {
-    if (item.kind === "user") out.push({ kind: "user", text: item.text, view: item.context.label });
-    else if (item.kind === "assistant") out.push({ kind: "assistant", text: item.text });
-    else if (item.kind === "tool" && !item.running)
-      out.push({ kind: "tool", tool: item.tool, text: `${item.ok ? "ok" : "failed"}: ${item.text}` });
-    else if (item.kind === "proposals")
-      for (const entry of item.proposals)
-        out.push({
-          kind: "tool",
-          tool: entry.tool,
-          text: `${PROPOSAL_RECORDS[entry.status]}: ${entry.action === "delete" ? "the" : "edit to the"} ${edited(entry)}`,
-        });
-    else if (item.kind === "outcome") out.push({ kind: "outcome", text: `${item.reason}: ${item.text}` });
-  }
-  return out.map((item) => ({ ...item, text: item.text.slice(0, MAX_ITEM_CHARS) }));
-}
 
 /** The view fields the server checks; the label is the browser's own and is not sent as context. */
 export function wireContext(context) {
@@ -337,7 +305,12 @@ export function findProposal(items, proposalId) {
 export function applyStreamEvent(run, event, data, errorMessage) {
   const d = payload(data);
   let committed = [];
-  if (event === "progress") {
+  if (event === "start") {
+    // The server holds another conversation, or none: what this log shows above the request is not in the model's context.
+    const request = run.items.findLastIndex((item) => item.kind === "user");
+    if (d.continued === false && request > 0)
+      run.items.splice(request, 0, { kind: "outcome", reason: "reset", text: RESET });
+  } else if (event === "progress") {
     run.status = text(d.label, MAX_LABEL_CHARS);
   } else if (event === "assistant_message") {
     const body = text(d.text, MAX_ITEM_CHARS);
@@ -377,7 +350,6 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     run.handoff = handoffTarget(d) || run.handoff;
   } else if (event === "done") {
     run.terminal = OUTCOMES.has(d.reason) ? d.reason : "reply";
-    if (typeof d.resume === "string" && d.resume.length <= MAX_RESUME_CHARS) run.resume = d.resume;
     if (run.terminal === "limit")
       run.items.push({ kind: "outcome", reason: "limit", text: text(d.message, MAX_ITEM_CHARS) });
     else if (run.terminal === "stopped")
@@ -760,7 +732,7 @@ export function transcriptEntries(items, renderProse, { busy = false, suggestFor
       );
     } else if (item.kind === "proposals") {
       add(cardHtml(item, index, { busy }));
-    } else if (item.kind === "outcome" && item.reason === "opened") {
+    } else if (item.kind === "outcome" && SEPARATORS.has(item.reason)) {
       add(`<div class="asst-sep" role="separator">${esc(item.text)}</div>`);
     } else if (item.kind === "outcome" && OUTCOMES.has(item.reason)) {
       add(`<div class="asst-outcome asst-outcome-${item.reason}">${esc(item.text)}</div>`);

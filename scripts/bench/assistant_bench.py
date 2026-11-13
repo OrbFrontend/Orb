@@ -1110,7 +1110,6 @@ async def _job(job: Mapping[str, Any]) -> dict[str, Any]:
                 model,
                 settings=settings,
                 tools=tools,
-                history=[],
                 request=request.text,
                 view=view,
                 progress=progress,

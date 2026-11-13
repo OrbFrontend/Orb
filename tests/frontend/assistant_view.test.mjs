@@ -12,7 +12,6 @@ const {
   parseTranscript,
   pendingIds,
   pendingProposalIds,
-  runItems,
   serializeTranscript,
   settleRun,
   transcriptEntries,
@@ -109,24 +108,23 @@ test("a run records steps and results, and only a terminal event counts as an en
   assert.deepEqual(limited.items, [{ kind: "outcome", reason: "limit", text: "Reached 12 tool runs." }]);
 });
 
-test("replay sends tool and outcome entries as plain records with each request's own view label", () => {
+test("a request the server could not extend marks where its copy of the conversation starts", () => {
   const items = [
     { kind: "user", text: "Who is Mara?", context: chat },
-    { kind: "tool", tool: "read_character", text: "Read character Mara.", ok: true, ids: { character_id: "k1" } },
-    { kind: "tool", tool: "lookup", text: "", ok: false, running: true },
-    { kind: "outcome", reason: "stopped", text: "Stopped." },
     { kind: "assistant", text: "A fence." },
-    { kind: "user", text: "y".repeat(8000), context: doc },
+    { kind: "user", text: "And Wren?", context: chat },
   ];
-  assert.deepEqual(runItems(items), [
-    { kind: "user", text: "Who is Mara?", view: "Chat: Harbour" },
-    { kind: "tool", tool: "read_character", text: "ok: Read character Mara." },
-    { kind: "outcome", text: "stopped: Stopped." },
-    { kind: "assistant", text: "A fence." },
-    { kind: "user", text: "y".repeat(8000), view: "Document: <Notes>" },
-  ]);
-  const long = Array.from({ length: 150 }, () => ({ kind: "assistant", text: "a" }));
-  assert.equal(runItems([...long, items[0]]).length, 100);
+  const run = newRun(items);
+  feed(run, [["start", { continued: true }]]);
+  assert.equal(run.items.length, 3);
+  feed(run, [["start", { continued: false }]]);
+  assert.deepEqual(run.items.map((item) => item.reason || item.kind), ["user", "assistant", "reset", "user"]);
+  assert.match(transcriptHtml(run.items, String), /asst-sep" role="separator">The assistant no longer remembers/);
+  assert.equal(parseTranscript(serializeTranscript(run.items))[2].reason, "reset");
+  // A first request has nothing above it to mark.
+  const first = newRun([{ kind: "user", text: "Hello", context: chat }]);
+  feed(first, [["start", { continued: false }]]);
+  assert.equal(first.items.length, 1);
 });
 
 test("only an assistant reply is rendered as markup, and a separator marks each change of view", () => {
@@ -169,7 +167,6 @@ test("a mutation names what to read again, and a failed result marks the run for
   // A reload mid-tool finds a tool with no result, which says to check rather than redo; nothing names a target.
   const reloaded = parseTranscript(serializeTranscript(run.items));
   assert.deepEqual(reloaded[1], { kind: "tool", tool: "create_lore_entry", text: NO_RESULT, ok: false });
-  assert.equal(runItems(reloaded)[1].text, `failed: ${NO_RESULT}`);
   assert.equal(run.failed, undefined);
   feed(run, [
     ["tool_result", { call_id: "call1", tool: "create_lore_entry", ok: true, summary: "Created.", ids: {} }],
@@ -228,7 +225,6 @@ test("a run's proposed edits become one card at its end, however it ended, and a
   assert.equal(inert.includes("assistant:apply"), false);
   assert.match(inert, /data-wf-action="assistant:askAgain" data-index="3"/);
   assert.match(inert, /14 → 8 characters/, "the lengths outlive the texts");
-  assert.match(runItems(reloaded).at(-1).text, /^proposed, never applied: edit to the description of persona Wren$/);
 
   // A run that proposed nothing adds no card.
   const plain = newRun();
@@ -265,10 +261,6 @@ test("Apply's verdicts settle each edit on its own: busy stays pending, and a pa
   const html = transcriptHtml([card], String);
   assert.match(html, /Not applied: the text changed after this preview\./);
   assert.match(html, /assistant:apply/);
-  assert.deepEqual(
-    runItems([card]).map((item) => item.text.split(":")[0]),
-    ["applied by the user", "not applied", "proposed, not applied"],
-  );
   // The retry settles the last one; nothing else is touched.
   applyVerdicts(card, [{ proposal_id: "p3", verdict: "applied", resources: [] }]);
   assert.deepEqual(pendingIds(card), []);
@@ -344,7 +336,6 @@ test("a delete is a change of its own: no text to edit, no undo, and a warning t
     { action: reloaded.action, detail: reloaded.detail, status: reloaded.status },
     { action: "delete", detail: "Its 3 entries go with it.", status: "applied" },
   );
-  assert.match(runItems([run.card])[0].text, /^applied by the user: the deletion of world <Ashfall>$/);
 });
 
 test("a change made again in a later request replaces the earlier card's entry, and Undo makes an edit pending again", () => {

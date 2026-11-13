@@ -38,10 +38,9 @@ async def test_a_pending_edit_from_an_earlier_request_stacks_and_one_out_of_date
         _call("edit_character", {"field": "description", "mode": "find_replace", "find": "fence", "text": "fixer"}),
         _reply("Proposed."),
     ]
-    events = frames(await client.post_checked(RUN, json=_body("Make her a fixer.", character_id=card)), resume=True)
+    events = frames(await client.post_checked(RUN, json=_body("Make her a fixer.", character_id=card)))
     first = next(data["proposal"] for event, data in events if event == "confirm")
     assert first["fields"][0]["after"] == "A harbour fixer."
-    assert events[-1][1].get("resume"), "a reply that proposed keeps its context for the next request"
 
     find = {"field": "description", "mode": "find_replace", "find": "harbour", "text": "dockside"}
     script[:] = [_call("edit_character", find), _reply("Proposed.")]
@@ -229,23 +228,24 @@ async def test_secondary_keywords_are_set_with_selective_and_cleared_with_it(cli
     assert (created["secondary_keys"], created["selective"]) == (["dusk"], 1)
 
 
-async def test_a_follow_up_to_a_handoff_is_shown_only_the_messages_the_chat_wrote_since(client, library, monkeypatch):
+async def test_a_request_after_a_handoff_extends_it_and_reads_again_to_see_what_the_chat_wrote(client, library, monkeypatch):
     script, calls = _scripted(monkeypatch)
     chat = library["chat"]
-    context = {"mode": "chat", "conversation_id": chat}
+    body = _body("Send my next line.", mode="chat", conversation_id=chat)
     script[:] = [
         _call("read_messages", {"conversation_id": chat, "count": 2}),
         _call("send_as_user", {"conversation_id": chat, "content": "And then?"}),
     ]
-    events = frames(await client.post_checked(RUN, json=_body("Send my next line.", **context)), resume=True)
+    events = frames(await client.post_checked(RUN, json=body))
     assert events[-1][1]["reason"] == "handoff"
-    token = events[-1][1]["resume"]
 
     sent, _ = await add_message(chat, "user", "And then?", MAX_MESSAGES + 6, parent_id=library["kept"])
     await add_message(chat, "assistant", "the tide answers", MAX_MESSAGES + 7, parent_id=sent, advance_leaf=True)
-    script[:] = [_reply("Seen.")]
+    script[:] = [_call("read_messages", {"conversation_id": chat, "count": 2}), _reply("Seen.")]
     calls.clear()
-    await client.post_checked(RUN, json={**_body("What did she say?", **context), "resume": token})
+    await client.post_checked(RUN, json={**body, "text": "What did she say?"})
     *held, latest = calls[0]
+    # The handoff's conversation is kept as it ran. Nothing is read on the model's behalf: it reads again itself.
     assert any(m["role"] == "tool" and "final kept line" in m["content"] for m in held), "the earlier read is still whole"
-    assert "the tide answers" in latest["content"] and "final kept line" not in latest["content"]
+    assert held[-1]["role"] == "tool" and "the tide answers" not in json.dumps(calls[0])
+    assert "the tide answers" in calls[1][-1]["content"]

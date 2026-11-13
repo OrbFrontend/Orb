@@ -210,28 +210,20 @@ review extends the compose request byte for byte.
 
 The [panel assistant](assistant-panel.md) is a lane of its own on the Agent
 model: its system prompt, which lists its tools and stays stable for a tool set,
-then replayed history and the request. Its tools never enter the turn's tool
+then one conversation that only grows. Its tools never enter the turn's tool
 catalog, and it shares nothing with a chat's prefix.
 
-Within a run each call extends the last. From one request to the next the
-system prompt and the replayed history repeat, and the request and its run do
-not, so the `CachedBase` prefix ends after the history and the 1 h anchor sits
-there. A follow-up to a reply extends that reply's own context instead (see
-[Follow-ups](assistant-panel.md#follow-ups)): the previous request, its run and
-its reply call stay byte for byte, the anchor moves to their end, and the
-model need not read again what its results already show. Two things rewrite
-text the model has already read, and both are made rarely and in bulk, a
-quarter of the context budget at a time:
-
-- When a run passes the budget, the oldest full tool results are replaced by
-  their summaries until the context is a quarter under it. The calls after that
-  only append until the budget is passed again; shortening one result per step
-  would re-read the run on every step.
-- A history too long to replay loses its oldest requests in steps measured from
-  the transcript's start, so the next request replays the same opening. The
-  browser drops stored entries a block at a time for the same reason. A start
-  that moved with every request re-read the whole history each time: on Gemma 4,
-  6,200 tokens and 2.0 s a request against 300 tokens and 0.6 s.
+Within a run each call extends the last, and each request extends the one
+before it byte for byte: the server holds the conversation as the model was
+sent it, every call and result whole (see
+[The conversation](assistant-panel.md#the-conversation)). The `CachedBase`
+prefix ends where the previous request did, and the 1 h anchor sits there.
+Nothing the model has read is shortened or summarized, so nothing is re-read.
+One thing rewrites the prefix: a conversation past its budget loses its oldest
+requests, a quarter of the budget at a time, so it happens once in several
+requests rather than on each. A start that moved with every request re-read
+the whole history each time: on Gemma 4, 6,200 tokens and 2.0 s a request
+against 300 tokens and 0.6 s.
 
 A native tool endpoint takes the single-call protocol, where every call is
 offered every schema anyway. Elsewhere every call forces one tool, yet an
