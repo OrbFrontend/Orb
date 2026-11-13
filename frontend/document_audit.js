@@ -1,4 +1,6 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
+import { trackRange } from "./document_editor.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { AUDIT_TYPE_DEFS, showPhraseBankModal } from "./settings.js";
 import { persistSettings } from "./settings_store.js";
@@ -8,7 +10,7 @@ import { $, esc, escAttr, toast } from "./utils.js";
 const DOC_AUDIT_KEYS = ["banned_phrases", "repetitive_openers", "repetitive_templates", "contrastive_negation"];
 const DOC_AUDIT_DEFS = AUDIT_TYPE_DEFS.filter((d) => DOC_AUDIT_KEYS.includes(d.key));
 
-let _ctx = null; // { getContent, applyPatchedRun } injected by document.js
+let _ctx = null; // { getContent, applyPatchedRun, selectRange } injected by document.js
 
 export function initDocAudit(ctx) {
   _ctx = ctx;
@@ -100,32 +102,45 @@ function statusText(r) {
     );
   }
   if (r.tailExcluded) parts.push("truncated tail excluded");
+  if (isStale(r)) parts.push("edited since audit");
   return parts.join(" · ");
 }
 
-const _snippets = (list) => (list || []).map((s) => `<span class="doc-audit-snippet">• ${esc(s)}</span>`).join("");
-
 const _ids = (list) => ((list || []).length ? `<span class="doc-audit-id">[${(list || []).join(", ")}]</span> ` : "");
 
-function sectionItemsHtml(key, items) {
+// A finding whose text is gone was fixed by hand; it stays listed, struck through, until the next audit.
+function jumpButton(r, cls, text, inner) {
+  const attrs =
+    isStale(r) && locate(r, text) < 0
+      ? 'disabled title="No longer in the text"'
+      : `data-wf-action="docAudit:reveal" data-text="${escAttr(text)}" title="Show in the document"`;
+  return `<button type="button" class="${cls} doc-audit-jump" ${attrs}>${inner}</button>`;
+}
+
+function sectionItemsHtml(r, key, items) {
   if (key === "banned_phrases") {
     return items
-      .map(
-        (it) =>
-          `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it.phrase)}”</b><span class="doc-audit-snippet">${esc(it.sentence)}</span></div>`,
+      .map((it) =>
+        jumpButton(
+          r,
+          "doc-audit-item",
+          it.sentence,
+          `${_ids(it.ids)}<b>“${esc(it.phrase)}”</b><span class="doc-audit-snippet">${esc(it.sentence)}</span>`,
+        ),
       )
       .join("");
   }
   if (key === "repetitive_openers" || key === "repetitive_templates") {
     const label = key === "repetitive_openers" ? "opener" : "template";
+    const snippets = (list) => (list || []).map((t) => jumpButton(r, "doc-audit-snippet", t, `• ${esc(t)}`)).join("");
     return items
       .map(
         (it) =>
-          `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it[label])}”</b> ×${it.count}${_snippets(it.sentences)}</div>`,
+          `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it[label])}”</b> ×${it.count}${snippets(it.sentences)}</div>`,
       )
       .join("");
   }
-  return items.map((it) => `<div class="doc-audit-item">${_ids(it.ids)}${esc(it.sentence)}</div>`).join("");
+  return items.map((it) => jumpButton(r, "doc-audit-item", it.sentence, `${_ids(it.ids)}${esc(it.sentence)}`)).join("");
 }
 
 function renderDocAuditResults() {
@@ -141,28 +156,26 @@ function renderDocAuditResults() {
     return;
   }
 
+  const current = runIsCurrent(r);
   const busy = r.status === "auditing" || r.status === "patching";
   let html = `<div class="doc-audit-status${busy ? " busy" : ""}">${esc(statusText(r))}</div>`;
-
   const sections = r.report?.sections || {};
   for (const def of DOC_AUDIT_DEFS) {
     const items = sections[def.key];
     if (!items?.length) continue;
     html += `<div class="doc-audit-section">
       <div class="doc-audit-section-title">${esc(def.label)}</div>
-      ${sectionItemsHtml(def.key, items)}
+      ${sectionItemsHtml(r, def.key, items)}
     </div>`;
   }
 
-  const current = runIsCurrent(r);
   const hasFindings = !r.skipped && r.report && r.report.total_issues > 0;
   html += `<div class="doc-audit-actions">
     <button class="btn btn-sm" id="doc-audit-again-btn" ${busy || !current ? "disabled" : ""}>Audit again</button>
     <button class="btn btn-sm" id="doc-audit-patch-btn" ${busy || !current || !hasFindings ? "disabled" : ""}>Apply patches</button>
   </div>`;
   if (!current && !busy) {
-    html +=
-      '<div class="doc-audit-hint">The generated run was edited — results are read-only until the next generation.</div>';
+    html += '<div class="doc-audit-hint">The audited text was removed — generate again to audit new text.</div>';
   }
 
   el.innerHTML = html;
@@ -170,15 +183,58 @@ function renderDocAuditResults() {
   $("doc-audit-patch-btn")?.addEventListener("click", runPatch);
 }
 
+// The audited run follows edits, so hand fixes inside it are what Audit again and Apply patches read next.
+function track(r, content) {
+  if (r.gone || r.content === content) return;
+  const range = trackRange({ start: r.runStart, end: r.runStart + r.draft.length }, r.content, content);
+  r.content = content;
+  if (!range) {
+    r.gone = true;
+    return;
+  }
+  r.runStart = range.start;
+  r.draft = content.slice(range.start, range.end);
+}
+
+/** Track the run through one edit of the open document; tracking per edit keeps separate edits from merging. */
+export function syncDocAudit(content) {
+  const r = S.docAuditResults;
+  if (r?.docId !== S.activeDocId || r.gone) return;
+  const draft = r.draft;
+  track(r, content);
+  if (r.gone || r.draft !== draft) renderDocAuditResults();
+}
+
+// Also catches changes no edit reported (a generation with the auditor off), as one edit.
 function runIsCurrent(r) {
   if (!r || !_ctx || S.activeDocId !== r.docId) return false;
-  const content = _ctx.getContent();
-  return content.slice(r.runStart, r.runStart + r.draft.length) === r.draft;
+  track(r, _ctx.getContent());
+  return !r.gone;
 }
 
 function fullContext(r) {
   return _ctx.getContent().slice(0, r.runStart);
 }
+
+const isStale = (r) => Boolean(r.report) && r.auditedDraft !== r.draft;
+
+/** Where *text* sits: inside the run first, else the nearest copy before it (an opener group's anchor can live there). */
+function locate(r, text) {
+  if (!text) return -1;
+  const inRun = r.content.indexOf(text, r.runStart);
+  if (inRun >= 0 && inRun + text.length <= r.runStart + r.draft.length) return inRun;
+  return r.runStart >= text.length ? r.content.lastIndexOf(text, r.runStart - text.length) : -1;
+}
+
+function revealFinding(el) {
+  const r = S.docAuditResults;
+  if (!runIsCurrent(r)) return;
+  const at = locate(r, el.dataset.text);
+  if (at < 0) toast("No longer in the text");
+  else _ctx.selectRange(at, at + el.dataset.text.length);
+}
+
+registerActions("docAudit", { reveal: revealFinding });
 
 export function onGenerationEnd({ docId, runStart, draft, truncated, assisted }) {
   if (!docId || !draft || !docAuditEnabled()) return;
@@ -186,10 +242,13 @@ export function onGenerationEnd({ docId, runStart, draft, truncated, assisted })
     docId,
     runStart,
     draft,
+    content: _ctx.getContent(),
+    gone: false,
     truncated,
     assisted,
     status: "auditing",
     report: null,
+    auditedDraft: null,
     skipped: null,
     tailExcluded: false,
     patchedCount: null,
@@ -203,15 +262,17 @@ async function postAudit(run, { autopatch = false } = {}) {
   S.docAuditBusy = true;
   run.status = "auditing";
   renderDocAuditResults();
+  const draft = run.draft;
   try {
     const res = await api.post(`/documents/${run.docId}/audit`, {
-      draft: run.draft,
+      draft,
       context: fullContext(run),
       assisted: run.assisted,
       truncated: run.truncated,
     });
     if (S.docAuditResults !== run) return; // superseded by a newer generation
     run.report = res.report;
+    run.auditedDraft = draft;
     run.skipped = res.skipped;
     run.tailExcluded = res.tail_excluded;
     run.status = "done";
@@ -256,18 +317,26 @@ export async function runPatch() {
   S.docAuditBusy = true;
   r.status = "patching";
   renderDocAuditResults();
+  const draft = r.draft;
   try {
     const res = await api.post(`/documents/${r.docId}/patch`, {
-      draft: r.draft,
+      draft,
       context: fullContext(r),
       assisted: r.assisted,
       truncated: r.truncated,
     });
     if (S.docAuditResults !== r) return;
-    if (res.patch_count > 0 && res.patched_draft !== r.draft) {
-      if (runIsCurrent(r) && _ctx.applyPatchedRun(r, res.patched_draft)) r.draft = res.patched_draft;
+    if (!runIsCurrent(r) || r.draft !== draft) {
+      r.status = "done";
+      if (S.activeDocId === r.docId) toast("The text changed while patching — patch discarded", true);
+      return;
+    }
+    if (res.patch_count > 0 && res.patched_draft !== draft && _ctx.applyPatchedRun(r, res.patched_draft)) {
+      r.draft = res.patched_draft;
+      r.content = _ctx.getContent();
     }
     r.report = res.report_after;
+    r.auditedDraft = res.patched_draft;
     r.patchedCount = res.patch_count;
     r.errors = res.errors || [];
     r.skipped = res.skipped;

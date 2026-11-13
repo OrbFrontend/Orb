@@ -9,15 +9,22 @@
 #app.document-mode #tools-panel .tab-row, #app.document-mode #tools-pane-main,
 #app.document-mode #tools-pane-secondary { display: none; }
 #app.document-mode #tools-pane-doc { display: block; }
-.doc-audit-status { font-size: 11px; color: var(--text-muted); padding: 8px 2px 4px; }
+.doc-audit-status { font-size: 11px; color: var(--text-muted); padding: 10px 2px 2px; }
 .doc-audit-status.busy { color: var(--accent); }
-.doc-audit-section { margin: 8px 0; }
-.doc-audit-section-title { font-size: 11px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; }
-.doc-audit-item { font-size: 11px; color: var(--text-muted); padding: 2px 0 2px 8px;
-  border-left: 2px solid var(--border); margin-bottom: 3px; overflow-wrap: anywhere; }
-.doc-audit-item b { color: var(--text-primary); }
+.doc-audit-section { margin-top: 12px; }
+.doc-audit-section-title { font-size: 11px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.doc-audit-jump { display: block; width: 100%; font: inherit; color: inherit; text-align: left; background: none;
+  border: 0; border-radius: 0; cursor: pointer; }
+.doc-audit-item { font-size: 11px; line-height: 1.45; color: var(--text-muted); padding: 3px 6px 3px 8px;
+  border-left: 2px solid var(--border); margin-bottom: 4px; overflow-wrap: anywhere; }
+.doc-audit-item b { font-weight: 600; color: var(--text-primary); }
 .doc-audit-id { font-variant-numeric: tabular-nums; opacity: 0.7; }
-.doc-audit-snippet { display: block; padding-left: 8px; }
+.doc-audit-snippet { display: block; padding: 1px 0 1px 8px; }
+.doc-audit-jump:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
+.doc-audit-item.doc-audit-jump:hover:not(:disabled) { border-left-color: var(--accent); }
+.doc-audit-jump:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.doc-audit-jump:disabled { cursor: default; text-decoration: line-through; opacity: 0.6; }
+::highlight(doc-audit-reveal) { background-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .doc-audit-actions { display: flex; gap: 6px; margin-top: 8px; }
 .doc-audit-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
 .doc-audit-phrasebank { margin: 12px 0; }

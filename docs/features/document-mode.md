@@ -53,5 +53,8 @@ After each run, the Output Auditor checks the new text for the same phrase and
 repetition patterns used by Chat mode. Enable **Auto-patch** to let Orb apply a
 repair automatically, or review the findings yourself.
 
+Click a finding to select it in the editor. After fixing text by hand, press
+**Audit again** to recheck the run; findings you already rewrote are struck through.
+
 Document mode also supports undo and redo for both your typing and generated
 text. It works on mobile-sized screens.

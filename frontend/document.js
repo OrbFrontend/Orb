@@ -1,11 +1,12 @@
 import { registerActions } from "./actions.js";
 import { api, apiFetch } from "./api.js";
-import { initDocAudit, onGenerationEnd, renderDocAuditPane } from "./document_audit.js";
+import { initDocAudit, onGenerationEnd, renderDocAuditPane, syncDocAudit } from "./document_audit.js";
 import {
   caretAfter,
   computeCaretOffset,
   ensureTrailingFiller,
   installPlainTextGuards,
+  rangeForOffsets,
   renderEditor,
   serializeEditor,
   setCaretOffset,
@@ -27,7 +28,7 @@ import { sseError } from "./errors.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showConfirmModal } from "./modal.js";
 import { beginStream, finish, streamEvents } from "./operations.js";
-import { isUtilityPanelOpen } from "./panels.js";
+import { closeUtilityPanel, isUtilityPanelOpen } from "./panels.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { renderToolsPanel } from "./settings.js";
 import { unescapeSSE } from "./sse.js";
@@ -45,6 +46,7 @@ const HISTORY_DEBOUNCE_MS = 800; // one undo step per typing burst
 const HISTORY_MAX = 100;
 const MOBILE = window.matchMedia("(max-width: 900px)"); // document breakpoint
 const DOC_LIMIT = 10; // documents shown before "show all"
+const REVEAL_HIGHLIGHT = "doc-audit-reveal";
 
 let _docSearch = "";
 let _docsExpanded = false;
@@ -121,7 +123,10 @@ function docRestore(snap) {
   const max = Math.min(before.length, snap.content.length);
   while (caret < max && before[caret] === snap.content[caret]) caret++;
   renderEditor(page, snap.content, snap.spans);
-  if (S.activeDocId) syncContent(S.activeDocId, snap.content);
+  if (S.activeDocId) {
+    syncContent(S.activeDocId, snap.content);
+    syncDocAudit(snap.content);
+  }
   setCaretOffset(page, caret);
   if (MOBILE.matches) page.blur();
   S.docDirty = true;
@@ -572,7 +577,12 @@ function onEditorInput() {
   S.docDirty = true;
   setSaveState("Unsaved…");
   updateTokenCount();
-  if (S.activeDocId) syncContent(S.activeDocId, serializeEditor($("doc-page")).content);
+  window.CSS?.highlights?.delete(REVEAL_HIGHLIGHT);
+  if (S.activeDocId) {
+    const { content } = serializeEditor($("doc-page"));
+    syncContent(S.activeDocId, content);
+    syncDocAudit(content);
+  }
   scheduleSave();
   clearTimeout(docHistoryTimer);
   docHistoryTimer = setTimeout(docCheckpoint, HISTORY_DEBOUNCE_MS);
@@ -774,6 +784,26 @@ function applyPatchedRun(run, newText) {
   return true;
 }
 
+// Selects and marks text the Inspector points at; the mark outlives the selection when focus returns to the panel.
+function selectDocRange(start, end) {
+  const page = $("doc-page");
+  if (!page || S.docStreaming) return;
+  const range = rangeForOffsets(page, start, end);
+  if (MOBILE.matches) closeUtilityPanel("tools-panel");
+  else page.focus({ preventScroll: true });
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+  window.CSS?.highlights?.set(REVEAL_HIGHLIGHT, new Highlight(range.cloneRange()));
+  const scroll = $("doc-editor-scroll");
+  if (!scroll) return;
+  const box = range.getBoundingClientRect();
+  const view = scroll.getBoundingClientRect();
+  if (box.top < view.top || box.bottom > view.bottom) {
+    scroll.scrollTop += box.top - view.top - Math.max(0, (view.height - box.height) / 2);
+  }
+}
+
 function docSwapToken(run, tokenIndex, alt, target) {
   if (S.docStreaming || !S.activeDocId) return;
   if (target && (target.id !== S.activeDocId || target.token !== S.documentViewToken)) return;
@@ -846,6 +876,7 @@ export function initDocumentMode() {
   initDocAudit({
     getContent: () => serializeEditor($("doc-page")).content,
     applyPatchedRun,
+    selectRange: selectDocRange,
   });
   page.addEventListener("input", onEditorInput);
   page.addEventListener("beforeinput", (e) => {

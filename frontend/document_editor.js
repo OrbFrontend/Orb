@@ -133,6 +133,32 @@ export function computeCaretOffset(pageEl) {
   return offsetOfPosition(pageEl, range.startContainer, range.startOffset);
 }
 
+/** The one changed region between two contents: `[start, oldEnd)` in the old text became `[start, newEnd)`. */
+export function editBounds(oldContent, newContent) {
+  const max = Math.min(oldContent.length, newContent.length);
+  let prefix = 0;
+  while (prefix < max && oldContent[prefix] === newContent[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < max - prefix && oldContent.at(-1 - suffix) === newContent.at(-1 - suffix)) suffix++;
+  return { start: prefix, oldEnd: oldContent.length - suffix, newEnd: newContent.length - suffix };
+}
+
+/** Carry `{start, end}` across an edit: edits inside or overlapping it grow or shrink it, edits elsewhere shift it,
+ * and text inserted at either boundary stays outside. Returns null once the range is emptied or replaced whole. */
+export function trackRange(range, oldContent, newContent) {
+  const edit = editBounds(oldContent, newContent);
+  if (edit.start < range.start && edit.oldEnd > range.end) return null;
+  const delta = edit.newEnd - edit.oldEnd;
+  const map = (pos, side) => {
+    if (pos < edit.start || (pos === edit.start && side === "end")) return pos;
+    if (pos > edit.oldEnd || (pos === edit.oldEnd && side === "start")) return pos + delta;
+    return side === "start" ? edit.start : edit.newEnd;
+  };
+  const start = map(range.start, "start");
+  const end = map(range.end, "end");
+  return end > start ? { start, end } : null;
+}
+
 export function rangeForOffsets(pageEl, start, end) {
   const range = document.createRange();
   const walker = document.createTreeWalker(pageEl, NodeFilter.SHOW_TEXT);

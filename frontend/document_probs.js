@@ -1,32 +1,15 @@
-import { offsetOfPosition, rangeForOffsets, serializeEditor } from "./document_editor.js";
+import { editBounds, offsetOfPosition, rangeForOffsets, serializeEditor } from "./document_editor.js";
 import { localPx } from "./ui_sizing.js";
-
-function _commonPrefix(a, b) {
-  const m = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < m && a[i] === b[i]) i++;
-  return i;
-}
-
-function _commonSuffix(a, b, prefix) {
-  const max = Math.min(a.length, b.length) - prefix;
-  let i = 0;
-  while (i < max && a[a.length - 1 - i] === b[b.length - 1 - i]) i++;
-  return i;
-}
 
 function remapRuns(runs, oldContent, newContent) {
   if (oldContent === newContent) return runs.map((r) => ({ ...r }));
-  const prefix = _commonPrefix(oldContent, newContent);
-  const suffix = _commonSuffix(oldContent, newContent, prefix);
-  const editStart = prefix;
-  const oldEditEnd = oldContent.length - suffix;
-  const delta = newContent.length - oldContent.length;
+  const edit = editBounds(oldContent, newContent);
+  const delta = edit.newEnd - edit.oldEnd;
   const out = [];
   for (const run of runs) {
-    if (run.end <= editStart) {
+    if (run.end <= edit.start) {
       out.push({ ...run });
-    } else if (run.start >= oldEditEnd) {
+    } else if (run.start >= edit.oldEnd) {
       out.push({ ...run, start: run.start + delta, end: run.end + delta });
     }
   }

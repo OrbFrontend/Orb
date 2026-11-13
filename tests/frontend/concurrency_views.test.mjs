@@ -305,7 +305,7 @@ test('saving an applied patch keeps the audit run current for another patch', as
   S.docDirty = false;
   S.documents = [row];
   await documents.openDocument('audit-a');
-  S.docAuditResults = { docId: 'audit-a', runStart: 0, draft: 'First draft.', report: { total_issues: 1 } };
+  S.docAuditResults = { docId: 'audit-a', runStart: 0, draft: 'First draft.', content: 'First draft.', report: { total_issues: 1 } };
   S.docAuditBusy = false;
   await audit.runPatch();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -313,6 +313,41 @@ test('saving an applied patch keeps the audit run current for another patch', as
   await audit.runPatch();
   assert.equal(patches, 2);
   assert.equal(document.getElementById('doc-page').textContent, 'Patched 2.');
+});
+
+test('a hand fix inside the audited run is what Audit again reads', async (t) => {
+  documents.initDocumentMode();
+  const audit = await import('../../frontend/document_audit.js');
+  let row = { id: 'fix-a', title: 'A', revision: 1, content: 'Prompt. The sound had changed. After.', generated_spans: [] };
+  const audited = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts = {}) => {
+    if (String(url).endsWith('/audit')) {
+      audited.push(JSON.parse(opts.body));
+      return Response.json({ report: { total_issues: 0, sections: {} }, skipped: null, tail_excluded: false });
+    }
+    if (opts.method === 'PUT') row = { ...row, ...JSON.parse(opts.body), revision: row.revision + 1 };
+    return Response.json(row);
+  });
+  S.settings = { ...S.settings, document_audit_enabled: true };
+  S.docDirty = false;
+  S.documents = [row];
+  await documents.openDocument('fix-a');
+  audit.onGenerationEnd({ docId: 'fix-a', runStart: 8, draft: 'The sound had changed.', truncated: false, assisted: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const page = document.getElementById('doc-page');
+  for (const text of ['Prompt. Silence fell. After.', 'More. Prompt. Silence fell. After.']) {
+    page.textContent = text;
+    page.dispatchEvent(new window.Event('input'));
+  }
+  page.dispatchEvent(new window.Event('blur'));
+  audit.renderDocAuditPane();
+  document.getElementById('doc-audit-again-btn').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(audited.map((b) => [b.context, b.draft]), [
+    ['Prompt. ', 'The sound had changed.'],
+    ['More. Prompt. ', 'Silence fell.'],
+  ]);
+  S.settings = { ...S.settings, document_audit_enabled: false };
 });
 
 test('a delayed patch cannot edit another document with identical text and offset', async (t) => {
@@ -332,7 +367,7 @@ test('a delayed patch cannot edit another document with identical text and offse
   S.docDirty = false;
   S.documents = Object.values(rows);
   await documents.openDocument('patch-a');
-  const run = { docId: 'patch-a', runStart: 0, draft: content, report: { total_issues: 1 } };
+  const run = { docId: 'patch-a', runStart: 0, draft: content, content, report: { total_issues: 1 } };
   S.docAuditResults = run;
   S.docAuditBusy = false;
   const patch = audit.runPatch();
