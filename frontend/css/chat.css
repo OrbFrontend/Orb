@@ -34,6 +34,7 @@
 /* A bubble's real height is unreadable while content-visibility skips it, so the
    render pass forces just the nodes it rebuilt visible for one measurement. */
 .message.msg-measuring { content-visibility: visible; }
+@media (min-width: 901px) { :root[data-main-scaled] .message { content-visibility: visible; } }
 
 /* A bubble that replaced one already on screen (a branch swipe, an edit, a
    toolbar update) is an update, not an arrival: swapping it in silently keeps

@@ -99,6 +99,7 @@ function apply() {
   for (const [name, region] of Object.entries(REGIONS)) {
     const scale = shownScale(sizing.scale[name]);
     set(region.scaleVar, scale === 1 ? null : String(scale));
+    document.documentElement.toggleAttribute(`data-${name}-scaled`, scale !== 1);
     if (!region.widthVar) continue;
     const width = sizing.width[name];
     // Re-fit a stored width to this window: it may have been set on a wider one.
