@@ -73,6 +73,14 @@ def parse_chat_logprobs(choice: Mapping[str, Any]) -> list[TokenProbability]:
     return text_completion.normalize_prob_records(logprobs.get("content"))
 
 
+def _spent_budget(usage: object, max_tokens: int | None) -> bool:
+    """Whether *usage* reports the whole completion budget spent, as a reply cut off at ``max_tokens`` does."""
+    if not max_tokens or not isinstance(usage, Mapping):
+        return False
+    spent = usage.get("completion_tokens")
+    return isinstance(spent, int) and not isinstance(spent, bool) and spent >= max_tokens
+
+
 async def consume_openai(
     payloads: AsyncIterable[str],
     acc: ChatStream,
@@ -82,11 +90,13 @@ async def consume_openai(
     model: str,
     api_key: str,
     is_aborted: Callable[[], bool],
+    max_tokens: int | None = None,
 ) -> AsyncIterator[CompletionDelta]:
     """Fold ``/chat/completions`` stream payloads into *acc*, yielding live deltas.
 
     A *forced* call buffers its content as the tool-arguments payload instead of streaming it, so the caller never sees a
-    half-built JSON body. An in-band error or a stream without a finish reason or ``[DONE]`` is a provider failure.
+    half-built JSON body. An in-band error or a stream without a finish reason or ``[DONE]`` is a provider failure, except an
+    error whose usage spent the whole *max_tokens*: that reply was cut off at its budget, and finishes as ``length``.
     """
     # Slot last handed to an index-less delta; -1 before the first.
     unindexed = -1
@@ -118,9 +128,13 @@ async def consume_openai(
             continue
         if not isinstance(chunk, dict):
             continue
-        if "error" in chunk or chunk.get("type") == "error":
-            raise llm_stream_error(payload=chunk, url=url, model=model, api_key=api_key)
         u = chunk.get("usage")
+        if "error" in chunk or chunk.get("type") == "error":
+            if _spent_budget(u, max_tokens):
+                acc.usage = u
+                acc.finish_reason = "length"
+                return
+            raise llm_stream_error(payload=chunk, url=url, model=model, api_key=api_key)
         if isinstance(u, dict):
             acc.usage = u
         choices = chunk.get("choices") or []

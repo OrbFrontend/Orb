@@ -23,7 +23,9 @@ def _delta(**delta) -> dict:
     return {"choices": [{"delta": delta}]}
 
 
-def _openai(acc: ChatStream, *events: dict | str, forced: bool = False, aborted: bool = False) -> AsyncIterator[dict]:
+def _openai(
+    acc: ChatStream, *events: dict | str, forced: bool = False, aborted: bool = False, max_tokens: int | None = None
+) -> AsyncIterator[dict]:
     return consume_openai(
         _payloads(*events),
         acc,
@@ -32,6 +34,7 @@ def _openai(acc: ChatStream, *events: dict | str, forced: bool = False, aborted:
         model="m",
         api_key="",
         is_aborted=lambda: aborted,
+        max_tokens=max_tokens,
     )
 
 
@@ -83,6 +86,19 @@ async def test_openai_index_less_tool_calls_open_one_slot_per_call():
 async def test_openai_in_band_error_raises_a_provider_error():
     with pytest.raises(LLMCallError):
         await _drain(_openai(ChatStream(), {"error": {"message": "overloaded"}}, "[DONE]"))
+
+
+async def test_openai_in_band_error_that_spent_the_budget_finishes_as_a_cut_off():
+    def ending(spent: int) -> dict:
+        return {"choices": [{"delta": {}}], "error": {"message": "no tool call"}, "usage": {"completion_tokens": spent}}
+
+    acc = ChatStream()
+    assert await _drain(_openai(acc, _delta(reasoning="Counting"), ending(64), "[DONE]", max_tokens=64)) == [
+        {"type": "reasoning", "delta": "Counting"}
+    ]
+    assert (acc.finish_reason, acc.usage) == ("length", {"completion_tokens": 64})
+    with pytest.raises(LLMCallError):
+        await _drain(_openai(ChatStream(), ending(63), "[DONE]", max_tokens=64))
 
 
 async def test_openai_truncated_stream_raises_unless_the_turn_was_stopped():

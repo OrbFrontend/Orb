@@ -758,6 +758,7 @@ class LLMClient:
                                     model=model,
                                     api_key=self.api_key,
                                     is_aborted=lambda: self.is_aborted,
+                                    max_tokens=outbound.get("max_tokens"),
                                 ):
                                     yield event
                     endpoint_profiles.note_successful_route(self.base_url, model, route)
