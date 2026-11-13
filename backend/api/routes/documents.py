@@ -1,7 +1,8 @@
-"""Document CRUD and continuation routes."""
+"""Document CRUD, continuation, audit, and prose-rewrite routes."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 
@@ -17,9 +18,10 @@ from ...database import (
     update_document,
 )
 from ...database.queries.documents import DocumentConflict
-from ...features.documents import DocumentContinuer, audit_document, patch_document
-from ...inference import AbortToken, client_from_settings
+from ...features.documents import DocumentContinuer, audit_document, patch_document, scaffold_keeper, split_margins
+from ...inference import AbortToken, client_from_settings, until_aborted
 from ...workflows.contracts import PublicEvent
+from ...workflows.prose_rewriter_host import ProseRewriteConfig, resolve_document_config, rewrite_events
 from ..deletions import delete_document_settled
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
 from ..schemas import (
@@ -28,6 +30,7 @@ from ..schemas import (
     DocumentCreate,
     DocumentGenerateRequest,
     DocumentPatchResponse,
+    DocumentRewriteRequest,
     DocumentUpdate,
 )
 
@@ -163,3 +166,50 @@ async def api_patch_document(did: str, data: DocumentAuditRequest) -> DocumentPa
         truncated=data.truncated,
     )
     return DocumentPatchResponse(**result)
+
+
+async def _stream_prose_rewrite(
+    text: str, assisted: bool, config: ProseRewriteConfig, abort_token: AbortToken
+) -> AsyncIterator[PublicEvent]:
+    """Stream the selection's rewrite with its margins kept; the client splices and saves the result."""
+    lead, core, trail = split_margins(text)
+    rewritten = core
+    warning = ""
+    events = until_aborted(rewrite_events(core, config, scaffold_keeper(assisted)), abort_token)
+    async with contextlib.aclosing(events) as stream:
+        async for event in stream:
+            if event["type"] == "draft_update":
+                yield {"event": "rewrite_update", "data": {"text": lead + event["draft"] + trail}}
+            elif event["type"] == "rewritten":
+                rewritten = event["draft"]
+            elif event["type"] == "warning":
+                warning = event["reason"]
+    if abort_token.is_aborted:
+        return
+    result = text if warning else lead + rewritten + trail
+    yield {"event": "done", "data": {"text": result, "changed": result != text, "warning": warning}}
+
+
+@router.post("/api/documents/{did}/prose-rewrite")
+async def api_prose_rewrite_document(did: str, data: DocumentRewriteRequest, request: Request):
+    """Stream a local prose rewrite of selected document text (SSE).
+
+    Stateless like /generate and shares its stream lock and /stop; nothing is persisted.
+    """
+    if not await get_document(did):
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not data.text.strip():
+        raise HTTPException(status_code=409, detail="Select text to rewrite")
+    config = resolve_document_config(await get_settings())
+    if config is None:
+        raise HTTPException(status_code=503, detail="Prose rewriter unavailable: turn it on and pick a model in Workflow")
+    abort_token = AbortToken()
+    return CleanupStreamingResponse(
+        sse_stream(
+            _stream_prose_rewrite(data.text, data.assisted, config, abort_token),
+            request,
+            abort_token=abort_token,
+            cid=f"doc:{did}",
+        ),
+        media_type="text/event-stream",
+    )

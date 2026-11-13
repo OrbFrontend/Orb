@@ -263,6 +263,7 @@ async def update_settings(data: dict) -> Settings:
             "document_audit_enabled",
             "document_audit_autopatch",
             "document_audit_toggles",
+            "document_prose_rewriter_enabled",
             "hide_streaming_until_baked",
             "expression_rendering",
             "prevent_prompt_overrides",

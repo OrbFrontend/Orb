@@ -47,9 +47,10 @@ async def arewrite(
     *,
     host: ManagedLlamaServerHost,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
+    keep: Callable[[str], bool] | None = None,
 ) -> str:
-    """Rewrite the draft paragraph by paragraph."""
-    layout = T.plan(draft)
+    """Rewrite the draft paragraph by paragraph, passing through the paragraphs *keep* accepts."""
+    layout = T.plan(draft, keep)
     jobs = _admissible(layout)
     if not jobs:
         return draft

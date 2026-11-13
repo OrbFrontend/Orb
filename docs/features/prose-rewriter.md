@@ -27,8 +27,8 @@ snapshot and final reply are committed together after the workflows finish.
 Prose Rewriter does not require the Agent toggle. Its workflow toggle turns the
 rewriter on; **Rewrite every reply automatically**, on by default, decides whether
 generated turns run through it. Turning off the toggle or Secondary Workflows
-turns the rewriter off entirely. Document mode has a separate Output Auditor and
-does not use this workflow.
+turns the rewriter off for chats. In Document mode it rewrites only the text you
+select; see [Rewrite selected text](#rewrite-selected-text-in-document-mode).
 
 ## Rewrite an existing reply
 
@@ -48,6 +48,23 @@ reply.
 
 Orb saves the result only after the rewrite finishes. **Stop**, an error, or a
 closed tab leaves the saved reply unchanged.
+
+## Rewrite selected text in Document mode
+
+Open **🛠️ Workflow** in a document, turn on **Prose Rewriter**, and download or
+pick a model there. Then select text and press **Rewrite** in the editor footer.
+
+This switch is separate from the chat toggle and Secondary Workflows: turning
+those off leaves it on. Both share the same model, GPU, and batch settings.
+
+- Only the selection changes. Format Consistency does not run.
+- Prompt lines stay as written: `### SYSTEM:`/`### USER:`/`### ASSISTANT:` lines
+  in Assisted mode, and lines with chat-template tokens such as `<|im_start|>` in
+  Raw mode.
+- The rewritten text is tinted like generated text and stays selected, so
+  **Rewrite** again tries another version. **Undo** restores the original.
+
+**Stop**, Escape, or an error leaves the selection unchanged.
 
 ## Install it
 

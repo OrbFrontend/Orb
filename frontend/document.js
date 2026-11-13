@@ -6,10 +6,12 @@ import {
   computeCaretOffset,
   ensureTrailingFiller,
   installPlainTextGuards,
+  offsetOfPosition,
   rangeForOffsets,
   renderEditor,
   serializeEditor,
   setCaretOffset,
+  spliceSpans,
 } from "./document_editor.js";
 import {
   addDelta,
@@ -32,7 +34,7 @@ import { closeUtilityPanel, isUtilityPanelOpen } from "./panels.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { renderToolsPanel } from "./settings.js";
 import { unescapeSSE } from "./sse.js";
-import { notify, S } from "./state.js";
+import { localMlReady, notify, S, subscribe } from "./state.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
 const LS_MODE = "orb-doc-mode";
@@ -47,6 +49,7 @@ const HISTORY_MAX = 100;
 const MOBILE = window.matchMedia("(max-width: 900px)"); // document breakpoint
 const DOC_LIMIT = 10; // documents shown before "show all"
 const REVEAL_HIGHLIGHT = "doc-audit-reveal";
+const REWRITE_HIGHLIGHT = "doc-rewrite-pending";
 
 let _docSearch = "";
 let _docsExpanded = false;
@@ -55,6 +58,7 @@ let flushInterval = null;
 let anchorTextNode = null; // text node receiving generated tokens
 let docAssisted = false; // Raw vs Assisted mode
 let docProbsOn = false; // capture token alternatives
+let rewriteRange = null; // the last non-collapsed selection inside the page
 
 // The local draft is a crash backup (null drops it): storage that is full or
 // blocked must never stop the server save it backs up.
@@ -76,6 +80,13 @@ function setUndoEnabled(on) {
 function swapGenButtons(streaming) {
   $("doc-generate-btn")?.classList.toggle("hidden", streaming);
   $("doc-stop-btn")?.classList.toggle("hidden", !streaming);
+}
+
+function lockEditor(locked) {
+  const page = $("doc-page");
+  page.setAttribute("contenteditable", locked ? "false" : "true");
+  page.classList.toggle("generating", locked);
+  swapGenButtons(locked);
 }
 function updateTokenCount() {
   const page = $("doc-page");
@@ -359,6 +370,7 @@ async function openDocument(id) {
   S.docDirty = false;
   setSaveState("Saved");
   updateTokenCount();
+  syncRewriteButton();
   renderDocuments();
   const recovered = localStorage.getItem(draftKey(id));
   if (recovered) {
@@ -409,6 +421,7 @@ function clearEditor() {
   S.docDirty = false;
   setSaveState("");
   updateTokenCount();
+  syncRewriteButton();
 }
 
 function renameDocument(id) {
@@ -619,30 +632,42 @@ let stopRequested = false;
 let genFinish = ""; // finish reason from the SSE done event
 let genErrored = false;
 
-function docGenerate() {
+/** Run one streamed document operation; `run(record, did)` owns S.docStreaming from here on. */
+function startDocOperation(run) {
   const did = S.activeDocId;
-  if (!did || S.docStreaming) return;
   // Reserved before the dirty save, so a second click cannot start another run.
   const record = beginStream("document", { documentId: did }, `/documents/${did}/stop`);
   S.docStreaming = true;
   S.docOperation = record;
   // Waiters on `completion` (open another, delete) see the operation already released.
-  record.completion = generate(record, did, docAssisted, docProbsOn).finally(() => {
+  record.completion = run(record, did).finally(() => {
     finish(record);
     if (S.docOperation === record) S.docOperation = null;
   });
   return record.completion;
 }
 
-async function generate(record, did, assisted, probs) {
-  const page = $("doc-page");
+/** Save pending edits before a run; false (with the operation released) when the run must not start. */
+async function readyToRun(record, did) {
   hideProbPopup();
   if ((S.docDirty && !(await flushSave())) || S.activeDocId !== did || record.stream.stopping) {
     await record.stream.settle();
     S.docStreaming = false;
-    return;
+    syncRewriteButton();
+    return false;
   }
   docCheckpoint();
+  return true;
+}
+
+function docGenerate() {
+  if (!S.activeDocId || S.docStreaming) return;
+  return startDocOperation((record, did) => generate(record, did, docAssisted, docProbsOn));
+}
+
+async function generate(record, did, assisted, probs) {
+  const page = $("doc-page");
+  if (!(await readyToRun(record, did))) return;
 
   const caret = computeCaretOffset(page);
   const { content, spans } = serializeEditor(page);
@@ -656,11 +681,10 @@ async function generate(record, did, assisted, probs) {
   const anchor = renderEditor(page, content, spans, caret);
   anchorTextNode = anchor.firstChild;
 
-  page.setAttribute("contenteditable", "false");
-  page.classList.add("generating");
+  lockEditor(true);
   docScrollFollow?.setFollowing(true);
-  swapGenButtons(true);
   updateUndoButton();
+  syncRewriteButton();
   startFlushInterval();
 
   try {
@@ -705,9 +729,7 @@ async function finalizeGeneration() {
   stopFlushInterval();
   anchorTextNode = null;
   const page = $("doc-page");
-  page.setAttribute("contenteditable", "true");
-  page.classList.remove("generating");
-  swapGenButtons(false);
+  lockEditor(false);
 
   const anchor = page.querySelector(".gen-active");
   let committedText = null;
@@ -734,6 +756,7 @@ async function finalizeGeneration() {
   S.docStreaming = false;
   updateTokenCount();
   docCheckpoint();
+  syncRewriteButton();
   if (committedText != null && !genErrored && S.activeDocId) {
     onGenerationEnd({
       docId: S.activeDocId,
@@ -751,6 +774,119 @@ function docStop() {
   S.docOperation?.stop();
 }
 
+const rewriterReady = () => Boolean(S.settings?.document_prose_rewriter_enabled) && localMlReady("prose_rewriter");
+
+function liveRewriteRange() {
+  const r = rewriteRange;
+  return r && !r.collapsed && $("doc-page")?.contains(r.commonAncestorContainer) ? r : null;
+}
+
+function syncRewriteButton() {
+  const btn = $("doc-rewrite-btn");
+  if (!btn) return;
+  btn.classList.toggle("hidden", !rewriterReady());
+  btn.disabled = S.docStreaming || !S.activeDocId || !liveRewriteRange();
+  $("doc-footer")?.classList.toggle("doc-rewrite-ready", rewriterReady() && !btn.disabled);
+}
+
+// Kept past a tap on the button, which can collapse a touch selection before the click lands.
+function onSelectionChange() {
+  const sel = window.getSelection();
+  if (sel?.rangeCount && $("doc-page")?.contains(sel.anchorNode)) {
+    const range = sel.getRangeAt(0);
+    rewriteRange = range.collapsed ? null : range.cloneRange();
+  }
+  syncRewriteButton();
+}
+
+function markRewrite(page, start, end) {
+  window.CSS?.highlights?.set(REWRITE_HIGHLIGHT, new Highlight(rangeForOffsets(page, start, end)));
+}
+
+function docRewrite() {
+  const range = liveRewriteRange();
+  if (!S.activeDocId || S.docStreaming || !range || !rewriterReady()) return;
+  return startDocOperation((record, did) => rewriteSelection(record, did, range));
+}
+
+/** Stream a rewrite of *range* into the page; only a finished rewrite is kept and saved. */
+async function rewriteSelection(record, did, range) {
+  const page = $("doc-page");
+  if (!(await readyToRun(record, did))) return;
+  // Read after the save: the live range follows any typing that landed while it ran.
+  const start = offsetOfPosition(page, range.startContainer, range.startOffset);
+  const end = offsetOfPosition(page, range.endContainer, range.endOffset);
+  const base = serializeEditor(page);
+  const splice = (text) => base.content.slice(0, start) + text + base.content.slice(end);
+  let result = null;
+  lockEditor(true);
+  updateUndoButton();
+  syncRewriteButton();
+  markRewrite(page, start, end);
+  try {
+    if (end <= start) return;
+    const body = { text: base.content.slice(start, end), assisted: docAssisted };
+    for await (const { event, data } of streamEvents(
+      record,
+      `/documents/${did}/prose-rewrite`,
+      body,
+      "Prose rewrite",
+    )) {
+      if (event === "rewrite_update") {
+        if (record.stream.stopping) continue;
+        const { text } = JSON.parse(data);
+        renderEditor(page, splice(text), spliceSpans(base.spans, start, end, text.length));
+        markRewrite(page, start, start + text.length);
+      } else if (event === "done") {
+        result = JSON.parse(data);
+        break;
+      } else if (event === "error") {
+        toast(sseError(data).message, true);
+        break;
+      }
+    }
+  } catch (e) {
+    // An HTTP refusal carries the server's own reason (rewriter off, no model, empty selection).
+    if (e.name !== "AbortError") toast(e.status ? e.message : `Prose rewrite failed: ${e.message}`, true);
+  } finally {
+    await record.stream.settle();
+    if (S.docOperation === record) await finalizeRewrite(record, base, start, end, splice, result);
+  }
+}
+
+async function finalizeRewrite(record, base, start, end, splice, result) {
+  const page = $("doc-page");
+  window.CSS?.highlights?.delete(REWRITE_HIGHLIGHT);
+  lockEditor(false);
+  const kept = Boolean(result?.changed && !result.warning && !record.stream.stopping);
+  const text = kept ? result.text : base.content.slice(start, end);
+  if (kept) {
+    const content = splice(text);
+    renderEditor(page, content, spliceSpans(base.spans, start, end, text.length));
+    syncContent(S.activeDocId, content);
+    syncDocAudit(content);
+    S.docDirty = true;
+    setSaveState("Unsaved…");
+    await flushSave();
+  } else {
+    renderEditor(page, base.content, base.spans);
+  }
+  if (record.stream.stopping) toast("Prose rewrite stopped");
+  else if (result?.warning) toast(`Prose rewriter didn't run: ${result.warning}`, true);
+  else if (result && !result.changed) toast("No prose changes — short lines and prompt lines stay as written");
+  S.docStreaming = false;
+  updateTokenCount();
+  docCheckpoint();
+  if (MOBILE.matches) page.blur();
+  else if (end > start) {
+    page.focus({ preventScroll: true });
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(rangeForOffsets(page, start, start + text.length));
+  }
+  syncRewriteButton();
+}
+
 function applyPatchedRun(run, newText) {
   const { runStart, draft: oldText } = run;
   const page = $("doc-page");
@@ -760,21 +896,8 @@ function applyPatchedRun(run, newText) {
   docCheckpoint();
 
   const oldEnd = runStart + oldText.length;
-  const delta = newText.length - oldText.length;
   const newContent = content.slice(0, runStart) + newText + content.slice(oldEnd);
-  const newSpans = [];
-  for (const s of spans) {
-    if (s.end <= runStart) newSpans.push({ start: s.start, end: s.end });
-    else if (s.start >= oldEnd) newSpans.push({ start: s.start + delta, end: s.end + delta });
-    else {
-      if (s.start < runStart) newSpans.push({ start: s.start, end: runStart });
-      if (s.end > oldEnd) newSpans.push({ start: runStart + newText.length, end: s.end + delta });
-    }
-  }
-  newSpans.push({ start: runStart, end: runStart + newText.length });
-  newSpans.sort((a, b) => a.start - b.start);
-
-  renderEditor(page, newContent, newSpans);
+  renderEditor(page, newContent, spliceSpans(spans, runStart, oldEnd, newText.length));
   syncContent(S.activeDocId, newContent);
   setCaretOffset(page, runStart + newText.length);
   S.docDirty = true;
@@ -890,6 +1013,14 @@ export function initDocumentMode() {
     if (S.docDirty) flushSave();
   });
   document.addEventListener("keydown", onDocKeydown);
+  document.addEventListener("selectionchange", onSelectionChange);
+  // Pressing the button must not move focus or the selection it is about to rewrite.
+  $("doc-rewrite-btn")?.addEventListener("mousedown", (e) => e.preventDefault());
+  syncRewriteButton();
+  subscribe("local-ml", syncRewriteButton);
+  subscribe("settings", (patch) => {
+    if ("document_prose_rewriter_enabled" in patch) syncRewriteButton();
+  });
   window.addEventListener("beforeunload", () => {
     if (S.docDirty && S.activeDocId) flushSave({ keepalive: true });
   });
@@ -909,6 +1040,7 @@ registerActions("document", {
   assisted: () => setDocAssisted(true),
   toggleProbs: (el) => setDocProbs(!el.classList.contains("active")),
   generate: () => docGenerate(),
+  rewrite: () => docRewrite(),
   stop: () => docStop(),
   undo: () => docUndo(),
 });

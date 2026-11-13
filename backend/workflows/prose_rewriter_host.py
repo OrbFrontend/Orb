@@ -41,8 +41,23 @@ def resolve_config(settings: Settings) -> ProseRewriteConfig | None:
     """
     if not effective_workflow_enabled(FEATURE, settings):
         return None
+    return _selected_config(settings)
+
+
+def resolve_document_config(settings: Settings) -> ProseRewriteConfig | None:
+    """Resolve the model selection for Document mode, which has its own switch instead of the chat workflow toggle."""
+    if not settings.get("document_prose_rewriter_enabled"):
+        return None
+    return _selected_config(settings)
+
+
+def _local_ml_on(settings: Settings) -> bool:
     raw_enabled = settings.get("local_ml_enabled")
-    if isinstance(raw_enabled, Mapping) and raw_enabled.get(FEATURE, True) is False:
+    return not (isinstance(raw_enabled, Mapping) and raw_enabled.get(FEATURE, True) is False)
+
+
+def _selected_config(settings: Settings) -> ProseRewriteConfig | None:
+    if not _local_ml_on(settings):
         return None
     raw_configs = settings.get("local_ml_config")
     raw_selection = raw_configs.get(FEATURE) if isinstance(raw_configs, Mapping) else None
@@ -162,17 +177,24 @@ async def _stored_profile(settings: Settings) -> LaunchProfile | None:
     )
 
 
+def _in_use(settings: Settings) -> bool:
+    """Whether a mode still wants the model: Local ML leaves it on and the chat workflow or Document switch is on."""
+    chat_or_document = effective_workflow_enabled(FEATURE, settings) or bool(settings.get("document_prose_rewriter_enabled"))
+    return _local_ml_on(settings) and chat_or_document
+
+
 async def on_enabled(enabled: bool) -> None:
-    """Warm the engine when enabled and release its memory when disabled."""
-    if not enabled:
-        # The toggle must not wait on the model: a pre-warm still loading holds the host lock for the whole load, so it is
-        # abandoned rather than waited out, and the release (which lets a running rewrite finish first) goes to the background.
-        for task in list(_WARMING):
-            task.cancel()
-        _spawn(HOST.release())
+    """After a switch is stored: warm the engine when one turned on, release its memory once no mode uses it."""
+    if _in_use(await get_settings()):
+        if enabled:
+            await sync_selection()
+            _apply(await _stored_profile(await get_settings()))
         return
-    await sync_selection()
-    _apply(await _stored_profile(await get_settings()))
+    # The toggle must not wait on the model: a pre-warm still loading holds the host lock for the whole load, so it is
+    # abandoned rather than waited out, and the release (which lets a running rewrite finish first) goes to the background.
+    for task in list(_WARMING):
+        task.cancel()
+    _spawn(HOST.release())
 
 
 def model_deletion():

@@ -25,6 +25,7 @@
 .doc-audit-jump:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .doc-audit-jump:disabled { cursor: default; text-decoration: line-through; opacity: 0.6; }
 ::highlight(doc-audit-reveal) { background-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+::highlight(doc-rewrite-pending) { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
 .doc-audit-actions { display: flex; gap: 6px; margin-top: 8px; }
 .doc-audit-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
 .doc-audit-phrasebank { margin: 12px 0; }
@@ -128,4 +129,6 @@
   .doc-footer-info { gap: 8px; min-width: 0; }
   .doc-footer-actions { gap: 6px; flex-shrink: 0; }
   #doc-footer .btn-sm { padding-left: 8px; padding-right: 8px; }
+  #doc-footer:not(.doc-rewrite-ready) #doc-rewrite-btn { display: none; }
+  #doc-footer.doc-rewrite-ready #doc-generate-btn { display: none; }
 }

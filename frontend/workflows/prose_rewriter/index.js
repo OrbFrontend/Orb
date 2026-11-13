@@ -12,8 +12,8 @@ import {
 
 const WORKFLOW_ID = "prose_rewriter";
 const FEATURE = "prose_rewriter";
-const BODY_ID = "pr-card-config";
-const STATE_ID = "pr-card-state";
+// The card can show in both the chat and the document Workflow panes, which stay in the DOM together.
+const SURFACES = ["chat", "document"];
 // The llama.cpp runtime a first model download fetches along with it.
 const RUNTIME_MB = 150;
 const POLL_MS = 1500;
@@ -43,9 +43,13 @@ async function refresh() {
   paint();
 }
 
+const cardEl = (surface) => document.querySelector(`[data-pr-card="${surface}"]`);
+
 function paint() {
-  const el = document.getElementById(BODY_ID);
-  if (el) el.innerHTML = cardBody();
+  for (const surface of SURFACES) {
+    const el = cardEl(surface);
+    if (el) el.innerHTML = cardBody(surface);
+  }
 }
 
 /** Poll the model state while it loads; `expectLoad` covers a load the last write started. */
@@ -57,16 +61,15 @@ function watch(expectLoad = false) {
 
 async function poll() {
   pollTimer = null;
-  if (!document.getElementById(BODY_ID)) return; // card hidden; it refreshes when it appears again
+  if (!SURFACES.some(cardEl)) return; // card hidden; it refreshes when it appears again
   try {
     status = await refreshLocalMlStatus();
   } catch (_e) {
     return;
   }
-  const el = document.getElementById(STATE_ID);
   const f = info();
-  if (el && f) {
-    // Only the state line: a full repaint would close an open select.
+  // Only the state line: a full repaint would close an open select.
+  for (const el of f ? document.querySelectorAll("[data-pr-state]") : []) {
     el.textContent = stateText(f);
     el.classList.toggle("ml-foot-error", Boolean(f.error));
     el.classList.toggle("ml-foot-loading", f.state === "loading");
@@ -74,8 +77,12 @@ async function poll() {
   watch();
 }
 
-function cardBody() {
-  const desc = `<div class="tool-card-desc">Rewrites Writer drafts with a local model.</div>`;
+function cardBody(surface) {
+  const desc = `<div class="tool-card-desc">${
+    surface === "document"
+      ? "Rewrites the text you select with a local model."
+      : "Rewrites Writer drafts with a local model."
+  }</div>`;
   const f = info();
   if (!f) return desc;
   if (!f.deps_ok) {
@@ -83,11 +90,11 @@ function cardBody() {
     return `${desc}<div class="tool-card-desc">Needs the optional ML extras: <code>${esc(cmd)}</code></div>`;
   }
   const anyPresent = f.variants.some((v) => v.present);
-  const rows = f.variants.map((v) => variantRow(f, v)).join("");
+  const rows = f.variants.map((v) => variantRow(f, v, surface)).join("");
   return `${desc}
-    ${anyPresent ? `<div class="lg-config">${automaticCheck()}</div>` : ""}
+    ${anyPresent && surface === "chat" ? `<div class="lg-config">${automaticCheck()}</div>` : ""}
     <div class="ml-variants">${rows}</div>
-    ${anyPresent ? foot(f) : ""}`;
+    ${anyPresent ? foot(f, surface) : ""}`;
 }
 
 const automaticCheck = () =>
@@ -96,14 +103,14 @@ const automaticCheck = () =>
     Rewrite every reply automatically
   </label>`;
 
-function variantRow(f, v) {
+function variantRow(f, v, surface) {
   const attrs = `data-variant="${escAttr(v.id)}"`;
-  const rid = escAttr(`pr-var-${v.id}`);
+  const rid = escAttr(`pr-var-${surface}-${v.id}`);
   const on = v.present && v.id === f.selected;
   const label = escAttr(v.label);
   const disabled = busy ? " disabled" : "";
   const pick = v.present
-    ? `<input type="radio" id="${rid}" name="pr-variant" ${on ? "checked" : ""} aria-label="Use ${label}"
+    ? `<input type="radio" id="${rid}" name="pr-variant-${surface}" ${on ? "checked" : ""} aria-label="Use ${label}"
               data-wf-action="${WORKFLOW_ID}:select" data-wf-on="change" ${attrs}>
        <label class="ml-variant-name" for="${rid}">${label}</label>`
     : `<span class="ml-variant-name">${label}</span>`;
@@ -120,7 +127,7 @@ function variantRow(f, v) {
   </div>`;
 }
 
-function foot(f) {
+function foot(f, surface) {
   if (!f.runtime_ok) {
     // A model on disk without the runtime: an install from before the GPU/CPU split.
     return `<div class="ml-gate${busy === "runtime" ? " ml-busy" : ""}">
@@ -135,8 +142,8 @@ function foot(f) {
     ([value, label]) => `<option value="${value}" ${f.batch_size === value ? "selected" : ""}>${label}</option>`,
   ).join("");
   return `<div class="ml-batch setting-row">
-      <label for="pr-batch-size">Parallel</label>
-      <select class="tool-card-select" id="pr-batch-size" data-wf-action="${WORKFLOW_ID}:batch" data-wf-on="change">${options}</select>
+      <label for="pr-batch-size-${surface}">Parallel</label>
+      <select class="tool-card-select" id="pr-batch-size-${surface}" data-wf-action="${WORKFLOW_ID}:batch" data-wf-on="change">${options}</select>
       <div>~140–190 MB VRAM per parallel slot.</div>
     </div>
     <div class="ml-foot">
@@ -144,7 +151,7 @@ function foot(f) {
         <input type="checkbox" ${f.gpu ? "checked" : ""} data-wf-action="${WORKFLOW_ID}:gpu" data-wf-on="change">
         Run on GPU
       </label>
-      <span class="ml-foot-state${cls}" id="${STATE_ID}">${esc(stateText(f))}</span>
+      <span class="ml-foot-state${cls}" data-pr-state>${esc(stateText(f))}</span>
     </div>`;
 }
 
@@ -224,11 +231,11 @@ registerAction(WORKFLOW_ID, "download", download);
 registerAction(WORKFLOW_ID, "runtime", () => withBusy("runtime", () => api.post("/local-ml/runtime", {})));
 registerAction(WORKFLOW_ID, "delete", confirmDeleteModel);
 
-registerWorkflowToolsPanelCard(WORKFLOW_ID, () => {
+registerWorkflowToolsPanelCard(WORKFLOW_ID, ({ surface = "chat" } = {}) => {
   // Both tool panes stay in the DOM, so a missing body means the card is just
   // appearing: at boot, or because the toggle turned on and started a load.
-  if (!document.getElementById(BODY_ID)) setTimeout(() => refresh().then(() => watch(true)));
-  return `<div id="${BODY_ID}">${cardBody()}</div>`;
+  if (!cardEl(surface)) setTimeout(() => refresh().then(() => watch(true)));
+  return `<div data-pr-card="${surface}">${cardBody(surface)}</div>`;
 });
 
 async function loadAutomatic() {

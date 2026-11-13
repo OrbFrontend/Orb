@@ -55,6 +55,7 @@ class _SettingsBase(ConnectionSettings):
     editor_audit_toggles: ReadOnly[dict]  # decoded to its in-memory shape by get_settings()
     document_audit_enabled: ReadOnly[int]
     document_audit_autopatch: ReadOnly[int]
+    document_prose_rewriter_enabled: ReadOnly[int]
     document_audit_toggles: ReadOnly[dict]  # decoded by get_settings(); doc-applicable scanner subset only
     hide_streaming_until_baked: ReadOnly[int]
     expression_rendering: ReadOnly[str]

@@ -326,6 +326,7 @@ DEFAULT_SETTINGS: Settings = {
     # perturb chat scanner state. The toggle map carries only the doc-applicable scanner subset (DOC_AUDIT_TYPES).
     "document_audit_enabled": 1,
     "document_audit_autopatch": 0,
+    "document_prose_rewriter_enabled": 0,
     "document_audit_toggles": {
         "banned_phrases": True,
         "repetitive_openers": True,

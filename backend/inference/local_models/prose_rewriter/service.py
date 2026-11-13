@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 from ..llama_server import ManagedLlamaServerHost
 from . import config
@@ -43,8 +43,10 @@ async def shutdown() -> None:
     await HOST.shutdown()
 
 
-async def rewrite_events(draft: str, cfg: config.ProseRewriteConfig) -> AsyncGenerator[dict, None]:
-    """Yield whole-draft rewrite events in visible paragraph order.
+async def rewrite_events(
+    draft: str, cfg: config.ProseRewriteConfig, keep: Callable[[str], bool] | None = None
+) -> AsyncGenerator[dict, None]:
+    """Yield whole-draft rewrite events in visible paragraph order; paragraphs *keep* accepts pass through.
 
     Events: draft_update after a completed assembly run, warning if rewriting did not happen, then exactly one terminal
     rewritten. Callers consume the terminal event internally rather than forwarding it.
@@ -61,7 +63,7 @@ async def rewrite_events(draft: str, cfg: config.ProseRewriteConfig) -> AsyncGen
             # resolved, or a batch size outside the allowlist all raise, and inside the task that failure reaches the `except`
             # below as one warning plus the writer's draft, which is this generator's whole contract.
             profile = config.launch_profile(cfg)
-            return await arewrite(draft, profile, host=HOST, on_progress=queue.put)
+            return await arewrite(draft, profile, host=HOST, on_progress=queue.put, keep=keep)
         finally:
             queue.put_nowait(_DONE)
 

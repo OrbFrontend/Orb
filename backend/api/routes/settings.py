@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from ...database import get_endpoint, get_settings, reset_to_defaults, set_enabled_tool, update_settings
 from ...inference.claude_code import ENDPOINT as CLAUDE_CODE_ENDPOINT
 from ...prompting.tool_catalog import has_tool
-from ...workflows import gpu_swap_host
+from ...workflows import gpu_swap_host, prose_rewriter_host
 from ..schemas import ResetConfirm, SettingsUpdate
 from .endpoints import check_claude_endpoint, public_settings
 
@@ -39,6 +39,12 @@ async def api_update_settings(data: SettingsUpdate):
     if "workflows_globally_enabled" in payload:
         # The GPU swap plan is off while workflows are; a render right after switching them on must not read a cached "off".
         gpu_swap_host.invalidate()
+    rewriter_switches = [
+        bool(payload[k]) for k in ("workflows_globally_enabled", "document_prose_rewriter_enabled") if k in payload
+    ]
+    if rewriter_switches:
+        # Either one switches the rewriter model; it stays loaded while the other mode still uses it.
+        await prose_rewriter_host.on_enabled(any(rewriter_switches))
     return public_settings(updated)
 
 

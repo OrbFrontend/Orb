@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS settings (
     editor_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true,"anti_echo":true,"negated_narration":false}',
     document_audit_enabled INTEGER NOT NULL DEFAULT 1,
     document_audit_autopatch INTEGER NOT NULL DEFAULT 0,
+    document_prose_rewriter_enabled INTEGER NOT NULL DEFAULT 0,
     document_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"negated_narration":false}',
     hide_streaming_until_baked INTEGER NOT NULL DEFAULT 0,
     expression_rendering TEXT NOT NULL DEFAULT 'classic',

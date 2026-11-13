@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 #: The checkpoints' end-of-turn token, sent as a string stop alongside the EOG
 #: metadata. A property of these weights' chat template, which is why it lives
@@ -36,18 +37,23 @@ MAX_PARAGRAPHS = 96
 MAX_CHARS = 40_000
 
 
-def plan(text: str) -> list[tuple[str, str]]:
+def plan(text: str, keep: Callable[[str], bool] | None = None) -> list[tuple[str, str]]:
     """Split a paste into ('keep', literal) and ('rewrite', paragraph) pieces.
 
     The layout is produced BEFORE anything runs, because the paragraphs are generated simultaneously and come back out of order;
-    the client needs the slots up front to render each one where it belongs.
+    the client needs the slots up front to render each one where it belongs. A paragraph *keep* accepts passes through.
     """
     pieces: list[tuple[str, str]] = []
     for piece in PARAGRAPH_BREAK.split(text.strip()):
         if not piece:
             continue
         clean = piece.strip()
-        if PARAGRAPH_BREAK.fullmatch(piece) or not clean or len(clean.encode()) < _MIN_REWRITE_BYTES:
+        if (
+            PARAGRAPH_BREAK.fullmatch(piece)
+            or not clean
+            or len(clean.encode()) < _MIN_REWRITE_BYTES
+            or (keep is not None and keep(clean))
+        ):
             pieces.append(("keep", piece))  # below the trained floor, or a break
         else:
             pieces.append(("rewrite", clean))

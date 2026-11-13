@@ -4,7 +4,7 @@ import { trackRange } from "./document_editor.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { AUDIT_TYPE_DEFS, showPhraseBankModal } from "./settings.js";
 import { persistSettings } from "./settings_store.js";
-import { S } from "./state.js";
+import { S, subscribe } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 
 const DOC_AUDIT_KEYS = [
@@ -29,6 +29,7 @@ let _ctx = null; // { getContent, applyPatchedRun, selectRange } injected by doc
 
 export function initDocAudit(ctx) {
   _ctx = ctx;
+  subscribe("local-ml", () => S.documentMode && isUtilityPanelOpen("tools-panel") && renderDocAuditPane());
   $("doc-workflow-btn")?.addEventListener("click", toggleDocWorkflowPanel);
   $("doc-workflow-mobile-btn")?.addEventListener("click", toggleDocWorkflowPanel);
 }
@@ -69,6 +70,7 @@ export function renderDocAuditPane() {
     : "";
 
   pane.innerHTML = `
+    ${rewriterCard()}
     <div class="tool-card ${on ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">Output Auditor</span>
@@ -102,6 +104,40 @@ export function renderDocAuditPane() {
 
   renderDocAuditResults();
 }
+
+const rewriterOn = () => Boolean(S.settings?.document_prose_rewriter_enabled);
+
+// The model card is the Prose Rewriter workflow's own; this pane adds the document switch around it.
+function rewriterCard() {
+  const on = rewriterOn();
+  const render = S.workflowToolsPanelRenderers.find((r) => r.workflowId === "prose_rewriter")?.render;
+  let body = '<div class="tool-card-desc">Rewrites the text you select with a local model.</div>';
+  if (on && render) {
+    try {
+      body = render({ surface: "document" });
+    } catch (e) {
+      console.error("prose rewriter card threw:", e);
+    }
+  }
+  return `<div class="tool-card ${on ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Prose Rewriter</span>
+        <label class="tog">
+          <input type="checkbox" ${on ? "checked" : ""} data-wf-action="docRewriter:toggle" data-wf-on="change">
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      ${body}
+    </div>`;
+}
+
+function toggleRewriter(el) {
+  persistSettings({ document_prose_rewriter_enabled: el.checked }, renderDocAuditPane);
+}
+
+registerActions("docRewriter", {
+  toggle: toggleRewriter,
+});
 
 function statusText(r) {
   if (r.status === "auditing") return "Auditing…";
@@ -255,7 +291,9 @@ function revealFinding(el) {
   else _ctx.selectRange(at, at + el.dataset.text.length);
 }
 
-registerActions("docAudit", { reveal: revealFinding });
+registerActions("docAudit", {
+  reveal: revealFinding,
+});
 
 export function onGenerationEnd({ docId, runStart, draft, truncated, assisted }) {
   if (!docId || !draft || !docAuditEnabled()) return;

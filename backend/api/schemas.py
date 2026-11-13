@@ -62,6 +62,7 @@ class SettingsUpdate(_PartialUpdate):
     document_audit_enabled: bool | None = None
     document_audit_autopatch: bool | None = None
     document_audit_toggles: dict | None = None
+    document_prose_rewriter_enabled: bool | None = None
     hide_streaming_until_baked: bool | None = None
     expression_rendering: Literal["classic", "expression"] | None = None
     prevent_prompt_overrides: bool | None = None
@@ -556,6 +557,12 @@ class DocumentAuditRequest(BaseModel):
     # True when the run ended early (Stop, or finish == "length"); the server
     # trims the dangling partial sentence before auditing/patching.
     truncated: bool = False
+
+
+class DocumentRewriteRequest(BaseModel):
+    # The selected text. Prompt scaffolding for the mode (assisted role macros, raw template-token lines) passes through.
+    text: str = Field(min_length=1)
+    assisted: bool = False
 
 
 class AuditReportPayload(BaseModel):

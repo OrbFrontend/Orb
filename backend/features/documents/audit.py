@@ -93,11 +93,13 @@ def clean_context(context: str, assisted: bool) -> str:
     """Remove mode-specific prompt scaffolding from audit context, capped to
     DOC_AUDIT_CONTEXT_CHARS. Chat+raw prose is unchanged.
     """
-    if assisted:
-        lines = [ln for ln in context.split("\n") if not ROLE_MACRO_RE.match(ln)]
-    else:
-        lines = [ln for ln in context.split("\n") if not _TEMPLATE_TOKEN_RE.search(ln)]
+    lines = [ln for ln in context.split("\n") if not is_scaffold_line(ln, assisted)]
     return "\n".join(lines)[-DOC_AUDIT_CONTEXT_CHARS:]
+
+
+def is_scaffold_line(line: str, assisted: bool) -> bool:
+    """Whether *line* is prompt scaffolding for the mode: an Assisted role macro or a Raw template-token line."""
+    return bool(ROLE_MACRO_RE.match(line) if assisted else _TEMPLATE_TOKEN_RE.search(line))
 
 
 def _doc_audit_toggles(toggles: Mapping[str, Any] | None) -> dict:

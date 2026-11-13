@@ -300,10 +300,18 @@ workflow toggle turns the rewriter on for both automatic runs and the
 saved-message rewrite route, and its `automatic` config gates the post-hook
 alone. Saved-message rewrites apply Format Consistency to the retained
 post-Editor draft (or saved text when absent) before the local rewrite, using the
-same enablement and voice settings as a turn. Its workflow card manages the model
-through the generic Local ML routes, which also own the shared llama-server
-runtime. A hook failure is isolated so the main reply and other workflows can
-continue.
+same enablement and voice settings as a turn. Document mode's selection rewrite
+(`POST /api/documents/{did}/prose-rewrite`) runs no post-pipeline hooks: it
+streams the local rewrite of the selected text, passing the mode's prompt
+scaffolding lines through, and the client splices and saves it. It is gated by
+the `document_prose_rewriter_enabled` setting instead of the workflow toggle;
+every switch write (workflow, global, document, Local ML) calls the host's
+`on_enabled`, which keeps the model loaded while either mode still uses it.
+The document Workflow pane calls the workflow's tools-panel renderer with
+`{ surface: "document" }`, so a card shown in both panes must render one copy
+per surface. Its workflow card manages the model through the generic Local ML
+routes, which also own the shared llama-server runtime. A hook failure is
+isolated so the main reply and other workflows can continue.
 
 With the image workflow's GPU swap option on, every turn holds the GPU from
 start to `done`, and a ComfyUI render waits for it. Image renders run from

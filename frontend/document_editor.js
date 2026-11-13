@@ -159,6 +159,22 @@ export function trackRange(range, oldContent, newContent) {
   return end > start ? { start, end } : null;
 }
 
+/** *spans* after `[start, oldEnd)` was replaced by *newLength* characters of generated text. */
+export function spliceSpans(spans, start, oldEnd, newLength) {
+  const delta = newLength - (oldEnd - start);
+  const out = [];
+  for (const s of spans) {
+    if (s.end <= start) out.push({ start: s.start, end: s.end });
+    else if (s.start >= oldEnd) out.push({ start: s.start + delta, end: s.end + delta });
+    else {
+      if (s.start < start) out.push({ start: s.start, end: start });
+      if (s.end > oldEnd) out.push({ start: start + newLength, end: s.end + delta });
+    }
+  }
+  out.push({ start, end: start + newLength });
+  return out.sort((a, b) => a.start - b.start);
+}
+
 export function rangeForOffsets(pageEl, start, end) {
   const range = document.createRange();
   const walker = document.createTreeWalker(pageEl, NodeFilter.SHOW_TEXT);
