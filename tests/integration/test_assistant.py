@@ -116,7 +116,9 @@ async def _use(tools, name, **arguments):
 async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, library, monkeypatch):
     # An endpoint that sends no tool schemas (structured output, text completion) takes the two-call protocol.
     monkeypatch.setattr(LLMClient, "sends_tool_schemas", lambda self, messages, model, **kwargs: False)
-    script = [_step("read_context"), _step("read_messages"), _call("read_messages", {"count": 2}), _step("reply", "Two lines.")]
+    script = [_step("read_context"), _step("read_messages"), _call("read_messages", {"count": 2}), _step("reply", "")]
+    # There the final answer is plain content after the step, never a string inside its arguments.
+    script.append({"type": "done", "message": {"content": "Two lines."}})
     calls = []
 
     async def complete(self, **kwargs):
@@ -152,6 +154,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
         ("assistant_message", {"text": "Two lines.", "final": True}),
         ("done", {"reason": "reply", "message": ""}),
     ]
+    assert calls[-1]["tool_choice"] == "none" and calls[-1]["messages"][-1]["role"] == "tool"
     # Assistant tools never join the turn's tool catalog, and replayed tool entries are not tool messages.
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the two media tools last.

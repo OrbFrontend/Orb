@@ -199,14 +199,29 @@ class ViewContext:
 
 
 @dataclass(frozen=True)
+class HeldRead:
+    """A read a working context holds: the call, and its encoded result as last known.
+
+    *whole* says the context still shows that result in full; otherwise it shows an older one and what differed since.
+    """
+
+    tool: str
+    arguments: str
+    content: str
+    whole: bool = True
+
+
+@dataclass(frozen=True)
 class Continuation:
-    """A run's working context as its reply was made, kept by the server so the next request extends it byte for byte.
+    """A run's working context as it ended, kept by the server so the next request extends it byte for byte.
 
     *fingerprint* names the system prompt, tool blob, model and endpoint it was made under; any other set cannot extend it.
+    *reads* are the reads it holds, oldest first, which the next request runs again to say what changed.
     """
 
     messages: tuple[WireMessage, ...]
     fingerprint: str
+    reads: tuple[HeldRead, ...] = ()
 
 
 # One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.

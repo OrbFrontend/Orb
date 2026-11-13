@@ -5,8 +5,9 @@ import json
 
 import pytest
 
-from backend.database import get_settings
+from backend.database import add_message, get_settings
 from backend.features.assistant import ToolFailure
+from backend.features.assistant.tools.reads import MAX_MESSAGES
 from backend.inference import LLMClient
 from tests.integration.test_assistant import RUN, _apply, _body, _call, _propose, _reply, _tools, _use, build_library, frames
 
@@ -226,3 +227,25 @@ async def test_secondary_keywords_are_set_with_selective_and_cleared_with_it(cli
     )
     created = await client.get_json(f"/api/worlds/{world}/entries/{made.ids['entry_id']}")
     assert (created["secondary_keys"], created["selective"]) == (["dusk"], 1)
+
+
+async def test_a_follow_up_to_a_handoff_is_shown_only_the_messages_the_chat_wrote_since(client, library, monkeypatch):
+    script, calls = _scripted(monkeypatch)
+    chat = library["chat"]
+    context = {"mode": "chat", "conversation_id": chat}
+    script[:] = [
+        _call("read_messages", {"conversation_id": chat, "count": 2}),
+        _call("send_as_user", {"conversation_id": chat, "content": "And then?"}),
+    ]
+    events = frames(await client.post_checked(RUN, json=_body("Send my next line.", **context)), resume=True)
+    assert events[-1][1]["reason"] == "handoff"
+    token = events[-1][1]["resume"]
+
+    sent, _ = await add_message(chat, "user", "And then?", MAX_MESSAGES + 6, parent_id=library["kept"])
+    await add_message(chat, "assistant", "the tide answers", MAX_MESSAGES + 7, parent_id=sent, advance_leaf=True)
+    script[:] = [_reply("Seen.")]
+    calls.clear()
+    await client.post_checked(RUN, json={**_body("What did she say?", **context), "resume": token})
+    *held, latest = calls[0]
+    assert any(m["role"] == "tool" and "final kept line" in m["content"] for m in held), "the earlier read is still whole"
+    assert "the tide answers" in latest["content"] and "final kept line" not in latest["content"]

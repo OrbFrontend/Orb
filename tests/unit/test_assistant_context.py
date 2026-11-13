@@ -25,6 +25,9 @@ class _Client:
         self.params: list[dict] = []
         self.thought = thought
 
+    def sends_tool_schemas(self, messages, model, **kwargs):
+        return True
+
     async def complete(self, *, messages, cache_prefix_len, **params):
         self.requests.append(([dict(message) for message in messages], cache_prefix_len))
         self.params.append(params)
@@ -159,3 +162,35 @@ async def test_thinking_keeps_its_reasoning_into_a_follow_up_and_a_run_without_i
     messages, prefix_len = plain.requests[0]
     assert carried(messages) == [] and prefix_len == len(continuation.messages) + 1
     assert plain.params[0]["chat_template_kwargs"]["enable_thinking"] is False
+
+
+async def test_a_follow_up_is_told_how_its_held_reads_differ_and_a_repeated_read_sends_no_second_body():
+    rows = [{"id": 1, "text": "one " * 50}, {"id": 2, "text": "two " * 50}]
+
+    async def listing(args):
+        return ToolOutput({"rows": list(rows)}, "Listed.")
+
+    async def run(client, **options):
+        tools = [AssistantTool("read", "List the rows.", _Read, "read", listing)]
+        stream = run_assistant(
+            client,
+            "m",
+            settings=Settings({}),
+            tools=tools,
+            history=[],
+            request="Rows?",
+            view=VIEW,
+            single_call=False,
+            **options,
+        )
+        return [event async for event in stream]
+
+    kept = []
+    await run(_Client([("read", {"name": "a"})]), keep=kept.append)
+    rows.append({"id": 3, "text": "three " * 50})
+    follow = _Client([("read", {"name": "a"}), ("read", {"name": "a"})])
+    await run(follow, resume=kept[0], unchanged=False)
+    request = follow.requests[0][0][-1]["content"]
+    assert "three" in request and "one one" not in request
+    first, second = [m["content"] for m in follow.requests[-1][0] if m["role"] == "tool" and m["content"][0] == "{"][-2:]
+    assert "three" in first and "three" not in second and "one one" not in second

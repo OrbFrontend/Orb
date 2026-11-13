@@ -97,6 +97,15 @@ one of two protocols when it starts and keeps it:
   2. For a tool that takes arguments, that tool's own flat schema. A
      zero-argument tool skips this call.
 
+  Where no schemas go on the wire (structured output, text completion), the
+  step is decoded under a JSON grammar, which ends a string at the first bare
+  `"` the model writes. There `reply` leaves `message` empty and the final
+  answer is one more call with no schema and `tool_choice: none`, read from its
+  content. On Gemma 4 31B through NanoGPT, 3 of 32 answers written inside
+  `message` ended mid-sentence at a quote with a clean finish, and 8 of 16
+  thinking-on steps padded whitespace to the token limit; with the plain
+  answer call, 0 of 32 steps and 0 of 32 answers did either.
+
   On an endpoint that does not honour forced tool choice, each call is sent
   only the schema it forces.
 
@@ -155,7 +164,8 @@ an oversized one becomes an error result rather than a cut value.
 
 A run that ends with a reply is held by the server, whole:
 its working context as the reply was made, that reply's call, and a result
-closing it. Its `done` carries a `resume` token, and the browser sends that
+closing it. A run that ends with a handoff is held the same way, ending at the
+handoff's result. Its `done` carries a `resume` token, and the browser sends that
 token with the next request. The server holds one, and every run takes it,
 matched or not, so a request from another tab or after Clear replays its own
 transcript. When the token matches, the held context was made under the same
@@ -176,6 +186,18 @@ commit by the run itself leaves its results current; any other commit during
 the run counts as a change. With nothing committed, the earlier results still
 hold and the model reads again only what they do not cover; otherwise it reads
 again whatever it relies on.
+
+A held context also carries its reads: each read call still shown whole, with
+its arguments and encoded result. When something was committed since, the next
+request runs them again before its first model call. Its follow-up note names
+the reads that return exactly what they did, and for each that differs gives
+the keys that changed; a list shows only its new or edited rows and counts the
+rows it shares with the earlier result. A difference over 3,000 characters is
+named without its content, and that read is no longer held. Anything a held
+read does not cover is left to the general warning.
+
+In any run, a read whose result is exactly one the context still shows whole
+is answered with its summary and a pointer to that result, not a second copy.
 
 Browser history is untrusted. Tool and outcome entries replay as quoted
 records on the assistant's side, never as `tool` messages; consecutive ones

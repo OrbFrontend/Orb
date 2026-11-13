@@ -23,6 +23,13 @@ _STEPS = (
     "With a tool, `message` states what you are about to do, as an intention and never as a result. "
     "For a tool that takes arguments you are then asked for them, and the tool's result follows.\n\n"
 )
+_STEPS_THEN_ANSWER = (
+    f"Work in steps. In each step call {STEP_TOOL_NAME} with `tool` set to one tool name, or to `{REPLY}` to finish, "
+    "and `message` set to a brief note for the user. "
+    "With a tool, `message` states what you are about to do, as an intention and never as a result. "
+    "For a tool that takes arguments you are then asked for them, and the tool's result follows. "
+    f"With `{REPLY}`, leave `message` empty: you are then asked for your complete final answer, written as plain text.\n\n"
+)
 _ONE_CALL = (
     f"Work in steps. In each step call exactly one tool, with its arguments, or call `{REPLY}` to finish, with `message` "
     "set to your complete final answer. The tool's result follows.\n\n"
@@ -75,8 +82,10 @@ def _signature(tool: AssistantTool) -> str:
     return f"{tool.name}({', '.join(names)}){f' {marker}' if marker else ''}"
 
 
-def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False) -> str:
+def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False, plain_answer: bool = False) -> str:
     """The stable prefix.
+
+    *plain_answer* is the two-call protocol whose final answer is its own plain-text call instead of the step's message.
 
     The two-call protocol lists the tools here: a structured-output endpoint is sent no tool list. *single_call* is the
     protocol where each step is one call to the tool itself, or to ``reply``; its schemas are always on the wire and carry
@@ -93,7 +102,8 @@ def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False) 
     if single_call:
         return f"{_INSTRUCTIONS}{_ONE_CALL}{_RULES}{rules}"
     catalog = "\n".join(f"- {_signature(tool)}: {tool.description}" for tool in tools)
-    return f"{_INSTRUCTIONS}{_STEPS}{_RULES}{rules}\n\nTools:\n{catalog}"
+    steps = _STEPS_THEN_ANSWER if plain_answer else _STEPS
+    return f"{_INSTRUCTIONS}{steps}{_RULES}{rules}\n\nTools:\n{catalog}"
 
 
 def reply_tool() -> dict[str, Any]:
@@ -113,7 +123,10 @@ def reply_tool() -> dict[str, Any]:
     }
 
 
-def step_tool(tools: Sequence[AssistantTool]) -> dict[str, Any]:
+def step_tool(tools: Sequence[AssistantTool], *, plain_answer: bool = False) -> dict[str, Any]:
+    note = (
+        f"A brief note for the user; empty with {REPLY}." if plain_answer else "A brief note for the user, or the final answer."
+    )
     return {
         "type": "function",
         "function": {
@@ -123,7 +136,7 @@ def step_tool(tools: Sequence[AssistantTool]) -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "tool": {"type": "string", "enum": [*(tool.name for tool in tools), REPLY]},
-                    "message": {"type": "string", "description": "A brief note for the user, or the final answer."},
+                    "message": {"type": "string", "description": note},
                 },
                 "required": ["tool", "message"],
                 "additionalProperties": False,
@@ -177,12 +190,22 @@ _CHANGED = (
 )
 
 
-def request_message(text: str, view: ViewContext, *, follow_up: bool | None = None, note: str = "") -> ChatMessage:
+_SINCE = (
+    "[Follow-up: the tool results above came from earlier requests, and Orb's data has changed since. {since}\nAnything else "
+    "those results show may be out of date; read it again only if this request relies on it]"
+)
+
+
+def request_message(
+    text: str, view: ViewContext, *, follow_up: bool | None = None, since: str = "", note: str = ""
+) -> ChatMessage:
     """The latest request, with its captured view after the user's own words, then *note*, the caller's own.
 
     *follow_up* marks a request that extends the previous run's own context: ``True`` when nothing has been committed since.
+    Otherwise *since* says what is known to have changed, so only that is read again.
     """
-    changed = "" if follow_up is None else f"\n\n{_UNCHANGED if follow_up else _CHANGED}"
+    stale = _SINCE.format(since=since) if since else _CHANGED
+    changed = "" if follow_up is None else f"\n\n{_UNCHANGED if follow_up else stale}"
     extra = f"\n\n{note}" if note else ""
     return {"role": "user", "content": f"{text}\n\n{view_note(view)}{changed}{extra}"}
 
