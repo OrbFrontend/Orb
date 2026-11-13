@@ -19,6 +19,7 @@ def add_columns(conn: sqlite3.Connection, table: str, *declarations: str, migrat
 
 def column_migration(table: str, *declarations: str, migration: str | None = None) -> Callable[[sqlite3.Connection], None]:
     def migrate(conn: sqlite3.Connection) -> None:
-        add_columns(conn, table, *declarations, migration=migration)
+        if conn.execute(f"PRAGMA table_info({table})").fetchall():  # nosec B608 -- migration literals
+            add_columns(conn, table, *declarations, migration=migration)
 
     return migrate
