@@ -465,7 +465,7 @@ function deleteDocument(id) {
 }
 
 /** Let go of document *id*, deleted on the server: gone from the list, and the editor cleared if it is the one open. */
-export function forgetDocument(id) {
+function forgetDocument(id) {
   S.documents = S.documents.filter((d) => d.id !== id);
   if (S.activeDocId === id) clearEditor();
   renderDocuments();

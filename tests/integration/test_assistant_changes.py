@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from backend.database import add_message, get_settings
+from backend.database import add_message
 from backend.features.assistant import ToolFailure
 from backend.features.assistant.tools.reads import MAX_MESSAGES
 from backend.inference import LLMClient
@@ -82,17 +82,12 @@ async def test_a_pending_edit_from_an_earlier_request_stacks_and_one_out_of_date
 
 
 async def test_each_delete_is_proposed_then_applied_through_the_apps_own_delete(client, library, db):
-    persona = await client.create("/api/user-personas", json={"name": "Wren", "description": "A ferry pilot."})
-    await client.put_checked("/api/settings", json={"active_persona_id": persona})
     tools = await _tools(mode="chat", conversation_id=library["chat"])
     proposals = {
-        "persona": await _propose(tools, "delete_persona", persona_id=persona),
         "message": await _propose(tools, "delete_message", message_id=library["kept"]),
         "world": await _propose(tools, "delete_world", world_id=library["elsewhere"]),
-        "document": await _propose(tools, "delete_document", document_id=library["document"]),
     }
     assert proposals["world"]["action"] == "delete" and "1 entry go with it" in proposals["world"]["fields"][0]["before"]
-    assert "the active persona" in proposals["persona"]["fields"][0]["before"]
     # The app's own delete takes the message's other versions with it: the abandoned draft beside it.
     assert proposals["message"]["fields"][0]["before"].startswith("1 other message goes with it")
     # Proposing deleted nothing.
@@ -101,15 +96,11 @@ async def test_each_delete_is_proposed_then_applied_through_the_apps_own_delete(
         await _propose(tools, "delete_world", world_id=library["elsewhere"])
 
     verdicts = await _apply(client, *(proposal["proposal_id"] for proposal in proposals.values()))
-    assert [verdict["verdict"] for verdict in verdicts] == ["applied"] * 4
-    assert {"kind": "world", "world_id": library["elsewhere"], "deleted": True} in verdicts[2]["resources"]
+    assert [verdict["verdict"] for verdict in verdicts] == ["applied"] * 2
+    assert {"kind": "world", "world_id": library["elsewhere"], "deleted": True} in verdicts[1]["resources"]
     assert (await db.one("SELECT COUNT(*) FROM worlds WHERE id = ?", (library["elsewhere"],)))[0] == 0
     assert (await db.one("SELECT COUNT(*) FROM lorebook_entries WHERE world_id = ?", (library["elsewhere"],)))[0] == 0
     assert (await db.one("SELECT COUNT(*) FROM messages WHERE id = ?", (library["kept"],)))[0] == 0
-    assert (await db.one("SELECT COUNT(*) FROM documents WHERE id = ?", (library["document"],)))[0] == 0
-    # As the persona list's own delete does, the active persona no longer names it.
-    assert (await get_settings()).get("active_persona_id") is None
-    assert {"kind": "settings", "keys": ["active_persona_id"]} in verdicts[0]["resources"]
     # A second Apply is the first one's answer; nothing is deleted twice.
     assert (await _apply(client, proposals["world"]["proposal_id"]))[0]["repeated"] is True
 
@@ -168,7 +159,7 @@ async def test_undo_puts_back_the_stored_text_and_the_users_own_text_is_what_app
     [stale] = (await client.post_json("/api/assistant/undo", json={"proposal_ids": [pid]}))["results"]
     assert stale["verdict"] == "stale" and (await stored())[0] == "Someone else."
 
-    delete = await _propose(tools, "delete_persona", persona_id=persona)
+    delete = await _propose(tools, "delete_world", world_id=library["elsewhere"])
     assert (await client.post_json("/api/assistant/revise", json={"proposal_id": delete["proposal_id"], "text": "x"}))[
         "verdict"
     ] == "refused"

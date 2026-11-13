@@ -21,19 +21,13 @@ from ....core import OUTCOME_COLUMNS, outcome_text, with_outcome_text
 from ....core.macros import resolve_inline
 from ....database import (
     StaleWrite,
-    delete_interactive_fragment,
-    delete_mood_fragment,
     delete_phrase_group,
-    delete_user_persona,
     delete_world,
     get_character_card,
     get_conversation,
-    get_document,
     get_interactive_fragment,
     get_lorebook_entry,
     get_message_by_id,
-    get_settings,
-    get_user_persona,
     get_world,
     save_message_edit,
     sync_conversations_for_card,
@@ -41,7 +35,6 @@ from ....database import (
     update_interactive_fragment,
     update_lorebook_entry,
     update_mood_fragment,
-    update_settings,
     update_user_persona,
 )
 from ..loop import settled
@@ -62,7 +55,6 @@ ProposalKind = Literal[
     "message",
     "world",
     "conversation",
-    "document",
     "phrase_group",
     "mood_fragment",
     "interactive_fragment",
@@ -363,39 +355,12 @@ async def _delete_message(target: Mapping[str, Any], _options: Mapping[str, Any]
         raise _Refused("busy", f"{exc}.") from None
 
 
-async def _delete_document(target: Mapping[str, Any], _options: Mapping[str, Any], host: AssistantHost) -> bool:
-    if await get_document(target["document_id"]) is None:
-        return False
-    try:
-        return await host.delete_document(target["document_id"])
-    except HostRefusal as exc:
-        raise _Refused("busy", f"{exc}.") from None
-
-
 async def _delete_world(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     return await delete_world(target["world_id"])
 
 
-async def _delete_persona(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
-    persona_id = target["persona_id"]
-    if await get_user_persona(persona_id) is None or not await delete_user_persona(persona_id):
-        return False
-    # As the persona list's own delete does: the active persona must not name a persona that is gone.
-    if (await get_settings()).get("active_persona_id") == persona_id:
-        await update_settings({"active_persona_id": None})
-    return True
-
-
 async def _delete_phrase_group(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
     return await delete_phrase_group(target["group_id"])
-
-
-async def _delete_mood_fragment(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
-    return await delete_mood_fragment(target["fragment_id"])
-
-
-async def _delete_interactive_fragment(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
-    return await delete_interactive_fragment(target["fragment_id"])
 
 
 _DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any], AssistantHost], Awaitable[bool]]] = {
@@ -403,12 +368,8 @@ _DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any], AssistantHo
     "lorebook_entry": _delete_entry,
     "conversation": _delete_chat,
     "message": _delete_message,
-    "document": _delete_document,
     "world": _delete_world,
-    "persona": _delete_persona,
     "phrase_group": _delete_phrase_group,
-    "mood_fragment": _delete_mood_fragment,
-    "interactive_fragment": _delete_interactive_fragment,
 }
 
 
@@ -430,8 +391,6 @@ async def _apply(proposal: Proposal, host: AssistantHost) -> dict[str, Any]:
                 raise _Refused("missing", _MISSING)
             summary = f"Deleted {proposal.label}."
             resources = [{**proposal.target, "deleted": True}]
-            if proposal.kind == "persona":
-                resources.append({"kind": "settings", "keys": ["active_persona_id"]})
         else:
             try:
                 await _write(proposal, proposal.before, proposal.after, host)

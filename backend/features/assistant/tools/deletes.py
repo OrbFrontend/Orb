@@ -14,31 +14,23 @@ from pydantic import Field
 from ....database import (
     get_active_path,
     get_character_usage,
-    get_document,
     get_lorebook_entries,
     get_phrase_bank_rows,
-    get_settings,
 )
 from ....database.queries.messages import get_message_subtree_ids
 from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from .edits import proposal_key
-from .fragments import FIELD_TYPE_NAMES
 from .host import ChatGuards
 from .proposals import Proposal, ProposalKind, is_open, preview, store
 from .targets import (
-    ID_CHARS,
     character_field,
     character_of,
     chat_field,
     chat_in_view,
     entry_field,
     entry_of,
-    fragment_field,
-    interactive_fragment_of,
     message_label,
     message_of,
-    mood_fragment_of,
-    persona_of,
     quoted,
     world_field,
     world_of,
@@ -71,20 +63,8 @@ class _EntryDelete(ToolArguments):
     entry_id: int = entry_field()
 
 
-class _PersonaDelete(ToolArguments):
-    persona_id: int = Field(ge=1, description="The persona, from list_personas.")
-
-
 class _PhraseDelete(ToolArguments):
     group_id: int = Field(ge=1, description="The phrase group, from list_banned_phrases.")
-
-
-class _DocumentDelete(ToolArguments):
-    document_id: str = Field(default="", max_length=ID_CHARS, description="Empty: the document in view.")
-
-
-class _FragmentDelete(ToolArguments):
-    fragment_id: str = fragment_field()
 
 
 def _count(n: int, noun: str) -> str:
@@ -188,18 +168,6 @@ def build_delete_tools(view: ViewContext, guards: ChatGuards, held: Sequence[Pro
         label = f"lore entry {quoted(entry['name'])} in {quoted(world['name'])}"
         return propose("lorebook_entry", target, label, f"Its name, keywords and content go.{history}")
 
-    @tools.add("confirm", _PersonaDelete, "Propose deleting one of the user's personas.")
-    async def delete_persona(args: _PersonaDelete) -> ToolOutput:
-        persona = await persona_of(args.persona_id)
-        active = (await get_settings()).get("active_persona_id") == persona["id"]
-        detail = (
-            "It is the active persona; chats then use no persona until another is chosen."
-            if active
-            else "Chats locked to it stop using it."
-        )
-        target = {"kind": "persona", "persona_id": persona["id"]}
-        return propose("persona", target, f"persona {quoted(persona['name'])}", detail)
-
     @tools.add("confirm", _PhraseDelete, "Propose removing one phrase group from the phrase bank.")
     async def delete_banned_phrase(args: _PhraseDelete) -> ToolOutput:
         row = next((row for row in await get_phrase_bank_rows() if row["id"] == args.group_id), None)
@@ -210,46 +178,5 @@ def build_delete_tools(view: ViewContext, guards: ChatGuards, held: Sequence[Pro
         detail = f"Replies may use these again: {', '.join(quoted(variant) for variant in variants) or quoted(name)}."
         target = {"kind": "phrase_group", "group_id": row["id"]}
         return propose("phrase_group", target, f"phrase group {quoted(name)}", detail)
-
-    @tools.add("confirm", _DocumentDelete, "Propose deleting a document.")
-    async def delete_document(args: _DocumentDelete) -> ToolOutput:
-        document_id = args.document_id or view.document_id
-        if not document_id:
-            raise ToolFailure("No document is in view. Name a document_id; list_documents shows the ids.")
-        document = await get_document(document_id)
-        if document is None:
-            raise ToolFailure(f"No document has the id {document_id}. list_documents shows the ids.")
-        detail = f"Its {_count(len(document['content'] or ''), 'character')} of saved text go with it."
-        target = {"kind": "document", "document_id": document["id"]}
-        return propose("document", target, f"document {quoted(document['title'])}", detail)
-
-    @tools.add(
-        "confirm",
-        _FragmentDelete,
-        "Propose deleting a mood fragment. To stop using it but keep it, turn it off with set_mood_fragment instead.",
-    )
-    async def delete_mood_fragment(args: _FragmentDelete) -> ToolOutput:
-        fragment = await mood_fragment_of(args.fragment_id)
-        target = {"kind": "mood_fragment", "fragment_id": fragment["id"]}
-        detail = "Its description and prompt text go; the Director can no longer turn it on."
-        return propose("mood_fragment", target, f"mood fragment {quoted(fragment['label'])}", detail)
-
-    @tools.add(
-        "confirm",
-        _FragmentDelete,
-        "Propose deleting an interactive fragment, a decision included. To stop using it but keep it, turn it off with "
-        "set_interactive_fragment instead.",
-    )
-    async def delete_interactive_fragment(args: _FragmentDelete) -> ToolOutput:
-        fragment = await interactive_fragment_of(args.fragment_id)
-        field_type = fragment["field_type"]
-        detail = {
-            "state": "Its settings go. Chats keep the facts it saved, read-only in the Inspector's State tab, until removed "
-            "there.",
-            "decision": "Its question, situation and outcomes go; the Judge no longer asks it.",
-        }.get(field_type, "Its description and settings go; no later turn runs it.")
-        kind = FIELD_TYPE_NAMES.get(field_type, field_type)
-        target = {"kind": "interactive_fragment", "fragment_id": fragment["id"]}
-        return propose("interactive_fragment", target, f"{kind} fragment {quoted(fragment['label'])}", detail)
 
     return tools

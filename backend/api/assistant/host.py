@@ -29,7 +29,7 @@ from ...workflows import gpu_swap_host, list_workflows, set_workflow_toggle
 from .. import deps
 from ..conversation_copy import checkpoint_conversation, checkpoint_title
 from ..conversation_start import DEFAULT_TITLE, start_solo_chat
-from ..deletions import delete_chat, delete_document_settled, delete_message_subtree
+from ..deletions import delete_chat, delete_message_subtree
 from ..fragments import DecisionProblems, checked_interactive_write
 from ..schemas import (
     CharacterCardCreate,
@@ -122,9 +122,6 @@ class ApiHost:
 
     async def delete_message(self, cid: str, message_id: int) -> bool:
         return await _refusing(delete_message_subtree(cid, message_id))
-
-    async def delete_document(self, document_id: str) -> bool:
-        return await _refusing(delete_document_settled(document_id))
 
     async def delete_lore_entry(self, world: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
         return await lorebook.delete_entry(world, entry)

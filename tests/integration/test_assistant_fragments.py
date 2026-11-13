@@ -61,11 +61,6 @@ async def test_a_mood_is_created_set_edited_and_deleted(client, db):
     assert "note" in quiet.data and quiet.committed == ({"kind": "mood_fragment", "fragment_id": "quiet"},)
     assert "note" not in (await _write(tools, "create_mood_fragment", **{**terse, "label": "Off", "enabled": False})).data
 
-    deleted = await _propose(tools, "delete_mood_fragment", fragment_id="terse_2")
-    assert await get_mood_fragment("terse_2") is not None
-    assert (await _apply(client, deleted["proposal_id"]))[0]["verdict"] == "applied"
-    assert await get_mood_fragment("terse_2") is None
-
 
 async def test_interactive_settings_keep_to_their_type_and_a_move_keeps_its_stage(client):
     tools = await _tools(mode="library")
@@ -113,10 +108,6 @@ async def test_interactive_settings_keep_to_their_type_and_a_move_keeps_its_stag
         await _write(tools, "set_interactive_fragment", fragment_id="outcome", field_type="single")
     with pytest.raises(ToolFailure, match="belongs to another type"):
         await _propose(tools, "edit_interactive_fragment", fragment_id="pacing", field="question", mode="replace_all", text="?")
-
-    deleted = await _propose(tools, "delete_interactive_fragment", fragment_id="pacing")
-    assert (await _apply(client, deleted["proposal_id"]))[0]["verdict"] == "applied"
-    assert await get_interactive_fragment("pacing") is None
 
 
 async def test_a_decision_is_created_whole_and_one_outcome_is_edited_under_its_column(client):

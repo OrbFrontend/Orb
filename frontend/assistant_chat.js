@@ -31,7 +31,6 @@ import {
   sendCapturedMessage,
 } from "./chat_stream.js";
 import { refreshConversationMessages } from "./chat_workflow.js";
-import { forgetDocument } from "./document.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sseError } from "./errors.js";
 import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
@@ -169,7 +168,7 @@ const chatMessages = (r) => [
   `chat:${r.conversation_id}`,
   () => S.activeConvId === r.conversation_id && refreshConversationMessages(null, r.conversation_id),
 ];
-// A deleted resource is let go of as the app's own delete does: the chat, document or world in view closes.
+// A deleted resource is let go of as the app's own delete does: the chat or world in view closes.
 const REFRESHERS = {
   lorebook_entry: (r) => [`world:${r.world_id}`, () => refreshWorld(r.world_id)],
   world: (r) =>
@@ -196,7 +195,6 @@ const REFRESHERS = {
     r.deleted
       ? [`chat-gone:${r.conversation_id}`, () => forgetConversation(r.conversation_id)]
       : ["conversations", loadConversations],
-  document: (r) => [`document-gone:${r.document_id}`, () => forgetDocument(r.document_id)],
   // A media job's artifacts arrive with the chat's messages, read again through the chat's own loader.
   message: chatMessages,
   media: chatMessages,
