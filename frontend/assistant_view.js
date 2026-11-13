@@ -1,5 +1,6 @@
 // The assistant transcript as data: what may be stored, how a run's events change it,
 // and its markup. No DOM lookups and no requests, so every rule here can be tested on its own.
+import { EDIT_ICON } from "./icons.js";
 import { esc, escAttr, sentenceDiff } from "./utils.js";
 
 export const MAX_ITEM_CHARS = 8000;
@@ -635,7 +636,7 @@ function requestHtml(item, index, items, busy) {
     return (
       `<div class="asst-request"><div class="asst-msg asst-user">${esc(item.text)}</div>` +
       `<button type="button" class="asst-request-edit" data-wf-action="assistant:editRequest"${attrs}` +
-      `${busy ? " disabled" : ""}>Edit</button></div>`
+      ` title="Edit" aria-label="Edit message"${busy ? " disabled" : ""}>${EDIT_ICON}</button></div>`
     );
   }
   const waiting = pendingProposalIds(items.slice(index + 1)).length;
@@ -646,10 +647,10 @@ function requestHtml(item, index, items, busy) {
     `<div class="asst-request asst-request-editing">` +
     `<textarea class="asst-request-box" data-wf-action="assistant:requestDraft" data-wf-on="input keydown"${attrs} ` +
     `aria-label="Your message" maxlength="${MAX_ITEM_CHARS}">${esc(item.draft ?? item.text)}</textarea>` +
-    `<div class="asst-proposal-note">Sending this removes everything below it from the conversation. ` +
-    `Changes already made stay as they are.${discarded}</div>` +
-    `<div class="asst-edit-actions">${button("requestSave", "Send", attrs, { accent: true, disabled: busy })}` +
-    `${button("requestCancel", "Cancel", attrs)}</div></div>`
+    `<div class="asst-request-foot"><div class="asst-proposal-note">Sending removes everything below. ` +
+    `Changes already made stay.${discarded}</div>` +
+    `<div class="asst-edit-actions">${button("requestCancel", "Cancel", attrs)}` +
+    `${button("requestSave", "Send", attrs, { accent: true, disabled: busy })}</div></div></div>`
   );
 }
 
@@ -660,7 +661,7 @@ const SUGGESTIONS = {
     "How do I strategically get into her pants?",
     "Tighten entries for the active lorebooks.",
     "What are the most used 2-grams in this chat?",
-    "Create an avatar image for this character.",
+    "Create an avatar image for this character. ComfyUI is up.",
   ],
   character: [
     "Summarise this character.",

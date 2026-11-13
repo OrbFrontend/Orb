@@ -37,17 +37,25 @@
 .asst-request { position: relative; align-self: flex-end; max-width: 85%; }
 .asst-request .asst-user { max-width: none; }
 .asst-request-edit { position: absolute; right: 100%; top: 50%; translate: 0 -50%; margin-right: 6px; padding: 2px;
-  border: 0; background: none; font-size: 11px; color: var(--text-muted); cursor: pointer; opacity: 0;
+  display: flex; border: 0; background: none; --ui-icon-size: 15px; color: var(--text-muted); cursor: pointer; opacity: 0;
   transition: opacity .15s, color .15s; }
 .asst-request:hover .asst-request-edit, .asst-request-edit:focus-visible { opacity: 1; }
 .asst-request-edit:hover:not(:disabled) { color: var(--text-primary); }
 .asst-request-edit:disabled { cursor: default; }
 @media (hover: none) { .asst-request-edit { opacity: 1; } }
-.asst-request-editing { align-self: stretch; max-width: none; display: flex; flex-direction: column; gap: 6px; }
-.asst-request-editing .asst-edit-actions { justify-content: flex-end; }
-.asst-request-box { width: 100%; box-sizing: border-box; field-sizing: content; min-height: 3lh; max-height: 50cqh;
-  resize: vertical; padding: 8px 12px; border: 1px solid var(--accent-dim); border-radius: calc(var(--radius) * 2);
-  background: var(--bg-elevated); color: var(--text-primary); font: inherit; }
+/* Editing turns the bubble into a framed box like the composer: the text on top, what Send does and the buttons below. */
+.asst-request-editing { align-self: stretch; max-width: none; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 10px 8px 12px; border: 1px solid var(--accent-dim); border-radius: calc(var(--radius) * 2);
+  background: var(--bg-elevated); transition: box-shadow .15s; }
+.asst-request-editing:focus-within { box-shadow: 0 0 0 3px var(--accent-glow); }
+.asst-request-box, .asst-request-box:is(:hover, :focus) { display: block; width: 100%; box-sizing: border-box;
+  field-sizing: content; min-height: 2lh; max-height: 50cqh; padding: 0 !important; border: 0 !important;
+  border-radius: 0 !important; background: none !important; box-shadow: none !important; resize: none;
+  overflow-y: auto; color: var(--text-primary); font: inherit; }
+.asst-request-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding-top: 8px;
+  border-top: 1px solid var(--border); }
+.asst-request-foot .asst-proposal-note { flex: 1 1 100%; line-height: 1.4; }
+.asst-request-foot .asst-edit-actions { margin-left: auto; }
 .asst-reply { padding: 0 2px; color: var(--text-primary); }
 .asst-reply .msg-body { min-width: 0; overflow-x: auto; }
 .asst-reply .msg-body :is(p, ul, ol) { margin-bottom: .5em; }
