@@ -821,7 +821,7 @@ test("an edited request replaces itself and everything below it, under the name 
   S.activeConvId = null;
 });
 
-test("a standalone image stays in the assistant panel and opens an enlarged downloadable picture", async () => {
+test("a standalone image stays in the assistant panel and uses the shared lightbox", async () => {
   const imageId = "b2".repeat(16);
   const run = await ask("Create a standalone portrait.");
   emit(run, "tool_start", { tool: "create_image", call_id: "image-call" });
@@ -829,14 +829,8 @@ test("a standalone image stays in the assistant panel and opens an enlarged down
   emit(run, "done", { reason: "reply" });
   run.writer.close();
   await settled();
-  const zoom = $("assistant-log").querySelector(`[data-image-id="${imageId}"]`);
-  assert.ok(zoom);
-  assert.equal(zoom.querySelector("img").getAttribute("src"), `/api/assistant/images/${imageId}`);
+  const img = $("assistant-log").querySelector(".asst-image img.workflow-artifact-image");
+  assert.equal(img.getAttribute("src"), `/api/assistant/images/${imageId}`);
   assert.equal(requests.filter((r) => r.url.includes("/messages")).length, 0);
-  zoom.click();
-  const modal = $("modal-root");
-  assert.equal(modal.querySelector("img").getAttribute("src"), `/api/assistant/images/${imageId}`);
-  assert.equal(modal.querySelector("a[download]").getAttribute("href"), `/api/assistant/images/${imageId}?download=true`);
-  modal.querySelector('[data-wf-action="modal:close"]').click();
-  assert.equal(modal.innerHTML, "");
+  assert.equal(img.closest(".asst-image").querySelector("a[download], [data-wf-action]"), null);
 });

@@ -61,8 +61,7 @@ async def test_picture_without_a_chat_is_retrievable_and_leaves_cards_and_messag
         assert picture.status_code == 200 and picture.content == b"picture"
         assert picture.headers["content-type"] == "image/png"
         assert picture.headers["x-content-type-options"] == "nosniff"
-        download = await client.get(f"/api/assistant/images/{image_id}?download=true")
-        assert download.headers["content-disposition"] == 'attachment; filename="generated-image.png"'
+        assert picture.headers["content-disposition"] == 'inline; filename="generated-image.png"'
         _script(monkeypatch, _call("create_image", {"description": "Another portrait."}), _reply("Switched off."))
         [refused] = _results(frames(await client.post_checked(RUN, json=_request())))
         assert not refused["ok"] and "`workflow:image_gen`" in refused["summary"]

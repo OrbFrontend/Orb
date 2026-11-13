@@ -509,7 +509,7 @@ card and writes the visual description itself; an explicit optional character
 id applies its saved appearance tags and exclusions, plus its reference picture
 when the default style enables references. An
 empty id means no character, even with a character in view. Nothing is assigned
-to a card or chat. The user downloads the picture, sets it as an avatar and
+to a card or chat. The user saves the picture from the browser, sets it as an avatar and
 crops it themselves. `illustrate_reply` directs requests unrelated to saved
 replies to this tool.
 
@@ -537,11 +537,11 @@ The returned bytes live in `api/assistant/images.py`, a process-local FIFO
 store capped at 32 images, 32 MiB per image and 128 MiB total. `tool_result.ids`
 carries `image_id`; the text result and browser storage contain no image bytes,
 and no message refresh is requested. `GET /api/assistant/images/{id}` serves the
-image (`?download=true` serves a download), also after workflow disablement. An
+image inline, also after workflow disablement. An
 id names one picture for as long as it is held, so the response is privately
-cacheable and the log and the zoom dialog fetch it once. Eviction
+cacheable and the log and the lightbox fetch it once. Eviction
 or restart answers 404. The log validates the id, renders a preview with the
-keyboard-accessible click-to-zoom dialog and a download link, and preserves the
+shared click-to-zoom lightbox of workflow images, and preserves the
 id across reloads. An expired image becomes a note asking for a new picture.
 
 The model is shown the picture only where Image Generation's own settings say
@@ -558,7 +558,7 @@ whose content is a list).
 This is a tool-returned picture, not another user request: request marks, edits,
 and budget trimming count only the actual text requests. The preview is a JPEG
 bounded to a 1,024-pixel edge, using the image workflow's existing review encoder;
-the stored download and render-reference bytes remain separate. Each picture
+the stored full-size and render-reference bytes remain separate. Each picture
 costs an allowance of 8,192 characters in the assistant's context budget, rather
 than its base64 byte length. Previews replay unchanged across requests until
 the containing request is trimmed or edited away; no image bytes enter SSE.

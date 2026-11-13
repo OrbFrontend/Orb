@@ -660,6 +660,7 @@ const SUGGESTIONS = {
     "How do I strategically get into her pants?",
     "Tighten entries for the active lorebooks.",
     "What are the most used 2-grams in this chat?",
+    "Create an avatar image for this character.",
   ],
   character: [
     "Summarise this character.",
@@ -733,28 +734,15 @@ function proseHtml(item, renderProse) {
   return html;
 }
 
-/**
- * A held picture's `<img>` and download URL, or null for anything but a server-shaped id: a stored transcript cannot point
- * an image at another origin or route.
- */
-export function assistantImage(imageId, alt) {
-  if (typeof imageId !== "string" || !/^[a-f0-9]{32}$/.test(imageId)) return null;
-  const url = `/api/assistant/images/${imageId}`;
-  return {
-    img: `<img src="${url}" alt="${alt}" loading="lazy" data-fallback="This picture expired or the server restarted. Ask for a new one.">`,
-    download: `${url}?download=true`,
-  };
-}
-
+// A stored transcript cannot point an image at another origin or route, so only a server-shaped id renders.
 function imageHtml(item) {
   const imageId = item.tool === "create_image" && item.ok === true && !item.running ? item.ids?.image_id : null;
-  const image = assistantImage(imageId, "Generated picture (temporary; download to keep it)");
-  if (!image) return "";
+  if (typeof imageId !== "string" || !/^[a-f0-9]{32}$/.test(imageId)) return "";
   return (
-    `<figure class="asst-image"><button type="button" class="asst-image-zoom" ` +
-    `data-wf-action="assistant:zoomImage" data-image-id="${imageId}" aria-label="Enlarge generated picture">` +
-    `${image.img}</button><figcaption><a href="${image.download}" download>Download image</a>` +
-    `<span>Temporary picture. Download it to keep it or set and crop an avatar.</span></figcaption></figure>`
+    `<figure class="asst-image"><img class="workflow-artifact-image" src="/api/assistant/images/${imageId}" ` +
+    `alt="Generated picture (temporary; save it to keep it)" loading="lazy" ` +
+    `data-fallback="This picture expired or the server restarted. Ask for a new one.">` +
+    `<figcaption>Temporary picture. Save it to keep it or set and crop an avatar.</figcaption></figure>`
   );
 }
 

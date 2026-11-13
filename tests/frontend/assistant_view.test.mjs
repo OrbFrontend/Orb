@@ -383,8 +383,8 @@ test("standalone image results render and survive reloads using only checked loc
   assert.equal(restored[0].ids.image_id, imageId);
   const html = transcriptHtml(restored, (s) => s);
   assert.match(html, new RegExp(`src="/api/assistant/images/${imageId}"`));
-  assert.match(html, /data-wf-action="assistant:zoomImage"/);
-  assert.match(html, /\?download=true" download/);
+  assert.match(html, /class="workflow-artifact-image"/);
+  assert.doesNotMatch(html, /download/i);
   assert.match(html, /expired or the server restarted/);
   for (const bad of ["../../settings", "https://evil.invalid/a.png", '"><script>', "a".repeat(33), 12]) {
     restored[0].ids.image_id = bad;
