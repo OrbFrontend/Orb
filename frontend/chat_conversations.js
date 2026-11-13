@@ -10,7 +10,7 @@ import { sseError } from "./errors.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
-import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
+import { chatHeaderAvatarHtml, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./modal.js";
 import { begin, beginStream, finish, ownsView, runningFor, settle, streamEvents } from "./operations.js";
@@ -27,8 +27,6 @@ import {
 import { refreshState } from "./state_panel.js";
 import {
   $,
-  avatarCell,
-  avatarUrl,
   CHAT_AVATAR_ICON,
   convUrl,
   esc,
@@ -250,10 +248,7 @@ export async function selectConversation(id) {
     } else if (conv?.character_card_id) {
       // The library's bust token, not a fresh timestamp: an avatar edit bumps it, and otherwise the header reuses the
       // cached image instead of downloading it again on every switch.
-      av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}${avatarBustQuery(conv.character_card_id)}`, {
-        icon: CHAT_AVATAR_ICON,
-        attrs: 'data-wf-action="inspector:avatarPopup" style="cursor:pointer"',
-      });
+      av.innerHTML = chatHeaderAvatarHtml(conv.character_card_id);
     } else {
       av.textContent = CHAT_AVATAR_ICON;
     }

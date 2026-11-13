@@ -11,22 +11,11 @@ import {
   showCardInteractiveFragmentModal,
   showCardMoodFragmentModal,
 } from "./library_fragments.js";
-import { avatarBust, loadCharacters } from "./library_sidebar.js";
+import { avatarBust, chatHeaderAvatarHtml, loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { charactersView, S } from "./state.js";
-import {
-  $,
-  avatarCell,
-  avatarUrl,
-  CHAT_AVATAR_ICON,
-  downloadBlob,
-  esc,
-  escAttr,
-  NO_AVATAR_ICON,
-  plural,
-  toast,
-} from "./utils.js";
+import { $, avatarCell, avatarUrl, downloadBlob, esc, escAttr, NO_AVATAR_ICON, plural, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 export { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
@@ -534,7 +523,7 @@ async function saveCharEdit(id, exportAfter = false) {
       avatarBust.set(id, Date.now());
       if (S.activeCharId === id) {
         const av = document.getElementById("chat-avatar");
-        if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
+        if (av) av.innerHTML = chatHeaderAvatarHtml(id);
       }
     }
     await loadCharacters();
