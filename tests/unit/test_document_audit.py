@@ -19,7 +19,7 @@ from backend.features.documents.audit import (
     patch_document,
     trim_incomplete_tail,
 )
-from backend.features.documents.continuation import DOC_ASSIST_CONTINUE, DOC_CHAT_INSTRUCTION, build_generation_messages
+from backend.features.documents.continuation import DOC_CHAT_INSTRUCTION, build_generation_messages
 from backend.prompting.tool_catalog import TOOLS
 
 _BANNED = "shivers down her spine"
@@ -322,19 +322,19 @@ async def test_patch_text_assisted_extends_rendered_generation_prompt():
     assert client.raw_calls[0]["prompt"].startswith(f"<render:{len(gen_messages)}:{prefill}>{flagged}")
 
 
-async def test_patch_chat_assisted_replays_prefill_close_turns():
+async def test_patch_chat_assisted_joins_draft_to_trailing_prose():
     flagged = f"She felt {_BANNED} at once."
     ctx = "### USER: keep going\nThe last prose line"
     client = _StubPatchClient([{"id": 1, "replace": "Calm."}])
 
     await patch_document(client, "m", flagged, ctx, _BANK, None, _SETTINGS, assisted=True, truncated=False)
     msgs = client.calls[0]["messages"]
-    gen_messages, _ = build_generation_messages(ctx, assisted=True, completion_mode="chat")
-    # Generation replayed verbatim (incl. the closed prefill + re-anchor turn), then draft + fix as a pure suffix.
-    assert msgs[: len(gen_messages)] == gen_messages
-    assert {"role": "assistant", "content": "The last prose line"} in msgs
-    assert {"role": "user", "content": DOC_ASSIST_CONTINUE} in msgs
-    assert msgs[len(gen_messages)] == {"role": "assistant", "content": flagged}
+    # The draft continued the trailing prose turn, so it closes that same turn; the fix request follows.
+    assert msgs[:2] == [
+        {"role": "user", "content": "keep going"},
+        {"role": "assistant", "content": f"The last prose line{flagged}"},
+    ]
+    assert len(msgs) == 3 and msgs[2]["role"] == "user"
 
 
 async def test_patch_raw_garbage_content_yields_no_patches():

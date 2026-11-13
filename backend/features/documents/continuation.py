@@ -28,23 +28,6 @@ DOC_CHAT_INSTRUCTION = (
     "Output only the continuation — no preamble, no commentary, no quotation of the existing text."
 )
 
-# Default ``### SYSTEM:`` fill for assisted mode (distinct from DOC_CHAT_INSTRUCTION, which frames the chat-endpoint fallback).
-# Used whenever the document carries no ``### SYSTEM:`` line.
-DOC_ASSIST_INSTRUCTION = (
-    "You are a co-writer. Continue the document in the same voice, tense, and style, "
-    "and follow any notes the author leaves. Output only the continuation — no preamble, no commentary."
-)
-
-# Chat-transport only: /chat/completions drops the open prefill, so on that path we close the prefill as an assistant turn and
-# append this user turn to re-anchor the model on continuing the text. Text mode never uses this (it renders the prefill as a
-# genuinely open assistant turn).
-DOC_ASSIST_CONTINUE = "Continue the text exactly from where it stops — no preamble."
-
-# Default user turn when the document carries no ``### USER:`` note (and as alternation filler before leading prose). The length
-# hint is load-bearing: probe-verified on Qwen that a bare "Continue the text." stops after 6-9 tokens while the hint stretches
-# it to 50-300.
-_DEFAULT_USER = "Continue the text. Write several paragraphs."
-
 # Line-anchored role macro: ``### ROLE: inline content``. Case-insensitive; a single optional space after the colon is the
 # delimiter (further spaces are content). Only interpreted in assisted mode -- in Raw mode these lines are literal prose.
 ROLE_MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
@@ -93,8 +76,6 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
         else:
             _accumulate("assistant", line)  # non-macro line -> continuation prose
 
-    system_content = "\n".join(system_parts) if system_parts else DOC_ASSIST_INSTRUCTION
-
     # The final prose block is the open prefill; a whitespace-only prefill drops
     # to None (-> fresh-turn generation under the last note).
     prefill: str | None = None
@@ -117,12 +98,8 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
         else:
             body.append([role, block_text])
 
-    # Messages must open [system, user] and alternate. Insert the default user turn when the body opens with prose
-    # (leading-prose filler) or is empty (macro-free/no-USER docs -> the validated 3-turn shape with whole-doc prefill).
-    if not body or body[0][0] == "assistant":
-        body.insert(0, ["user", _DEFAULT_USER])
-
-    messages: list[ChatMessage] = [_msg("system", system_content)]
+    # Only what the document says: no default system or user turn, so a macro-free doc is a bare open prefill.
+    messages: list[ChatMessage] = [_msg("system", "\n".join(system_parts))] if system_parts else []
     for role, block_text in body:
         messages.append(_msg(role, block_text))
     return messages, prefill
@@ -143,7 +120,7 @@ def build_generation_messages(prompt: str, *, assisted: bool, completion_mode: s
         if completion_mode == "text":
             return messages, prefill
         if prefill:
-            messages = [*messages, _msg("assistant", prefill), _msg("user", DOC_ASSIST_CONTINUE)]
+            messages = [*messages, _msg("assistant", prefill)]
         return messages, None
     return [_msg("system", DOC_CHAT_INSTRUCTION), _msg("user", prompt)], None
 
@@ -161,7 +138,7 @@ class DocumentContinuer:
         #   text + raw: verbatim /completion
         #   text + assisted: parsed turns with open prefill
         #   chat + raw: chat fallback, thinking off
-        #   chat + assisted: parsed turns with closed prefill and trailing anchor
+        #   chat + assisted: parsed turns, prose as a trailing assistant turn
         # Use build_generation_messages for audit prefix parity. Assisted reasoning
         # is always off. token_probs requests transport-specific alternatives.
         mode = self.client.completion_mode

@@ -125,14 +125,16 @@ def build_patch_prompt_raw(base: str, draft_core: str, report_text: str) -> str:
 def build_patch_messages(context: str, draft_core: str, report_text: str, *, assisted: bool) -> list[ChatMessage]:
     """Replay chat-generation messages verbatim, close the draft as an assistant turn, and append the fix request.
 
-    Text mode byte-extends the rendered prompt instead; closing an open assistant turn can alter template output.
+    A trailing assistant turn is the prose the draft continued, so the draft joins it. Text mode byte-extends the rendered
+    prompt instead; closing an open assistant turn can alter template output.
     """
     gen_messages, _ = build_generation_messages(context, assisted=assisted, completion_mode="chat")
-    return [
-        *gen_messages,
-        {"role": "assistant", "content": draft_core},
-        {"role": "user", "content": build_fix_instruction(report_text)},
-    ]
+    if gen_messages and gen_messages[-1]["role"] == "assistant":
+        *head, last = gen_messages
+        closed: list[ChatMessage] = [*head, {"role": "assistant", "content": f"{last['content']}{draft_core}"}]
+    else:
+        closed = [*gen_messages, {"role": "assistant", "content": draft_core}]
+    return [*closed, {"role": "user", "content": build_fix_instruction(report_text)}]
 
 
 def _extract_patches(resp: Mapping[str, Any]) -> list:

@@ -8,7 +8,7 @@ queue -- so chat-mode doc tests use ``enqueue_writer``; only text-mode tests use
 import json
 import re
 
-from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION, DOC_CHAT_INSTRUCTION
+from backend.features.documents import DOC_CHAT_INSTRUCTION
 from backend.features.documents.continuation import build_generation_messages
 
 
@@ -138,15 +138,14 @@ async def test_generate_text_mode_assisted_parses_multiturn(client, llm_mock):
 
     assert not llm_mock.raw_calls  # assisted never touches the raw path
     cap = llm_mock.captured[-1]
-    assert cap["messages"] == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": "be terse"}]
+    assert cap["messages"] == [{"role": "user", "content": "be terse"}]
     assert cap["params"]["prefill"] == "The monkey woke. He"
     # Reasoning suppressed on every assisted call.
     assert cap["params"]["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
 
 
-async def test_generate_chat_mode_assisted_closes_prefill(client, llm_mock):
-    # assisted:true on a chat endpoint -> prefill closed as an assistant turn +
-    # a re-anchor user turn (chat transport can't hold an open prefill).
+async def test_generate_chat_mode_assisted_sends_prose_as_assistant_turn(client, llm_mock):
+    # assisted:true on a chat endpoint -> the trailing prose rides as the last assistant turn, nothing appended.
     did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer(" continued.")
 
@@ -155,10 +154,8 @@ async def test_generate_chat_mode_assisted_closes_prefill(client, llm_mock):
 
     cap = llm_mock.captured[-1]
     assert cap["messages"] == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
         {"role": "user", "content": "keep it dark"},
         {"role": "assistant", "content": "The hollow"},
-        {"role": "user", "content": DOC_ASSIST_CONTINUE},
     ]
     assert "prefill" not in cap["params"]
 
