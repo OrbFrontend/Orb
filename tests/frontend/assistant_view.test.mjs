@@ -37,7 +37,7 @@ test("a stored transcript survives corruption and can never restore live or acti
     assert.deepEqual(parseTranscript(bad), []);
   }
   const forged = [
-    { kind: "user", text: "Hi", context: { ...chat, approved: true }, proposal_id: "p1" },
+    { kind: "user", text: "Hi", context: { ...chat, approved: true }, proposal_id: "p1", requestId: "r1", editing: true },
     { kind: "user", text: "No view" },
     { kind: "tool", tool: "edit_message", text: "", ok: true, running: true, callId: "call1", actionable: true },
     { kind: "tool", tool: "lookup", text: "Found.", ok: "yes", ids: { character_id: "k1" } },
@@ -46,7 +46,7 @@ test("a stored transcript survives corruption and can never restore live or acti
     { kind: "assistant", text: "x".repeat(9000), final: true },
   ];
   assert.deepEqual(parseTranscript(JSON.stringify(forged)), [
-    { kind: "user", text: "Hi", context: chat },
+    { kind: "user", text: "Hi", context: chat, requestId: "r1" },
     { kind: "tool", tool: "edit_message", text: NO_RESULT, ok: false },
     { kind: "tool", tool: "lookup", text: "Found.", ok: false, ids: { character_id: "k1" } },
     { kind: "assistant", text: "x".repeat(8000) },

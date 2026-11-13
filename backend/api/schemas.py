@@ -966,6 +966,10 @@ class AssistantRunRequest(BaseModel):
     context: AssistantViewContext
     # The browser's own name for its conversation. The server holds that conversation's messages; the browser sends none.
     session: str = Field(min_length=1, max_length=64)
+    # The browser's name for this request. With ``edit`` it names a request already sent: the conversation goes back to
+    # where that one began, and this text takes its place.
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
+    edit: bool = False
     reasoning: bool = False
     # The proposals earlier requests made that the user's card still holds pending: the request is told of them, and a further
     # edit or delete of the same thing replaces one. Ids only; the texts are the server's.
@@ -977,6 +981,12 @@ class AssistantRunRequest(BaseModel):
         if not value.strip():
             raise ValueError("A request needs some text")
         return value
+
+    @model_validator(mode="after")
+    def edit_names_its_request(self) -> AssistantRunRequest:
+        if self.edit and self.request_id is None:
+            raise ValueError("An edit names the request it replaces")
+        return self
 
 
 class AssistantApplyRequest(BaseModel):

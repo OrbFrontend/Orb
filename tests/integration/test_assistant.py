@@ -262,6 +262,7 @@ async def test_stop_names_its_operation_so_a_stale_stop_ends_nothing(client, mon
         (lambda body, lib: body.update(text="x" * 8001), 422),
         (lambda body, lib: body.update(text="  "), 422),
         (lambda body, lib: body.pop("session"), 422),
+        (lambda body, lib: body.update(edit=True), 422),
     ],
 )
 async def test_a_request_with_a_wrong_target_or_shape_never_reaches_the_model(client, library, monkeypatch, change, status):
@@ -976,3 +977,45 @@ async def test_a_request_extends_the_conversation_its_session_names_and_any_othe
     # Another browser's conversation, or one from before a restart, is not this one: it starts at its own request.
     continued, other = await ask("And then?", "another-session")
     assert continued is False and [message["role"] for message in other[0]] == ["system", "user"]
+
+
+async def test_an_edited_request_takes_the_conversation_back_to_it_and_keeps_what_was_changed_since(
+    client, library, monkeypatch
+):
+    calls, script = [], []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield script.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    body = _body(mode="chat", conversation_id=library["chat"])
+    lore = {"world_id": library["world"], "name": "Ferry", "content": "Runs at dawn."}
+
+    async def ask(text, request_id, *steps, edit=False):
+        script[:] = [*steps, _reply("Done.")]
+        calls.clear()
+        sent = {**body, "text": text, "request_id": request_id, "edit": edit}
+        events = frames(await client.post_checked(RUN, json=sent))
+        return events[0][1]["continued"], [list(messages) for messages in calls][0]
+
+    _, first = await ask("What is said?", "r1", _call("read_messages", {"count": 2}))
+    await ask("Add a ferry.", "r2", _call("create_lore_entry", lore))
+    await ask("And then?", "r3")
+
+    # The second request, reworded: the model reads the first request whole and nothing of the second or third, and is
+    # told what they changed, since the entry they added is still there.
+    continued, edited = await ask("Add a ferry at dusk.", "r2", edit=True)
+    assert continued is True
+    assert [message["role"] for message in edited] == ["system", "user", "assistant", "tool", "assistant", "tool", "user"]
+    assert edited[: len(first)] == first and edited[-1]["content"].startswith("Add a ferry at dusk.")
+    assert "still stands" in edited[-1]["content"] and "Ferry" in edited[-1]["content"]
+    assert [entry["name"] for entry in await get_lorebook_entries(library["world"])][-1] == "Ferry"
+
+    # The conversation goes on from the new wording, and an edit that changed nothing since carries no note.
+    continued, again = await ask("Add a ferry at noon.", "r2", edit=True)
+    assert continued is True and len(again) == len(edited) and "still stands" not in again[-1]["content"]
+
+    # A request the server no longer holds leaves nothing to go back to: the edit starts a conversation of its own.
+    continued, alone = await ask("What is said, again?", "gone", edit=True)
+    assert continued is False and [message["role"] for message in alone] == ["system", "user"]

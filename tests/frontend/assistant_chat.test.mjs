@@ -774,3 +774,49 @@ test("a Stop between the handoff's done and the run's settlement starts nothing,
   $("assistant-clear").click();
 });
 
+test("an edited request replaces itself and everything below it, under the name it was first sent with", async () => {
+  S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo", character_card_id: "mara" }];
+  S.activeConvId = "chat-a";
+  const answer = async (run) => {
+    run.used = true;
+    emit(run, "confirm", confirmed(`p-${run.body.request_id}`));
+    emit(run, "assistant_message", { text: "Done.", final: true });
+    emit(run, "done", { reason: "reply", message: "" });
+    run.writer.close();
+    await settled();
+    return run;
+  };
+  const first = await answer(await ask("Who is Mara?"));
+  const second = await answer(await ask("And her rival?"));
+  assert.equal(first.body.edit, false);
+  assert.notEqual(second.body.request_id, first.body.request_id);
+  const edits = () => document.querySelectorAll('#assistant-log [data-wf-action="assistant:editRequest"]');
+  assert.equal(edits().length, 2);
+
+  // Escape puts the request back; nothing was sent and nothing removed.
+  edits()[0].click();
+  let box = $("assistant-log").querySelector("textarea.asst-request-box");
+  assert.match($("assistant-log").textContent, /The 2 changes still waiting for Apply are discarded/);
+  box.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal($("assistant-log").querySelector("textarea.asst-request-box"), null);
+  assert.equal(S.assistant.items.length, 6);
+
+  edits()[0].click();
+  box = $("assistant-log").querySelector("textarea.asst-request-box");
+  assert.equal(box.value, "Who is Mara?");
+  box.value = "Who is Wren?";
+  box.dispatchEvent(new window.Event("input", { bubbles: true }));
+  box.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await settled();
+  const edited = requests.find((request) => request.url.includes("/assistant/run") && request.writer && !request.used);
+  assert.equal(edited.body.text, "Who is Wren?");
+  assert.deepEqual([edited.body.edit, edited.body.request_id], [true, first.body.request_id]);
+  assert.deepEqual(edited.body.pending, [], "the cards below went with their entries");
+  assert.deepEqual(
+    S.assistant.items.map((item) => item.text),
+    ["Who is Wren?"],
+  );
+  await answer(edited);
+  $("assistant-clear").click();
+  S.activeConvId = null;
+});

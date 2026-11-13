@@ -103,7 +103,9 @@ function storedItem(value) {
   const body = text(value.text, MAX_ITEM_CHARS);
   if (value.kind === "user") {
     const context = storedContext(value.context);
-    return body.trim() && context ? { kind: "user", text: body, context } : null;
+    if (!body.trim() || !context) return null;
+    // The request's name on the server, which an edit of it sends back; an open edit box is not kept.
+    return { kind: "user", text: body, context, ...(id(value.requestId) ? { requestId: id(value.requestId) } : {}) };
   }
   if (value.kind === "assistant") return body.trim() ? { kind: "assistant", text: body } : null;
   if (value.kind === "tool") {
@@ -133,6 +135,11 @@ function storedItem(value) {
   if (value.kind === "outcome" && OUTCOMES.has(value.reason))
     return { kind: "outcome", reason: value.reason, text: body };
   return null;
+}
+
+/** A name for a request or a conversation that the server has never seen. */
+export function newId() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 /** A `handoff` event's checked target with its tool, or null when it names nothing this page can start. */
@@ -618,6 +625,34 @@ function cardHtml(card, index, { busy }) {
   );
 }
 
+/**
+ * One request: its bubble with Edit beside it, or the box its new wording is typed in. Sending that takes the conversation
+ * back to this request, so the box says what goes with it: every entry below, and the changes among them still waiting.
+ */
+function requestHtml(item, index, items, busy) {
+  const attrs = ` data-index="${escAttr(String(index))}"`;
+  if (!item.editing) {
+    return (
+      `<div class="asst-request"><div class="asst-msg asst-user">${esc(item.text)}</div>` +
+      `<button type="button" class="asst-request-edit" data-wf-action="assistant:editRequest"${attrs}` +
+      `${busy ? " disabled" : ""}>Edit</button></div>`
+    );
+  }
+  const waiting = pendingProposalIds(items.slice(index + 1)).length;
+  const discarded = waiting
+    ? ` ${waiting === 1 ? "The change" : `The ${waiting} changes`} still waiting for Apply ${waiting === 1 ? "is" : "are"} discarded.`
+    : "";
+  return (
+    `<div class="asst-request asst-request-editing">` +
+    `<textarea class="asst-request-box" data-wf-action="assistant:requestDraft" data-wf-on="input keydown"${attrs} ` +
+    `aria-label="Your message" maxlength="${MAX_ITEM_CHARS}">${esc(item.draft ?? item.text)}</textarea>` +
+    `<div class="asst-proposal-note">Sending this removes everything below it from the conversation. ` +
+    `Changes already made stay as they are.${discarded}</div>` +
+    `<div class="asst-edit-actions">${button("requestSave", "Send", attrs, { accent: true, disabled: busy })}` +
+    `${button("requestCancel", "Cancel", attrs)}</div></div>`
+  );
+}
+
 // Requests the tools can carry out from each kind of view, offered while the transcript is empty.
 const SUGGESTIONS = {
   chat: [
@@ -719,7 +754,7 @@ export function transcriptEntries(items, renderProse, { busy = false, suggestFor
         });
       }
       view = item.context;
-      add(`<div class="asst-msg asst-user">${esc(item.text)}</div>`);
+      add(requestHtml(item, index, items, busy));
     } else if (item.kind === "assistant") {
       add(`<div class="asst-msg asst-reply"><div class="msg-body">${proseHtml(item, renderProse)}</div></div>`);
     } else if (item.kind === "tool") {

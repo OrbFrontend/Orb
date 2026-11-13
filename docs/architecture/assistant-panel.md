@@ -14,7 +14,7 @@ browser stores and refreshes what changed.
 
 | Path | Owns |
 |---|---|
-| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the conversation the server holds (`session.py`). It imports no API, pipeline, workflow or peer feature code. |
+| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the conversation the server holds and how an edited request takes it back (`session.py`). It imports no API, pipeline, workflow or peer feature code. |
 | `backend/features/assistant/tools/` | The tools over the library's readers and writers, the proposal store, and Apply, Undo and Revise. `__init__.py` holds `build_tools`, which assembles them for one run against a host. |
 | `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
 | `backend/features/assistant/tools/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
@@ -41,7 +41,7 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 
 ```text
 POST /api/assistant/run?operation_id=<id>
-  { text, session,
+  { text, session, request_id?, edit?,
     context: {mode, conversation_id?, character_id?, document_id?, world_id?, entry_id?},
     reasoning?, pending? }
 ```
@@ -60,6 +60,10 @@ saved entry selected on its Entries tab ride with whichever view is behind it
 note names both, and every tool that takes a
 `world_id` or an `entry_id` uses them when the argument is left empty. An entry
 named without a world is found in its own world.
+
+`request_id` is the browser's name for the request. With `edit` it names one
+already sent, whose place this text takes; see
+[An edited request](#an-edited-request).
 
 `pending` names the proposals earlier requests made that the user's cards still
 hold. The server keeps those still held and not applied, and ignores the rest;
@@ -183,6 +187,40 @@ context window. One request can gather at most twelve results, so it always
 fits. Only past the budget does anything go: the oldest requests, whole, until
 the conversation is a quarter under it, so the cut that rewrites the prefix is
 made rarely. A request that cannot fit even alone ends with `limit`.
+
+### An edited request
+
+The reader can reword any request of the log: Edit opens its text in a box, and
+Send there sends it again with `edit` and the `request_id` it was first sent
+with. The conversation goes back to where that request began, in the log and on
+the server, and the new wording extends it from there. The server holds the
+shorter conversation as soon as the run is admitted, so it stays the one the
+log shows even if the run never reaches the model. The earlier requests are
+sent byte for byte as before, so the prefix cache holds up to the edit.
+
+Only the conversation goes back. What the removed requests did is not undone:
+a write stays committed, an applied edit stays applied, a reply the chat
+generated stays in the chat. The server keeps, with each request's id, the one
+line each of its writes committed, and the edited request carries a note
+listing the lines of the requests it removed; those are the only changes the
+model can no longer see being made. An edit that removed no write carries no
+note. The removed cards go with their entries: a change still waiting there is
+discarded, as Discard does, and an applied one can no longer be undone from
+the panel. The edit box says so before Send.
+
+The chat may have moved on since the request was first sent: new turns, a
+regenerated reply, another branch. An edit handles that as any later request
+does, and adds nothing for it. It is about the view open now, not the one the
+first wording was sent from; its tools read the chat's kept branch as it now
+stands; a `#N` it names is the one the chat window shows now; and results still
+in the conversation are covered by the standing rule that a result shows what
+was true when it ran. The assistant's conversation has no branches of its own:
+an edit replaces, and the chat's own branches are where a reply is recovered.
+
+A request the server no longer holds (a restart, another browser, or one the
+budget dropped) leaves nothing to go back to. The edit then starts a
+conversation of its own, `start` answers `continued: false`, and the log marks
+where the model's memory begins, as for any request.
 
 A request with thinking off sends none of the conversation's reasoning back;
 with thinking on it sends all of it, unless the model or endpoint has changed,
@@ -586,6 +624,10 @@ pending change on every card (`pending`), and a `confirm` naming one in
 `replaces` marks that entry superseded. A reloaded card keeps no ids, so its
 changes are historical. A card with a change not applied and none left pending
 offers Ask again, which puts the request back in the input.
+
+Each request has Edit beside its bubble, disabled while work runs. It opens the
+request's text in place, one request at a time; Enter or Send sends it, Escape
+or Cancel puts the request back. See [An edited request](#an-edited-request).
 
 The composer is one box: the input grows with its text, the view label the
 next request is about (with the lorebook drawer's world or entry after it, while

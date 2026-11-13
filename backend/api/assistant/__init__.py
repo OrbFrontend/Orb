@@ -9,7 +9,15 @@ from collections.abc import Sequence
 from typing import Any
 
 from ...core.settings import Settings
-from ...features.assistant import AssistantTool, ViewContext, held_transcript, hold_transcript, tools
+from ...features.assistant import (
+    AssistantTool,
+    ViewContext,
+    held_transcript,
+    hold_transcript,
+    rewind_note,
+    rewound,
+    tools,
+)
 from ...features.assistant.tools import MediaRun, Proposal, open_proposals, pending_note
 from .host import HOST
 
@@ -24,6 +32,8 @@ __all__ = [
     "open_proposals",
     "pending_note",
     "revise_proposal",
+    "rewind_note",
+    "rewound",
     "undo_proposals",
 ]
 

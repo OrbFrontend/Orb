@@ -33,6 +33,21 @@
 .asst-msg { overflow-wrap: anywhere; }
 .asst-user { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: calc(var(--radius) * 2);
   white-space: pre-wrap; background: var(--bg-elevated); color: var(--text-primary); unicode-bidi: plaintext; }
+/* A request's Edit sits in the margin left of its bubble, so it costs the log no height. */
+.asst-request { position: relative; align-self: flex-end; max-width: 85%; }
+.asst-request .asst-user { max-width: none; }
+.asst-request-edit { position: absolute; right: 100%; top: 50%; translate: 0 -50%; margin-right: 6px; padding: 2px;
+  border: 0; background: none; font-size: 11px; color: var(--text-muted); cursor: pointer; opacity: 0;
+  transition: opacity .15s, color .15s; }
+.asst-request:hover .asst-request-edit, .asst-request-edit:focus-visible { opacity: 1; }
+.asst-request-edit:hover:not(:disabled) { color: var(--text-primary); }
+.asst-request-edit:disabled { cursor: default; }
+@media (hover: none) { .asst-request-edit { opacity: 1; } }
+.asst-request-editing { align-self: stretch; max-width: none; display: flex; flex-direction: column; gap: 6px; }
+.asst-request-editing .asst-edit-actions { justify-content: flex-end; }
+.asst-request-box { width: 100%; box-sizing: border-box; field-sizing: content; min-height: 3lh; max-height: 50cqh;
+  resize: vertical; padding: 8px 12px; border: 1px solid var(--accent-dim); border-radius: calc(var(--radius) * 2);
+  background: var(--bg-elevated); color: var(--text-primary); font: inherit; }
 .asst-reply { padding: 0 2px; color: var(--text-primary); }
 .asst-reply .msg-body { min-width: 0; overflow-x: auto; }
 .asst-reply .msg-body :is(p, ul, ol) { margin-bottom: .5em; }

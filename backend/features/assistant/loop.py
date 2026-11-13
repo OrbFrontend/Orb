@@ -39,6 +39,7 @@ from .contracts import (
     AssistantEvent,
     AssistantTool,
     AssistantUnavailable,
+    RequestMark,
     ToolArguments,
     ToolFailure,
     ToolOutput,
@@ -263,6 +264,7 @@ async def run_assistant(
     keep: Callable[[Transcript], None] | None = None,
     reasoning: bool = False,
     note: str = "",
+    request_id: str = "",
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
@@ -288,7 +290,8 @@ async def run_assistant(
     choice, and two calls a step elsewhere; the assistant benchmark (scripts/bench/assistant_bench.py) measures both.
 
     *note* is the caller's word about state the request should know of, such as changes earlier requests proposed that still
-    wait for the user; it follows the view note.
+    wait for the user; it follows the view note. *request_id* is the browser's name for this request, kept with what its
+    writes committed, so a later edit of the request can find where it began.
 
     *reasoning* turns thinking on for every call of the run. Its reasoning replays under the names it streamed, and the template
     is asked to keep it on earlier turns, so a later request renders what this run read. A run with thinking off sends no
@@ -573,4 +576,8 @@ async def run_assistant(
         if keep is not None:
             # A Stop can also end the run by cancelling it, where no ``_Stopped`` is raised.
             note = _STOPPED if ending == _FAILED and client.is_aborted else ending
-            keep(Transcript(tuple(_closed([*history, latest, *run], note)), model, endpoint))
+            messages = tuple(_closed([*history, latest, *run], note))
+            marks = (*(transcript.requests if transcript else ()), RequestMark(request_id, tuple(committed)))
+            # Requests the budget dropped take their marks with them.
+            held = sum(message["role"] == "user" for message in messages)
+            keep(Transcript(messages, model, endpoint, marks[-held:]))

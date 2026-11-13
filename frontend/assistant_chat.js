@@ -11,6 +11,7 @@ import {
   handoffOutcome,
   isSendKey,
   MAX_ITEM_CHARS,
+  newId,
   parseTranscript,
   pendingProposalIds,
   reviseEntry,
@@ -410,33 +411,95 @@ async function stream(body, context, request) {
   }
 }
 
-async function send() {
-  if (activeOperation()) return;
-  const input = $("assistant-input");
-  const text = input.value.trim();
-  if (!text) return;
+/**
+ * Send *text* as a request: a new one, or the new wording of *replaced*, an earlier request of the log. An edit takes the
+ * conversation back to where that request began, here and on the server, and goes on from there; only the conversation
+ * goes back. What the removed requests changed stays changed, and the cards among them go with their entries, so a
+ * change still waiting there is discarded. Either way the request is about the view open now, since the tools act on what
+ * is there now. Returns the run once it has started, or null when nothing was sent.
+ */
+function submit(text, replaced = null) {
+  if (activeOperation() || !text) return null;
   if (text.length > MAX_ITEM_CHARS) {
     toast(`Keep a message to the assistant under ${MAX_ITEM_CHARS} characters.`, true);
-    return;
+    return null;
   }
-  if (!requestSendPermission()) return;
+  if (!requestSendPermission()) return null;
   followCharacter();
   // Captured once, here: switching chats or documents while this runs changes the next request, not this one.
   const context = captureContext();
   const items = S.assistant.items;
-  items.push({ kind: "user", text, context });
+  // Gone when the log was cleared for another character just above: the text is then a request of its own.
+  const at = replaced ? items.indexOf(replaced) : -1;
+  const edit = at >= 0;
+  if (edit) items.length = at;
+  const requestId = (edit && replaced.requestId) || newId();
+  items.push({ kind: "user", text, context, requestId });
   trimTranscript(items);
-  input.value = "";
-  fitInput();
+  following = true;
   const reasoning = $("assistant-think").checked;
   // The changes earlier cards still hold, so this request can build on them; the server reads their texts itself.
   const pending = pendingProposalIds(items);
-  // Only the new request goes out: the server holds the conversation this session names, every call and result in it.
-  await stream(
-    { text, context: wireContext(context), session: S.assistant.session, reasoning, pending },
-    context,
-    text,
-  );
+  // Only the request goes out: the server holds the conversation this session names, every call and result in it.
+  const body = { text, context: wireContext(context), session: S.assistant.session, request_id: requestId, edit };
+  return stream({ ...body, reasoning, pending }, context, text);
+}
+
+async function send() {
+  const input = $("assistant-input");
+  const sent = submit(input.value.trim());
+  if (!sent) return;
+  input.value = "";
+  fitInput();
+  await sent;
+}
+
+/** The request *el* names by its place in the log, or null. */
+function requestOf(el) {
+  const item = S.assistant.items[Number(el.dataset.index)];
+  return item?.kind === "user" ? item : null;
+}
+
+/** Open a request's own text in a box, one request at a time; Send there replaces it and everything below it. */
+function editOpen(el) {
+  const item = requestOf(el);
+  if (!item || activeOperation()) return;
+  for (const other of S.assistant.items) if (other.editing) editClose(other);
+  item.editing = true;
+  item.draft = item.text;
+  paint();
+  const box = $("assistant-log").querySelector("textarea.asst-request-box");
+  box?.focus();
+  box?.setSelectionRange(box.value.length, box.value.length);
+}
+
+function editClose(item) {
+  delete item.editing;
+  delete item.draft;
+}
+
+/** Typing in a request's box: Enter sends it as the main input does, Escape puts the request back as it was. */
+function editDraft(el, e) {
+  const item = requestOf(el);
+  if (!item?.editing) return;
+  if (e.type === "input") {
+    // Kept off the repaint path: a repaint mid-typing would replace the box under the caret.
+    item.draft = el.value;
+  } else if (e.key === "Escape") {
+    // The edit is what Escape closes, not the panel behind it.
+    e.stopPropagation();
+    editClose(item);
+    paint();
+  } else if (isSendKey(e)) {
+    e.preventDefault();
+    editSend(el);
+  }
+}
+
+async function editSend(el) {
+  const item = requestOf(el);
+  if (!item?.editing) return;
+  await submit((item.draft ?? item.text).trim(), item);
 }
 
 /**
@@ -608,8 +671,7 @@ function fillInput(text) {
 
 /** Start a conversation the server has never seen: its next request extends nothing. */
 function newSession() {
-  S.assistant.session =
-    globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  S.assistant.session = newId();
   store(LS_SESSION, S.assistant.session);
 }
 
@@ -667,6 +729,14 @@ export function initAssistant() {
     reviseDraft: (el) => reviseDraft(el),
     reviseSave: (el) => reviseSave(el),
     reviseCancel: (el) => reviseClose(el),
+    editRequest: (el) => editOpen(el),
+    requestDraft: (el, e) => editDraft(el, e),
+    requestSave: (el) => editSend(el),
+    requestCancel: (el) => {
+      const item = requestOf(el);
+      if (item) editClose(item);
+      paint();
+    },
     // A card's request goes back in the input, to send again for a fresh preview.
     askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),

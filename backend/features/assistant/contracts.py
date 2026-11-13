@@ -187,16 +187,26 @@ class ViewContext:
 
 
 @dataclass(frozen=True)
+class RequestMark:
+    """One request of the conversation: the id the browser gave it, and what its writes committed, one line each."""
+
+    id: str
+    committed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Transcript:
     """The assistant's conversation so far, as the model was sent it: every request, call and result, in order.
 
     *model* and *endpoint* made it. Reasoning one provider signed is not valid on another, so a different pair replays it
-    without its reasoning.
+    without its reasoning. *requests* marks the requests in it, oldest first; the last mark is the last request, so a
+    conversation that lost its oldest requests keeps its marks in step from the end.
     """
 
     messages: tuple[WireMessage, ...]
     model: str
     endpoint: str
+    requests: tuple[RequestMark, ...] = ()
 
 
 # One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.

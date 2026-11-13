@@ -20,7 +20,7 @@ from ...database import (
     get_world,
     resolve_cast,
 )
-from ...features.assistant import AssistantUnavailable, ViewContext, run_assistant
+from ...features.assistant import AssistantUnavailable, RequestMark, ViewContext, run_assistant
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
@@ -33,6 +33,8 @@ from ..assistant import (
     open_proposals,
     pending_note,
     revise_proposal,
+    rewind_note,
+    rewound,
     undo_proposals,
 )
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
@@ -146,7 +148,13 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
             # Read once the run is admitted. The browser is told whether the conversation it shows is the one the model reads:
             # after a restart, or a request from another browser, it is not.
             transcript = held_transcript(data.session)
-            yield {"event": "start", "data": {"continued": transcript is not None}}
+            removed: tuple[RequestMark, ...] = ()
+            if data.edit and transcript is not None:
+                # The request replaces one already sent, and everything after it. Held at once, so the conversation is
+                # the one the browser now shows even if this run never reaches the model.
+                transcript, removed = rewound(transcript, data.request_id or "")
+                hold_transcript(data.session, transcript)
+            yield {"event": "start", "data": {"continued": bool(transcript and transcript.messages)}}
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
             async for event in run_assistant(
@@ -157,7 +165,8 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 transcript=transcript,
                 request=data.text.strip(),
                 view=view,
-                note=pending_note(held),
+                note="\n\n".join(filter(None, (rewind_note(removed), pending_note(held)))),
+                request_id=data.request_id or "",
                 progress=progress,
                 keep=lambda kept: hold_transcript(data.session, kept),
                 reasoning=data.reasoning,

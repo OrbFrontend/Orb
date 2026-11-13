@@ -10,6 +10,7 @@ from .contracts import (
     AssistantTool,
     AssistantUnavailable,
     NoArguments,
+    RequestMark,
     ToolArguments,
     ToolFailure,
     ToolOutput,
@@ -18,4 +19,4 @@ from .contracts import (
     ViewContext,
 )
 from .loop import run_assistant, settled
-from .session import held_transcript, hold_transcript
+from .session import held_transcript, hold_transcript, rewind_note, rewound
