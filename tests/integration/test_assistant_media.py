@@ -100,7 +100,7 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
         await set_workflow_enabled("tts", False)
         _script(
             monkeypatch,
-            _call("generate_image", {"message_id": kept, "direction": "  From behind, at dusk. "}),
+            _call("illustrate_reply", {"message_id": kept, "direction": "  From behind, at dusk. "}),
             _call("generate_speech", {"message_id": kept}),
             _reply("Done."),
         )
@@ -152,7 +152,7 @@ async def test_a_failed_hook_is_a_tool_error_and_a_workflow_without_an_on_demand
     [failed] = _results(events)
     assert failed["ok"] is False and failed["summary"] == "No speech was made: synthesis failed"
     assert not [event for event, _ in events if event == "mutation"]
-    assert "generate_image" not in names and "generate_speech" in names
+    assert "illustrate_reply" not in names and "generate_speech" in names
 
 
 async def test_assistant_stop_cancels_its_own_render_alone_and_chat_stop_leaves_it(client, db, monkeypatch):
@@ -161,7 +161,7 @@ async def test_assistant_stop_cancels_its_own_render_alone_and_chat_stop_leaves_
     started, withdrawn = asyncio.Event(), []
     elsewhere = deps.start_workflow_job(chat, asyncio.Event().wait(), job="the-image-button", message_id=kept)
     with register_for_test(_blocking_image(started, withdrawn)):
-        _script(monkeypatch, _call("generate_image", {"message_id": kept}))
+        _script(monkeypatch, _call("illustrate_reply", {"message_id": kept}))
         run = asyncio.create_task(client.post(RUN, json=_body(chat)))
         await asyncio.wait_for(started.wait(), 5)
         try:
@@ -189,7 +189,7 @@ async def test_deleting_the_message_mid_render_settles_the_job_and_the_tool_repo
     with register_for_test(_blocking_image(started, withdrawn)):
         _script(
             monkeypatch,
-            _call("generate_image", {"message_id": kept}),
+            _call("illustrate_reply", {"message_id": kept}),
             _reply("It was deleted."),
         )
         run = asyncio.create_task(client.post(RUN, json=_body(chat)))
@@ -208,7 +208,7 @@ async def test_a_stopped_render_never_claims_an_image_another_render_saved(clien
     chat, kept = library["chat"], library["kept"]
     started, withdrawn = asyncio.Event(), []
     with register_for_test(_blocking_image(started, withdrawn)):
-        _script(monkeypatch, _call("generate_image", {"message_id": kept}))
+        _script(monkeypatch, _call("illustrate_reply", {"message_id": kept}))
         run = asyncio.create_task(client.post(RUN, json=_body(chat)))
         await asyncio.wait_for(started.wait(), 5)
         # The user's own render from the image button saves on the same message while the assistant's is still queued.

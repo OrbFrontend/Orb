@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 from ..toolkit import Settings, forced_tool_call
 from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
-from .prompts import DIRECTION_CHARS, OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc
+from .prompts import DIRECTION_CHARS, OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc, standalone_ooc
 from .scrub import (
     SubjectAppearance,
     bounded,
@@ -101,6 +101,7 @@ async def _forced_result(
     reasoning_on,
     call_id: str | None = None,
     raise_errors: bool = False,
+    offer_tools: Sequence[str] = OFFER_TOOLS,
 ) -> dict:
     """The forced call's result event: `args`, plus `replay` when `call_id` asked for it.
 
@@ -118,7 +119,7 @@ async def _forced_result(
             model_name=model_name,
             reasoning_on=reasoning_on,
             temperature=0.2,
-            offer_tools=OFFER_TOOLS,
+            offer_tools=offer_tools,
             call_id=call_id,
             raise_errors=raise_errors,
         ):
@@ -386,3 +387,49 @@ def assemble_prompts(style: Mapping[str, Any], profile: Mapping[str, Any], scene
         positive = join((count_lead, style.get("prompt"), scene_body))
     negative = join((profile.get("negative_prompt"), unwanted, style.get("negative_prompt")))
     return positive, negative
+
+
+async def compose_standalone(
+    *,
+    client: Any,
+    model_name: str,
+    settings: Settings,
+    description: str,
+    style: dict,
+    profile: dict,
+    subjects: Sequence[Subject],
+    supports_negative: bool,
+    has_references: bool,
+    reasoning_on: bool,
+) -> tuple[str, str]:
+    """One prompter call for a standalone picture; no skills, scene prefix, camera resolution, or review."""
+    sheets = _sheets(subjects)
+    result = await _forced_result(
+        client=client,
+        model_name=model_name,
+        prefix=[],
+        tail=[
+            {
+                "role": "user",
+                "content": standalone_ooc(
+                    description,
+                    style,
+                    profile,
+                    sheets,
+                    supports_negative=supports_negative,
+                    has_references=has_references,
+                ),
+            }
+        ],
+        tool_name="compose_image_prompt",
+        settings=settings,
+        reasoning_on=reasoning_on,
+        raise_errors=True,
+        offer_tools=("compose_image_prompt",),
+    )
+    # No RP-specific POV or clause filtering: the description may request any subject or perspective.
+    scene = bounded(result["args"].get("scene"))
+    if not scene:
+        raise ValueError("couldn't compose an image prompt for this description")
+    scene = inject_profile_appearance(scene, sheets, style["prompt_format"])
+    return assemble_prompts(style, profile, scene, bounded(result["args"].get("unwanted")))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .contracts import RequestMark, Transcript
+from .contracts import RequestMark, Transcript, is_request_message
 
 # One conversation, named by the id the browser made for it. Process memory, as the proposals are: a restart starts over.
 _held: tuple[str, Transcript] | None = None
@@ -28,7 +28,7 @@ def rewound(transcript: Transcript, request_id: str) -> tuple[Transcript, tuple[
     extends it from there. Nothing else goes back: what the removed requests changed stays changed. A request the
     conversation no longer holds leaves nothing to extend, so the edit starts a conversation of its own.
     """
-    starts = [index for index, message in enumerate(transcript.messages) if message["role"] == "user"]
+    starts = [index for index, message in enumerate(transcript.messages) if is_request_message(message)]
     marks = transcript.requests
     from_end = next((len(marks) - at for at, mark in enumerate(marks) if mark.id == request_id), 0)
     if not 0 < from_end <= len(starts):

@@ -183,8 +183,8 @@ Each result is at most 6,000 characters as encoded; tools bound their own
 output, and an oversized one becomes an error result rather than a cut value.
 The conversation, excluding the system prompt and tool schemas, is held to
 80,000 characters: a fixed size, since Orb has no setting for an endpoint's
-context window. One request can gather at most twelve results, so it always
-fits. Only past the budget does anything go: the oldest requests, whole, until
+context window. Text results are bounded independently; pictures each consume
+an 8,192-character allowance. Only past the budget does anything go: the oldest requests, whole, until
 the conversation is a quarter under it, so the cut that rewrites the prefix is
 made rarely. A request that cannot fit even alone ends with `limit`.
 
@@ -248,7 +248,7 @@ throughout.
 | Class | Tools | Behaviour |
 |---|---|---|
 | read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
+| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
@@ -503,13 +503,83 @@ back. The transcript draws the opened chat as a view separator.
 
 ## Media
 
-`generate_image` and `generate_speech` make an artifact for one saved reply on
+`create_image(description, character_id?, reference_image_id?)` makes a standalone picture shown in
+this panel, separate from saved RP reply illustration. The assistant reads a
+card and writes the visual description itself; an explicit optional character
+id applies its saved appearance tags and exclusions, plus its reference picture
+when the default style enables references. An
+empty id means no character, even with a character in view. Nothing is assigned
+to a card or chat. The user downloads the picture, sets it as an avatar and
+crops it themselves. `illustrate_reply` directs requests unrelated to saved
+replies to this tool.
+
+The tool is offered when `image_gen` has a `STANDALONE` hook and refuses while
+the workflow is effectively off, naming the switch as the RP media tools do; the
+tool makes that check, and the host does not repeat it. The host builds `StandaloneCtx` without
+a conversation or history, with the resolved Agent client and the run's Stop
+token. Its `phase(label)` reports progress on the assistant stream. Stop or a
+dropped connection cancels and awaits the hook's cleanup; this lane uses no
+conversation-keyed workflow job registry. The image plug-in uses the default
+style, one prompter call in that style's format and one render, without scene
+skills, camera resolution, RP-specific prompt cleanup, or review turns. Enabled
+reference inputs draw from the supplied character, with no RP image history in scope.
+The tool bounds the description (1–8,000 characters, not blank); the hook takes it as given.
+
+An explicit `reference_image_id` names a still-held picture from an earlier
+`create_image` result. It takes precedence over the character's reference image;
+saved appearance tags and exclusions still apply when `character_id` is also
+supplied. It enables the default style's available image inputs for this render,
+without changing its saved settings. The image's stored bytes go to those inputs;
+a style/backend with no usable image inputs refuses before composing. An expired
+id is a tool failure; it is never silently ignored.
+
+The returned bytes live in `api/assistant/images.py`, a process-local FIFO
+store capped at 32 images, 32 MiB per image and 128 MiB total. `tool_result.ids`
+carries `image_id`; the text result and browser storage contain no image bytes,
+and no message refresh is requested. `GET /api/assistant/images/{id}` serves the
+image (`?download=true` serves a download), also after workflow disablement. An
+id names one picture for as long as it is held, so the response is privately
+cacheable and the log and the zoom dialog fetch it once. Eviction
+or restart answers 404. The log validates the id, renders a preview with the
+keyboard-accessible click-to-zoom dialog and a download link, and preserves the
+id across reloads. An expired image becomes a note asking for a new picture.
+
+The model is shown the picture only where Image Generation's own settings say
+the Agent model takes pictures: `prompter_reference` on, or `refine_turns` above
+zero. Those features already send that model pictures. Otherwise the hook
+returns no preview and the conversation holds the text result alone, because a
+model without vision fails the call that carries a picture and, the transcript
+replaying it, every call after it.
+
+With a preview, the model conversation receives after the text tool result a
+user-role content list containing a caption naming the tool call and an
+`image_url` data part (`tool_pictures` in `contracts.py`, the one user message
+whose content is a list).
+This is a tool-returned picture, not another user request: request marks, edits,
+and budget trimming count only the actual text requests. The preview is a JPEG
+bounded to a 1,024-pixel edge, using the image workflow's existing review encoder;
+the stored download and render-reference bytes remain separate. Each picture
+costs an allowance of 8,192 characters in the assistant's context budget, rather
+than its base64 byte length. Previews replay unchanged across requests until
+the containing request is trimmed or edited away; no image bytes enter SSE.
+
+Existing transports carry these normal image parts. Text-completion mode falls
+back to chat for calls containing pictures, which is every assistant call from
+the first preview until its request is trimmed or edited away. The transcript
+holds a preview whatever transport made it. Claude Code advertises text-only
+input, so each call there is sent the previews as their captions and a note that
+the model was not shown them; a later transport that takes pictures is sent
+them. A model that rejects pictures despite the settings above fails the call;
+provider errors remain visible. There is no forced image-review pass: the assistant can
+inspect the picture in its normal next step and use its id for a requested revision.
+
+`illustrate_reply` and `generate_speech` make an artifact for one saved reply on
 a chat's kept branch. They are listed whenever their workflow (`image_gen`,
 `tts`) is registered with an on-demand hook, and refuse while it is effectively
 off: the refusal names the switch that is off, the workflow's own or the
 `workflows` master, and says the assistant can turn it on if asked.
 
-`generate_image` takes an optional `direction`: what the user wants this image
+`illustrate_reply` takes an optional `direction`: what the user wants this image
 to show, beside the reply it is made of. The image workflow's composer follows
 it over the reply on the moment, framing, focus, pose, mood and lighting, keeping
 each subject's identity from the story, and each review of a render holds the

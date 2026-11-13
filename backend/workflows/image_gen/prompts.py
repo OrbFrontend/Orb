@@ -547,3 +547,39 @@ def refine_ooc(
 # model needs the actual tool: forcing via response_format with tools=None is unreliable (Gemma) or rejected (DeepSeek).
 # Standalone, so it never leaks into the pipeline's enabled_schemas.
 OFFER_TOOLS = ("read_image_skills", "compose_image_prompt", "refine_image_prompt")
+
+
+def standalone_ooc(
+    description: str,
+    style: dict,
+    profile: dict,
+    subjects: Sequence[SubjectAppearance],
+    *,
+    supports_negative: bool,
+    has_references: bool,
+) -> str:
+    """Format guidance for a description, with no RP scene or camera policy."""
+    prompt_format = normalize_prompt_format(style["prompt_format"])
+    extra = bounded(style.get("extra_instructions"))
+    return (
+        "Create one standalone picture from the description below. There is no roleplay reply to illustrate. "
+        "Use compose_image_prompt. "
+        + (
+            "Start with person count tags; use no humans when nobody is in frame, and solo for one person. "
+            if prompt_format != "prose"
+            else ""
+        )
+        + _FORMAT_INSTRUCTIONS[prompt_format]
+        + (_UNWANTED_INSTRUCTION if supports_negative else _LEAVE_UNWANTED_EMPTY)
+        + _profile_instruction(subjects)
+        + (_REFERENCE_INSTRUCTION if has_references else "")
+        + _downstream_blocks(
+            style.get("prompt", ""),
+            style.get("negative_prompt", ""),
+            profile.get("negative_prompt", ""),
+            supports_negative=supports_negative,
+        )
+        + (f" Additional style guidance from the user: {extra} " if extra else "")
+        + "\nDescription (picture content):\n"
+        + description
+    )

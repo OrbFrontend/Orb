@@ -273,6 +273,12 @@ value; the rejection is learned per model like any other capability fact.
 `logprobs` is not supported on this surface, so Document mode's per-token
 steering is unavailable on Gemini for the same reason it is on Anthropic.
 
+The client advertises `supports_image_inputs` for the transport format, not the
+selected model's vision capability. HTTP chat transports accept image parts;
+text-completion mode uses its existing chat fallback for them. Claude Code's
+text-only transport advertises false. The panel assistant uses this to send
+that transport a caption and a limitation note in place of each preview part.
+
 Text Completion calls on a llama-server router name the model on every native
 route: `/props?model=`, and `model` in the `/apply-template` and `/completion`
 bodies. A router rejects a body without it and loads the named model when it is

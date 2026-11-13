@@ -269,6 +269,9 @@ _PADDING_RUNAWAY_CHARS = 256
 
 
 class LLMClient:
+    # The transport accepts image parts; the selected model must still support vision.
+    supports_image_inputs: bool = True
+
     def __init__(
         self,
         base_url: str,

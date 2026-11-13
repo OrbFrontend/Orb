@@ -30,6 +30,7 @@ from ...inference import (
 from .contracts import (
     CONTEXT_BUDGET_CHARS,
     CONTEXT_SLACK_CHARS,
+    IMAGE_CONTEXT_CHARS,
     MAX_MODEL_CALLS,
     MAX_RESULT_CHARS,
     MAX_SAME_CALLS,
@@ -46,6 +47,8 @@ from .contracts import (
     Transcript,
     ViewContext,
     encode_result,
+    is_request_message,
+    tool_pictures,
 )
 from .prompt import reply_tool, request_message, step_tool, system_prompt, tool_schema
 
@@ -128,9 +131,30 @@ def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
     total = 0
     for message in messages:
         content = message.get("content")
-        total += len(content) if isinstance(content, str) else 0
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            total += sum(len(part.get("text", "")) if part.get("type") == "text" else IMAGE_CONTEXT_CHARS for part in content)
         total += sum(len(call["function"]["arguments"]) for call in message.get("tool_calls") or ())
     return total
+
+
+def _text_only_messages(messages: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The messages as a text-only transport takes them: each picture's caption, and that the model was not shown it.
+
+    The transcript itself keeps the pictures, so a transport that takes them later is sent them.
+    """
+    projected: list[Mapping[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            text = "\n".join(part["text"] for part in content if part.get("type") == "text")
+            if any(part.get("type") == "image_url" for part in content):
+                text += "\nThe user can see this picture. You cannot inspect it: the current transport accepts text only."
+            projected.append({**message, "content": text})
+        else:
+            projected.append(message)
+    return projected
 
 
 def _newest_requests(history: Sequence[WireMessage], room: int) -> list[WireMessage]:
@@ -138,7 +162,7 @@ def _newest_requests(history: Sequence[WireMessage], room: int) -> list[WireMess
     over = _chars(history) - room
     passed = 0
     for index, message in enumerate(history):
-        if message["role"] == "user" and passed >= over:
+        if is_request_message(message) and passed >= over:
             return list(history[index:])
         passed += _chars([message])
     return []
@@ -365,11 +389,18 @@ async def run_assistant(
         if note:
             # The retry says what was wrong on the message it answers, the request or a tool result: no call from the
             # refused reply is replayed, so every call still has its one result and the prefix before it is unchanged.
-            trailing[-1] = {**trailing[-1], "content": f"{trailing[-1]['content']}\n\n{note}"}
+            content = trailing[-1]["content"]
+            amended = f"{content}\n\n{note}" if isinstance(content, str) else [*content, {"type": "text", "text": note}]
+            trailing[-1] = {**trailing[-1], "content": amended}
         response: CompletionMessage = {}
         # The base ends where the previous request did: a provider that caches only at marked positions then finds that
         # request's conversation under this one's.
-        async for event in CachedBase(prefix=(system, *history), tools=tuple(offered), model=model).complete(
+        async for event in CachedBase(
+            prefix=(system, *history),
+            tools=tuple(offered),
+            model=model,
+            resolve=None if client.supports_image_inputs else _text_only_messages,
+        ).complete(
             client,
             label=f"assistant:{label}",
             trailing=trailing,
@@ -538,6 +569,8 @@ async def run_assistant(
                     resources = [dict(resource) for resource in output.committed]
                     yield {"type": "mutation", "call_id": call_id, "tool": name, "resources": resources}
                 run.append(tool_result(call_id, f"{_encode(output.data, output.summary)}{last}"))
+                if output.images:
+                    run.append(tool_pictures(name, call_id, output.images))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
                     # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.
@@ -580,5 +613,5 @@ async def run_assistant(
             messages = tuple(_closed([*history, latest, *run], note))
             marks = (*(transcript.requests if transcript else ()), RequestMark(request_id, tuple(committed)))
             # Requests the budget dropped take their marks with them.
-            held = sum(message["role"] == "user" for message in messages)
+            held = sum(is_request_message(message) for message in messages)
             keep(Transcript(messages, model, endpoint, marks[-held:]))

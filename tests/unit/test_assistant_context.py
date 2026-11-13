@@ -25,6 +25,8 @@ class _Client:
         self.params: list[dict] = []
         self.thought = thought
 
+    supports_image_inputs = True
+
     def sends_tool_schemas(self, messages, model, **kwargs):
         return True
 
@@ -39,14 +41,14 @@ class _Client:
         yield {"type": "done", "message": {"content": "", "tool_calls": [call], **thought}}
 
 
-async def _run(client, transcript=None, request="And now?", result_chars=0, model="m", **options):
+async def _run(client, transcript=None, request="And now?", result_chars=0, model="m", images=(), **options):
     """Run one request over *transcript* and return ``(done, the conversation it left)``."""
 
     async def read(args):
         if args.name == "stop":
             client.is_aborted = True
             raise ToolFailure("Unavailable.")
-        return ToolOutput({"text": args.name * result_chars}, f"Read {args.name}.")
+        return ToolOutput({"text": args.name * result_chars}, f"Read {args.name}.", images=images)
 
     kept = []
     tools = [AssistantTool("read", "Read a thing.", _Read, "read", read)]
@@ -147,3 +149,84 @@ async def test_thinking_keeps_its_reasoning_in_the_conversation_and_a_run_withou
         messages, prefix_len = plain.requests[0]
         assert carried(messages) == [] and prefix_len == len(conversation.messages) + 1
     assert plain.params[0]["chat_template_kwargs"]["enable_thinking"] is False
+
+
+IMAGE = {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}
+
+
+async def test_tool_pictures_replay_without_becoming_requests_or_leaking_to_browser():
+    from backend.features.assistant.contracts import is_request_message
+    from backend.features.assistant.session import rewound
+
+    first = _Client([("read", {"name": "image"})])
+    _, conversation = await _run(first, images=(IMAGE,), request_id="first")
+    picture = next(message for message in conversation.messages if isinstance(message["content"], list))
+    assert picture["role"] == "user" and picture["content"][-1] == IMAGE
+    assert len(conversation.requests) == 1
+    assert sum(is_request_message(message) for message in conversation.messages) == 1
+    before_picture = conversation.messages[list(conversation.messages).index(picture) - 1]
+    assert before_picture["role"] == "tool"
+
+    follow = _Client([("read", {"name": "another"})])
+    _, longer = await _run(follow, conversation, images=(IMAGE,), request_id="second")
+    assert follow.requests[0][0][1 : follow.requests[0][1]] == list(conversation.messages)
+    shortened, removed = rewound(longer, "second")
+    assert shortened.messages == conversation.messages and [mark.id for mark in removed] == ["second"]
+    empty, removed = rewound(longer, "first")
+    assert empty.messages == () and [mark.id for mark in removed] == ["first", "second"]
+
+
+async def test_image_budget_trims_whole_requests_including_their_pictures():
+    from backend.features.assistant.contracts import is_request_message
+
+    large_image = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "eA==" * 25000}}
+    conversation = None
+    for index in range(12):
+        client = _Client([("read", {"name": "image"})])
+        done, conversation = await _run(client, conversation, images=(large_image,), result_chars=5000, request_id=str(index))
+        assert done["reason"] == "reply", "base64 bytes must not consume the text budget"
+        assert is_request_message(conversation.messages[0])
+        actual_requests = sum(is_request_message(message) for message in conversation.messages)
+        pictures = sum(isinstance(message["content"], list) for message in conversation.messages)
+        assert actual_requests == pictures == len(conversation.requests)
+    assert len(conversation.requests) < 12
+
+
+async def test_retry_after_a_picture_preserves_its_image_parts(monkeypatch):
+    client = _Client([("read", {"name": "image"})])
+    client.replies.append(("wrong_tool", {}))
+    complete = client.complete
+
+    async def several(**kwargs):
+        async for event in complete(**kwargs):
+            calls = event["message"]["tool_calls"]
+            if calls[0]["function"]["name"] == "wrong_tool":
+                calls.append(dict(calls[0]))
+            yield event
+
+    monkeypatch.setattr(client, "complete", several)
+    _, conversation = await _run(client, images=(IMAGE,))
+    retried = client.requests[-1][0][-1]["content"]
+    assert isinstance(retried, list) and retried[1] == IMAGE
+    assert retried[-1]["type"] == "text" and len(retried) == 3
+    original = next(message["content"] for message in conversation.messages if isinstance(message["content"], list))
+    assert len(original) == 2
+
+
+async def test_a_text_only_transport_is_sent_captions_while_the_transcript_keeps_the_picture_for_a_capable_one():
+    first = _Client([("read", {"name": "image"})])
+    first.supports_image_inputs = False
+    _, conversation = await _run(first, images=(IMAGE,), request_id="first")
+    for sent in _sent(first):
+        assert all(isinstance(message["content"], str) for message in sent)
+    assert any("You cannot inspect it" in message["content"] for message in _sent(first)[-1])
+    # Made on a text-only transport, the picture is still the conversation's: a transport that takes pictures is sent it.
+    capable = _Client()
+    _, continued = await _run(capable, conversation, request_id="second")
+    assert [message["content"][-1] for message in _sent(capable)[0] if isinstance(message["content"], list)] == [IMAGE]
+    # And back on a text-only one it is a caption again, with nothing dropped from what is kept.
+    text_only = _Client()
+    text_only.supports_image_inputs = False
+    _, final = await _run(text_only, continued, request_id="third")
+    assert all(isinstance(message["content"], str) for message in _sent(text_only)[0])
+    assert any(isinstance(message["content"], list) for message in final.messages) and len(final.requests) == 3

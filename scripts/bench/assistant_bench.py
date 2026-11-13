@@ -851,8 +851,8 @@ def requests() -> list[Request]:
             "media",
             chat,
             "Make an image of Mara's last reply.",
-            {"read_messages", "generate_image"},
-            _media("generate_image"),
+            {"read_messages", "illustrate_reply"},
+            _media("illustrate_reply"),
         ),
         r(
             "media_speech",

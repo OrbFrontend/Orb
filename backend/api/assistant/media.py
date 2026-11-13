@@ -1,4 +1,4 @@
-"""The assistant's media jobs: one saved reply rendered by its workflow's own on-demand hook.
+"""The assistant's media dispatch: saved replies through ON_DEMAND and panel pictures through STANDALONE.
 
 A job runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the
 assistant's Stop cancels that job alone) and under the message it renders (so deleting the message or its chat finds and
@@ -21,15 +21,27 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ...features.assistant.tools import HostRefusal, MediaOutcome, MediaRun
-from ...inference import AbortToken
-from ...workflows import HookType, WorkflowEventStream, get_subscription, get_workflow, public_event_error
+from ...database import get_character_card, get_settings
+from ...features.assistant.tools import CreatedImage, HostRefusal, MediaOutcome, MediaRun
+from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
+from ...workflows import (
+    HookType,
+    StandaloneCtx,
+    StandaloneReference,
+    WorkflowEventStream,
+    get_subscription,
+    get_workflow,
+    public_event_error,
+    readonly_view,
+)
 from ..deps import start_workflow_job, stop_workflow_jobs
 from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..workflow_dispatch import run_on_demand
+from .images import get_image, keep_image
 
 logger = logging.getLogger(__name__)
 
+_IMAGE_WORKFLOW = "image_gen"
 _LABEL_CHARS = 160
 _ERROR_CHARS = 300
 
@@ -115,7 +127,7 @@ async def _produce(
         outcome.error = f"The {noun} failed; the server log has the details."
 
 
-async def _waited(task: asyncio.Task[Any], abort: AbortToken) -> bool:
+async def _waited(task: asyncio.Future[Any], abort: AbortToken) -> bool:
     """Wait for *task* or the run's Stop, whichever is first; ``True`` when Stop came first."""
     stop = asyncio.ensure_future(abort.wait())
     try:
@@ -142,3 +154,61 @@ async def run_media(cid: str, workflow_id: str, noun: str, body: Mapping[str, An
             await asyncio.wait({task})
     outcome.cut = task.cancelled()
     return outcome
+
+
+def standalone_available() -> bool:
+    return get_workflow(_IMAGE_WORKFLOW) is not None and get_subscription(_IMAGE_WORKFLOW, HookType.STANDALONE) is not None
+
+
+async def create_image(description: str, character_id: str | None, reference_image_id: str, run: MediaRun) -> CreatedImage:
+    """Render under the assistant's Stop token, without a conversation-keyed workflow job or attachment.
+
+    The tool has already refused a switched-off workflow, naming the switch.
+    """
+    settings = await get_settings()
+    try:
+        sub = get_subscription(_IMAGE_WORKFLOW, HookType.STANDALONE)
+        if sub is None:
+            raise HostRefusal("Image generation is no longer installed; nothing was made.")
+        character = await get_character_card(character_id) if character_id else None
+        if character_id and character is None:
+            raise HostRefusal("That character no longer exists; nothing was made.")
+        reference = None
+        if reference_image_id:
+            image = get_image(reference_image_id)
+            if image is None:
+                raise HostRefusal("That reference picture expired or the server restarted. Ask for a new picture.")
+            reference = StandaloneReference(image.data, image.mime, f"assistant:{reference_image_id}")
+        client = client_from_settings(settings, abort_token=run.abort)
+        agent, model = agent_lane_from_settings(settings, writer_client=client, abort_token=run.abort)
+        ctx = StandaloneCtx(
+            description=description,
+            settings=readonly_view(settings),
+            agent_client=agent,
+            agent_model_name=model,
+            character_id=character_id,
+            character=readonly_view(character),
+            phase=lambda label: run.report(label[:_LABEL_CHARS]),
+            reference=reference,
+        )
+        task = asyncio.ensure_future(sub.callable(ctx))
+        try:
+            stopped = await _waited(task, run.abort)
+        finally:
+            # A Stop, or the request itself being cancelled: the hook's own cleanup ends before this returns.
+            if not task.done():
+                task.cancel()
+                await asyncio.wait({task})
+        if stopped or run.abort.is_aborted:
+            raise HostRefusal("Stopped before any standalone picture was made.")
+        result = task.result()
+        return CreatedImage(keep_image(result.data, result.mime), result.preview_url)
+    except API_PASSTHROUGH_ERRORS as exc:
+        raise HostRefusal(_detail(exc)) from None
+    except ValueError as exc:
+        raise HostRefusal(str(exc)) from None
+    except HostRefusal:
+        raise
+    except Exception:
+        logger.exception("Assistant standalone image failed")
+        raise HostRefusal("The picture failed; the server log has the details.") from None

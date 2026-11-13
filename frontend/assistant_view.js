@@ -734,6 +734,31 @@ function proseHtml(item, renderProse) {
 }
 
 /**
+ * A held picture's `<img>` and download URL, or null for anything but a server-shaped id: a stored transcript cannot point
+ * an image at another origin or route.
+ */
+export function assistantImage(imageId, alt) {
+  if (typeof imageId !== "string" || !/^[a-f0-9]{32}$/.test(imageId)) return null;
+  const url = `/api/assistant/images/${imageId}`;
+  return {
+    img: `<img src="${url}" alt="${alt}" loading="lazy" data-fallback="This picture expired or the server restarted. Ask for a new one.">`,
+    download: `${url}?download=true`,
+  };
+}
+
+function imageHtml(item) {
+  const imageId = item.tool === "create_image" && item.ok === true && !item.running ? item.ids?.image_id : null;
+  const image = assistantImage(imageId, "Generated picture (temporary; download to keep it)");
+  if (!image) return "";
+  return (
+    `<figure class="asst-image"><button type="button" class="asst-image-zoom" ` +
+    `data-wf-action="assistant:zoomImage" data-image-id="${imageId}" aria-label="Enlarge generated picture">` +
+    `${image.img}</button><figcaption><a href="${image.download}" download>Download image</a>` +
+    `<span>Temporary picture. Download it to keep it or set and crop an avatar.</span></figcaption></figure>`
+  );
+}
+
+/**
  * The log's rows as `[{ key, html }]`, each one element. User text, labels, tool lines, outcomes and proposed edits are
  * escaped; only an assistant reply goes through *renderProse*, inside `.msg-body`, where no element can name an action.
  * A change's controls are drawn while this page holds its proposal, and are disabled while *busy*. An empty log
@@ -763,7 +788,7 @@ export function transcriptEntries(items, renderProse, { busy = false, suggestFor
       const result = item.running ? "Working…" : item.text;
       add(
         `<div class="asst-tool${state}">${note}<div class="asst-tool-line"><span class="asst-tool-name">${esc(item.tool)}</span>` +
-          `<span class="asst-tool-text">${esc(result)}</span></div></div>`,
+          `<span class="asst-tool-text">${esc(result)}</span></div>${imageHtml(item)}</div>`,
       );
     } else if (item.kind === "proposals") {
       add(cardHtml(item, index, { busy }));

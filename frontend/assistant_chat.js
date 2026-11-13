@@ -7,6 +7,7 @@ import { api } from "./api.js";
 import {
   applyStreamEvent,
   applyVerdicts,
+  assistantImage,
   findProposal,
   handoffOutcome,
   isSendKey,
@@ -37,6 +38,7 @@ import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments
 import { loadCharacters } from "./library_sidebar.js";
 import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
+import { showModal } from "./modal.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
@@ -709,6 +711,16 @@ export function initAssistant() {
   S.assistant.session = (stored(LS_SESSION) || "").slice(0, 64);
   if (!S.assistant.session) newSession();
   registerActions("assistant", {
+    zoomImage: (el) => {
+      const image = assistantImage(el.dataset.imageId, "Generated picture");
+      if (!image) return;
+      showModal(
+        `<h2>Generated picture</h2><div class="asst-image-preview">${image.img}</div>` +
+          `<div class="modal-actions"><a class="btn" href="${image.download}" download>Download image</a>` +
+          `<button type="button" class="btn" data-wf-action="modal:close">Close</button></div>`,
+        { size: "wide" },
+      );
+    },
     toggle: () => togglePanel(),
     clear: () => clear(),
     send: () => {

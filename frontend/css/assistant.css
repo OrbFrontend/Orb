@@ -132,3 +132,10 @@
 .asst-diff-list { margin: 0; padding-left: 16px; }
 .asst-diff-list li { margin-bottom: 2px; }
 ol.asst-diff-text { margin: 0; padding-left: 20px; white-space: normal; }
+
+.asst-image { margin: 12px 0 0; }
+.asst-image img { display: block; width: 100%; max-height: 420px; object-fit: contain; border-radius: 8px; cursor: zoom-in; }
+.asst-image figcaption { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12px; }
+
+.asst-image-zoom { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.asst-image-preview img { display: block; max-width: 100%; max-height: 75vh; object-fit: contain; margin: 0 auto; }

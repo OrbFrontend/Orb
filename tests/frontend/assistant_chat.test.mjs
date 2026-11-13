@@ -820,3 +820,23 @@ test("an edited request replaces itself and everything below it, under the name 
   $("assistant-clear").click();
   S.activeConvId = null;
 });
+
+test("a standalone image stays in the assistant panel and opens an enlarged downloadable picture", async () => {
+  const imageId = "b2".repeat(16);
+  const run = await ask("Create a standalone portrait.");
+  emit(run, "tool_start", { tool: "create_image", call_id: "image-call" });
+  emit(run, "tool_result", { tool: "create_image", call_id: "image-call", ok: true, summary: "Created a picture.", ids: { image_id: imageId } });
+  emit(run, "done", { reason: "reply" });
+  run.writer.close();
+  await settled();
+  const zoom = $("assistant-log").querySelector(`[data-image-id="${imageId}"]`);
+  assert.ok(zoom);
+  assert.equal(zoom.querySelector("img").getAttribute("src"), `/api/assistant/images/${imageId}`);
+  assert.equal(requests.filter((r) => r.url.includes("/messages")).length, 0);
+  zoom.click();
+  const modal = $("modal-root");
+  assert.equal(modal.querySelector("img").getAttribute("src"), `/api/assistant/images/${imageId}`);
+  assert.equal(modal.querySelector("a[download]").getAttribute("href"), `/api/assistant/images/${imageId}?download=true`);
+  modal.querySelector('[data-wf-action="modal:close"]').click();
+  assert.equal(modal.innerHTML, "");
+});

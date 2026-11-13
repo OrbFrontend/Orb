@@ -218,7 +218,11 @@ before it byte for byte: the server holds the conversation as the model was
 sent it, every call and result whole (see
 [The conversation](assistant-panel.md#the-conversation)). The `CachedBase`
 prefix ends where the previous request did, and the 1 h anchor sits there.
-Nothing the model has read is shortened or summarized, so nothing is re-read.
+Tool-returned image previews append as normal user-role multimodal content after
+their text tool result. They stay byte-stable in this conversation and are not
+counted as new user requests. A text-only transport is sent each preview as its
+caption and a limitation note on every call; the transcript keeps the preview. Nothing the model has read is shortened or
+summarized between requests on the same transport.
 One thing rewrites the prefix: a conversation past its budget loses its oldest
 requests, a quarter of the budget at a time, so it happens once in several
 requests rather than on each. A start that moved with every request re-read

@@ -1,4 +1,4 @@
-"""The assistant's media tools: an image or speech for one saved reply, rendered by the host as one job of the run."""
+"""Assistant media: saved-reply illustration and speech, plus standalone pictures returned to the panel."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ _DIRECTION_CHARS = 1000
 
 _MEDIA = (
     _Medium(
-        "generate_image",
+        "illustrate_reply",
         "image_gen",
         "generate",
         "image",
@@ -45,7 +45,8 @@ _MEDIA = (
         "Composing the image prompt…",
         "Make an image of one saved reply in a chat with the Image Generation workflow and save it on that message. With "
         "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
-        "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does.",
+        "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
+        "For a standalone picture or avatar rather than a saved RP reply, use create_image instead.",
         directed=True,
     ),
     _Medium(
@@ -76,10 +77,10 @@ class _ImageArgs(_MediaArgs):
 
 
 def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHost) -> list[AssistantTool]:
-    """One tool per media workflow that is installed with an on-demand hook; none without a run to report to."""
+    """Offer tools for installed on-demand and standalone hooks; each needs a run for progress and Stop."""
     if run is None:
         return []
-    return [
+    tools = [
         AssistantTool(
             m.tool,
             m.description,
@@ -91,6 +92,21 @@ def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHo
         for m in _MEDIA
         if host.media_available(m.workflow_id)
     ]
+    if host.standalone_available():
+        tools.append(
+            AssistantTool(
+                "create_image",
+                "Create a standalone picture from a description and show it in this panel; nothing is saved on a chat or a "
+                "card (illustrate_reply is the tool for a saved RP reply). For an avatar, read the card and describe its looks "
+                "here; the user downloads the picture and sets and crops the avatar themselves. To revise an earlier picture, "
+                "pass its image_id as reference_image_id with the changes.",
+                _CreateImageArgs,
+                "write",
+                partial(_create_image, run, host),
+                reports_progress=True,
+            )
+        )
+    return tools
 
 
 def _switched_off(workflow_id: str, settings: Settings, host: WorkflowSwitches) -> list[str]:
@@ -170,3 +186,44 @@ async def _result(
     data: dict[str, Any] = {"saved": True, "attachment_ids": ids, **({} if status == "saved" else {"status": status})}
     ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
     return ToolOutput(data, summary, ids_out, committed=({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},))
+
+
+class _CreateImageArgs(ToolArguments):
+    reference_image_id: str = Field(
+        default="",
+        max_length=32,
+        description="image_id of an earlier create_image result to revise; used in place of the character's reference picture.",
+    )
+    description: str = Field(
+        min_length=1,
+        max_length=8000,
+        description="A complete visual description of the picture.",
+    )
+    character_id: str = Field(
+        default="",
+        max_length=64,
+        description="Card whose saved appearance tags and reference picture apply. Empty: no character, even with one in view.",
+    )
+
+
+async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageArgs) -> ToolOutput:
+    description = args.description.strip()
+    if not description:
+        raise ToolFailure("Describe the picture to create.")
+    character_id = args.character_id or None
+    off = _switched_off("image_gen", await get_settings(), host)
+    if off:
+        raise ToolFailure(
+            f"{' and '.join(off)} switched off, so nothing was made. Tell the user; you can turn it on with set_pipeline_toggle if they ask."
+        )
+    try:
+        created = await host.create_image(description, character_id, args.reference_image_id, run)
+    except HostRefusal as exc:
+        raise ToolFailure(str(exc)) from None
+    summary = "Created a standalone picture in the assistant panel. Download it to set and crop an avatar; no chat or card was changed."
+    return ToolOutput(
+        {"image_id": created.image_id},
+        summary,
+        {"image_id": created.image_id},
+        images=({"type": "image_url", "image_url": {"url": created.preview_url}},) if created.preview_url else (),
+    )

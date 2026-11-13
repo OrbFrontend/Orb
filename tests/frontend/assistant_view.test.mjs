@@ -170,8 +170,8 @@ test("a mutation names what to read again, and a failed result marks the run for
   assert.equal(run.failed, undefined);
   feed(run, [
     ["tool_result", { call_id: "call1", tool: "create_lore_entry", ok: true, summary: "Created.", ids: {} }],
-    ["tool_start", { call_id: "call2", tool: "generate_image" }],
-    ["tool_result", { call_id: "call2", tool: "generate_image", ok: false, summary: "May have been saved.", ids: {} }],
+    ["tool_start", { call_id: "call2", tool: "illustrate_reply" }],
+    ["tool_result", { call_id: "call2", tool: "illustrate_reply", ok: false, summary: "May have been saved.", ids: {} }],
   ]);
   assert.equal(run.failed, true);
   // Closed before even a tool started: the request is followed by an interrupted outcome, never left open.
@@ -370,4 +370,30 @@ test("the lorebook drawer's world and entry ride with the view, and only when th
   const forged = { ...chat, entry_id: 4 };
   const [plain] = parseTranscript(serializeTranscript([{ kind: "user", text: "Hi", context: forged }]));
   assert.deepEqual(plain.context, chat, "an entry without its world is dropped");
+});
+
+test("standalone image results render and survive reloads using only checked local ids", () => {
+  const imageId = "a1".repeat(16);
+  const run = newRun();
+  feed(run, [
+    ["tool_start", { tool: "create_image", call_id: "image-call" }],
+    ["tool_result", { tool: "create_image", call_id: "image-call", ok: true, summary: "Created a picture.", ids: { image_id: imageId } }],
+  ]);
+  const restored = parseTranscript(serializeTranscript(run.items));
+  assert.equal(restored[0].ids.image_id, imageId);
+  const html = transcriptHtml(restored, (s) => s);
+  assert.match(html, new RegExp(`src="/api/assistant/images/${imageId}"`));
+  assert.match(html, /data-wf-action="assistant:zoomImage"/);
+  assert.match(html, /\?download=true" download/);
+  assert.match(html, /expired or the server restarted/);
+  for (const bad of ["../../settings", "https://evil.invalid/a.png", '"><script>', "a".repeat(33), 12]) {
+    restored[0].ids.image_id = bad;
+    assert.doesNotMatch(transcriptHtml(restored, (s) => s), /<img/);
+  }
+  restored[0].ids.image_id = imageId;
+  restored[0].ok = false;
+  assert.doesNotMatch(transcriptHtml(restored, (s) => s), /<img/);
+  restored[0].ok = true;
+  restored[0].tool = "illustrate_reply";
+  assert.doesNotMatch(transcriptHtml(restored, (s) => s), /<img/);
 });

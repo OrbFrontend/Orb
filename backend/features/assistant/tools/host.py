@@ -164,11 +164,29 @@ class MediaOutcome:
             self.ids.append(attachment)
 
 
+@dataclass(frozen=True)
+class CreatedImage:
+    """A temporary picture's id and model-facing preview, independent of its stored download bytes."""
+
+    image_id: str
+    preview_url: str
+
+
 class MediaJobs(Protocol):
-    """The media workflows' on-demand hooks, run as workflow jobs filed under the run and the message they render."""
+    """Media dispatch: message-scoped workflow jobs and standalone pictures linked only to the assistant run."""
 
     def media_available(self, workflow_id: str) -> bool:
         """Whether *workflow_id* is installed with an on-demand hook."""
+        ...
+
+    def standalone_available(self) -> bool:
+        """Whether the image workflow is installed with a standalone render hook."""
+        ...
+
+    async def create_image(
+        self, description: str, character_id: str | None, reference_image_id: str, run: MediaRun
+    ) -> CreatedImage:
+        """Render with an optional earlier picture and return its temporary id and preview; HostRefusal on failure or Stop."""
         ...
 
     def message_deleting(self, message_id: int) -> bool: ...

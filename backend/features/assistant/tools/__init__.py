@@ -10,7 +10,7 @@ from .actions import build_action_tools
 from .deletes import build_delete_tools
 from .edits import build_edit_tools
 from .fragments import build_fragment_tools
-from .host import AssistantHost, ChatUnavailable, HostRefusal, MediaOutcome, MediaRun, NamedWorkflow, SchemaName
+from .host import AssistantHost, ChatUnavailable, CreatedImage, HostRefusal, MediaOutcome, MediaRun, NamedWorkflow, SchemaName
 from .media import build_media_tools
 from .proposals import Proposal, apply_proposals, open_proposals, pending_note, revise_proposal, undo_proposals
 from .reads import build_read_tools
@@ -21,6 +21,7 @@ from .toggles import build_toggle_tools, switch_summary
 __all__ = [
     "AssistantHost",
     "ChatUnavailable",
+    "CreatedImage",
     "HostRefusal",
     "MediaOutcome",
     "MediaRun",

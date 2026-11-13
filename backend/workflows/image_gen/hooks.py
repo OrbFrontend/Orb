@@ -148,7 +148,7 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _reporting(emit: Callable[[str], None], *, reason: str = "") -> ProgressCallback:
+def render_progress(emit: Callable[[str], None], *, reason: str = "") -> ProgressCallback:
     def report(stage: str, detail: Mapping[str, Any]) -> None:
         label = _progress_label(stage, detail)
         if label is not None:
@@ -349,7 +349,7 @@ def _rendered_seed(requested: int, result) -> int:
     return reported if isinstance(reported, int) and not isinstance(reported, bool) else requested
 
 
-async def _review_url(image: bytes, mime: str) -> str:
+async def review_image_url(image: bytes, mime: str) -> str:
     data, mime = await asyncio.to_thread(shrink_for_review, image, mime)
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
@@ -438,7 +438,7 @@ async def _generate_fresh(
     shown = last_reply_image(history, int(message["id"])) if config.get("prompter_reference") else None
     if shown is not None:
         shown_bytes, shown_mime, prompter_reference = shown
-        prompter_reference_url = await _review_url(shown_bytes, shown_mime)
+        prompter_reference_url = await review_image_url(shown_bytes, shown_mime)
         logger.info("[image_gen] prompter reference: %s", prompter_reference)
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
@@ -492,7 +492,7 @@ async def _generate_fresh(
                 references=references,
             ),
             target=target,
-            progress=_reporting(phase, reason=reason),
+            progress=render_progress(phase, reason=reason),
         )
 
     reviewed = 0
@@ -536,7 +536,7 @@ async def _generate_fresh(
                 prefix=prefix,
                 settings=ctx.settings,
                 thread=thread,
-                image_url=await _review_url(attachment["data"], attachment["mime"]),
+                image_url=await review_image_url(attachment["data"], attachment["mime"]),
                 render=current,
                 turns_left=refine_turns - reviewed,
                 prompt_format=selected_style["prompt_format"],

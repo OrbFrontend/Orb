@@ -16,6 +16,7 @@ from ...features import lorebook
 from ...features.assistant.tools import (
     AssistantHost,
     ChatUnavailable,
+    CreatedImage,
     HostRefusal,
     MediaOutcome,
     MediaRun,
@@ -155,6 +156,14 @@ class ApiHost:
 
     def media_available(self, workflow_id: str) -> bool:
         return media.media_available(workflow_id)
+
+    def standalone_available(self) -> bool:
+        return media.standalone_available()
+
+    async def create_image(
+        self, description: str, character_id: str | None, reference_image_id: str, run: MediaRun
+    ) -> CreatedImage:
+        return await media.create_image(description, character_id, reference_image_id, run)
 
     def message_deleting(self, message_id: int) -> bool:
         return deps.message_deleting(message_id)
