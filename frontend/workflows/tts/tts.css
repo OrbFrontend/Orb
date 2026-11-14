@@ -40,6 +40,7 @@
 .tts-range output { min-width: 3em; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums;
   text-align: right; }
 .tts-profile-fields { display: grid; gap: 10px; }
+.tts-delivery { display: grid; gap: 10px; }
 .tts-note + .tts-profile-fields { margin-top: 10px; }
 .tts-pf-field { min-width: 0; }
 .tts-control-row { display: flex; align-items: center; gap: 8px; min-width: 0; }

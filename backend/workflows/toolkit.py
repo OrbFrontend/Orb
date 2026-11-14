@@ -42,6 +42,7 @@ from ..core.text_segmentation import (
     TOGGLE_QUOTES,
     find_quote_spans,
     map_prose,
+    split_sentence_units,
     strip_protected_markup,
 )
 from ..database import (
@@ -176,6 +177,7 @@ __all__ = [
     "WorkflowInputError",
     "WorkflowUnavailableError",
     "WorkflowUserFacingError",
+    "classify_emotions",
     "classify_pov",
     "classify_pov_tense_chunks",
     "classify_axes",
@@ -188,6 +190,7 @@ __all__ = [
     "find_quote_spans",
     "map_prose",
     "span_role",
+    "split_sentence_units",
     "split_ws",
     "strip_protected_markup",
     "strip_quotes",
@@ -263,6 +266,11 @@ def local_model_identity(feature: str) -> str:
     """Return the pinned model identity for caches of classifier results."""
     spec = _local_ml.MODELS[feature]
     return f"{spec.repo_id}@{spec.revision}"
+
+
+async def classify_emotions(texts: Sequence[str]) -> list[dict[str, float]]:
+    """Score each text against every go-emotions label (independent sigmoids), in input order, in one request."""
+    return await _local_ml.aemotion_scores(texts)
 
 
 async def classify_pov(text: str) -> str:

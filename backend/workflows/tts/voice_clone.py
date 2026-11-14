@@ -26,3 +26,17 @@ def apply_voice(profile: dict, voice: Mapping[str, Any] | None, source_name: str
         # Keep the backend selected for the next upload, but disable speech.
         profile["enabled"] = False
     return profile
+
+
+def apply_zonos_voice(profile: dict, embedding: list[float] | None, source_name: str, api_url: str = "") -> dict:
+    """Store a ZONOS speaker *embedding* in *profile*, or clear it when ``None``."""
+    profile["zonos_embedding"] = list(embedding) if embedding else []
+    profile["zonos_ref_name"] = source_name if embedding else ""
+    if embedding:
+        profile["backend"] = "zonos"
+        profile["voice_id"] = VOICE_ID
+        profile["api_url"] = api_url or profile.get("api_url") or ""
+        profile["enabled"] = True
+    else:
+        profile["enabled"] = False
+    return profile

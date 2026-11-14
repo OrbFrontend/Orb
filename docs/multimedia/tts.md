@@ -40,13 +40,17 @@ The backends available in your installation are shown in the Voice profile.
 | Spark-TTS (built-in) | Optional local model downloads. No separate server; supports cloned voices. |
 | Spark-TTS (sidecar) | A running Spark-TTS service and its API URL. |
 | Fish Speech | A running Fish Speech service and, if required, its API URL or key. |
+| ZONOS3 | A running ZONOS3 server and its API URL. Supports cloned voices. |
 | ElevenLabs | An ElevenLabs API key and a voice. |
 
 ## Clone a voice
 
-The built-in **Spark-TTS** backend can learn a character's voice from one audio
-clip. Select it in the character's Voice profile. If Orb asks for downloads,
-use the setup button in that panel.
+The built-in **Spark-TTS** and **ZONOS3** backends can learn a character's
+voice from one audio clip. Select one in the character's Voice profile.
+
+### Spark-TTS
+
+If Orb asks for downloads, use the setup button in that panel.
 
 Choose a mode:
 
@@ -59,6 +63,31 @@ FLAC work directly; other formats may need `ffmpeg`. Uploading a clip saves the
 voice to that character and enables its speech profile. Drop another clip to
 replace it, or choose **Remove** to forget the cloned voice and stop speech for
 that character.
+
+### ZONOS3
+
+1. Start the ZONOS3 server, then choose **ZONOS3** as the backend. The default
+   API URL is `http://localhost:1919`.
+2. Drop a clip of the character speaking on **Cloned voice**. The server must be
+   running while the clip uploads.
+
+Use one speaker and no music. Drop another clip to replace the voice, or choose
+**Remove** to forget it and stop speech for that character.
+
+## Emotional delivery
+
+With the **ZONOS3** backend, Orb can speak each line in the mood of its scene,
+for example angry, sad, scared, gentle or whispered.
+
+1. Give the character a ZONOS3 voice, as in [Clone a voice](#zonos3).
+2. Download the **Character Expressions** model under **Settings › Expression
+   Playback**. Orb uses it to read the mood of each line.
+3. Leave **Emotional delivery** on. If a voice breaks up on emotional lines,
+   lower **Strength**. A sturdy voice can go up to 2×.
+
+Moods are read for English only. Other languages are spoken without emotional
+delivery, but whispered lines still apply. Replaying a clip uses the delivery it
+was made with.
 
 ## What gets spoken
 

@@ -619,3 +619,35 @@ metadata carries its own text and blocks, and karaoke against changed message te
 is disabled. The automatic TTS hook snapshots the voice profile before generation,
 while playback preferences remain live. API event streams stay registered as
 workflow jobs until they settle, so deletion and restore account for their renders.
+
+## Per-line speech delivery
+
+The ZONOS3 TTS backend steers each spoken line with one server control. After
+extraction, `tts/line_emotion.py` scores two inputs per line with the local
+go-emotions classifier: the line alone, and the line in quotes with the
+narration sentence before it and the narration up to the first sentence end
+after it, stopping at the neighbouring line or a paragraph break. It averages
+the two and keeps the top non-neutral label when that label reaches 0.5 and
+beats `neutral`. A whisper overrides the classifier: a whispered beat before the
+line, or a `whisper…` word within six narration words of it. Before the line,
+those words come from the previous paragraph's closing narration when the line
+opens its paragraph. After the line, they count only when the narration
+continues the line's sentence (`"Run," she whispered.`), so a whisper between
+two lines goes to the second. A profile in a
+language other than English, a classifier that is off or missing, and a
+classifier failure all give `neutral`.
+
+The label goes in the chunk's `emotion` field, so it is stored with the clip.
+Reroll and rehydrate replay the stored chunks and never run the classifier, so
+a replayed clip keeps its delivery. `engine/zonos_delivery.py` maps the label to a
+control and dose, scaled by the profile's `delivery_strength` and limited by a
+hard cap for each direction. A label with no row, including values stored by
+other backends, sends no control. If a controlled line of four or more words
+comes back shorter than 0.6 s, the adapter speaks it again without controls.
+
+A ZONOS voice is cloned like a built-in Spark voice: the upload hook sends the
+clip to the server's `POST /v2/speakers` under a throwaway session, reads the
+speaker embedding back, and stores it in the profile as `zonos_embedding`. Every
+request sends that embedding as a `.npy` in `speaker_mode: embedding` with a
+fixed loudness condition, so the server keeps no Orb state and a replay
+reproduces from the attachment metadata alone.

@@ -49,6 +49,7 @@ __all__ = [
     "aclassify_pov_tense_chunks",
     "aclassify_subjects",
     "acompare_subjects",
+    "aemotion_scores",
     "ascore",
     "available",
     "delete_model",
@@ -288,6 +289,24 @@ async def aclassify(feature: str, text: str) -> str:
     (logits,) = await _logits(feature, [text], len(GO_EMOTIONS))
     # No softmax -- only the single top label is wanted, and argmax is invariant to it.
     return GO_EMOTIONS[_argmax(logits)]
+
+
+def _sigmoid(value: float) -> float:
+    if value >= 0:
+        return 1.0 / (1.0 + math.exp(-value))
+    exp = math.exp(value)
+    return exp / (1.0 + exp)
+
+
+async def aemotion_scores(texts: Sequence[str]) -> list[dict[str, float]]:
+    """Per-label go-emotions sigmoid scores for each text, in input order. One request for the whole list."""
+    clipped = [(text or "").strip()[-_CLASSIFY_MAX_CHARS:] for text in texts]
+    keep = [i for i, text in enumerate(clipped) if text]
+    out = [dict.fromkeys(GO_EMOTIONS, 0.0) for _ in clipped]
+    rows = await _logits("emotion_classifier", [clipped[i] for i in keep], len(GO_EMOTIONS))
+    for i, logits in zip(keep, rows, strict=True):
+        out[i] = {label: _sigmoid(value) for label, value in zip(GO_EMOTIONS, logits, strict=True)}
+    return out
 
 
 # The v2 model still needs short windows. Keep narration extraction in callers: empirical dialogue-insertion probes favor it

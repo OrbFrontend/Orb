@@ -39,8 +39,8 @@ text-to-speech backend. Narration and inner monologue are not spoken. Select the
 speaker icon to read a message, select a quoted line to read only that line, or
 enable auto-speak for new replies.
 
-Microsoft Edge TTS is included and needs no API key. Kokoro-82M and Fish Speech
-run locally. OpenAI-compatible services and ElevenLabs are cloud backends. Each
+Microsoft Edge TTS is included and needs no API key. Kokoro-82M, Fish Speech
+and ZONOS3 run locally. OpenAI-compatible services and ElevenLabs are cloud backends. Each
 character has its own voice in the character editor's **Voice** tab.
 
 See [Text-to-Speech](tts.md) for backend setup and voice options.
