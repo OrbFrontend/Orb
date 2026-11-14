@@ -8,7 +8,7 @@ import itertools
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import ValidationError
 
@@ -184,6 +184,26 @@ def _step_numbers(history: Sequence[Mapping[str, Any]]) -> Iterator[int]:
     return (number for number in itertools.count(1) if f"step{number}" not in taken and f"call{number}" not in taken)
 
 
+def _distinct_calls(history: list[WireMessage]) -> list[WireMessage]:
+    """*history* with each repeated tool call id renamed, and its results with it; an unrepeated one is left as it is."""
+    held = {call.get("id") for message in history for call in message.get("tool_calls") or ()}
+    fresh = (name for number in itertools.count(1) if (name := f"call{number}") not in held)
+    seen: set[Any] = set()
+    renamed: dict[Any, str] = {}
+    distinct: list[WireMessage] = []
+    for message in history:
+        if calls := message.get("tool_calls"):
+            renamed = {call.get("id"): next(fresh) for call in calls if call.get("id") in seen}
+            seen.update(call.get("id") for call in calls)
+            if renamed:
+                calls = [{**call, "id": renamed.get(call.get("id"), call.get("id"))} for call in calls]
+                message = cast(WireMessage, {**message, "tool_calls": calls})
+        elif message.get("role") == "tool" and message.get("tool_call_id") in renamed:
+            message = cast(WireMessage, {**message, "tool_call_id": renamed[message.get("tool_call_id")]})
+        distinct.append(message)
+    return distinct
+
+
 def _repeated(output: ToolOutput) -> str:
     """The refusal for a change this request already made: true about what exists, so the model cannot claim a second one."""
     ids = encode_result(dict(output.ids))
@@ -357,6 +377,7 @@ async def run_assistant(
     if transcript is not None:
         own = reasoning and (transcript.model, transcript.endpoint) == (model, endpoint)
         history = [*transcript.messages] if own else [without_reasoning(message) for message in transcript.messages]
+        history = _distinct_calls(history)
     if _chars([latest]) > CONTEXT_BUDGET_CHARS:
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
     run: list[WireMessage] = []
