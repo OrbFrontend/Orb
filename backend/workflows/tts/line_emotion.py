@@ -15,6 +15,7 @@ LABEL_THRESHOLD = 0.5
 WHISPERED = "whispered"
 _SENTENCE_ENDS = tuple(".!?…。！？؟")
 WHISPER_REACH = 6  # narration words on each side of a line that can whisper it, enough for "she said in a low whisper"
+_SIGH_WORDS = frozenset({"sigh", "sighs", "sighed", "sighing"})
 
 
 def pick_label(line_scores: Mapping[str, float], window_scores: Mapping[str, float]) -> str:
@@ -28,7 +29,8 @@ def pick_label(line_scores: Mapping[str, float], window_scores: Mapping[str, flo
 
 
 def _whisper_word(word: str) -> bool:
-    return "".join(ch for ch in word if ch.isalpha()).lower().startswith("whisper")
+    bare = "".join(ch for ch in word if ch.isalpha()).lower()
+    return bare.startswith("whisper") or bare in _SIGH_WORDS
 
 
 def _trail_attaches(line: SpokenLine) -> bool:
@@ -38,7 +40,7 @@ def _trail_attaches(line: SpokenLine) -> bool:
 
 
 def whispered(line: SpokenLine) -> bool:
-    """A whispered beat before *line*, or a whisper word within ``WHISPER_REACH`` narration words of it."""
+    """A whispered beat before *line*, or a whisper or sigh word within ``WHISPER_REACH`` narration words of it."""
     near = line.lead_in.split()[-WHISPER_REACH:]
     if _trail_attaches(line):
         near += line.trail.split()[:WHISPER_REACH]
@@ -50,7 +52,7 @@ def _english(language: str) -> bool:
 
 
 async def line_labels(lines: Sequence[SpokenLine], profile: Mapping, settings: Settings | None) -> list[str]:
-    """One label per line: a nearby whisper wins, else the classifier's label, else ``neutral``."""
+    """One label per line: a nearby whisper or sigh wins, else the classifier's label, else ``neutral``."""
     labels = [WHISPERED if whispered(line) else "neutral" for line in lines]
     open_lines = [i for i, label in enumerate(labels) if label != WHISPERED]
     if (

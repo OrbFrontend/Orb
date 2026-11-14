@@ -21,9 +21,12 @@ def separator_ready(settings: Settings) -> tuple[bool, str]:
     return voice_clip.ready()
 
 
-async def prepare_clip(data: bytes, settings: Settings, *, filename: str = "") -> voice_clip.PreparedClip:
-    """Prepare an uploaded clip off the event loop. An unreadable or silent file raises ``WorkflowInputError``."""
-    separate, _reason = separator_ready(settings)
+async def prepare_clip(data: bytes, settings: Settings, *, filename: str = "") -> tuple[bytes, str]:
+    """Prepare an uploaded clip off the event loop: the WAV, and what the panel says about sound under the voice.
+
+    An unreadable or silent file raises ``WorkflowInputError``.
+    """
+    separate, reason = separator_ready(settings)
 
     def run() -> voice_clip.PreparedClip:
         try:
@@ -33,6 +36,13 @@ async def prepare_clip(data: bytes, settings: Settings, *, filename: str = "") -
                 voice_clip.release()
 
     try:
-        return await asyncio.to_thread(run)
+        clip = await asyncio.to_thread(run)
     except UnsupportedAudio as exc:
         raise WorkflowInputError(str(exc)) from exc
+    if clip.separated and clip.background:
+        return clip.wav, "Orb took out what music it could, but sound remains under the voice, and the clone may copy it."
+    if clip.separated:
+        return clip.wav, "Orb removed the background sound under the voice."
+    if clip.background:
+        return clip.wav, f"Something plays under the voice, and the clone will copy it. {reason}"
+    return clip.wav, ""

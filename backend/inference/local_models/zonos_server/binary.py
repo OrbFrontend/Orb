@@ -65,15 +65,12 @@ def gpu_capable() -> bool:
     return not any("-cpu." in part for part in _record()[1:])
 
 
-def asset_names(*, system: str, arch: str) -> tuple[str, ...]:
-    """The release assets for this platform, best first. Linux falls back to the CPU build where the Vulkan one will not run."""
-    if (system, arch) == ("darwin", "arm64"):
-        return ("zonos3-macos-arm64-metal.tar.gz",)
-    if (system, arch) == ("windows", "x64"):
-        return ("zonos3-windows-x64-vulkan.zip",)
-    if (system, arch) == ("linux", "x64"):
-        return ("zonos3-linux-x64-vulkan.tar.gz", "zonos3-linux-x64-cpu.tar.gz")
-    raise ZonosServerMissing(f"No prebuilt ZONOS3 server for {system} {arch}; build one and set ORB_ZONOS3_SERVER.")
+#: The release assets per platform, best first. Linux falls back to the CPU build where the Vulkan one will not run.
+_ASSETS = {
+    ("darwin", "arm64"): ("zonos3-macos-arm64-metal.tar.gz",),
+    ("windows", "x64"): ("zonos3-windows-x64-vulkan.zip",),
+    ("linux", "x64"): ("zonos3-linux-x64-vulkan.tar.gz", "zonos3-linux-x64-cpu.tar.gz"),
+}
 
 
 def find_binary() -> Path:
@@ -131,13 +128,10 @@ def _install(unpacked: Path, dest: Path) -> Path:
 
 def fetch() -> str:
     """Download the managed build for this platform and check that it runs. Blocking. Returns the binary's path."""
-    system = release_archive.system()
-    try:
-        names = asset_names(system=system, arch=release_archive.arch())
-    except ZonosServerMissing:
-        raise
-    except RuntimeMissing as exc:
-        raise ZonosServerMissing(f"{exc} Build the ZONOS3 server and set ORB_ZONOS3_SERVER.") from None
+    system, arch = release_archive.system(), release_archive.arch()
+    names = _ASSETS.get((system, arch))
+    if not names:
+        raise ZonosServerMissing(f"No prebuilt ZONOS3 server for {system} {arch}; build one and set ORB_ZONOS3_SERVER.")
     tag = wanted_build()
     release = release_archive.github_api(f"https://api.github.com/repos/{REPO_SLUG}/releases/tags/{tag}", USER_AGENT)
     dest = Path(bin_dir())

@@ -21,7 +21,7 @@ BACKGROUND_FLOOR_DB = -45.0
 
 @dataclass(frozen=True)
 class PreparedClip:
-    """A 16-bit mono WAV ready to upload, and what was done to it."""
+    """A 16-bit mono WAV ready to upload: whether sound still plays under its voice, and whether vocals were separated."""
 
     wav: bytes
     background: bool
@@ -42,7 +42,8 @@ def _wav_bytes(signal) -> bytes:
 
 def prepare(data: bytes, *, filename: str = "", separate: bool) -> PreparedClip:
     """Decode *data*, keep its first ``REFERENCE_SECONDS``, separate its vocals when *separate* and something plays under the
-    voice, and set it to ``TARGET_LUFS`` with one gain that keeps peaks below -1 dBFS.
+    voice, and set it to ``TARGET_LUFS`` with one gain that keeps peaks below -1 dBFS. The separator takes music out but
+    leaves most noise and hum, so the result is measured again.
 
     Raises ``UnsupportedAudio`` for a clip that cannot be read or holds no speech.
     """
@@ -55,6 +56,7 @@ def prepare(data: bytes, *, filename: str = "", separate: bool) -> PreparedClip:
     separated = background and separate
     if separated:
         signal = separator.vocals(signal)
+        background = loudness.floor_db(signal, SAMPLE_RATE) > BACKGROUND_FLOOR_DB
     level = loudness.integrated_lufs(signal, SAMPLE_RATE)
     if not math.isfinite(level):
         raise UnsupportedAudio("The clip has no speech loud enough to clone from.")

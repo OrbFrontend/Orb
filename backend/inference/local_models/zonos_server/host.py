@@ -1,25 +1,21 @@
-"""Own the ZONOS3 server child process: start it on demand, stop it when idle."""
+"""Run the zonos3-server child under the shared server host: started on demand, stopped when idle."""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
-import socket
 import time
 from collections import deque
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
-from ..llama_server import Child, manager, spawn
+from ..llama_server.host import ManagedServerHost
+from ..llama_server.process import Child, free_port, spawn, stop
 from . import binary
 
-logger = logging.getLogger(__name__)
-
 BOOT_TIMEOUT = 300.0
-_STOP_TIMEOUT = 10.0
 
 
 class ZonosServerFailed(RuntimeError):
@@ -44,150 +40,50 @@ class Launch:
         return [*args, "--host", "127.0.0.1", "--port", str(port), "--gpu" if self.gpu else "--cpu"]
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+class ZonosServer:
+    """One zonos3-server child."""
 
-
-class ZonosServerHost:
-    """One resident zonos3-server, loaded lazily and restarted when its launch changes."""
-
-    def __init__(self, *, name: str, idle_timeout: float) -> None:
-        self.name = name
-        self.state = "idle"  # idle | loading | ready | failed
-        self.error = ""
-        self._idle_timeout = idle_timeout
-        self._launch: Launch | None = None
-        self._child: Child | None = None
-        self._url = ""
-        self._log: deque[str] = deque(maxlen=40)
-        self._lock = asyncio.Lock()
-        self._inflight = 0
-        self._idle = asyncio.Condition()
-        self._idle_task: asyncio.Task | None = None
-        self._last_used = time.monotonic()
-        manager.register(self)
+    def __init__(self, launch: Launch, executable: Path) -> None:
+        self.port = free_port()
+        self.url = f"http://127.0.0.1:{self.port}"
+        self.argv = launch.argv(str(executable), self.port)
+        self.started_at = time.monotonic()
+        self.ready = False
+        self.child: Child | None = None
+        self.log: deque[str] = deque(maxlen=40)
 
     @property
-    def _alive(self) -> bool:
-        return self._child is not None and self._child.returncode is None
+    def alive(self) -> bool:
+        return self.child is not None and self.child.returncode is None
 
-    async def _stop(self) -> None:
-        child, self._child, self._url = self._child, None, ""
-        if child is None:
-            return
-        child.terminate()
-        if not await child.wait(_STOP_TIMEOUT):
-            child.kill()
-            await child.wait(_STOP_TIMEOUT)
-        await child.aclose()
+    async def start(self) -> None:
+        self.child = await spawn(self.argv, self.log.append)
 
-    async def _wait_ready(self, child: Child, url: str) -> None:
+    async def wait_ready(self) -> None:
         deadline = time.monotonic() + BOOT_TIMEOUT
         async with httpx.AsyncClient(timeout=5.0) as client:
             while time.monotonic() < deadline:
-                if child.returncode is not None:
-                    tail = "\n".join(self._log) or f"exit status {child.returncode}"
-                    raise ZonosServerFailed(f"The ZONOS3 server stopped while starting:\n{tail[-600:]}")
+                if self.child is None or self.child.returncode is not None:
+                    await self.stop()
+                    tail = "\n".join(self.log)[-600:] or "it exited"
+                    raise ZonosServerFailed(f"The ZONOS3 server stopped while starting:\n{tail}")
                 with contextlib.suppress(httpx.HTTPError):
-                    if (await client.get(f"{url}/v2/capabilities")).status_code == 200:
+                    if (await client.get(f"{self.url}/v2/capabilities")).status_code == 200:
+                        self.ready = True
                         return
                 await asyncio.sleep(0.25)
+        await self.stop()
         raise ZonosServerFailed(f"The ZONOS3 server did not answer within {BOOT_TIMEOUT:.0f} s.")
 
-    async def _ensure_locked(self, launch: Launch) -> str:
-        if self._launch == launch and self._alive and self.state == "ready":
-            return self._url
-        executable = binary.find_binary()
-        self._launch, self.state, self.error = launch, "loading", ""
-        try:
-            await self._drain()
-            await self._stop()
-            self._log.clear()
-            port = _free_port()
-            started = time.monotonic()
-            self._child = await spawn(launch.argv(str(executable), port), self._log.append)
-            url = f"http://127.0.0.1:{port}"
-            await self._wait_ready(self._child, url)
-        except asyncio.CancelledError:
-            self.state = "idle"
-            with contextlib.suppress(Exception):
-                await self._stop()
-            raise
-        except Exception as exc:
-            self.state, self.error = "failed", str(exc)
-            with contextlib.suppress(Exception):
-                await self._stop()
-            raise
-        self._url, self.state = url, "ready"
-        self._last_used = time.monotonic()
-        if self._idle_task is None or self._idle_task.done():
-            self._idle_task = asyncio.create_task(self._idle_watch())
-        logger.info("%s ready in %.1fs on %s (gpu=%s)", self.name, time.monotonic() - started, url, launch.gpu)
-        return url
+    async def stop(self) -> None:
+        self.ready = False
+        child, self.child = self.child, None
+        if child is not None:
+            await stop(child)
 
-    @contextlib.asynccontextmanager
-    async def use(self, launch: Launch) -> AsyncIterator[str]:
-        """Yield the server's base URL, and keep the server running for the block."""
-        async with self._lock:
-            url = await self._ensure_locked(launch)
-            async with self._idle:
-                self._inflight += 1
-        try:
-            yield url
-        finally:
-            async with self._idle:
-                self._inflight -= 1
-                self._last_used = time.monotonic()
-                self._idle.notify_all()
 
-    async def _drain(self, timeout: float = 120.0) -> bool:
-        deadline = time.monotonic() + timeout
-        async with self._idle:
-            while self._inflight and time.monotonic() < deadline:
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(self._idle.wait(), timeout=0.25)
-            return not self._inflight
+class ZonosServerHost(ManagedServerHost[Launch, ZonosServer]):
+    """One resident zonos3-server, restarted when its launch changes."""
 
-    @contextlib.asynccontextmanager
-    async def exclusive_release(self) -> AsyncIterator[None]:
-        """Stop the server and keep it stopped through a model file change; refuses while a request is running."""
-        async with self._lock:
-            if not await self._drain():
-                raise TimeoutError("The ZONOS3 server is still in use; drain timed out")
-            await self._stop()
-            self.state = "idle"
-            yield
-
-    async def release(self) -> None:
-        """Stop the server; the next use starts it again."""
-        async with self._lock:
-            await self._drain()
-            await self._stop()
-            self.state = "idle"
-
-    async def shutdown(self) -> None:
-        if self._idle_task is not None:
-            self._idle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._idle_task
-            self._idle_task = None
-        await self._stop()
-        self.state = "idle"
-
-    async def _idle_watch(self) -> None:
-        while True:
-            await asyncio.sleep(min(30.0, max(5.0, self._idle_timeout / 4)))
-            if self._child is None:
-                return
-            if self._inflight or time.monotonic() - self._last_used < self._idle_timeout:
-                continue
-            async with self._lock:
-                if self._inflight or self._child is None or time.monotonic() - self._last_used < self._idle_timeout:
-                    continue
-                logger.info("%s idle for %.0fs; stopping the ZONOS3 server", self.name, self._idle_timeout)
-                await self._stop()
-                self.state = "idle"
-                self._idle_task = None
-                return
+    def _new_server(self, profile: Launch) -> ZonosServer:
+        return ZonosServer(profile, binary.find_binary())

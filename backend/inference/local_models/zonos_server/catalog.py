@@ -22,27 +22,19 @@ def _files(feature: str) -> list[str]:
     return [assets.resolve_path(feature), *(assets.file_path(f) for f in MODELS[feature].extra_files)]
 
 
-def synthesis_ready() -> tuple[bool, str]:
-    """Whether a line can be spoken: the voice model and the runtime are on disk."""
+def ready(*, enroll: bool = False) -> tuple[bool, str]:
+    """Whether a line can be spoken, or with *enroll* a clip read into reference codes, and why not."""
     ok, reason = dependencies.deps_ok(FEATURE)
     if not ok:
         return False, reason
     if assets.missing_files(FEATURE):
         return False, "The ZONOS3 voice model is not downloaded."
+    if enroll and assets.missing_files(FEATURE_REFERENCE):
+        return False, "The ZONOS3 reference reader is not downloaded."
     try:
         binary.find_binary()
     except binary.ZonosServerMissing as exc:
         return False, str(exc)
-    return True, ""
-
-
-def enrollment_ready() -> tuple[bool, str]:
-    """Whether a clip can be read into reference codes: synthesis plus the reference reader."""
-    ok, reason = synthesis_ready()
-    if not ok:
-        return False, reason
-    if assets.missing_files(FEATURE_REFERENCE):
-        return False, "The ZONOS3 reference reader is not downloaded."
     return True, ""
 
 

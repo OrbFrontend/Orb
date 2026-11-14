@@ -73,8 +73,9 @@ that character.
 
 Use one speaker. Orb uses the clip's first minute, and the clone copies how it
 sounds: its room, its microphone and anything playing under the voice. If the
-clip has music or noise under the voice, choose **Download** next to the vocal
-separator before uploading it, and Orb takes the background out. Drop another
+clip has music under the voice, choose **Download** next to the vocal separator
+before uploading it, and Orb takes the music out. It can't remove room noise or
+hum, so use a clip without them. Drop another
 clip to replace the voice, or choose **Remove** to forget it and stop speech for
 that character.
 
@@ -90,7 +91,7 @@ for example angry, sad, scared, gentle or whispered.
    lower **Strength**. A sturdy voice can go up to 2×.
 
 Moods are read for English only. Other languages are spoken without emotional
-delivery, but whispered lines still apply. Replaying a clip uses the delivery it
+delivery, but whispered and sighed lines are still whispered. Replaying a clip uses the delivery it
 was made with.
 
 ## What gets spoken

@@ -629,7 +629,8 @@ narration sentence before it and the narration up to the first sentence end
 after it, stopping at the neighbouring line or a paragraph break. It averages
 the two and keeps the top non-neutral label when that label reaches 0.5 and
 beats `neutral`. A whisper overrides the classifier: a whispered beat before the
-line, or a `whisper…` word within six narration words of it. Before the line,
+line, or a `whisper…` or `sigh`/`sighs`/`sighed`/`sighing` word within six
+narration words of it (ZONOS3 has no sigh sound, so a sigh is whispered). Before the line,
 those words come from the previous paragraph's closing narration when the line
 opens its paragraph. After the line, they count only when the narration
 continues the line's sentence (`"Run," she whispered.`), so a whisper between
@@ -646,12 +647,20 @@ other backends, sends `VOICE_CONTROLS` (`emotions.sad` 1.5), which kept cloned
 voices closest to their clip by ear. If a controlled line of four or more words
 comes back shorter than 0.6 s, the adapter speaks it again without controls.
 
+Before sending a line, the adapter removes asterisks, reads each ellipsis as a period and drops
+commas and periods at the line's end (`speakable_text`). The stored chunk keeps
+the extracted text, so word highlighting and replay still follow the dialogue
+as written.
+
 A ZONOS voice clones from the clip itself, not a speaker embedding. On upload,
 `inference/local_models/voice_clip` decodes the clip at 44.1 kHz and keeps its
 first 60 s, the reference the server reads. When its quietest 20 ms stretches
 sit within 45 dB of its speech, something plays under the voice; the clone would
 copy it, so the vocal separator (Hybrid Demucs's vocal stem as ONNX, from
-`scripts/export_vocal_separator.py`) takes it out when downloaded. One gain then
+`scripts/export_vocal_separator.py`) takes it out when downloaded. The separator
+removes music beds but leaves most stationary noise and hum, so the clip is
+measured again afterwards and the upload says when sound remains. It can also
+drop whispered speech. It runs on onnxruntime's CPU provider. One gain then
 sets the clip to -20 LUFS with peaks below -1 dBFS, since the server reproduces
 the reference's level. The upload hook sends the result to `POST /v2/speakers`
 under a throwaway session, reads `GET /v2/speakers/{id}/reference_codes`, and
@@ -663,5 +672,5 @@ Each request also sends `silence_prefill_frames: 10`, which keeps a line's first
 syllable from starting loud, and `eoa_hold_frames: 6`. The model ends a take
 when its words are spoken, before the voice and room have decayed, which
 clips the tail of a reverberant reference; holding the end-of-audio token for
-six frames (0.4 s) lets it generate the decay. A server that rejects the field
-gets requests without it.
+six frames (0.4 s) lets it generate the decay. Both fields, and the reference
+codes, need the OrbFrontend fork of the server.

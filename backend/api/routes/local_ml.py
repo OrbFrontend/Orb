@@ -47,8 +47,8 @@ class _FeatureManagement(Protocol):
 _MANAGEMENT: dict[str, _FeatureManagement] = {
     prose_rewriter_host.FEATURE: prose_rewriter_host,
     spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
-    zonos_tts_host.FEATURE: zonos_tts_host.MANAGEMENT,
-    zonos_tts_host.FEATURE_REFERENCE: zonos_tts_host.REFERENCE_MANAGEMENT,
+    zonos_tts_host.FEATURE: zonos_tts_host,
+    zonos_tts_host.FEATURE_REFERENCE: zonos_tts_host,
 }
 
 
@@ -62,7 +62,7 @@ class _Configurable(Protocol):
 _CONFIGURABLE: dict[str, _Configurable] = {
     prose_rewriter_host.FEATURE: prose_rewriter_host,
     spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
-    zonos_tts_host.FEATURE: zonos_tts_host.MANAGEMENT,
+    zonos_tts_host.FEATURE: zonos_tts_host,
 }
 
 
@@ -274,7 +274,7 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
 async def _fetch_zonos_runtime() -> str:
     if zonos_binary.runtime_ok():
         return str(zonos_binary.find_binary())
-    async with zonos_tts_host.MANAGEMENT.model_deletion():
+    async with zonos_tts_host.model_deletion():
         return await asyncio.to_thread(zonos_binary.fetch)
 
 

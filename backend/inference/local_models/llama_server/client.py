@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
-import socket
 import threading
 import time
 from collections import deque
@@ -18,7 +16,8 @@ from pathlib import Path
 import httpx
 
 from . import binary as binary_module
-from .process import Child, spawn
+from .process import Child, free_port, spawn
+from .process import stop as stop_child
 
 logger = logging.getLogger(__name__)
 
@@ -107,15 +106,6 @@ def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
     return argv
 
 
-def _free_port() -> int:
-    """A port the child can have. The race between closing this socket and the
-    child binding it is the standard one: nothing else on a single-user box is
-    competing for an ephemeral port."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
 def _error_text(blob: str) -> str:
     try:
         payload = json.loads(blob)
@@ -136,7 +126,7 @@ class LlamaServerClient:
         self.profile = profile
         self.binary = binary
         self.slots = profile.parallel
-        self.port = _free_port()
+        self.port = free_port()
         self.started_at = time.monotonic()
         self.log: deque[str] = deque(maxlen=60)
         # Guards `log` alone. Under _ThreadChild the reader appends from its own thread while `tail()` snapshots from the loop,
@@ -204,17 +194,8 @@ class LlamaServerClient:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
-        if child is None:
-            return
-        if child.returncode is None:
-            child.terminate()
-            if not await child.wait(timeout=15):
-                child.kill()
-                await child.wait(timeout=5)
-        # AFTER the process is gone, not before. The drain is what captures a dying child's last words, and `tail()` is how
-        # `wait_ready` explains a boot failure -- closing it first threw away the explanation.
-        with contextlib.suppress(Exception):
-            await child.aclose()
+        if child is not None:
+            await stop_child(child)
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:

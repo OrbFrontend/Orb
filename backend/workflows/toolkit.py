@@ -366,21 +366,14 @@ async def spark_voice_reference_audio(reference_tokens: Sequence[int], speaker_t
     return await _spark_tts_host.reference_audio(reference_tokens, speaker_tokens)
 
 
-async def prepare_voice_clip(data: bytes, settings: Settings, *, filename: str = "") -> dict[str, Any]:
+async def prepare_voice_clip(data: bytes, settings: Settings, *, filename: str = "") -> tuple[bytes, str]:
     """An uploaded clip as the reference a cloning server should read: its first minute as a 44.1 kHz mono WAV at -20 LUFS,
     with its vocals separated when something plays under the voice and the vocal separator is ready.
 
-    Returns ``wav``, ``background`` (something plays under the voice), ``separated``, and ``separator_reason`` (why a clip
-    with background was not separated). Raises ``WorkflowInputError`` for an unreadable or silent file.
+    Returns the WAV and a note for the user about sound under the voice, ``""`` when there is none. Raises
+    ``WorkflowInputError`` for an unreadable or silent file.
     """
-    clip = await _voice_clip_host.prepare_clip(data, settings, filename=filename)
-    _ready, reason = _voice_clip_host.separator_ready(settings)
-    return {
-        "wav": clip.wav,
-        "background": clip.background,
-        "separated": clip.separated,
-        "separator_reason": reason if clip.background and not clip.separated else "",
-    }
+    return await _voice_clip_host.prepare_clip(data, settings, filename=filename)
 
 
 def zonos_voice_server(settings: Settings, *, enroll: bool = False) -> AbstractAsyncContextManager[str]:

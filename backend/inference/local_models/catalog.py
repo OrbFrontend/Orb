@@ -106,9 +106,9 @@ _SPARK_REFERENCE_REV = "8e19dd20fa11cdbcb0d71dc4bc4766fd33eb3ce8"
 
 _WHISPER_REPO = "onnx-community/whisper-small"
 _WHISPER_REV = "36050c46d777d46dc4b5f43f6d90574fc38f8732"
-# Exported by scripts/export_vocal_separator.py; the revision is the commit that added the file.
+# Exported by scripts/export_vocal_separator.py.
 _VOCALS_REPO = "chartreuse-verte/HDemucs-High-Vocals-ONNX"
-_VOCALS_REV = ""
+_VOCALS_REV = "bfe91fe1beb6a8c146197fe8106493a1d67f5d19"
 _ZONOS_REPO = "Zyphra/ZONOS3-Mini"
 _ZONOS_REV = "727302c1cb61bee229a649d859ebb3e517da1a41"
 

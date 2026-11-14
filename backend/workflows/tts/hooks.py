@@ -246,25 +246,16 @@ async def upload(ctx: UploadCtx, params: dict[str, str]) -> dict:
     }
 
 
-def _clip_note(clip: dict) -> str:
-    """What the panel says about a prepared clip's background."""
-    if clip["separated"]:
-        return "Orb removed the background sound under the voice."
-    if clip["background"]:
-        return f"Something plays under the voice, and the clone will copy it. {clip['separator_reason']}"
-    return ""
-
-
 async def _upload_zonos(ctx: UploadCtx, params: dict[str, str], source_name: str) -> dict:
     stored = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID))
     api_url = params["api_url"] if "api_url" in params else stored["api_url"]
-    clip = await prepare_voice_clip(ctx.data, ctx.settings, filename=source_name)
-    codes = await enroll_clip(clip["wav"], source_name, api_url, stored["api_key"] or None, ctx.settings)
+    wav, note = await prepare_voice_clip(ctx.data, ctx.settings, filename=source_name)
+    codes = await enroll_clip(wav, source_name, api_url, stored["api_key"] or None, ctx.settings)
     async with workflow_character_state_lock(ctx.character_id, WORKFLOW_ID):
         stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
         profile = apply_zonos_voice(normalize_profile(stored), codes, source_name, api_url)
         await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
-    return {"source_name": source_name, "reference_note": _clip_note(clip), "profile": profile}
+    return {"source_name": source_name, "reference_note": note, "profile": profile}
 
 
 # These back the config panel's Backend / Voice / Model selectors and the Preview button. They answer from the static backend

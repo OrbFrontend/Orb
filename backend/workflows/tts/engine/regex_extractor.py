@@ -266,14 +266,9 @@ class SpokenLine:
         return " ".join(part for part in (self.lead, f'"{self.text}"', self.trail) if part)
 
 
-def _last_sentence(parts: list[str]) -> str:
-    units = split_sentence_units(" ".join(" ".join(parts).split()))
-    return units[-1] if units else ""
-
-
-def _first_sentence(parts: list[str]) -> str:
-    units = split_sentence_units(" ".join(" ".join(parts).split()))
-    return units[0] if units else ""
+def _sentences(parts: list[str]) -> list[str]:
+    """The sentences of *parts* joined; ``[""]`` when there are none."""
+    return split_sentence_units(" ".join(" ".join(parts).split())) or [""]
 
 
 def regex_extract(
@@ -320,8 +315,8 @@ def regex_extract_lines(
     for event_type, segment_text in events:
         if event_type == "paragraph":
             if open_line:
-                open_line.trail = _first_sentence(between)
-            paragraph_tail = _last_sentence(between) if between else paragraph_tail
+                open_line.trail = _sentences(between)[0]
+            paragraph_tail = _sentences(between)[-1] if between else paragraph_tail
             open_line = None
             between = []
             continue
@@ -371,8 +366,8 @@ def regex_extract_lines(
             )
         )
         if open_line:
-            open_line.trail = _first_sentence(between)
-        lead = _last_sentence(between)
+            open_line.trail = _sentences(between)[0]
+        lead = _sentences(between)[-1]
         open_line = SpokenLine(
             text=dialogue_text, lead=lead, beat_emotion=beat_emotion, lead_in=lead if between else paragraph_tail
         )
@@ -381,7 +376,7 @@ def regex_extract_lines(
         paragraph_tail = ""
 
     if open_line:
-        open_line.trail = _first_sentence(between)
+        open_line.trail = _sentences(between)[0]
     if not chunks:
         return [], []
 

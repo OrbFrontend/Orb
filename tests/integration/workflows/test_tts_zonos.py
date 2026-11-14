@@ -13,7 +13,8 @@ import numpy as np
 import pytest
 
 from backend.inference.local_ml import GO_EMOTIONS
-from backend.inference.local_models.voice_clip import prepare
+from backend.inference.local_models.llama_server import manager
+from backend.inference.local_models.voice_clip import prepare, separator
 from backend.inference.local_models.voice_clip.loudness import integrated_lufs
 from backend.inference.local_models.voice_clip.separator import istft, stft
 from backend.inference.local_models.zonos_server import Launch, ZonosServerHost
@@ -84,12 +85,11 @@ def server(monkeypatch):
 
     real = httpx.AsyncClient
     monkeypatch.setattr(zonos_adapter.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handle), **kw))
-    monkeypatch.setattr(zonos_adapter, "_NO_HOLD", set())
     return state
 
 
-def test_delivery_table_names_every_label_and_respects_caps():
-    assert set(GO_EMOTIONS) <= set(DELIVERY_TABLE)
+def test_delivery_table_names_real_labels_and_respects_caps():
+    assert set(DELIVERY_TABLE) <= {*GO_EMOTIONS, line_emotion.WHISPERED}
     for label in DELIVERY_TABLE:
         for control, dose in delivery_controls(label, MAX_STRENGTH * 10).items():
             assert 0 < dose <= DOSE_CAPS[control]
@@ -126,6 +126,9 @@ def test_window_stops_at_a_paragraph_break():
         ('"Run," she said, and then, after a long while, she whispered.', ["neutral"]),
         ('Then, a hoarse, broken whisper:\n\n"...You\'re going to pay for that."', ["whispered"]),
         ('"Fine." She whispers it. "Go."', ["neutral", "whispered"]),
+        ('She sighed. "Fine, have it your way."', ["whispered"]),
+        ('*sighs* "Fine."', ["whispered"]),
+        ('She caught sight of him. "There you are."', ["neutral"]),
     ],
 )
 async def test_whisper_near_the_line_wins_without_the_classifier(text, labels):
@@ -176,6 +179,29 @@ async def test_labels_are_stored_with_the_chunk_and_replay_without_classifying(c
         delivery_controls("whispered"),
         dict(VOICE_CONTROLS),
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "sent"),
+    [
+        ("Fine.", "Fine"),
+        ("I... I don't know...", "I. I don't know"),
+        ("Wait… what,", "Wait. what"),
+        ("...You're going to pay for that.", "You're going to pay for that"),
+        ("So, . . . you came?", "So. you came?"),
+        ("Really...?", "Really?"),
+        ("No!", "No!"),
+        ("I *really* mean it.", "I really mean it"),
+        ("*Fine*...", "Fine"),
+        ("...", "..."),
+    ],
+)
+async def test_a_line_goes_out_without_ellipses_or_a_closing_period(server, text, sent):
+    await zonos_adapter.ZonosAdapter().synthesize(
+        [SpeakableChunk(text=text, spoken_text=text)], "cloned", zonos_reference_codes=CODES, settings=MappingProxyType({})
+    )
+
+    assert [body["text"] for body in server["bodies"]] == [sent]
 
 
 async def test_collapsed_line_is_spoken_again_without_controls(server):
@@ -270,7 +296,7 @@ async def test_the_host_keeps_one_server_and_restarts_it_for_a_new_launch(monkey
             pass
         async with host.use(cloning) as second:
             pass
-        assert first == again != second
+        assert first is again and second is not first
         assert [child.returncode for _, child in spawned] == [0, None]
         argv = spawned[1][0]
         assert argv[:6] == ["zonos3-server", "backbone.gguf", "--zac", "zac.gguf", "--steer", "steer.gguf"]
@@ -280,7 +306,7 @@ async def test_the_host_keeps_one_server_and_restarts_it_for_a_new_launch(monkey
         assert (spawned[1][1].returncode, host.state) == (0, "idle")
     finally:
         await host.shutdown()
-        zonos_host.manager._HOSTS.remove(host)
+        manager._HOSTS.remove(host)
 
 
 async def test_an_upload_with_the_server_down_says_to_start_it(client, monkeypatch):
@@ -310,31 +336,17 @@ def test_a_clip_with_sound_under_the_voice_is_flagged_and_set_to_the_target_leve
         assert np.abs(signal).max() <= 10 ** (-1 / 20) + 1e-4
 
 
+@pytest.mark.parametrize(("cleaned", "background"), [(True, False), (False, True)])
+def test_a_separated_clip_is_measured_again(monkeypatch, cleaned, background):
+    voice = _speech_like()
+    monkeypatch.setattr(separator, "vocals", lambda signal: voice if cleaned else signal)
+
+    clip = prepare(_wav_of(_speech_like(bed=0.05)), separate=True)
+
+    assert (clip.separated, clip.background) == (True, background)
+
+
 def test_the_separators_spectrogram_round_trips():
     signal = np.random.default_rng(1).standard_normal((2, 30000))
 
     assert np.allclose(istft(stft(signal), signal.shape[1]), signal, atol=1e-9)
-
-
-async def test_a_server_without_the_hold_field_gets_lines_without_it(monkeypatch):
-    bodies = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        bodies.append(body)
-        if "eoa_hold_frames" in body:
-            detail = [{"loc": ["body", "eoa_hold_frames"], "msg": "additional property 'eoa_hold_frames' found"}]
-            return httpx.Response(422, json={"detail": detail})
-        return httpx.Response(200, content=_wav(1500))
-
-    real = httpx.AsyncClient
-    monkeypatch.setattr(zonos_adapter.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handle), **kw))
-    monkeypatch.setattr(zonos_adapter, "_NO_HOLD", set())
-    chunks = [SpeakableChunk(text=text, spoken_text=text) for text in ("First line here.", "Second line here.")]
-
-    for chunk in chunks:
-        await zonos_adapter.ZonosAdapter().synthesize(
-            [chunk], "cloned", api_url="http://zonos.test:1919", zonos_reference_codes=CODES
-        )
-
-    assert ["eoa_hold_frames" in body for body in bodies] == [True, False, False]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import logging
+import re
 import uuid
 from collections.abc import AsyncIterator
 
@@ -17,7 +18,7 @@ from .zonos_delivery import VOICE_CONTROLS, delivery_controls
 
 logger = logging.getLogger(__name__)
 
-#: Frames the end-of-audio token is held back, so a line keeps its decay (a patched server's ``eoa_hold_frames``).
+#: Frames the end-of-audio token is held back, so a line keeps its decay (the fork's ``eoa_hold_frames``).
 EOA_HOLD_FRAMES = 6
 #: Codec silence before each line; the server default of 3 lets reference voices start with a loud first syllable.
 SILENCE_PREFILL_FRAMES = 10
@@ -29,8 +30,7 @@ _COLLAPSE_MS = 600
 _CODEBOOKS = 10
 _CODEBOOK_SIZE = 4096
 _MAX_REFERENCE_FRAMES = 900
-# Servers that refused eoa_hold_frames: they get requests without it.
-_NO_HOLD: set[str] = set()
+_ELLIPSIS = re.compile(r"[\s,]*(?:\.(?:\s?\.)+|…)[\s.,…]*")
 
 # Orb language prefix -> server text-normalization language; checked in order, so `en-gb` precedes `en`.
 _LANGUAGES = (
@@ -55,6 +55,19 @@ def server_language(language: str) -> tuple[str, bool]:
         if code == prefix or code.startswith(prefix + "-"):
             return server, True
     return "en_us", False
+
+
+def _ellipsis_stop(match: re.Match[str]) -> str:
+    """A period for an ellipsis between words; nothing at either end of the line or before another mark."""
+    return "" if match.start() == 0 or match.string[match.end() : match.end() + 1] in "!?;:" else ". "
+
+
+def speakable_text(text: str) -> str:
+    """*text* without asterisks, each ellipsis read as a period and no comma or period at its end; *text* itself if nothing
+    is left."""
+    bare = " ".join(text.replace("*", "").split())
+    cleaned = _ELLIPSIS.sub(_ellipsis_stop, bare).lstrip(" ,").rstrip(" .,")
+    return cleaned or text
 
 
 def clean_reference_codes(raw: object) -> list[list[int]]:
@@ -169,46 +182,32 @@ class ZonosAdapter(TTSAdapter):
             "language": lang,
             "text_normalization": normalize,
             "silence_prefill_frames": SILENCE_PREFILL_FRAMES,
+            "eoa_hold_frames": EOA_HOLD_FRAMES,
             "stream": False,
             "format": "wav",
         }
         if seed is not None:
             base["seed"] = seed
 
+        headers = _headers(api_key)
         async with _server(api_url, kwargs.get("settings")) as server:
             url = f"{server}/v2/generate"
             async with httpx.AsyncClient(timeout=_SYNTH_TIMEOUT) as client:
 
                 async def generate(text: str, controls: dict[str, float]) -> tuple[bytes, int]:
                     body = {**base, "text": text, **({"controls": controls} if controls else {})}
-                    if server not in _NO_HOLD:
-                        response = await client.post(
-                            url, json={**body, "eoa_hold_frames": EOA_HOLD_FRAMES}, headers=_headers(api_key)
-                        )
-                        if "eoa_hold_frames" not in (_refusal(response) or ""):
-                            _raise_for_status(response)
-                            return strip_header(response.content)
-                        logger.info("ZONOS: %s does not take eoa_hold_frames; line endings may be clipped", server)
-                        _NO_HOLD.add(server)
-                    response = await client.post(url, json=body, headers=_headers(api_key))
+                    response = await client.post(url, json=body, headers=headers)
                     _raise_for_status(response)
                     return strip_header(response.content)
 
                 async def speak(chunk: SpeakableChunk) -> tuple[bytes, int]:
                     emotional = delivery_controls(chunk.emotion, delivery_strength) if emotion_delivery else {}
                     controls = emotional or dict(VOICE_CONTROLS)
-                    pcm, clip_rate = await generate(chunk.text, controls)
-                    if (
-                        controls
-                        and len(chunk.text.split()) >= _COLLAPSE_WORDS
-                        and pcm_duration_ms(pcm, clip_rate) < _COLLAPSE_MS
-                    ):
-                        logger.info(
-                            "ZONOS: %s collapsed a %d-word line; speaking it without controls",
-                            controls,
-                            len(chunk.text.split()),
-                        )
-                        pcm, clip_rate = await generate(chunk.text, {})
+                    text, words = speakable_text(chunk.text), len(chunk.text.split())
+                    pcm, clip_rate = await generate(text, controls)
+                    if words >= _COLLAPSE_WORDS and pcm_duration_ms(pcm, clip_rate) < _COLLAPSE_MS:
+                        logger.info("ZONOS: %s collapsed a %d-word line; speaking it without controls", controls, words)
+                        pcm, clip_rate = await generate(text, {})
                     return pcm, clip_rate
 
                 raw_pcm, sample_rate = await stitch_pcm(chunks, speak, fallback_rate=44100)

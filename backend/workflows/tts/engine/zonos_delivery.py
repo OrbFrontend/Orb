@@ -12,38 +12,25 @@ _DISTRESSED = "emotions.distressed"
 _SERENE = "emotions.serene"
 _WHISPER = "delivery.whisper"
 
-# Every go-emotions label, plus the whispered beat, at the doses that sounded right on reference-cloned voices. None speaks
-# the line with VOICE_CONTROLS.
-DELIVERY_TABLE: Mapping[str, tuple[str, float] | None] = {
-    "admiration": None,
-    "amusement": None,
+# The labels that get a control, at the doses that sounded right on reference-cloned voices; every other label, `neutral`
+# included, is spoken with VOICE_CONTROLS.
+DELIVERY_TABLE: Mapping[str, tuple[str, float]] = {
     "anger": (_ANGRY, 0.25),
     "annoyance": (_ANGRY, 0.25),
-    "approval": None,
-    "caring": (_SERENE, 0.75),
-    "confusion": None,
-    "curiosity": None,
-    "desire": None,
-    "disappointment": (_SAD, 1.5),
     "disapproval": (_ANGRY, 0.25),
-    "disgust": None,
-    "embarrassment": None,
-    "excitement": None,
-    "fear": (_DISTRESSED, 1.0),
+    "caring": (_SERENE, 0.75),
     "gratitude": (_SERENE, 0.75),
-    "grief": (_SAD, 1.5),
-    "joy": None,
     "love": (_SERENE, 0.75),
-    "nervousness": (_DISTRESSED, 1.0),
-    "optimism": None,
-    "pride": None,
-    "realization": (_SURPRISED, 0.375),
     "relief": (_SERENE, 0.75),
+    "disappointment": (_SAD, 1.5),
+    "grief": (_SAD, 1.5),
     "remorse": (_SAD, 1.5),
     "sadness": (_SAD, 1.5),
+    "fear": (_DISTRESSED, 1.0),
+    "nervousness": (_DISTRESSED, 1.0),
+    "realization": (_SURPRISED, 0.375),
     "surprise": (_SURPRISED, 0.375),
-    "neutral": None,
-    "whispered": (_WHISPER, 1.0),
+    "whispered": (_WHISPER, 2.0),
 }
 
 # No strength setting can push a direction past these.
