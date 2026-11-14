@@ -118,10 +118,9 @@ export const S = {
 
   hasMultipleTabs: false, // another app tab is open
 
-  // The assistant: its transcript entries (cards of proposed changes among them, live while this page holds their ids, never
-  // when loaded from storage), whether its panel is open, and this browser's name for the conversation the server holds.
-  // assistant_chat.js writes it.
-  assistant: { items: [], open: false, session: "" },
+  // The assistant: the transcript entries of the chat on screen (cards of proposed changes among them, live while this page
+  // holds their ids, never when loaded from storage) and whether its panel is open. assistant_chat.js writes it.
+  assistant: { items: [], open: false },
 
   workflowInspectorCardRenderers: [], // Inspector cards by workflow
   workflowToolsPanelRenderers: [], // Tools-panel cards by workflow

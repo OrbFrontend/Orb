@@ -13,6 +13,7 @@ from .connection import (
     open_wal_anchor,
 )
 from .queries.access import clear_access_password, get_access_password, set_access_password
+from .queries.assistant_chats import delete_assistant_chat, get_assistant_chat, put_assistant_chat
 from .queries.character_cards import (
     card_embedded_fragments,
     cast_embedded_fragments,

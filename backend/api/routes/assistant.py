@@ -20,7 +20,7 @@ from ...database import (
     get_world,
     resolve_cast,
 )
-from ...features.assistant import AssistantUnavailable, RequestMark, ViewContext, run_assistant
+from ...features.assistant import AssistantUnavailable, RequestMark, Transcript, ViewContext, run_assistant
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
@@ -28,6 +28,8 @@ from ..assistant import (
     MediaRun,
     apply_proposals,
     build_tools,
+    flush_transcripts,
+    forget_transcript,
     held_transcript,
     hold_transcript,
     open_proposals,
@@ -39,7 +41,13 @@ from ..assistant import (
 )
 from ..assistant.images import get_image
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
-from ..schemas import AssistantApplyRequest, AssistantReviseRequest, AssistantRunRequest, AssistantViewContext
+from ..schemas import (
+    AssistantApplyRequest,
+    AssistantForgetRequest,
+    AssistantReviseRequest,
+    AssistantRunRequest,
+    AssistantViewContext,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +151,18 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     media = MediaRun(job=f"assistant:{operation_id}", abort=abort_token, report=progress.put_nowait)
     # Read at Send: what the user's card still holds pending, by the ids it names; the texts are the server's own.
     held = open_proposals(data.pending)
+    # What this run proposes, as its confirm events pass: with what is held, what the model is left believing waits.
+    proposed: list[str] = []
+
+    def keep(kept: Transcript) -> None:
+        awaiting = tuple(dict.fromkeys([*(proposal.id for proposal in held), *proposed]))
+        hold_transcript(data.session, replace(kept, awaiting=awaiting))
 
     async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         try:
             # Read once the run is admitted. The browser is told whether the conversation it shows is the one the model reads:
             # after a restart, or a request from another browser, it is not.
-            transcript = held_transcript(data.session)
+            transcript = await held_transcript(data.session)
             removed: tuple[RequestMark, ...] = ()
             if data.edit and transcript is not None:
                 # The request replaces one already sent, and everything after it. Held at once, so the conversation is
@@ -156,6 +170,7 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 transcript, removed = rewound(transcript, data.request_id or "")
                 hold_transcript(data.session, transcript)
             yield {"event": "start", "data": {"continued": bool(transcript and transcript.messages)}}
+            gone = transcript is not None and not set(transcript.awaiting) <= {proposal.id for proposal in held}
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
             async for event in run_assistant(
@@ -166,14 +181,18 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 transcript=transcript,
                 request=data.text.strip(),
                 view=view,
-                note="\n\n".join(filter(None, (rewind_note(removed), pending_note(held)))),
+                note="\n\n".join(filter(None, (rewind_note(removed), pending_note(held, gone=gone)))),
                 request_id=data.request_id or "",
                 progress=progress,
-                keep=lambda kept: hold_transcript(data.session, kept),
+                keep=keep,
                 reasoning=data.reasoning,
             ):
+                if event["type"] == "confirm":
+                    proposed.append(event["proposal"]["proposal_id"])
                 payload = {key: value for key, value in event.items() if key != "type"}
                 yield cast(PublicEvent, {"event": event["type"], "data": payload})
+            # Stored before the stream ends, so the next request, or a restart, finds the conversation as it ended.
+            await flush_transcripts()
         except AssistantUnavailable as exc:
             logger.warning("Assistant run %s failed: %s", scrub_log(operation_id), exc)
             yield {"event": "error", "data": str(exc)}
@@ -187,6 +206,13 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
 async def api_stop_assistant(operation_id: str = _OPERATION_ID):
     """Stop the run *operation_id* started and wait for it to settle; a Stop naming an older run ends nothing."""
     return {"ok": True, **await stop_active_stream(ASSISTANT_STREAM_KEY, operation_id=operation_id)}
+
+
+@router.post("/api/assistant/forget")
+async def api_forget_assistant(data: AssistantForgetRequest):
+    """Drop the conversation *session* names, as Clear does in the browser: its next request starts over."""
+    await forget_transcript(data.session)
+    return {"ok": True}
 
 
 @router.post("/api/assistant/apply")

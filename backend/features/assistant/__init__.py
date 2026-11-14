@@ -19,4 +19,4 @@ from .contracts import (
     ViewContext,
 )
 from .loop import run_assistant, settled
-from .session import held_transcript, hold_transcript, rewind_note, rewound
+from .session import flush_transcripts, forget_transcript, held_transcript, hold_transcript, rewind_note, rewound

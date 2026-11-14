@@ -18,6 +18,7 @@ from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
 from .access_gate import AccessGateMiddleware
 from .admission import DatasetAdmissionMiddleware
+from .assistant import flush_transcripts
 from .cache_control import CacheControlMiddleware
 from .compression import TextGZipMiddleware
 from .deps import FRONTEND_DIR
@@ -65,6 +66,8 @@ async def lifespan(app: FastAPI):
             yield
     finally:
         try:
+            # A conversation held by a run cut off at shutdown is stored before the database closes.
+            await flush_transcripts()
             await slop_suggestions.shutdown()
             # Every supervised llama-server child. Without this teardown an orphan keeps its model resident and holds the GPU
             # after Orb exits. A process that never imported a workflow or feature that owns one has an empty registry and

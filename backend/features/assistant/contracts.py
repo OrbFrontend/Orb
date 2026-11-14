@@ -205,13 +205,15 @@ class Transcript:
 
     *model* and *endpoint* made it. Reasoning one provider signed is not valid on another, so a different pair replays it
     without its reasoning. *requests* marks the requests in it, oldest first; the last mark is the last request, so a
-    conversation that lost its oldest requests keeps its marks in step from the end.
+    conversation that lost its oldest requests keeps its marks in step from the end. *awaiting* names the proposals the
+    model was last left believing wait for the user's Apply, so a later request can be told when they no longer do.
     """
 
     messages: tuple[WireMessage, ...]
     model: str
     endpoint: str
     requests: tuple[RequestMark, ...] = ()
+    awaiting: tuple[str, ...] = ()
 
 
 # One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.

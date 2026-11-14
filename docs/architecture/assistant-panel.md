@@ -14,7 +14,7 @@ browser stores and refreshes what changed.
 
 | Path | Owns |
 |---|---|
-| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the conversation the server holds and how an edited request takes it back (`session.py`). It imports no API, pipeline, workflow or peer feature code. |
+| `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the conversations the server keeps and how an edited request takes it back (`session.py`). It imports no API, pipeline, workflow or peer feature code. |
 | `backend/features/assistant/tools/` | The tools over the library's readers and writers, the proposal store, and Apply, Undo and Revise. `__init__.py` holds `build_tools`, which assembles them for one run against a host. |
 | `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
 | `backend/features/assistant/tools/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
@@ -163,13 +163,17 @@ the server's prefix cache holds through the whole conversation (see
 A result shows what was true when it ran; the prompt says the user may have
 changed things since, and the model reads again when a request depends on it.
 
-The server holds the conversation, in process memory, one at a time, under the
-`session` id the browser made for it (`session.py`). The browser sends only the
-new request, so nothing it stores can be replayed as something the model said
-or a tool returned. `start` says whether the request extended the held
-conversation (`continued`). It does not after a restart or when another browser
-ran in between; the request then starts a conversation of its own, and the
-browser marks where the model's memory begins.
+The server holds each conversation under the `session` id the browser made for
+it (`session.py`): the 32 most recently held, in memory and in the
+`assistant_chats` table, so a restart continues them. Writes are queued in the
+order they were held, and a run's are stored before its stream ends; shutdown
+stores any still waiting before the database closes. The table
+is machine-local: never exported, kept across a restore. The browser sends only
+the new request, so nothing it stores can be replayed as something the model
+said or a tool returned. `start` says whether the request extended a held
+conversation (`continued`). It does not for a session the server no longer
+keeps; the request then starts a conversation of its own, and the browser marks
+where the model's memory begins.
 
 However a run ends, the conversation keeps it. A reply ends with its call and a
 result closing it, or with the plain answer; a handoff ends at the handoff's
@@ -217,8 +221,8 @@ in the conversation are covered by the standing rule that a result shows what
 was true when it ran. The assistant's conversation has no branches of its own:
 an edit replaces, and the chat's own branches are where a reply is recovered.
 
-A request the server no longer holds (a restart, another browser, or one the
-budget dropped) leaves nothing to go back to. The edit then starts a
+A request the server no longer holds (an evicted session, or one the budget
+dropped) leaves nothing to go back to. The edit then starts a
 conversation of its own, `start` answers `continued: false`, and the log marks
 where the model's memory begins, as for any request.
 
@@ -227,13 +231,12 @@ with thinking on it sends all of it, unless the model or endpoint has changed,
 since reasoning one provider signed is not valid on another. Reasoning never
 reaches the browser.
 
-The conversation is about one character at a time: the one in view when its
-first request was sent (a solo chat's or the library's; a group counts as one
-of its own), stored beside the transcript. Turning to another character leaves
-the transcript in place. A request sent from there first asks to start over,
-and on Clear and send the browser clears the transcript and starts a new session,
-as Clear does, then sends; Cancel sends nothing and keeps the text. A view with
-no character, a document or the bare library, never asks.
+Each character has its own chat, with its own session: a solo chat's or the
+library's character, and each group as one of its own. A view with no
+character, a document or the bare library, shares one chat. The panel shows the
+chat of the view, and turning to another character turns to its chat. A run, an
+Apply, an Undo and a revision write to the chat they started in, whichever is on
+screen by the time they end. One run goes at a time across every chat.
 
 ## Tools
 
@@ -405,7 +408,10 @@ A card stays open to Apply after its run, and the next request names its
 pending proposals (`pending`). Their texts are the server's own: the request
 carries a note listing each, with its pending text clipped like a read, so the
 model can build on it, and the note says that anything not listed was applied,
-cancelled or expired. A further edit to a field one of them holds is made on its
+cancelled or expired. The held conversation names what the model was last left
+believing waits (`awaiting`): what that request listed and what its run
+proposed. When none of it is listed any more (a reload, a restart, an expiry or
+an Apply), the next request is told once that nothing earlier waits. A further edit to a field one of them holds is made on its
 pending text into a new proposal that `replaces` it; the server forgets the
 replaced one, and the browser marks its entry superseded. Where the stored text
 has moved since that preview, which could then never apply, the new edit starts
@@ -656,9 +662,10 @@ A run and its cards outlive a closed panel. Every control that opens it marks a
 run in progress and counts the changes waiting for Apply; the marks are painted
 from attributes on `#app`, so a control rendered later shows them too.
 
-The transcript the reader sees lives in `localStorage` under
-`orb-assistant-transcript`, at most 100 entries, the session id under
-`orb-assistant-session`, whether the panel is open under `orb-assistant-open`, which is
+Each chat lives in `localStorage` under `orb-assistant-chat:<character>`: its
+session id and its transcript of at most 100 entries; the 32 most recently
+stored are kept, and an empty chat is not stored. Whether the panel is open is
+under `orb-assistant-open`, which is
 restored at load on the wide layout only, and the Think box under
 `orb-assistant-think`. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
@@ -666,7 +673,9 @@ leaves the assistant working from memory. What is stored is user text, answers,
 tool summaries and ids, and each proposed edit's labels, lengths and state,
 never raw results, progress, live operations or proposal texts and ids. The
 stored transcript is the reader's record only; none of it is sent back. Clear
-empties it and starts a new session. A tool
+empties the chat on screen and starts it a new session, and `POST
+/api/assistant/forget {session}` drops the old one from the server's memory and
+the table. A tool
 still waiting when the page closes, or when the run ends, reads "No result was
 received; check before asking again."
 

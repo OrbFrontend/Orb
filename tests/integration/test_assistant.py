@@ -3,15 +3,16 @@
 import asyncio
 import json
 import uuid
+from collections import OrderedDict
 
 import pytest
 from pydantic import ValidationError
 
-from backend.api.assistant import apply_proposals, build_tools
+from backend.api.assistant import apply_proposals, build_tools, pending_note
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
 from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings
-from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant
+from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant, session
 from backend.features.assistant.contracts import encode_result
 from backend.features.assistant.tools.reads import MAX_MESSAGES
 from backend.features.assistant.tools.targets import CHARACTER_FIELDS
@@ -974,9 +975,47 @@ async def test_a_request_extends_the_conversation_its_session_names_and_any_othe
     assert [message["role"] for message in second[0][len(first[-1]) :]] == ["assistant", "tool", "user"]
     assert sum(message["role"] == "tool" and "final kept line" in message["content"] for message in second[0]) == 1
 
-    # Another browser's conversation, or one from before a restart, is not this one: it starts at its own request.
+    # Another browser's conversation is not this one: it starts at its own request.
     continued, other = await ask("And then?", "another-session")
     assert continued is False and [message["role"] for message in other[0]] == ["system", "user"]
+
+    # A restart empties memory; the stored conversation goes on as it was.
+    monkeypatch.setattr(session, "_held", OrderedDict())
+    continued, third = await ask("And after?")
+    assert continued is True and third[0][: len(second[-1])] == second[-1]
+
+    # Clear forgets it on the server too, in memory and on disk.
+    await client.post_checked("/api/assistant/forget", json={"session": body["session"]})
+    monkeypatch.setattr(session, "_held", OrderedDict())
+    continued, _ = await ask("And after?")
+    assert continued is False
+
+
+async def test_a_request_is_told_when_what_the_model_proposed_no_longer_waits(client, library, monkeypatch):
+    calls, script = [], []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield script.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    body = _body("Shorten the description.", character_id=library["card"])
+    edit = {"field": "description", "mode": "replace_all", "text": "A fence."}
+    script[:] = [_call("edit_character", edit), _reply("Proposed.")]
+    events = frames(await client.post_checked(RUN, json=body))
+    [proposal] = [data["proposal"]["proposal_id"] for event, data in events if event == "confirm"]
+
+    async def ask(pending):
+        script[:] = [_reply("Noted.")]
+        calls.clear()
+        await client.post_checked(RUN, json={**body, "text": "And now?", "pending": pending})
+        return calls[0][-1]["content"]
+
+    gone = pending_note((), gone=True)
+    # Still on the card: listed, not gone. Then the card is gone (a reload, a restart or its expiry): told once.
+    assert gone not in await ask([proposal])
+    assert gone in await ask([])
+    assert gone not in await ask([])
 
 
 async def test_an_edited_request_takes_the_conversation_back_to_it_and_keeps_what_was_changed_since(
