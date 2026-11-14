@@ -353,8 +353,8 @@ export async function rehydrateWorkflowAttachment(msgId, attId, btn) {
     await refreshConversationMessages(msgId, convId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    // A 409 is a stop, or a restore another request already made: the saved row decides.
-    if (e?.status === 409 || job.stopping) {
+    // A 409 is a stop, or a restore another request already made; a 404 is a delete made meanwhile: the saved rows decide.
+    if (e?.status === 409 || e?.status === 404 || job.stopping) {
       try {
         await refreshConversationMessages(msgId, convId);
         broadcastWorkflowMutation({ convId, msgId });
@@ -426,7 +426,7 @@ async function _regenerateStreamed(path, wid, onPhase, onSibling) {
     if (event === "error") throw sseError(data);
     const payload = JSON.parse(data);
     if (event === "phase_status") onPhase(payload.label);
-    else if (event === "regenerate_sibling") await onSibling();
+    else if (event === "regenerate_sibling") await onSibling(null, payload.attachment_id);
     else if (event === "regenerate_done") return payload;
     else if (event === "regenerate_error") throw Object.assign(sseError(payload), { status: payload.status });
     else _dispatchWorkflowEvent(wid, event, payload);
@@ -624,17 +624,37 @@ function _startWorkflowAction(msgId, attId, btn, kind, title) {
   }
   if (!requestSendPermission()) return null;
   const job = startWorkflowJob({ convId: S.activeConvId, title, messageId: msgId, attachmentId: rootId });
-  _workflowActionInFlight.set(rootId, { msgId, kind, job });
+  const run = { msgId, kind, job, rootId };
+  _workflowActionInFlight.set(rootId, run);
   job.show(btn);
-  return { rootId, job };
+  return run;
+}
+
+// A render outlives its root when a delete promotes a survivor; its run follows the group so Stop stays on it.
+function _rekeyWorkflowAction(from, to) {
+  const run = _workflowActionInFlight.get(from);
+  if (!run || from === to || _workflowActionInFlight.has(to)) return;
+  _workflowActionInFlight.delete(from);
+  run.rootId = to;
+  _workflowActionInFlight.set(to, run);
+}
+
+function _followLandedRoot(run, msgs, attId) {
+  const att = msgs.find((m) => m.id === run.msgId)?.workflow_attachments?.find((a) => a.id === attId);
+  if (att) _rekeyWorkflowAction(run.rootId, att.parent_attachment_id || att.id);
+}
+
+function _endWorkflowAction(run) {
+  if (_workflowActionInFlight.get(run.rootId) === run) _workflowActionInFlight.delete(run.rootId);
+  run.job.end();
 }
 
 /** Render a new take of an artifact; *btn* becomes its Stop button. */
 export async function regenerateWorkflowAttachment(msgId, attId, btn) {
   if (!S.activeConvId) return;
-  const started = _startWorkflowAction(msgId, attId, btn, "regen", "Stop regenerating");
-  if (!started) return;
-  const { rootId, job } = started;
+  const run = _startWorkflowAction(msgId, attId, btn, "regen", "Stop regenerating");
+  if (!run) return;
+  const { rootId, job } = run;
   const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:regen:${rootId}`;
@@ -646,13 +666,14 @@ export async function regenerateWorkflowAttachment(msgId, attId, btn) {
   // A workflow that renders several variants saves each as it lands; only the
   // first is scrolled to, so a user who scrolled away to read is left there.
   let landed = 0;
-  const showLanded = async (fetched = null) => {
+  const showLanded = async (fetched = null, landedId = null) => {
     const token = S.conversationViewToken;
     try {
       const msgs = fetched || (await api.get(convUrl(convId, "messages")));
+      if (landedId != null) _followLandedRoot(run, msgs, landedId);
       _applyWorkflowMessages(msgs, convId, token);
       if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
-      if (!landed++) _scrollArtifactIntoView(msgId, rootId);
+      if (!landed++) _scrollArtifactIntoView(msgId, run.rootId);
       broadcastWorkflowMutation({ convId, msgId });
     } catch (e) {
       console.warn("showing a regenerated variant failed", e);
@@ -670,13 +691,13 @@ export async function regenerateWorkflowAttachment(msgId, attId, btn) {
     mergeWorkflowRejections(msgId, rootId, incoming, convId);
     await refreshConversationMessages(msgId, convId);
     if (S.activeConvId !== convId) return;
-    if (!landed) _scrollArtifactIntoView(msgId, rootId);
+    if (!landed) _scrollArtifactIntoView(msgId, run.rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (job.stopping) await _syncAfterStop(convId, msgId, rootId, beforeSiblings);
+    if (job.stopping) await _syncAfterStop(convId, msgId, run.rootId, beforeSiblings);
     else if (
       _isNetworkError(e) &&
-      ((await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings, null, showLanded)) || landed)
+      ((await _recoverWorkflowSibling(convId, msgId, run.rootId, beforeSiblings, null, showLanded)) || landed)
     ) {
     } else {
       console.error("Regenerate failed:", e);
@@ -684,17 +705,16 @@ export async function regenerateWorkflowAttachment(msgId, attId, btn) {
     }
   } finally {
     clearWorkflowPhase(ch, conversationState(convId));
-    _workflowActionInFlight.delete(rootId);
-    job.end();
-    _notifyWorkflowRegenerateSettled(wid, msgId, rootId);
+    _endWorkflowAction(run);
+    _notifyWorkflowRegenerateSettled(wid, msgId, run.rootId);
   }
 }
 
 async function _rerollWorkflowAttachment(msgId, attId, btn) {
   if (!S.activeConvId) return;
-  const started = _startWorkflowAction(msgId, attId, btn, "reroll", "Stop rerolling");
-  if (!started) return;
-  const { rootId, job } = started;
+  const run = _startWorkflowAction(msgId, attId, btn, "reroll", "Stop rerolling");
+  if (!run) return;
+  const { rootId, job } = run;
   const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:reroll:${rootId}`;
@@ -720,16 +740,16 @@ async function _rerollWorkflowAttachment(msgId, attId, btn) {
     mergeWorkflowRejections(msgId, rootId, incoming, convId);
     await refreshConversationMessages(msgId, convId);
     if (S.activeConvId !== convId) return;
-    _scrollArtifactIntoView(msgId, rootId);
+    _scrollArtifactIntoView(msgId, run.rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
     if (job.stopping)
-      await _syncAfterStop(convId, msgId, rootId, beforeSiblings, () =>
+      await _syncAfterStop(convId, msgId, run.rootId, beforeSiblings, () =>
         _notifyWorkflowRerollSuccess(wid, msgId, attId),
       );
     else if (
       _isNetworkError(e) &&
-      (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings, () =>
+      (await _recoverWorkflowSibling(convId, msgId, run.rootId, beforeSiblings, () =>
         _notifyWorkflowRerollSuccess(wid, msgId, attId),
       ))
     ) {
@@ -739,8 +759,7 @@ async function _rerollWorkflowAttachment(msgId, attId, btn) {
     }
   } finally {
     clearWorkflowPhase(ch, conversationState(convId));
-    _workflowActionInFlight.delete(rootId);
-    job.end();
+    _endWorkflowAction(run);
   }
 }
 
@@ -764,7 +783,9 @@ export function deleteWorkflowAttachment(msgId, rootId) {
   const total = group.atts.length;
   const label = esc(_workflowLabel(active));
   const convId = S.activeConvId;
-  const remove = (scope) => () => _sendAttachmentDelete(msgId, rootId, active.id, scope, convId);
+  // The variants this dialog counts: one that lands while it is open is not part of what the user confirms.
+  const seen = group.atts.map((a) => a.id);
+  const remove = (scope) => () => _sendAttachmentDelete(msgId, rootId, active.id, scope, convId, seen);
   if (total <= 1) {
     showConfirmModal(
       {
@@ -787,14 +808,13 @@ export function deleteWorkflowAttachment(msgId, rootId) {
   });
 }
 
-async function _sendAttachmentDelete(msgId, rootId, activeId, scope, convId) {
+async function _sendAttachmentDelete(msgId, rootId, activeId, scope, convId, seen) {
   if (!convId) return;
   if (!requestSendPermission()) return;
   if (_workflowDeleteInFlight.has(rootId)) return;
   _workflowDeleteInFlight.set(rootId, msgId);
   const aid = scope === "group" ? rootId : activeId;
-  const siblings = _rootSiblingIds(_workflowGroup(msgId, rootId).msg, rootId);
-  const gone = scope === "others" ? [...siblings].filter((id) => id !== activeId) : [aid];
+  const gone = scope === "variant" ? [aid] : seen.filter((id) => scope === "group" || id !== activeId);
   const settled = (atts) => !atts.some((a) => gone.includes(a.id));
   const wid = _resolveWorkflowId(msgId, activeId);
   const ch = `workflow:${wid || "op"}:delete:${rootId}`;
@@ -802,14 +822,18 @@ async function _sendAttachmentDelete(msgId, rootId, activeId, scope, convId) {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "deleting..."), conversationState(convId));
     const res = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", aid, "delete"), {
       scope,
+      seen,
     });
     if (res?.group_empty) {
       _workflowMinimized.delete(rootId);
       _persistWorkflowMinimized();
-    } else if (res && typeof res.root_id === "number" && res.root_id !== rootId && _workflowMinimized.has(rootId)) {
-      _workflowMinimized.delete(rootId);
-      _workflowMinimized.add(res.root_id);
-      _persistWorkflowMinimized();
+    } else if (res && typeof res.root_id === "number" && res.root_id !== rootId) {
+      _rekeyWorkflowAction(rootId, res.root_id);
+      if (_workflowMinimized.has(rootId)) {
+        _workflowMinimized.delete(rootId);
+        _workflowMinimized.add(res.root_id);
+        _persistWorkflowMinimized();
+      }
     }
     if (res?.group_empty) mergeWorkflowRejections(msgId, rootId, [], convId);
     await refreshConversationMessages(msgId, convId);

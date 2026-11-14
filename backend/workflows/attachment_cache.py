@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from ..database.connection import get_db
@@ -438,6 +438,15 @@ async def variant_on_show(root_id: int) -> int | None:
         return await _variant_on_show_on(db, root_id)
 
 
+async def workflow_group_ids(root_id: int) -> list[int]:
+    """The ids of *root_id*'s group, oldest first: the `group` a render hands `insert_workflow_variant`."""
+    async with get_db() as db:
+        rows = await db.execute_fetchall(
+            "SELECT id FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ? ORDER BY id", (root_id, root_id)
+        )
+    return [row["id"] for row in rows]
+
+
 async def _may_activate_on(db, message_id: int, attachment: Mapping[str, Any], on_show: int | None, shown: int | None) -> bool:
     """Whether a new variant may take the screen: the user has not paged to
     another one since *shown*, and the message still reads as it was rendered."""
@@ -746,8 +755,14 @@ def _delete_result(deleted_ids: list[int], *, group_empty: bool, root_id: int, a
     return {"deleted_ids": deleted_ids, "group_empty": group_empty, "root_id": root_id, "active_sibling_id": active_sibling_id}
 
 
-async def delete_workflow_attachments(target_id: int, *, scope: str, expected_message_id: int | None = None) -> dict:
-    """Delete an attachment variant, its group, or every variant but this one."""
+async def delete_workflow_attachments(
+    target_id: int, *, scope: str, expected_message_id: int | None = None, seen: Collection[int] | None = None
+) -> dict:
+    """Delete an attachment variant, its group, or every variant but this one.
+
+    With *seen*, ``group`` and ``others`` delete only those ids: a variant that landed after the user confirmed survives, and
+    becomes the root when the old root is deleted.
+    """
     if scope not in ("variant", "group", "others"):
         raise ValueError(f"scope must be 'variant', 'group' or 'others'; got {scope!r}")
     async with get_db() as db:
@@ -765,78 +780,57 @@ async def delete_workflow_attachments(target_id: int, *, scope: str, expected_me
         if expected_message_id is not None and target["message_id"] != expected_message_id:
             raise LookupError(f"workflow_attachment {target_id!r} not on message {expected_message_id!r}")
         root_id = target["parent_attachment_id"] or target_id
-        if root_id == target_id:
-            root_active = target["active_sibling_id"]
-        else:
-            root_active = await _active_sibling_on(db, root_id)
-
-        if scope == "group":
-            del_ids = [
-                x["id"]
-                for x in await db.execute_fetchall(
-                    "SELECT id FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ?", (root_id, root_id)
-                )
-            ]
-            await db.execute("DELETE FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ?", (root_id, root_id))
-            await db.commit()
-            return _delete_result(del_ids, group_empty=True, root_id=root_id, active_sibling_id=None)
-
-        if scope == "others":
-            del_ids = [
-                x["id"]
-                for x in await db.execute_fetchall(
-                    "SELECT id FROM workflow_attachments WHERE (id = ? OR parent_attachment_id = ?) AND id != ? ORDER BY id",
-                    (root_id, root_id, target_id),
-                )
-            ]
-            if target_id != root_id:
-                root_rows = list(
-                    await db.execute_fetchall("SELECT annotation FROM workflow_attachments WHERE id = ?", (root_id,))
-                )
-                await db.execute(
-                    "UPDATE workflow_attachments SET parent_attachment_id = NULL, annotation = ? WHERE id = ?",
-                    (root_rows[0]["annotation"] if root_rows else None, target_id),
-                )
-            await _set_active_sibling_on(db, target_id, None)
-            await db.execute(
-                "DELETE FROM workflow_attachments WHERE (id = ? OR parent_attachment_id = ?) AND id != ?",
-                (root_id, root_id, target_id),
-            )
-            await db.commit()
-            return _delete_result(del_ids, group_empty=False, root_id=target_id, active_sibling_id=None)
-
-        if target_id != root_id:
-            await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (target_id,))
-            after = await _active_sibling_on(db, root_id)
-            await db.commit()
-            return _delete_result([target_id], group_empty=False, root_id=root_id, active_sibling_id=after)
-
-        survivors = [
+        root_rows = list(
+            await db.execute_fetchall("SELECT active_sibling_id, annotation FROM workflow_attachments WHERE id = ?", (root_id,))
+        )
+        root_active = root_rows[0]["active_sibling_id"] if root_rows else None
+        root_annotation = root_rows[0]["annotation"] if root_rows else None
+        group_ids = [
             x["id"]
             for x in await db.execute_fetchall(
-                "SELECT id FROM workflow_attachments WHERE parent_attachment_id = ? ORDER BY id", (root_id,)
+                "SELECT id FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ? ORDER BY id", (root_id, root_id)
             )
         ]
+        if scope == "variant":
+            doomed = {target_id}
+        else:
+            doomed = set(group_ids) - ({target_id} if scope == "others" else set())
+            if seen is not None:
+                doomed &= set(seen)
+        deleted_ids = [i for i in group_ids if i in doomed]
+        survivors = [i for i in group_ids if i not in doomed]
+        marks = ",".join("?" * len(deleted_ids))
+
         if not survivors:
-            await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (root_id,))
+            await db.execute("DELETE FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ?", (root_id, root_id))
             await db.commit()
-            return _delete_result([root_id], group_empty=True, root_id=root_id, active_sibling_id=None)
-        new_root = survivors[0]
-        new_active = root_active if (root_active is not None and root_active != root_id and root_active in survivors) else None
-        await db.execute(
-            "UPDATE workflow_attachments SET parent_attachment_id = ? WHERE parent_attachment_id = ? AND id != ?",
-            (new_root, root_id, new_root),
-        )
-        # Only a root row's annotation reaches the LLM prefix (prompting.base), so the promoted root inherits the deleted root's
-        # annotation; otherwise deleting the root variant would silently change the message's model-visible text.
-        await db.execute(
-            "UPDATE workflow_attachments SET parent_attachment_id = NULL, annotation = ? WHERE id = ?",
-            (target["annotation"], new_root),
-        )
-        await _set_active_sibling_on(db, new_root, new_active)
-        await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (root_id,))
+            return _delete_result(deleted_ids, group_empty=True, root_id=root_id, active_sibling_id=None)
+
+        new_root = target_id if scope == "others" else (root_id if root_id in survivors else survivors[0])
+        if new_root != root_id:
+            new_active = None
+            if scope != "others" and root_active is not None and root_active != root_id and root_active in survivors:
+                new_active = root_active
+            # The old root joins too when it survives: `others` from a view that predates it keeps it as a variant.
+            await db.execute(
+                "UPDATE workflow_attachments SET parent_attachment_id = ?, active_sibling_id = NULL "
+                "WHERE (parent_attachment_id = ? OR id = ?) AND id != ?",
+                (new_root, root_id, root_id, new_root),
+            )
+            # Only a root row's annotation reaches the LLM prefix (prompting.base), so the promoted root inherits the deleted
+            # root's annotation; otherwise deleting the root variant would silently change the message's model-visible text.
+            await db.execute(
+                "UPDATE workflow_attachments SET parent_attachment_id = NULL, annotation = ? WHERE id = ?",
+                (root_annotation, new_root),
+            )
+            await _set_active_sibling_on(db, new_root, new_active)
+        elif scope == "others":
+            await _set_active_sibling_on(db, new_root, None)
+        if deleted_ids:
+            await db.execute(f"DELETE FROM workflow_attachments WHERE id IN ({marks})", deleted_ids)  # nosec B608
+        after = await _active_sibling_on(db, new_root)
         await db.commit()
-        return _delete_result([root_id], group_empty=False, root_id=new_root, active_sibling_id=new_active)
+        return _delete_result(deleted_ids, group_empty=False, root_id=new_root, active_sibling_id=after)
 
 
 # Wire this module's batch persister into the database layer's add_message seam (dependency inversion -- the DB layer must not

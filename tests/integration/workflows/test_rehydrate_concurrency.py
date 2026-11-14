@@ -1,7 +1,7 @@
-"""Pins per-root serialization of ``/rehydrate``.
+"""Pins per-row serialization of ``/rehydrate``.
 
-Two concurrent rehydrate requests against the same evicted root must invoke the workflow's ``reroll_gen`` hook exactly once: the
-first acquires ``_workflow_root_lock(root_id)`` and runs the regen; the second waits, acquires after the first releases,
+Two concurrent rehydrate requests against the same evicted row must invoke the workflow's ``reroll_gen`` hook exactly once: the
+first acquires ``rehydrate_lock(aid)`` and runs the regen; the second waits, acquires after the first releases,
 re-reads the row inside the lock, observes that ``data_b64`` is no longer the eviction sentinel, and 409s without spending a
 second LLM call. The bytes-write race is also closed by the cache helper's ``BEGIN IMMEDIATE`` recheck downstream; the in-lock
 re-read in the handler is what prevents double work on the upstream side.

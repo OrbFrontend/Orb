@@ -276,6 +276,28 @@ async def test_stop_cancels_a_streamed_regenerate_and_frees_its_group(client):
     assert not deps.workflow_group_in_flight(aid)
 
 
+async def test_delete_during_regenerate_answers_at_once_and_the_render_survives(client):
+    cid, mid = await seed_message(client)
+    aid = await _seed_workflow_attachment(mid, wid="racing")
+    rendering, release = asyncio.Event(), asyncio.Event()
+
+    async def regen(ctx, body):
+        rendering.set()
+        await release.wait()
+        await ctx.keep({"filename": "v.png", "mime": "image/png", "data": b"V"})
+        return []
+
+    with _workflow("racing", regen):
+        request = asyncio.create_task(_post(client, cid, mid, aid))
+        await asyncio.wait_for(rendering.wait(), 5)
+        deleted = await asyncio.wait_for(_post(client, cid, mid, aid, "delete", scope="group", seen=[aid]), 5)
+        release.set()
+        resp = await asyncio.wait_for(request, 5)
+    assert deleted.json()["group_empty"] is True
+    (new_id,) = resp.json()["attachments"]
+    assert [row["id"] for row in await get_workflow_attachments_for_message(mid)] == [new_id]
+
+
 async def test_stop_cancels_a_reroll_and_answers_409(client):
     cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="rerolled")

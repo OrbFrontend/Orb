@@ -258,7 +258,7 @@ read-modify-write operations.
 | `workflow_message_state` | Message + workflow | Owning conversation lock |
 | `workflow_character_state` | Character + workflow | Conversation lock, then `workflow_character_state_lock` |
 | `workflow_config` | Workflow | `workflow_config_lock()` |
-| Attachments | Root attachment group | Framework's root lock |
+| Attachments | Root attachment group | Framework's root lock (deletes); renders save in their own transaction |
 
 The primary runtime import surface is `backend.workflows.toolkit`. Hook contexts
 carry the LLM clients; the toolkit provides semantic host operations, read-only
@@ -443,13 +443,21 @@ something not set up yet, such as a model that is not downloaded. Any other
 exception is logged and answers 500 with a generic message.
 
 `in-flight` reports `{"in_flight": bool}` for the attachment's canonical root:
-whether a request still holds the group's lock. Regenerate, reroll-gen,
-rehydrate, and delete hold that lock for their whole duration and release it
-only after their write commits, so `false` means nothing in flight can still
-change the group. It exists for a client whose own connection died mid-render,
-which otherwise cannot tell a running render from one the server already failed.
-A single `false` does not prove failure -- a queued request has not reached the
-lock yet -- so clients confirm it across consecutive polls.
+whether a delete still holds the group's lock or a workflow render on the
+message is still running, so `false` means nothing in flight can still change
+the group. It exists for a client whose own connection died mid-render, which
+otherwise cannot tell a running render from one the server already failed. A
+single `false` does not prove failure -- a queued request has not started yet --
+so clients confirm it across consecutive polls.
+
+Renders hold no group lock while they run, so a delete or swipe answers at once.
+Regenerate and reroll-gen save each render with `insert_workflow_variant`,
+passing the group's ids as they were when the render started: the render joins
+whatever survives of the group, the promoted root when the old one was deleted,
+or starts a new group when none is left. Rehydrate serializes per row, and
+answers 404 when its row was deleted mid-render. `delete` takes a `seen` list of
+the ids the user confirmed, and `group` or `others` deletes only those, so a
+variant that lands between the confirm and the delete survives.
 
 With `Accept: text/event-stream`, `regenerate` streams each `ctx.phase(label)` as
 `phase_status` and each `ctx.keep` that saved a row as `regenerate_sibling`

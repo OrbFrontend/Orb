@@ -116,6 +116,25 @@ async def test_group_delete_removes_root_and_all_siblings(client):
         assert await get_workflow_attachment_by_id(aid) is None
 
 
+async def test_group_delete_spares_variant_landed_after_confirm(client):
+    cid, mid = await seed_message(client)
+    root = await _insert(mid, annotation="ROOT")
+    late = await _insert(mid, parent=root)
+    resp = await client.post(
+        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root}/delete",
+        json={"scope": "group", "seen": [root]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted_ids"] == [root]
+    assert body["group_empty"] is False
+    assert body["root_id"] == late
+    assert await get_workflow_attachment_by_id(root) is None
+    kept = await must_get_workflow_attachment(late)
+    assert kept["parent_attachment_id"] is None
+    assert kept["annotation"] == "ROOT"
+
+
 async def test_others_delete_of_sibling_promotes_it_and_carries_annotation(client):
     cid, mid = await seed_message(client)
     root = await _insert(mid, annotation="ROOT")
@@ -176,3 +195,16 @@ async def test_missing_scope_returns_400(client):
     await client.post_checked(
         f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root}/delete", json={}, expected_status=400
     )
+
+
+async def test_others_delete_keeps_one_root_when_the_old_root_is_unseen(client):
+    cid, mid = await seed_message(client)
+    root = await _insert(mid, annotation="ROOT")
+    kept = await _insert(mid, parent=root)
+    resp = await client.post(
+        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{kept}/delete",
+        json={"scope": "others", "seen": [kept]},
+    )
+    assert resp.json()["root_id"] == kept
+    assert (await must_get_workflow_attachment(kept))["parent_attachment_id"] is None
+    assert (await must_get_workflow_attachment(root))["parent_attachment_id"] == kept

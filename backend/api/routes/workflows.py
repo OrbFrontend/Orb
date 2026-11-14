@@ -53,8 +53,6 @@ from ...workflows.attachment_cache import (
     EVICTED_MARKER,
     RehydrateAlreadyDoneError,
     delete_workflow_attachments,
-    insert_workflow_attachment,
-    insert_workflow_attachments,
     insert_workflow_variant,
     project_rejected_attachment,
     record_access,
@@ -62,17 +60,20 @@ from ...workflows.attachment_cache import (
     set_active_sibling,
     validate_workflow_attachment_shape,
     variant_on_show,
+    workflow_group_ids,
 )
 from ...workflows.contracts import RerollGenHook
 from ..deps import (
     attachment_content_response,
     committing_workflow_job,
     locked_attachment_group,
+    rehydrate_lock,
     require_conversation,
     start_workflow_job,
     stop_workflow_jobs,
     workflow_event_stream_response,
     workflow_group_in_flight,
+    workflow_message_busy,
 )
 from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
@@ -346,102 +347,80 @@ async def _regenerate(
         action="regenerate",
         detail=f"Workflow {wid!r} is not registered or has no regenerate handler",
     )
-    # The group root is a mutable identity (deleting a root promotes a sibling to root), so root resolution and locking happen
-    # together under locked_attachment_group: it re-reads `att` under the canonical-root lock and retries if a concurrent delete
-    # moved the root, so the hook never runs against a since-deleted parent. The dispatcher assigns parent_attachment_id =
-    # root_id on every write, so the variant tree stays flat (root + N siblings).
-    async with locked_attachment_group(aid, mid) as (att, root_id):
-        anchor = await get_message_by_id(mid)
-        if anchor is None or anchor["conversation_id"] != cid:
-            raise HTTPException(status_code=404, detail="Message not found in conversation")
-        msgs = await get_messages_before(cid, mid)
-        last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
-        client = client_from_settings(settings_snapshot)
-        agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
+    # No group lock across the render: a delete or swipe meanwhile must not wait for it. Each render resolves its surviving root
+    # as it is saved (insert_workflow_variant), so one that lands after the user deleted its root joins the promoted survivor,
+    # or starts a new group when none is left.
+    root_id = att["parent_attachment_id"] or att["id"]
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+    msgs = await get_messages_before(cid, mid)
+    last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
+    client = client_from_settings(settings_snapshot)
+    agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
-        card_id, card = await resolve_workflow_character(conv, list(msgs), target_message=anchor)
-        initially_shown = await variant_on_show(root_id)
-        kept: list[int] = []
-        rejections: list[dict] = []
+    card_id, card = await resolve_workflow_character(conv, list(msgs), target_message=anchor)
+    initially_shown = await variant_on_show(root_id)
+    group = await workflow_group_ids(root_id)
+    kept: list[int] = []
+    rejections: list[dict] = []
 
-        def candidate_of(attachment: dict, **extra: Any) -> dict:
-            # Stamped with the text it renders: an edit made meanwhile keeps it from auto-activating.
-            metadata = {**(attachment.get("generation_metadata") or {}), "source_text": anchor["content"]}
-            return {**attachment, "workflow_id": sub.workflow_id, **extra, "generation_metadata": metadata}
+    async def keep(attachment: dict) -> int | None:
+        # Stamped with the text it renders: an edit made meanwhile keeps it from auto-activating. `shown` leaves a user who
+        # paged away from the previous render where they are.
+        metadata = {**(attachment.get("generation_metadata") or {}), "source_text": anchor["content"]}
+        candidate = {**attachment, "workflow_id": sub.workflow_id, "generation_metadata": metadata}
+        ok, reason = validate_workflow_attachment_shape(candidate)
+        if not ok:
+            rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
+            return None
+        new_id, rejected = await insert_workflow_variant(
+            mid, candidate, group=[*group, *kept], shown=kept[-1] if kept else initially_shown
+        )
+        if rejected is not None:
+            rejections.append(project_rejected_attachment(rejected, root_id))
+        if new_id is None:
+            return None
+        kept.append(new_id)
+        landed(new_id)
+        return new_id
 
-        async def keep(attachment: dict) -> int | None:
-            candidate = candidate_of(attachment)
-            ok, reason = validate_workflow_attachment_shape(candidate)
-            if not ok:
-                rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
-                return None
-            # The group lock is held, so the root cannot move; `shown` leaves a user
-            # who paged away from the previous render where they are.
-            new_id, rejected = await insert_workflow_variant(
-                mid, candidate, group=[root_id], shown=kept[-1] if kept else initially_shown
-            )
-            if rejected is not None:
-                rejections.append(project_rejected_attachment(rejected, root_id))
-            if new_id is None:
-                return None
-            kept.append(new_id)
-            landed(new_id)
-            return new_id
+    with hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
+        regen_ctx = RegenCtx(
+            conversation_id=cid,
+            message_id=mid,
+            attachment_id=aid,
+            original_attachment=readonly_view(att),
+            history=readonly_view(msgs),
+            last_user_message=last_user,
+            settings=readonly_view(settings_snapshot),
+            client=client,
+            agent_client=agent_client,
+            agent_model_name=agent_model_name,
+            character_id=card_id,
+            character=readonly_view(card),
+            phase=phase,
+            keep=keep,
+            emit=_regenerate_emitter(sub.workflow_id, emit),
+        )
+        new_dicts = await sub.callable(regen_ctx, body)
 
-        with hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
-            regen_ctx = RegenCtx(
-                conversation_id=cid,
-                message_id=mid,
-                attachment_id=aid,
-                original_attachment=readonly_view(att),
-                history=readonly_view(msgs),
-                last_user_message=last_user,
-                settings=readonly_view(settings_snapshot),
-                client=client,
-                agent_client=agent_client,
-                agent_model_name=agent_model_name,
-                character_id=card_id,
-                character=readonly_view(card),
-                phase=phase,
-                keep=keep,
-                emit=_regenerate_emitter(sub.workflow_id, emit),
-            )
-            new_dicts = await sub.callable(regen_ctx, body)
+    if not isinstance(new_dicts, list):
+        logger.warning("regenerate hook %r returned non-list (%s); treating as empty", wid, type(new_dicts).__name__)
+        new_dicts = []
 
-        if not isinstance(new_dicts, list):
-            logger.warning("regenerate hook %r returned non-list (%s); treating as empty", wid, type(new_dicts).__name__)
-            new_dicts = []
-
-        # Bad-shape entries are partitioned to rejected_workflow_atts so a single bad entry does not roll back the batch insert.
-        # Non-dict entries are dropped instead of rejected because the rejection record requires a filename to surface in the
-        # UI.
-        fixed: list[dict] = []
-        for d in new_dicts:
-            if not isinstance(d, dict):
-                logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
-                continue
-            candidate = candidate_of(d, parent_attachment_id=root_id)
-            ok, reason = validate_workflow_attachment_shape(candidate)
-            if not ok:
-                rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
-                logger.info("regenerate hook %r returned attachment rejected by shape validator: %s", wid, reason)
-                continue
-            fixed.append(candidate)
-
-        if not fixed:
-            return {"attachments": kept, "rejected_workflow_atts": rejections}
-
-        try:
-            with committing_workflow_job():
-                new_ids, helper_rejected = await insert_workflow_attachments(
-                    mid, fixed, shown=kept[-1] if kept else initially_shown
-                )
-        except (ValueError, LookupError, OSError):
-            logger.exception("regenerate hook %r batch insert failed", wid)
-            raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
-
-        helper_rejected_projected = [project_rejected_attachment(a, root_id) for a in helper_rejected]
-        return {"attachments": kept + new_ids, "rejected_workflow_atts": rejections + helper_rejected_projected}
+    # Non-dict entries are dropped instead of rejected because the rejection record requires a filename to surface in the UI.
+    try:
+        with committing_workflow_job():
+            for d in new_dicts:
+                if not isinstance(d, dict):
+                    logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
+                    continue
+                await keep(d)
+    except (ValueError, LookupError, OSError):
+        logger.exception("regenerate hook %r insert failed", wid)
+        raise HTTPException(status_code=500, detail="Regenerate insert failed; see server logs") from None
+    return {"attachments": kept, "rejected_workflow_atts": rejections}
 
 
 def _decode_stored_consumption_metadata(att: Mapping[str, Any]) -> dict | None:
@@ -562,52 +541,54 @@ async def _reroll_gen(
     cid: str, mid: int, aid: int, body: dict, sub: Subscription[RerollGenHook], settings_snapshot: Settings
 ) -> dict:
     wid = sub.workflow_id
-    # Resolve-and-lock the canonical root together (see regenerate): the in-lock
-    # snapshot and root id are read under the same lock the write will hold.
-    async with locked_attachment_group(aid, mid) as (att, root_id):
-        initially_shown = await variant_on_show(root_id)
-        params = _decode_generation_params(att)
-        anchor = await get_message_by_id(mid)
-        if anchor is None or anchor["conversation_id"] != cid:
-            raise HTTPException(status_code=404, detail="Message not found in conversation")
-        source_text = params.pop("source_text", anchor["content"])
-        _apply_param_overrides(params, body)
-        seed = _generated_seed()
-        client = client_from_settings(settings_snapshot)
+    # No group lock across the render (see regenerate): the variant joins whatever survives of its group when it is saved.
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None or att["message_id"] != mid:
+        raise HTTPException(status_code=404, detail="Attachment not found on this message")
+    root_id = att["parent_attachment_id"] or att["id"]
+    initially_shown = await variant_on_show(root_id)
+    group = await workflow_group_ids(root_id)
+    params = _decode_generation_params(att)
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+    source_text = params.pop("source_text", anchor["content"])
+    _apply_param_overrides(params, body)
+    seed = _generated_seed()
+    client = client_from_settings(settings_snapshot)
 
-        with hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
-            # Not a replay: this route promises another variant of the same subject, not the stored image back, so a workflow
-            # whose configuration has moved renders on today's.
-            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client, replay=False)
-            result = await sub.callable(ctx, params, seed)
+    with hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
+        # Not a replay: this route promises another variant of the same subject, not the stored image back, so a workflow whose
+        # configuration has moved renders on today's.
+        ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client, replay=False)
+        result = await sub.callable(ctx, params, seed)
 
-        data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
+    data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
 
-        if not isinstance(data, (bytes, bytearray)) or not data:
-            raise HTTPException(status_code=500, detail="reroll_gen handler returned no bytes")
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise HTTPException(status_code=500, detail="reroll_gen handler returned no bytes")
 
-        new_attachment = {
-            "workflow_id": sub.workflow_id,
-            "parent_attachment_id": root_id,
-            "filename": att.get("filename") or sub.workflow_id,
-            "mime": att.get("mime_type") or "application/octet-stream",
-            "data": bytes(data),
-            "seed": seed,
-            "generation_metadata": {**params, "source_text": source_text},
-            "consumption_metadata": new_consumption_metadata,
-            "annotation": att.get("annotation"),
-        }
-        try:
-            with committing_workflow_job():
-                new_id, rejected = await insert_workflow_attachment(mid, new_attachment, shown=initially_shown)
-        except (ValueError, LookupError, OSError):
-            logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
-            raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs") from None
+    new_attachment = {
+        "workflow_id": sub.workflow_id,
+        "filename": att.get("filename") or sub.workflow_id,
+        "mime": att.get("mime_type") or "application/octet-stream",
+        "data": bytes(data),
+        "seed": seed,
+        "generation_metadata": {**params, "source_text": source_text},
+        "consumption_metadata": new_consumption_metadata,
+        "annotation": att.get("annotation"),
+    }
+    try:
+        with committing_workflow_job():
+            new_id, rejected = await insert_workflow_variant(mid, new_attachment, group=group, shown=initially_shown)
+    except (ValueError, LookupError, OSError):
+        logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
+        raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs") from None
 
-        return {
-            "attachment_id": new_id,
-            "rejected_workflow_atts": ([project_rejected_attachment(rejected, root_id)] if rejected is not None else []),
-        }
+    return {
+        "attachment_id": new_id,
+        "rejected_workflow_atts": ([project_rejected_attachment(rejected, root_id)] if rejected is not None else []),
+    }
 
 
 @router.get("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/in-flight")
@@ -617,7 +598,7 @@ async def api_workflow_attachment_in_flight(
     aid: int,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Report whether an operation holds this attachment group's lock.
+    """Report whether a mutation holds this attachment group's lock or a render on its message is still running.
 
     Resolve any member id to its canonical root so dropped requests can be polled.
     """
@@ -628,7 +609,7 @@ async def api_workflow_attachment_in_flight(
     if anchor is None or anchor["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found in conversation")
     root_id = att["parent_attachment_id"] or att["id"]
-    return {"in_flight": workflow_group_in_flight(root_id)}
+    return {"in_flight": workflow_group_in_flight(root_id) or workflow_message_busy(cid, mid)}
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate")
@@ -675,11 +656,13 @@ async def api_rehydrate_attachment(
 
 
 async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot: Settings) -> dict:
-    # Serialize same-root rehydrates the way /regenerate and /reroll-gen already do for their sibling-tree mutations. Without
-    # this, two concurrent callers would each run the full reroll_gen LLM call before the cache helper's transactional recheck
-    # deduplicates them at the DB layer -- doubling LLM cost even though the row stays consistent. locked_attachment_group holds
-    # the canonical-root lock and re-reads `att` under it.
-    async with locked_attachment_group(aid, mid) as (att, _root_id):
+    # Serialize rehydrates of this row: without it, two concurrent callers would each run the full reroll_gen call before the
+    # cache helper's transactional recheck deduplicates them at the DB layer. Per row rather than per group, so a delete of the
+    # group never waits for the render.
+    async with rehydrate_lock(aid):
+        att = await get_workflow_attachment_by_id(aid)
+        if att is None or att["message_id"] != mid:
+            raise HTTPException(status_code=404, detail="Attachment not found on this message")
         # Re-check the eviction precondition on the in-lock snapshot so a concurrent caller that already rehydrated cannot slip
         # past the pre-lock check and double the reroll_gen LLM call before the cache helper's transactional recheck
         # deduplicates the bytes write.
@@ -712,7 +695,9 @@ async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot:
             # Race with a concurrent rehydrate that already restored the bytes. End state is correct; surface as 409 so the
             # client treats it as success rather than the generic 500.
             raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate") from None
-        except (LookupError, ValueError):
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Attachment was deleted during the render") from None
+        except ValueError:
             logger.exception("rehydrate write failed for attachment %r", scrub_log(aid))
             raise HTTPException(status_code=500, detail="rehydrate write failed; see server logs") from None
 
@@ -761,9 +746,10 @@ async def api_delete_workflow_attachment(
 ):
     """Delete a workflow attachment: one variant, the whole group, or every variant but ``aid``.
 
-    ``aid`` is the acted-on row. Body: ``{"scope": "variant" | "group" | "others"}``. Deleting the root variant of a
-    multi-variant group promotes the oldest survivor to root, and ``others`` makes ``aid`` the root; the response ``root_id``
-    reports the resulting root.
+    ``aid`` is the acted-on row. Body: ``{"scope": "variant" | "group" | "others", "seen": [ids]?}``; ``seen`` limits
+    ``group`` and ``others`` to the variants the user confirmed, so a render that lands while the delete waits survives.
+    Deleting the root variant of a multi-variant group promotes the oldest survivor to root, and ``others`` makes ``aid`` the
+    root; the response ``root_id`` reports the resulting root.
     """
     anchor = await get_message_by_id(mid)
     if anchor is None or anchor["conversation_id"] != cid:
@@ -771,13 +757,16 @@ async def api_delete_workflow_attachment(
     scope = body.get("scope") if isinstance(body, dict) else None
     if scope not in ("variant", "group", "others"):
         raise HTTPException(status_code=400, detail="scope must be 'variant', 'group' or 'others'")
+    seen = body.get("seen")
+    if seen is not None and not (isinstance(seen, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in seen)):
+        raise HTTPException(status_code=400, detail="seen must be a list of attachment ids")
     # locked_attachment_group resolves the canonical root and locks it, retrying if a concurrent delete promotes the root
     # mid-acquire -- so a delete that promotes a sibling and a delete racing it never end up holding different keys for what is
     # now one group. delete_workflow_attachments re-derives the root in its own BEGIN IMMEDIATE, which remains the integrity
     # boundary.
     try:
         async with locked_attachment_group(aid, mid) as (_att, _root_id):
-            result = await delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)
+            result = await delete_workflow_attachments(aid, scope=scope, expected_message_id=mid, seen=seen)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:

@@ -35,10 +35,19 @@ _T = TypeVar("_T")
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend")
 
 
-# Serialize sibling-tree mutations through commit, preserving response ordering.
-# /activate uses its own transaction so swipes do not wait for long renders.
+# Serialize sibling-tree mutations through commit, preserving response ordering. Renders take no group lock: each saved render
+# resolves its surviving root in its own transaction, so a delete or swipe never waits for one.
 # Locks persist per interacted root until restart; setdefault has no intervening await.
 _workflow_root_locks: dict[int, asyncio.Lock] = {}
+_rehydrate_locks: dict[int, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def rehydrate_lock(attachment_id: int):
+    """Serialize rehydrates of one row, so a second caller re-reads the row instead of paying for the render again."""
+    lock = _rehydrate_locks.setdefault(attachment_id, asyncio.Lock())
+    async with lock:
+        yield
 
 
 @asynccontextmanager
@@ -65,6 +74,11 @@ _workflow_jobs: dict[str, dict[asyncio.Task[Any], str | None]] = {}
 _workflow_sources: dict[asyncio.Task[Any], int | None] = {}
 _deleting_resources: set[str] = set()
 _deleting_messages: set[int] = set()
+
+
+def workflow_message_busy(cid: str, message_id: int) -> bool:
+    """Whether a workflow render on *message_id* is still running: a dropped request's saves may still land."""
+    return any(_workflow_sources.get(task) == message_id for task in _workflow_jobs.get(cid, {}))
 
 
 def resource_deleting(key: str) -> bool:
