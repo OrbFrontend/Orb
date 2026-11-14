@@ -8,6 +8,8 @@ import math
 import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from typing import TypeVar
 
 from ..core.text_segmentation import HARD_LINE_BREAK_RE, remove_quoted_spans, split_sentences, strip_protected_markup
 from .local_models import (
@@ -40,8 +42,11 @@ __all__ = [
     "GO_EMOTIONS",
     "MARKUP_INPUT_VERSION",
     "MODELS",
+    "SLOP_THRESHOLD",
     "ModelSpec",
     "ModelVariantSpec",
+    "SlopChunk",
+    "SlopGrade",
     "acomplete",
     "aclassify",
     "aclassify_markup",
@@ -50,7 +55,7 @@ __all__ = [
     "aclassify_subjects",
     "acompare_subjects",
     "aemotion_scores",
-    "ascore",
+    "ascore_slop",
     "available",
     "delete_model",
     "deps_ok",
@@ -162,7 +167,6 @@ async def acomplete(
 
 # The classifier GGUFs carry a classification head, scored with RANK pooling, which leaves llama.cpp a float[n_cls_out] per
 # sequence.
-_SLOP_MAX_CHARS = 2000  # ~n_ctx guard: one over-long "sentence" can't blow past 512 tokens
 
 # A head reads the first n_ctx ids, as training cut them; a non-causal encoder needs the whole sequence in one ubatch.
 _SCORER_CTX = 512
@@ -213,10 +217,13 @@ def _direct(text: str, n_ctx: int) -> bool:
     return len(text.encode("utf-8")) <= n_ctx - 2 and "[" not in text and "<|" not in text
 
 
-async def _bounded(calls: Sequence[Callable[[], Awaitable[list[int]]]]) -> list[list[int]]:
+_T = TypeVar("_T")
+
+
+async def _bounded(calls: Sequence[Callable[[], Awaitable[_T]]]) -> list[_T]:
     gate = asyncio.Semaphore(_TOKENIZE_CONCURRENCY)
 
-    async def run(call: Callable[[], Awaitable[list[int]]]) -> list[int]:
+    async def run(call: Callable[[], Awaitable[_T]]) -> _T:
         async with gate:
             return await call()
 
@@ -241,17 +248,104 @@ async def _logits(handle: str, texts: Sequence[str], n: int) -> list[list[float]
         return await server.head_logits(await _head_inputs(server, texts, n_ctx), n)
 
 
-async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
-    """Per-sentence slop confidence in [0, 1] (class-1 softmax), aligned to input order. One request for the whole list."""
-    texts = [(s or "").strip()[:_SLOP_MAX_CHARS] for s in sentences]
-    keep = [i for i, text in enumerate(texts) if text]
-    out = [0.0] * len(texts)
-    for i, v in zip(keep, await _logits(feature, [texts[i] for i in keep], 2), strict=True):
-        a, b = v  # 2 class logits; softmax -> P(slop)
-        m = max(a, b)
-        ea, eb = math.exp(a - m), math.exp(b - m)
-        out[i] = eb / (ea + eb)
+# The slop head (ettin150m-purple v2) reads one paragraph per input, scored as Chartreuse's classifier/reward.py scores it
+# but with a 40-word floor instead of its 60, so a flag covers fewer paragraphs: paragraphs merge with the next until a
+# chunk has _SLOP_MIN_WORDS words (a short tail joins the chunk before it), a chunk past the window is read in
+# sentence-aligned windows weighted by tokens, and the text's score is the word-weighted chunk mean. The threshold is
+# threshold.json at the pinned revision (precision 0.9 on human-only negatives).
+SLOP_THRESHOLD = 0.0933
+_SLOP_MIN_WORDS = 40
+_SLOP_SENTENCE_ENDS = ".!?…\n"
+
+
+@dataclass(frozen=True)
+class SlopChunk:
+    paragraphs: tuple[int, ...]  # input indices, in order
+    words: int
+    score: float
+
+
+@dataclass(frozen=True)
+class SlopGrade:
+    score: float | None  # None when there is nothing to read
+    chunks: tuple[SlopChunk, ...]
+
+
+def _slop_chunks(paragraphs: Sequence[str]) -> list[list[int]]:
+    """Indices of the non-blank *paragraphs* in each chunk."""
+    groups: list[list[int]] = []
+    words: list[int] = []
+    for i, paragraph in enumerate(paragraphs):
+        n = len(paragraph.split())
+        if not n:
+            continue
+        if groups and words[-1] < _SLOP_MIN_WORDS:
+            groups[-1].append(i)
+            words[-1] += n
+        else:
+            groups.append([i])
+            words.append(n)
+    if len(groups) > 1 and words[-1] < _SLOP_MIN_WORDS:
+        last = groups.pop()
+        groups[-1] += last
+    return groups
+
+
+def _slop_windows(n_ids: int, sentence_ends: Sequence[int], size: int) -> list[tuple[int, int]]:
+    """Spans of at most *size* token positions over ``n_ids`` tokens, cut at sentence ends where possible."""
+    out: list[tuple[int, int]] = []
+    a = 0
+    while a < n_ids:
+        b = min(a + size, n_ids)
+        if b < n_ids:
+            cut = [e for e in sentence_ends if a < e <= b]
+            b = cut[-1] if cut and cut[-1] - a >= size // 2 else b
+        out.append((a, b))
+        a = b
     return out
+
+
+def _slop_window_ids(pieces: Sequence[tuple[int, str]], cls: int, sep: int, room: int) -> list[list[int]]:
+    ids = [token for token, _ in pieces]
+    ends = [i + 1 for i, (_, piece) in enumerate(pieces) if piece and piece[-1] in _SLOP_SENTENCE_ENDS]
+    return [[cls, *ids[a:b], sep] for a, b in _slop_windows(len(ids), ends, room)]
+
+
+def _p_class1(logits: Sequence[float]) -> float:
+    """Class-1 softmax of two logits."""
+    a, b = logits[0], logits[1]
+    return _sigmoid(b - a)
+
+
+async def _specials(server: LlamaServerClient, handle: str) -> tuple[int, int]:
+    if handle not in _special_ids:
+        cls, sep = await server.tokenize("", add_special=True)
+        _special_ids[handle] = (cls, sep)
+    return _special_ids[handle]
+
+
+async def ascore_slop(paragraphs: Sequence[str]) -> SlopGrade:
+    """P(slop) per chunk of *paragraphs* and for the whole text. One request for every window."""
+    groups = _slop_chunks(paragraphs)
+    if not groups:
+        return SlopGrade(score=None, chunks=())  # nothing to read: never load the model for it
+    texts = ["\n".join(paragraphs[i].strip() for i in group) for group in groups]
+    handle = "slop_classifier"
+    async with _host(handle).use(_head_profile(handle)) as server:
+        cls, sep = await _specials(server, handle)
+        pieces = await _bounded([lambda text=text: server.tokenize_pieces(text) for text in texts])
+        per_chunk = [_slop_window_ids(p, cls, sep, _SCORER_CTX - 2) for p in pieces]
+        logits = await server.head_logits([w for windows in per_chunk for w in windows], 2)
+    chunks: list[SlopChunk] = []
+    k = 0
+    for group, text, windows in zip(groups, texts, per_chunk, strict=True):
+        sizes = [len(w) - 2 for w in windows]
+        probs = [_p_class1(v) for v in logits[k : k + len(windows)]]
+        k += len(windows)
+        score = sum(p * n for p, n in zip(probs, sizes, strict=True)) / max(1, sum(sizes))
+        chunks.append(SlopChunk(paragraphs=tuple(group), words=len(text.split()), score=score))
+    total = sum(c.words for c in chunks)
+    return SlopGrade(score=sum(c.score * c.words for c in chunks) / total, chunks=tuple(chunks))
 
 
 def _handles(feature: str) -> tuple[str, ...]:
@@ -520,10 +614,7 @@ def _subject_repeats_from_logits(logits: Sequence[float]) -> dict[str, float]:
 
 async def _pair_logits(pairs: Sequence[tuple[str, str]], n: int) -> list[list[float]]:
     async with _host(_SUBJECT_COMPARER).use(_head_profile(_SUBJECT_COMPARER)) as server:
-        if _SUBJECT_COMPARER not in _special_ids:
-            cls, sep = await server.tokenize("", add_special=True)
-            _special_ids[_SUBJECT_COMPARER] = (cls, sep)
-        cls, sep = _special_ids[_SUBJECT_COMPARER]
+        cls, sep = await _specials(server, _SUBJECT_COMPARER)
         parts = [part for pair in pairs for part in pair]
         ids = await _bounded([lambda part=part: server.tokenize(part) for part in parts])
         seqs = [_subject_pair_ids(cls, sep, ids[2 * i], ids[2 * i + 1]) for i in range(len(pairs))]

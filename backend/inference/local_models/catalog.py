@@ -120,10 +120,11 @@ MODELS: dict[str, ModelSpec] = {
         revision="1351b6b71dc6879544cc43bad9df9b8fa23589fa",
     ),
     "slop_classifier": ModelSpec(
-        repo_id="chartreuse-verte/ettin150m-purple-GGUF",
-        filename="ettin150m-purple-q8_0.gguf",
+        repo_id="chartreuse-verte/ettin150m-purple-v2-GGUF",
+        filename="ettin150m-purple-v2-q8_0.gguf",
         size_mb=161,
-        revision="125cf38d62e78b7091c23e6d523d805c7ec2f47e",
+        revision="91222507e2febda90f2113cc4f568e9f03b17763",
+        sha256="f4bb8f5018b5fbee09aad63b0b98990433ff419dc57df885311fb6c61276e60b",
     ),
     "emotion_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-emotion-28-multilabel-68m",

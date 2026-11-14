@@ -298,6 +298,15 @@ class LlamaServerClient:
             raise RuntimeError(_error_text(response.text))
         return [int(token) for token in (response.json().get("tokens") or [])]
 
+    async def tokenize_pieces(self, text: str) -> list[tuple[int, str]]:
+        """*text* as ``(id, piece)`` pairs, no specials. A piece that is not whole UTF-8 comes back as ``""``."""
+        body = {"content": text, "parse_special": False, "with_pieces": True}
+        response = await self._http().post("/tokenize", json=body, timeout=30.0)
+        if response.status_code != 200:
+            raise RuntimeError(_error_text(response.text))
+        tokens = response.json().get("tokens") or []
+        return [(int(t["id"]), t["piece"] if isinstance(t.get("piece"), str) else "") for t in tokens]
+
     async def generate(
         self,
         prompt: str,

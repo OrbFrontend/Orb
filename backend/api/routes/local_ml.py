@@ -222,18 +222,22 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
 
 @router.post("/api/local-ml/slop-score")
 async def api_slop_score(data: dict = Body(...)):  # noqa: B008
-    """Score each sentence for AI-slop -> {"scores": [float in 0..1, ...]} in input order.
+    """Score a message's paragraphs for AI-slop.
 
-    Sentences come pre-split from the frontend (which owns the coloring), so scores
-    map back to spans by index. 503 when the extra/model is missing or the toggle is off.
+    Paragraphs come from the frontend, which owns the painting, so chunks name them by input index. 503 when the extra/model
+    is missing or the toggle is off.
     """
     ok, reason = local_ml.available("slop_classifier")
     settings = await get_settings()
     if not ok or not settings.get("local_ml_enabled", {}).get("slop_classifier", True):
         raise HTTPException(status_code=503, detail=reason or "AI-Slop Classifier disabled")
-    sentences = [str(s) for s in (data.get("sentences") or [])][:400]  # cap runaway input
-    scores = await local_ml.ascore("slop_classifier", sentences)
-    return {"scores": scores}
+    paragraphs = [str(p) for p in (data.get("paragraphs") or [])][:400]  # cap runaway input
+    grade = await local_ml.ascore_slop(paragraphs)
+    return {
+        "score": grade.score,
+        "threshold": local_ml.SLOP_THRESHOLD,
+        "chunks": [{"paragraphs": list(c.paragraphs), "score": c.score} for c in grade.chunks],
+    }
 
 
 @router.post("/api/local-ml/classify-emotion")
