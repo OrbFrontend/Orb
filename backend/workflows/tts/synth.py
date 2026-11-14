@@ -20,7 +20,7 @@ from ..toolkit import (
 from .engine.base import SpeakableChunk
 from .engine.regex_extractor import regex_extract_lines
 from .engine.router import get_adapter
-from .engine.zonos_adapter import clean_embedding
+from .engine.zonos_adapter import clean_reference_codes
 from .engine.zonos_delivery import MAX_STRENGTH
 from .line_emotion import line_labels
 
@@ -50,8 +50,8 @@ _PROFILE_DEFAULTS: dict = {
     "clone_mode": "basic",
     "reference_tokens": [],
     "reference_text": "",
-    # ZONOS3: the cloned speaker embedding, its clip's name, and per-line steering with its strength.
-    "zonos_embedding": [],
+    # ZONOS3: the cloned voice's reference codes, its clip's name, and per-line steering with its strength.
+    "zonos_reference_codes": [],
     "zonos_ref_name": "",
     "emotion_delivery": True,
     "delivery_strength": 1.0,
@@ -73,7 +73,7 @@ _METADATA_KEYS = (
     "clone_mode",
     "reference_tokens",
     "reference_text",
-    "zonos_embedding",
+    "zonos_reference_codes",
     "emotion_delivery",
     "delivery_strength",
 )
@@ -107,7 +107,7 @@ def normalize_profile(raw: object) -> dict:
     out["clone_mode"] = out["clone_mode"] if out["clone_mode"] in CLONE_MODES else "basic"
     out["reference_tokens"] = spark_voice_clean_reference_tokens(out.get("reference_tokens"))
     out["reference_text"] = spark_voice_clean_reference_text(out.get("reference_text"))
-    out["zonos_embedding"] = clean_embedding(out.get("zonos_embedding"))
+    out["zonos_reference_codes"] = clean_reference_codes(out.get("zonos_reference_codes"))
     out["zonos_ref_name"] = str(out.get("zonos_ref_name") or "")
     out["emotion_delivery"] = bool(out["emotion_delivery"])
     out["delivery_strength"] = _bounded(out["delivery_strength"], 1.0, 0.0, MAX_STRENGTH)
@@ -135,7 +135,7 @@ def _voice_record(profile: Mapping[str, Any]) -> dict:
     if not _speaks_advanced(profile):
         record.update(clone_mode="basic", reference_tokens=[], reference_text="")
     if profile.get("backend") != "zonos":
-        record["zonos_embedding"] = []
+        record["zonos_reference_codes"] = []
     return record
 
 
@@ -245,7 +245,7 @@ def _backend_kwargs(profile: dict, settings: Settings | None) -> dict:
         "speaker_tokens": list(profile.get("speaker_tokens") or []),
         "reference_tokens": list(profile.get("reference_tokens") or []) if advanced else [],
         "reference_text": str(profile.get("reference_text") or "") if advanced else "",
-        "zonos_embedding": list(profile.get("zonos_embedding") or []),
+        "zonos_reference_codes": list(profile.get("zonos_reference_codes") or []),
         "emotion_delivery": bool(profile.get("emotion_delivery")),
         "delivery_strength": _as_float(profile.get("delivery_strength"), 1.0),
         "settings": settings,

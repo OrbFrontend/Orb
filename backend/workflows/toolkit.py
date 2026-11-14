@@ -77,6 +77,7 @@ from ..prompting import resolve_persona_id as _resolve_persona_id
 from ..prompting.lorebook import compute_constant_lorebook_block as _compute_constant_lorebook_block
 from . import gpu_swap_host as _gpu_swap_host
 from . import spark_tts_host as _spark_tts_host
+from . import voice_clip_host as _voice_clip_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import (
     EVICTED_MARKER,
@@ -225,6 +226,7 @@ __all__ = [
     "local_model_identity",
     "narration_only",
     "overlay_enable_tools",
+    "prepare_voice_clip",
     "spark_voice_clean_reference_text",
     "spark_voice_clean_reference_tokens",
     "spark_voice_clean_tokens",
@@ -360,6 +362,23 @@ async def spark_voice_speak(
 async def spark_voice_reference_audio(reference_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> tuple[bytes, int]:
     """An advanced voice's reference excerpt as ``(pcm16, sample_rate)``, rebuilt from its tokens."""
     return await _spark_tts_host.reference_audio(reference_tokens, speaker_tokens)
+
+
+async def prepare_voice_clip(data: bytes, settings: Settings, *, filename: str = "") -> dict[str, Any]:
+    """An uploaded clip as the reference a cloning server should read: its first minute as a 44.1 kHz mono WAV at -20 LUFS,
+    with its vocals separated when something plays under the voice and the vocal separator is ready.
+
+    Returns ``wav``, ``background`` (something plays under the voice), ``separated``, and ``separator_reason`` (why a clip
+    with background was not separated). Raises ``WorkflowInputError`` for an unreadable or silent file.
+    """
+    clip = await _voice_clip_host.prepare_clip(data, settings, filename=filename)
+    _ready, reason = _voice_clip_host.separator_ready(settings)
+    return {
+        "wav": clip.wav,
+        "background": clip.background,
+        "separated": clip.separated,
+        "separator_reason": reason if clip.background and not clip.separated else "",
+    }
 
 
 @asynccontextmanager

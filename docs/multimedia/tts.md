@@ -71,8 +71,12 @@ that character.
 2. Drop a clip of the character speaking on **Cloned voice**. The server must be
    running while the clip uploads.
 
-Use one speaker and no music. Drop another clip to replace the voice, or choose
-**Remove** to forget it and stop speech for that character.
+Use one speaker. Orb uses the clip's first minute, and the clone copies how it
+sounds: its room, its microphone and anything playing under the voice. If the
+clip has music or noise under the voice, choose **Download** next to the vocal
+separator before uploading it, and Orb takes the background out. Drop another
+clip to replace the voice, or choose **Remove** to forget it and stop speech for
+that character.
 
 ## Emotional delivery
 

@@ -642,12 +642,26 @@ Reroll and rehydrate replay the stored chunks and never run the classifier, so
 a replayed clip keeps its delivery. `engine/zonos_delivery.py` maps the label to a
 control and dose, scaled by the profile's `delivery_strength` and limited by a
 hard cap for each direction. A label with no row, including values stored by
-other backends, sends no control. If a controlled line of four or more words
+other backends, sends `VOICE_CONTROLS` (`emotions.sad` 1.5), which kept cloned
+voices closest to their clip by ear. If a controlled line of four or more words
 comes back shorter than 0.6 s, the adapter speaks it again without controls.
 
-A ZONOS voice is cloned like a built-in Spark voice: the upload hook sends the
-clip to the server's `POST /v2/speakers` under a throwaway session, reads the
-speaker embedding back, and stores it in the profile as `zonos_embedding`. Every
-request sends that embedding as a `.npy` in `speaker_mode: embedding` with a
-fixed loudness condition, so the server keeps no Orb state and a replay
-reproduces from the attachment metadata alone.
+A ZONOS voice clones from the clip itself, not a speaker embedding. On upload,
+`inference/local_models/voice_clip` decodes the clip at 44.1 kHz and keeps its
+first 60 s, the reference the server reads. When its quietest 20 ms stretches
+sit within 45 dB of its speech, something plays under the voice; the clone would
+copy it, so the vocal separator (Hybrid Demucs's vocal stem as ONNX, from
+`scripts/export_vocal_separator.py`) takes it out when downloaded. One gain then
+sets the clip to -20 LUFS with peaks below -1 dBFS, since the server reproduces
+the reference's level. The upload hook sends the result to `POST /v2/speakers`
+under a throwaway session, reads `GET /v2/speakers/{id}/reference_codes`, and
+stores the `[frames, 10]` codes in the profile as `zonos_reference_codes`.
+Every request sends those codes as `speaker_reference_codes`, so the server
+keeps no Orb state and a replay reproduces from the attachment metadata alone.
+
+Each request also sends `silence_prefill_frames: 10`, which keeps a line's first
+syllable from starting loud, and `eoa_hold_frames: 6`. The model ends a take
+when its words are spoken, before the voice and room have decayed, which
+clips the tail of a reverberant reference; holding the end-of-audio token for
+six frames (0.4 s) lets it generate the decay. A server that rejects the field
+gets requests without it.

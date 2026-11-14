@@ -28,11 +28,11 @@ def apply_voice(profile: dict, voice: Mapping[str, Any] | None, source_name: str
     return profile
 
 
-def apply_zonos_voice(profile: dict, embedding: list[float] | None, source_name: str, api_url: str = "") -> dict:
-    """Store a ZONOS speaker *embedding* in *profile*, or clear it when ``None``."""
-    profile["zonos_embedding"] = list(embedding) if embedding else []
-    profile["zonos_ref_name"] = source_name if embedding else ""
-    if embedding:
+def apply_zonos_voice(profile: dict, codes: list[list[int]] | None, source_name: str, api_url: str = "") -> dict:
+    """Store a ZONOS voice's reference *codes* in *profile*, or clear them when ``None``."""
+    profile["zonos_reference_codes"] = [list(row) for row in codes] if codes else []
+    profile["zonos_ref_name"] = source_name if codes else ""
+    if codes:
         profile["backend"] = "zonos"
         profile["voice_id"] = VOICE_ID
         profile["api_url"] = api_url or profile.get("api_url") or ""

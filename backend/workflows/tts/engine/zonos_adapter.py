@@ -1,11 +1,9 @@
-"""ZONOS3 TTS adapter: cloned speaker embeddings with per-line steering controls."""
+"""ZONOS3 TTS adapter: voices cloned from a clip's reference codes, with per-line steering controls."""
 
 from __future__ import annotations
 
 import base64
 import logging
-import math
-import struct
 import uuid
 
 import httpx
@@ -13,18 +11,25 @@ import httpx
 from ...toolkit import WorkflowInputError, WorkflowUnavailableError
 from .base import SpeakableChunk, SynthesisResult, TTSAdapter
 from .wav import pcm_duration_ms, pcm_to_wav, stitch_pcm, strip_header
-from .zonos_delivery import delivery_controls
+from .zonos_delivery import VOICE_CONTROLS, delivery_controls
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_URL = "http://localhost:1919"
-TARGET_LUFS = -20.0
+#: Frames the end-of-audio token is held back, so a line keeps its decay (a patched server's ``eoa_hold_frames``).
+EOA_HOLD_FRAMES = 6
+#: Codec silence before each line; the server default of 3 lets reference voices start with a loud first syllable.
+SILENCE_PREFILL_FRAMES = 10
 
 _SYNTH_TIMEOUT = 300.0
 _ENROLL_TIMEOUT = 120.0
 _COLLAPSE_WORDS = 4
 _COLLAPSE_MS = 600
-_MAX_EMBEDDING_DIM = 1024
+_CODEBOOKS = 10
+_CODEBOOK_SIZE = 4096
+_MAX_REFERENCE_FRAMES = 900
+# Servers that refused eoa_hold_frames: they get requests without it.
+_NO_HOLD: set[str] = set()
 
 # Orb language prefix -> server text-normalization language; checked in order, so `en-gb` precedes `en`.
 _LANGUAGES = (
@@ -51,25 +56,18 @@ def server_language(language: str) -> tuple[str, bool]:
     return "en_us", False
 
 
-def clean_embedding(raw: object) -> list[float]:
-    """A stored speaker embedding as finite floats, or ``[]`` when it is not one."""
-    if not isinstance(raw, list) or not 0 < len(raw) <= _MAX_EMBEDDING_DIM:
+def clean_reference_codes(raw: object) -> list[list[int]]:
+    """Stored reference codes as ``[frames][10]`` codec ids, or ``[]`` when they are not that."""
+    if not isinstance(raw, list) or not 0 < len(raw) <= _MAX_REFERENCE_FRAMES:
         return []
-    values = []
-    for value in raw:
-        if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+    rows = []
+    for row in raw:
+        if not isinstance(row, list) or len(row) != _CODEBOOKS:
             return []
-        values.append(float(value))
-    return values
-
-
-def embedding_npy(embedding: list[float]) -> bytes:
-    """*embedding* as a float32 ``.npy`` file, the form the server reads."""
-    header = f"{{'descr': '<f4', 'fortran_order': False, 'shape': ({len(embedding)},), }}"
-    header += " " * (63 - (10 + len(header)) % 64) + "\n"
-    return (
-        b"\x93NUMPY\x01\x00" + struct.pack("<H", len(header)) + header.encode() + struct.pack(f"<{len(embedding)}f", *embedding)
-    )
+        if not all(type(code) is int and 0 <= code < _CODEBOOK_SIZE for code in row):
+            return []
+        rows.append(list(row))
+    return rows
 
 
 def _base_url(api_url: str) -> str:
@@ -102,10 +100,11 @@ def _raise_for_status(response: httpx.Response) -> None:
     response.raise_for_status()
 
 
-async def enroll_clip(data: bytes, filename: str = "", api_url: str = "", api_key: str | None = None) -> list[float]:
-    """Encode an uploaded clip into a speaker embedding on the ZONOS server.
+async def enroll_clip(data: bytes, filename: str = "", api_url: str = "", api_key: str | None = None) -> list[list[int]]:
+    """Encode a prepared clip into reference codes on the ZONOS server.
 
-    Raises ``WorkflowInputError`` for a clip the server refuses and ``WorkflowUnavailableError`` when it cannot be reached.
+    Raises ``WorkflowInputError`` for a clip the server refuses and ``WorkflowUnavailableError`` when it cannot be reached or
+    cannot return codes.
     """
     base = _base_url(api_url)
     headers = {**_headers(api_key), "X-TTS-Session-ID": uuid.uuid4().hex}
@@ -117,14 +116,19 @@ async def enroll_clip(data: bytes, filename: str = "", api_url: str = "", api_ke
                 raise WorkflowInputError(f"ZONOS could not read this clip: {refusal}")
             created.raise_for_status()
             speaker_id = created.json()["id"]
-            fetched = await client.get(f"{base}/v2/speakers/{speaker_id}/embedding", headers=headers)
+            fetched = await client.get(f"{base}/v2/speakers/{speaker_id}/reference_codes", headers=headers)
+            if fetched.status_code == 404:
+                raise WorkflowUnavailableError(
+                    f"The ZONOS3 server at {base} cannot return reference codes. Update it to a build with "
+                    "/v2/speakers/{id}/reference_codes."
+                )
             fetched.raise_for_status()
-            embedding = clean_embedding(fetched.json().get("embedding"))
+            codes = clean_reference_codes(fetched.json().get("codes"))
     except httpx.TransportError as exc:
         raise WorkflowUnavailableError(f"Start the ZONOS3 server at {base} first.") from exc
-    if not embedding:
+    if not codes:
         raise WorkflowUnavailableError("The ZONOS server returned no voice for this clip.")
-    return embedding
+    return codes
 
 
 class ZonosAdapter(TTSAdapter):
@@ -139,24 +143,24 @@ class ZonosAdapter(TTSAdapter):
         pitch: float = 1.0,
         api_url: str = "",
         api_key: str | None = None,
-        zonos_embedding: list[float] | None = None,
+        zonos_reference_codes: list[list[int]] | None = None,
         emotion_delivery: bool = True,
         delivery_strength: float = 1.0,
         seed: int | None = None,
         **kwargs,
     ) -> SynthesisResult:
         """Synthesize each chunk with its line's controls and join the clips into one WAV."""
-        embedding = clean_embedding(zonos_embedding)
-        if not embedding:
+        codes = clean_reference_codes(zonos_reference_codes)
+        if not codes:
             raise ValueError("This character has no ZONOS voice yet — upload a reference clip first.")
         lang, normalize = server_language(language)
-        url = f"{_base_url(api_url)}/v2/generate"
+        server = _base_url(api_url)
+        url = f"{server}/v2/generate"
         base: dict = {
-            "speaker_embedding_base64": base64.b64encode(embedding_npy(embedding)).decode("ascii"),
-            "speaker_mode": "embedding",
+            "speaker_reference_codes": codes,
             "language": lang,
             "text_normalization": normalize,
-            "condition_values": {"loudness": TARGET_LUFS},
+            "silence_prefill_frames": SILENCE_PREFILL_FRAMES,
             "stream": False,
             "format": "wav",
         }
@@ -167,12 +171,22 @@ class ZonosAdapter(TTSAdapter):
 
             async def generate(text: str, controls: dict[str, float]) -> tuple[bytes, int]:
                 body = {**base, "text": text, **({"controls": controls} if controls else {})}
+                if server not in _NO_HOLD:
+                    response = await client.post(
+                        url, json={**body, "eoa_hold_frames": EOA_HOLD_FRAMES}, headers=_headers(api_key)
+                    )
+                    if "eoa_hold_frames" not in (_refusal(response) or ""):
+                        _raise_for_status(response)
+                        return strip_header(response.content)
+                    logger.info("ZONOS: %s does not take eoa_hold_frames; line endings may be clipped", server)
+                    _NO_HOLD.add(server)
                 response = await client.post(url, json=body, headers=_headers(api_key))
                 _raise_for_status(response)
                 return strip_header(response.content)
 
             async def speak(chunk: SpeakableChunk) -> tuple[bytes, int]:
-                controls = delivery_controls(chunk.emotion, delivery_strength) if emotion_delivery else {}
+                emotional = delivery_controls(chunk.emotion, delivery_strength) if emotion_delivery else {}
+                controls = emotional or dict(VOICE_CONTROLS)
                 pcm, clip_rate = await generate(chunk.text, controls)
                 if controls and len(chunk.text.split()) >= _COLLAPSE_WORDS and pcm_duration_ms(pcm, clip_rate) < _COLLAPSE_MS:
                     logger.info(

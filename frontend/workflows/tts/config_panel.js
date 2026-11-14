@@ -87,6 +87,7 @@ const ADVANCED_FEATURES = [
   { id: "spark_tts_reference", label: "reference reader" },
   { id: "speech_recognizer", label: "speech recognizer" },
 ];
+const ZONOS_FEATURES = [{ id: "vocal_separator", label: "vocal separator" }];
 const SEMANTIC_RATE = 50;
 
 let memberId = null;
@@ -102,7 +103,7 @@ let loadedProfile = null;
 let previewRaf = null;
 let previewPending = 0;
 let previewWhat = "Preview";
-let zonosVoice = { embedding: [], name: "" };
+let zonosVoice = { codes: [], name: "" };
 
 function emptyClone() {
   return { tokens: [], name: "", mode: "basic", referenceTokens: [], referenceText: "" };
@@ -119,7 +120,7 @@ function cloneFromProfile(profile) {
 }
 
 function zonosFromProfile(profile) {
-  return { embedding: profile.zonos_embedding || [], name: profile.zonos_ref_name || "" };
+  return { codes: profile.zonos_reference_codes || [], name: profile.zonos_ref_name || "" };
 }
 
 function triggerUrl() {
@@ -411,6 +412,7 @@ function ensureMlStatus({ refresh = false } = {}) {
 }
 
 function cloneFeatures() {
+  if (readForm().backend === "zonos") return ZONOS_FEATURES;
   return cloned.mode === "advanced" ? [...CLONE_FEATURES, ...ADVANCED_FEATURES] : CLONE_FEATURES;
 }
 
@@ -478,12 +480,12 @@ function removeButtonHtml(enrolled) {
 }
 
 function zonosCloneHtml() {
-  const enrolled = zonosVoice.embedding.length > 0;
+  const enrolled = zonosVoice.codes.length > 0;
   let title = `Drop a clip of this character speaking, or <span class="tts-drop-link">choose a file</span>`;
-  let note = "The ZONOS3 server reads the voice from it. One speaker, no music.";
+  let note = "The first minute is used. One speaker.";
   if (enrolling) {
     title = `Enrolling ${esc(enrolling)}…`;
-    note = "Reading the voice on the ZONOS3 server.";
+    note = "Preparing the clip and reading the voice on the ZONOS3 server.";
   } else if (enrolled) {
     title = esc(zonosVoice.name || "Uploaded clip");
     note = "Every reply from this character uses it. Drop another clip to replace it.";
@@ -491,7 +493,20 @@ function zonosCloneHtml() {
   return `<div class="tts-field tts-clone">
       <span class="tts-clone-head"><label for="tts-pf-zonosfile">Cloned voice</label>${removeButtonHtml(enrolled)}</span>
       ${dropZoneHtml("tts-pf-zonosfile", title, note, enrolled, !enrolling)}
+      ${referenceNote ? `<span class="tts-note">${esc(referenceNote)}</span>` : ""}
+      ${zonosSetupHtml()}
     </div>`;
+}
+
+function zonosSetupHtml() {
+  if (!mlStatus || featureReady("vocal_separator")) return "";
+  const info = mlFeature("vocal_separator");
+  if (!info.deps_ok) return "";
+  const sentence = setupStep || "To clean music or noise out from under the voice, Orb needs the vocal separator.";
+  return `<span class="tts-setup">
+      <span class="tts-note">${sentence}</span>
+      <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(!info.present, info.size_mb)}</button>
+    </span>`;
 }
 
 function cloneControlHtml(p) {
@@ -653,7 +668,12 @@ async function runCloneSetup() {
         renderCloneControl();
       }
     }
-    const what = cloned.mode === "advanced" ? "Advanced cloning" : "Voice cloning";
+    const what =
+      readForm().backend === "zonos"
+        ? "Vocal separation"
+        : cloned.mode === "advanced"
+          ? "Advanced cloning"
+          : "Voice cloning";
     setStatus(features.every((f) => featureReady(f.id)) ? `${what} is ready` : "");
   } catch (e) {
     console.warn("tts: voice cloning setup failed", e);
@@ -762,7 +782,7 @@ function readForm() {
     clone_mode: cloned.mode,
     reference_tokens: cloned.referenceTokens,
     reference_text: cloned.referenceText,
-    zonos_embedding: zonosVoice.embedding,
+    zonos_reference_codes: zonosVoice.codes,
     zonos_ref_name: zonosVoice.name,
     language: val("tts-pf-language")?.value || "en",
     model: val("tts-pf-model")?.value || "",

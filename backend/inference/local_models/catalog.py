@@ -106,6 +106,9 @@ _SPARK_REFERENCE_REV = "8e19dd20fa11cdbcb0d71dc4bc4766fd33eb3ce8"
 
 _WHISPER_REPO = "onnx-community/whisper-small"
 _WHISPER_REV = "36050c46d777d46dc4b5f43f6d90574fc38f8732"
+# Exported by scripts/export_vocal_separator.py; the revision is the commit that added the file.
+_VOCALS_REPO = "chartreuse-verte/HDemucs-High-Vocals-ONNX"
+_VOCALS_REV = ""
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
@@ -235,6 +238,16 @@ MODELS: dict[str, ModelSpec] = {
         revision=_SPARK_REFERENCE_REV,
         runtime="onnx",
         sha256="07238cf951fe28500a2ac77abe32f96f363404b58914ebc6a71c65192ffed3c2",
+    ),
+    # The vocal stem of torchaudio's Hybrid Demucs (HDEMUCS_HIGH_MUSDB_PLUS), as the network between its STFT and inverse STFT.
+    # Cleans music or room noise out of a clip before ZONOS3 clones from it.
+    "vocal_separator": ModelSpec(
+        repo_id=_VOCALS_REPO,
+        filename="hdemucs-high-vocals.onnx",
+        size_mb=335,
+        revision=_VOCALS_REV,
+        runtime="onnx",
+        sha256="806696c599cc58694e5251873b8db11c618288638e28bd0d81e039a0d65532fe",
     ),
     # Whisper small ONNX encoder, decoder, vocabulary, and generation config.
     "speech_recognizer": ModelSpec(
