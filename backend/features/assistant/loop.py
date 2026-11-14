@@ -64,6 +64,11 @@ _CONTEXT_CHANGED = "This request ends here, since what it would read next has ch
 _DELIVERED = "Shown to the user."
 _ANSWER_NOW = "Write your complete final answer to the user now, as plain text."
 _NO_ANSWER = "The model's reply held no answer."
+_CUT_OFF = (
+    "[Nothing ran: the previous reply was cut off at the output limit before it was complete. Make it smaller: change a "
+    "long text with find_replace, one part at a time, or give a shorter answer.]"
+)
+_SAME_AGAIN = "This is the same call as the one before it. One more in a row ends the request: make a different call, or reply."
 # What the conversation keeps of a request that ended without an answer, for the requests after it.
 _NO_RESULT = "No result was received: the request ended while this ran. It may have happened; check before running it again."
 _STOPPED = "The user stopped this request before it finished."
@@ -249,6 +254,25 @@ def _one_at_a_time(forced: str | None) -> str:
     )
 
 
+def _fault(response: Mapping[str, Any], forced: str | None, names: Mapping[str, Any]) -> str:
+    """What made a reply unusable, and the call to make instead, for the retry to carry."""
+    calls = parse_tool_calls(response)
+    name = str(calls[0].get("name") or "")[:80] if calls else ""
+    if forced:
+        wanted = f"Call {forced} now"
+    else:
+        wanted = f"Call one listed tool now, or {REPLY} with your whole answer in `message`"
+    if not calls:
+        what = "the previous reply was plain text, not a tool call"
+    elif forced and name != forced:
+        what = f"the previous reply called {name}, not {forced}"
+    elif not forced and name not in names and name != REPLY:
+        what = f"no tool is named {name}"
+    else:
+        what = f"the arguments to {name} were not one complete JSON object holding exactly the fields its schema lists"
+    return f"[Nothing ran: {what}. {wanted}.]"
+
+
 def _any_call(response: Mapping[str, Any], names: Mapping[str, Any]) -> tuple[str, dict[str, Any]] | None:
     """The single-call protocol's ``(tool, arguments)``: one whole call to a listed tool, or to ``reply`` with its answer."""
     calls = parse_tool_calls(response)
@@ -296,8 +320,12 @@ def _validated(tool: AssistantTool, arguments: Mapping[str, Any]) -> ToolArgumen
     try:
         return tool.arguments.model_validate(supplied)
     except ValidationError as exc:
-        problems = [f"{'.'.join(str(part) for part in error['loc']) or 'arguments'}: {error['msg']}" for error in exc.errors()]
-        return "Invalid arguments. " + "; ".join(problems[:8])
+        problems = []
+        for error in exc.errors():
+            got = f", got {json.dumps(error['input'], ensure_ascii=False)[:40]}" if error["type"].endswith("_type") else ""
+            problems.append(f"{'.'.join(str(part) for part in error['loc']) or 'arguments'}: {error['msg']}{got}")
+        takes = f" {tool.name} takes: {', '.join(fields)}." if any(e["type"] == "extra_forbidden" for e in exc.errors()) else ""
+        return f"Invalid arguments. {'; '.join(problems[:8])}.{takes}"
 
 
 async def run_assistant(
@@ -321,7 +349,7 @@ async def run_assistant(
     *transcript* is the conversation so far, and the run extends it: the request, then each call and its whole result, in
     order, as a coding agent's session does. Nothing in it is shortened or summarized, so the model never has to read again
     what it has already been shown, and the server's prefix cache holds through all of it. An unusable reply is retried
-    against the same prefix, told to make one call when it made several, and every call has its own id and one matching
+    against the same prefix, told what was wrong with it, and every call has its own id and one matching
     result. However the run ends, *keep* is handed the conversation with this request in it: a call cut off before its
     result is answered as unknown, and a request that got no answer is closed with a line saying how it ended.
 
@@ -460,7 +488,7 @@ async def run_assistant(
             note = ""
             # A reply cut at the budget can decode to arguments that look complete while missing their tail.
             if response.get("finish_reason") == "length":
-                problem = agent_lane_cut_off(settings)
+                problem, note = agent_lane_cut_off(settings), _CUT_OFF
             else:
                 # Only arguments that arrived as one whole object: a salvaged or degraded ``{}`` would run as another call,
                 # its optional fields filled with defaults that name a different target.
@@ -478,18 +506,18 @@ async def run_assistant(
                 if arguments is None and _several_calls(response):
                     problem, note = _SEVERAL, _one_at_a_time(forced)
                 else:
-                    problem = _UNREADABLE
+                    problem, note = _UNREADABLE, _fault(response, forced, by_name)
             logger.warning("Assistant: %s reply unusable on attempt %d: %s", forced or "step", attempt + 1, problem)
         raise AssistantUnavailable(f"{problem} The assistant stopped after one retry.")
 
     async def answer() -> tuple[CompletionMessage, str]:
         """The final answer as plain text, retried once when it is cut off or empty."""
-        problem = ""
+        problem = note = ""
         for attempt in range(2):
-            response = await issue("answer", schemas, "none", "")
+            response = await issue("answer", schemas, "none", note)
             text = str(response.get("content") or "").strip()
             if response.get("finish_reason") == "length":
-                problem = agent_lane_cut_off(settings)
+                problem, note = agent_lane_cut_off(settings), _CUT_OFF
             elif text:
                 return response, text
             else:
@@ -584,6 +612,8 @@ async def run_assistant(
                 except ToolFailure as exc:
                     failure = str(exc)
             last = f"\n\n{_LAST_RUN}" if executions >= MAX_TOOL_EXECUTIONS else ""
+            if same_calls == MAX_SAME_CALLS - 1:
+                last += f"\n\n{_SAME_AGAIN}"
             if output is None:
                 run.append(tool_result(call_id, f"{_encode({'error': failure})}{last}"))
                 yield result(call_id, name, failure)

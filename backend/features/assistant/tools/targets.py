@@ -120,18 +120,24 @@ async def chat_in_view(
     cid = chat_id(conversation_id, view)
     conv = await get_conversation(cid)
     if conv is None:
-        raise ToolFailure(f"No chat has the id {cid}.")
+        raise ToolFailure(f"No chat has the id {cid}. query_library finds chats.")
     if changes and guards.chat_deleting(cid):
         raise ToolFailure("That chat is being deleted, so nothing was done.")
     if idle and guards.chat_busy(cid):
-        raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
+        raise ToolFailure("That chat is generating right now. Tell the user to ask again once it has finished.")
     return conv
 
 
 async def message_of(cid: str, message_id: int) -> MessageRow:
     message = await get_message_by_id(message_id)
     if message is None or message["conversation_id"] != cid:
-        raise ToolFailure(f"That chat has no message {message_id}. read_messages or query_library shows the ids.")
+        path = await get_active_path(cid)
+        numbered = (
+            f" If you meant #{message_id} as the chat window numbers it, that is message_id {path[message_id - 1]['id']}."
+            if 1 <= message_id <= len(path)
+            else ""
+        )
+        raise ToolFailure(f"That chat has no message {message_id}. read_messages or query_library shows the ids.{numbered}")
     return message
 
 

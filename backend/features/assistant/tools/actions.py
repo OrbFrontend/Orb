@@ -212,7 +212,7 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
             if exc.reason == "deleting":
                 raise ToolFailure("That chat is being deleted, so nothing was changed.") from None
             raise ToolFailure(
-                "That chat is generating right now, so nothing was changed. Ask again once it has finished."
+                "That chat is generating right now, so nothing was changed. Tell the user to ask again once it has finished."
             ) from None
 
     @tools.add("write", _LoreEntryArgs, "Add a new entry to a world (lorebook).", name="create_lore_entry")

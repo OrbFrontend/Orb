@@ -477,7 +477,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         try:
             row = await create_interactive_fragment(fields)
         except sqlite3.IntegrityError:
-            raise ToolFailure("A fragment with that id was added meanwhile. Nothing was created; ask again.") from None
+            raise ToolFailure("A fragment with that id was added meanwhile. Nothing was created; run it again.") from None
         if row is None:
             raise ToolFailure("The fragment was not created.")
         ids = {"fragment_id": row["id"]}
@@ -511,7 +511,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         try:
             row = await create_mood_fragment(fields)
         except sqlite3.IntegrityError:
-            raise ToolFailure("A mood fragment with that id was added meanwhile. Nothing was created; ask again.") from None
+            raise ToolFailure("A mood fragment with that id was added meanwhile. Nothing was created; run it again.") from None
         ids = {"fragment_id": row["id"]}
         data = await noted({"created": True, **ids}, "mood", row["enabled"])
         summary = f"Created mood fragment {quoted(row['label'])}."

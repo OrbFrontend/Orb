@@ -127,19 +127,22 @@ in Hermes tags, in a code fence, or one complete Gemma native call). A salvaged
 or partial object, several calls, a repeated key, or `finish_reason=length` is
 unusable. An unusable reply is retried once against the same prefix, then the
 run ends with `error`; nothing in it runs, and the retry counts toward the
-model-call budget. When it made several calls, the retry adds a note to its
-last message telling the model to make exactly one call now; no call from the
+model-call budget. The retry adds a note to its last message saying what was
+wrong and what to send instead: several calls, a reply cut off at the output
+limit, plain text, an unknown tool, or unreadable arguments. No call from the
 refused reply is replayed. Every assistant call also asks for one call per reply
 where the request carries native tools on an OpenAI-shaped route
 (`parallel_tool_calls: false`). Arguments are validated by a strict pydantic
 model: unknown fields and coerced types are refused and come back as a
 correction, and a strict-schema `null` for an optional field is the only
-normalization.
+normalization. The correction names a wrong type's received value and, for an
+unknown field, the fields the tool takes.
 
 A run allows 12 tool executions and 30 model calls, retries included. When the
 executions are spent the model gets one more step to reply. The same tool
 called with the same arguments three times in a row ends the run with `limit`
-before the third executes: the model is not taking in the results.
+before the third executes: the model is not taking in the results. The second
+one's result says so.
 
 ### The conversation
 
@@ -370,7 +373,9 @@ An edit or delete tool reads and validates its target and writes nothing. Text e
 `replace_all`, `find_replace`, where `find` must occur exactly once, or
 `replace_every`, which replaces each occurrence. A `find` that matches only
 once its JSON string escapes are decoded is taken as that text, since a read
-shows a field JSON-encoded. Refused:
+shows a field JSON-encoded. A `find` that differs from one place in the field
+only in quote or dash style, an ellipsis or whitespace is taken as the field's
+own text there. Refused:
 text carrying a read's clip marker, a no-op edit, and `replace_all` on a field
 longer than 8,000 characters, which takes `find_replace` instead. The result and
 the card both give the field's length before and after, so a large unintended

@@ -41,6 +41,8 @@ _RULES = (
     "- Earlier requests and their results stay in this conversation. A result shows what was true when it ran, and the "
     "user may have changed things since. When a newer result differs from an older one, trust the newer and do not undo "
     "it.\n"
+    "- A result holding `error` means that call did nothing, unless it says otherwise. Correct the call, or tell the user "
+    "what failed; never describe it as done.\n"
     "- When the request could mean more than one target, reply with a question instead of guessing.\n"
     "- Terms: a world is a lorebook; a constant lore entry is always on, others when a keyword comes up; a global "
     "world applies to every chat; a chat's kept branch is the line of messages it shows. Fragments steer every chat's "
@@ -50,8 +52,8 @@ _RULES = (
 )
 _MARKED = "\n- Use a tool marked [changes], [proposes] or [hands off] only for what the user's latest request asks for."
 _WRITES = (
-    "\n- A tool marked [changes] commits at once. Run each change once; when one fails or its result is unclear, tell the "
-    "user instead of trying it again.\n"
+    "\n- A tool marked [changes] commits at once. Run each change once; when a result leaves it unclear whether the change "
+    "was made, tell the user instead of trying it again.\n"
     "- Asked to toggle or flip something, read its current state first.\n"
     "- A create tool always adds a new item, even when one already has that name.\n"
     "- You can make only the changes these tools allow. For any other change, say that you cannot do that."

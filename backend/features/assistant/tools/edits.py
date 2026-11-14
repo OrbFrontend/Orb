@@ -63,6 +63,24 @@ def _unescaped(text: str) -> str:
     return re.sub(r'\\(["\\/nrt])', lambda match: _ESCAPES[match[1]], text)
 
 
+_LOOKALIKES = ('"“”„', "'‘’", "-–—")
+
+
+def _loosely(find: str) -> re.Pattern[str]:
+    """*find* matching through what a copy tends to retype: quote and dash styles, an ellipsis, runs of whitespace."""
+
+    def token(match: re.Match[str]) -> str:
+        text = match[0]
+        if text.isspace():
+            return r"\s+"
+        if text in ("...", "…"):
+            return r"(?:\.\.\.|…)"
+        alike = next((group for group in _LOOKALIKES if text in group), None)
+        return f"[{re.escape(alike)}]" if alike else re.escape(text)
+
+    return re.compile(re.sub(r"\s+|\.\.\.|.", token, find, flags=re.DOTALL))
+
+
 def _edited(before: str, args: Any, reread: str) -> str:
     """The field after *args*: a whole replacement, or a literal replacement of text that occurs once, or of each occurrence.
 
@@ -75,7 +93,10 @@ def _edited(before: str, args: Any, reread: str) -> str:
         )
     if args.mode == "replace_all":
         if args.find:
-            raise ToolFailure("find is only for find_replace; with replace_all leave it empty. Nothing was proposed.")
+            raise ToolFailure(
+                "Nothing was proposed: replace_all takes no find. To replace only the find text, call again with mode "
+                "find_replace; to rewrite the whole field, leave find empty."
+            )
         if len(before) > _EDIT_CHARS:
             raise ToolFailure(
                 f"That field is {len(before)} characters, more than a whole-field rewrite may replace ({_EDIT_CHARS}). Use "
@@ -88,7 +109,10 @@ def _edited(before: str, args: Any, reread: str) -> str:
     if find not in before:
         find, text = _unescaped(find), _unescaped(text)
         if find not in before:
-            raise ToolFailure(f"The find text does not occur in that field. {reread} Then copy the text exactly.")
+            spans = set(_loosely(find).findall(before))
+            if len(spans) != 1:
+                raise ToolFailure(f"The find text does not occur in that field. {reread} Then copy the text exactly.")
+            find = spans.pop()
     if args.mode == "replace_every":
         return before.replace(find, text)
     # Overlapping matches count: each is a place the edit could mean.

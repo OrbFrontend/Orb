@@ -716,6 +716,11 @@ async def test_proposals_check_their_text_and_an_unknown_or_expired_one_is_inert
     copied = {"mode": "find_replace", "find": '\\n\\nSays \\"no\\" often.', "text": ""}
     escaped = (await edit.run(edit.arguments(field="personality", **copied))).proposal
     assert escaped is not None and escaped["fields"][0]["after"] == "Dry."
+    # A find retyped with plain quotes, dots and spacing matches the one place it was copied from.
+    await client.put_checked(f"/api/characters/{library['card']}", json={"scenario": "“Wait…” she said—\nthen left."})
+    retyped = {"mode": "find_replace", "find": '"Wait..." she said- then', "text": "She"}
+    loose = (await edit.run(edit.arguments(field="scenario", **retyped))).proposal
+    assert loose is not None and loose["fields"][0]["after"] == "She left."
     # A list edit carries no text.
     tagged = (await edit.run(edit.arguments(field="tags", mode="add_items", items=["Harbour"]))).proposal
     assert tagged is not None and "Harbour" in tagged["fields"][0]["after"]
