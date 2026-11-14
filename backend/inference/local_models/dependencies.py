@@ -19,6 +19,7 @@ def _shell_quote(path: str) -> str:
 _REQUIREMENTS: dict[RuntimeKind, str] = {
     "llama_server": "requirements.txt",
     "onnx": "requirements-onnx.txt",
+    "zonos_server": "requirements.txt",
 }
 
 

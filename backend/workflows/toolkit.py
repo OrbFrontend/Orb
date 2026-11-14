@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 from ..analysis import (
@@ -42,6 +42,7 @@ from ..core.text_segmentation import (
     TOGGLE_QUOTES,
     find_quote_spans,
     map_prose,
+    split_sentence_units,
     strip_protected_markup,
 )
 from ..database import (
@@ -76,6 +77,8 @@ from ..prompting import resolve_persona_id as _resolve_persona_id
 from ..prompting.lorebook import compute_constant_lorebook_block as _compute_constant_lorebook_block
 from . import gpu_swap_host as _gpu_swap_host
 from . import spark_tts_host as _spark_tts_host
+from . import voice_clip_host as _voice_clip_host
+from . import zonos_tts_host as _zonos_tts_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import (
     EVICTED_MARKER,
@@ -176,6 +179,7 @@ __all__ = [
     "WorkflowInputError",
     "WorkflowUnavailableError",
     "WorkflowUserFacingError",
+    "classify_emotions",
     "classify_pov",
     "classify_pov_tense_chunks",
     "classify_axes",
@@ -188,6 +192,7 @@ __all__ = [
     "find_quote_spans",
     "map_prose",
     "span_role",
+    "split_sentence_units",
     "split_ws",
     "strip_protected_markup",
     "strip_quotes",
@@ -222,12 +227,14 @@ __all__ = [
     "local_model_identity",
     "narration_only",
     "overlay_enable_tools",
+    "prepare_voice_clip",
     "spark_voice_clean_reference_text",
     "spark_voice_clean_reference_tokens",
     "spark_voice_clean_tokens",
     "spark_voice_enroll",
     "spark_voice_reference_audio",
     "spark_voice_speak",
+    "zonos_voice_server",
     "protected_runs",
     "run_audit",
     "spoken_lines",
@@ -263,6 +270,11 @@ def local_model_identity(feature: str) -> str:
     """Return the pinned model identity for caches of classifier results."""
     spec = _local_ml.MODELS[feature]
     return f"{spec.repo_id}@{spec.revision}"
+
+
+async def classify_emotions(texts: Sequence[str]) -> list[dict[str, float]]:
+    """Score each text against every go-emotions label (independent sigmoids), in input order, in one request."""
+    return await _local_ml.aemotion_scores(texts)
 
 
 async def classify_pov(text: str) -> str:
@@ -352,6 +364,25 @@ async def spark_voice_speak(
 async def spark_voice_reference_audio(reference_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> tuple[bytes, int]:
     """An advanced voice's reference excerpt as ``(pcm16, sample_rate)``, rebuilt from its tokens."""
     return await _spark_tts_host.reference_audio(reference_tokens, speaker_tokens)
+
+
+async def prepare_voice_clip(data: bytes, settings: Settings, *, filename: str = "") -> tuple[bytes, str]:
+    """An uploaded clip as the reference a cloning server should read: its first minute as a 44.1 kHz mono WAV at -20 LUFS,
+    with its vocals separated when something plays under the voice and the vocal separator is ready.
+
+    Returns the WAV and a note for the user about sound under the voice, ``""`` when there is none. Raises
+    ``WorkflowInputError`` for an unreadable or silent file.
+    """
+    return await _voice_clip_host.prepare_clip(data, settings, filename=filename)
+
+
+def zonos_voice_server(settings: Settings, *, enroll: bool = False) -> AbstractAsyncContextManager[str]:
+    """The built-in ZONOS3 server's base URL, with the server kept running for the ``async with`` block.
+
+    With *enroll* the server must also be able to read a clip into reference codes. Entering raises
+    ``WorkflowUnavailableError`` when the model is not set up or the server will not start.
+    """
+    return _zonos_tts_host.server(settings, enroll=enroll)
 
 
 @asynccontextmanager

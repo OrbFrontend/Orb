@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 #: How a model is executed. ``llama_server`` is a supervised child process spoken to over HTTP; ``onnx`` is a cached ONNX
-#: Runtime session (see ``local_models/onnx_runtime/``). A ``Literal`` rather than a bare ``str`` so a typo fails at the
+#: Runtime session (see ``local_models/onnx_runtime/``); ``zonos_server`` is the supervised ZONOS3 server (``zonos_server/``). A ``Literal`` rather than a bare ``str`` so a typo fails at the
 #: definition.
-RuntimeKind = Literal["llama_server", "onnx"]
+RuntimeKind = Literal["llama_server", "onnx", "zonos_server"]
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,11 @@ _SPARK_REFERENCE_REV = "8e19dd20fa11cdbcb0d71dc4bc4766fd33eb3ce8"
 
 _WHISPER_REPO = "onnx-community/whisper-small"
 _WHISPER_REV = "36050c46d777d46dc4b5f43f6d90574fc38f8732"
+# Exported by scripts/export_vocal_separator.py.
+_VOCALS_REPO = "chartreuse-verte/HDemucs-High-Vocals-ONNX"
+_VOCALS_REV = "bfe91fe1beb6a8c146197fe8106493a1d67f5d19"
+_ZONOS_REPO = "Zyphra/ZONOS3-Mini"
+_ZONOS_REV = "727302c1cb61bee229a649d859ebb3e517da1a41"
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
@@ -235,6 +240,64 @@ MODELS: dict[str, ModelSpec] = {
         revision=_SPARK_REFERENCE_REV,
         runtime="onnx",
         sha256="07238cf951fe28500a2ac77abe32f96f363404b58914ebc6a71c65192ffed3c2",
+    ),
+    # ZONOS3-Mini: the backbone, its codec decoder and the steering directions behind per-line delivery.
+    "zonos_tts": ModelSpec(
+        repo_id=_ZONOS_REPO,
+        filename="gguf/backbone-ptq.gguf",
+        local_filename="zonos3-mini-backbone-ptq.gguf",
+        size_mb=632,
+        revision=_ZONOS_REV,
+        runtime="zonos_server",
+        sha256="66fceb6d73a8c30bde80249e4112bb308380ab7f3384fa11c8e4048115e4ceec",
+        extra_files=(
+            ModelFileSpec(
+                repo_id=_ZONOS_REPO,
+                path="gguf/zac-keep2.gguf",
+                revision=_ZONOS_REV,
+                size_mb=431,
+                sha256="834e5b70b88294afc3c702a478487e0664dcc6b574c16fc6167d72444aabeafd",
+                local_filename="zonos3-mini-zac-keep2.gguf",
+            ),
+            ModelFileSpec(
+                repo_id=_ZONOS_REPO,
+                path="gguf/steer.gguf",
+                revision=_ZONOS_REV,
+                size_mb=1,
+                sha256="6e8e3f86e89a09801ce083b9286f43263ec696acfaff72e25aca537aa9efa90c",
+                local_filename="zonos3-mini-steer.gguf",
+            ),
+        ),
+    ),
+    # The two encoders that read an uploaded clip into the reference codes a ZONOS3 voice is cloned from.
+    "zonos_reference": ModelSpec(
+        repo_id=_ZONOS_REPO,
+        filename="gguf/zac-encoder.gguf",
+        local_filename="zonos3-mini-zac-encoder.gguf",
+        size_mb=3848,
+        revision=_ZONOS_REV,
+        runtime="zonos_server",
+        sha256="4c4335196486fd24cc56b24a40ac4548f8cc58a6400bce8e4af4e72160b18053",
+        extra_files=(
+            ModelFileSpec(
+                repo_id=_ZONOS_REPO,
+                path="gguf/ssl-teacher.gguf",
+                revision=_ZONOS_REV,
+                size_mb=1477,
+                sha256="59e4f150e1ccdf54e6349b06605c2274f2262139678688025b6614f1393e415a",
+                local_filename="zonos3-mini-ssl-teacher.gguf",
+            ),
+        ),
+    ),
+    # The vocal stem of torchaudio's Hybrid Demucs (HDEMUCS_HIGH_MUSDB_PLUS), as the network between its STFT and inverse STFT.
+    # Cleans music or room noise out of a clip before ZONOS3 clones from it.
+    "vocal_separator": ModelSpec(
+        repo_id=_VOCALS_REPO,
+        filename="hdemucs-high-vocals.onnx",
+        size_mb=335,
+        revision=_VOCALS_REV,
+        runtime="onnx",
+        sha256="806696c599cc58694e5251873b8db11c618288638e28bd0d81e039a0d65532fe",
     ),
     # Whisper small ONNX encoder, decoder, vocabulary, and generation config.
     "speech_recognizer": ModelSpec(

@@ -189,13 +189,16 @@ const LOCAL_ML_DESCS = {
   subjects_classifier: "For the subject fixation audit.",
 };
 
-// Models with a single consumer are managed by it: Spark-TTS and the speech recognizer in the TTS cloned-voice control,
-// the Prose Rewriter in its workflow card.
+// Models with a single consumer are managed by it: Spark-TTS, ZONOS3, the speech recognizer and the vocal separator in the TTS
+// cloned-voice control, the Prose Rewriter in its workflow card.
 const LOCAL_ML_MANAGED_ELSEWHERE = new Set([
   "spark_tts_llm",
   "spark_tts_codec",
   "spark_tts_reference",
   "speech_recognizer",
+  "vocal_separator",
+  "zonos_tts",
+  "zonos_reference",
   "prose_rewriter",
   "emotion_classifier",
 ]);

@@ -18,10 +18,12 @@ from ..toolkit import (
     RegenCtx,
     RerollGenCtx,
     UploadCtx,
+    WorkflowUserFacingError,
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
     insert_workflow_attachment,
+    prepare_voice_clip,
     set_workflow_character_state,
     spark_voice_enroll,
     spark_voice_reference_audio,
@@ -30,6 +32,7 @@ from ..toolkit import (
 from .config import normalize_config
 from .engine.router import get_adapter, list_backends
 from .engine.wav import pcm_to_wav
+from .engine.zonos_adapter import enroll_clip
 from .synth import (
     WORKFLOW_ID,
     audio_mime_ext,
@@ -41,7 +44,7 @@ from .synth import (
     synthesize_blocks,
     synthesize_blocks_from_metadata,
 )
-from .voice_clone import apply_voice
+from .voice_clone import apply_voice, apply_zonos_voice
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +161,7 @@ async def on_demand(ctx: OnDemandCtx, body: dict):
     if action == "set_profile":
         return await _set_profile(ctx, body)
     if action == "clear_voice":
-        return await _clear_voice(ctx)
+        return await _clear_voice(ctx, body)
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -206,13 +209,16 @@ async def _set_profile(ctx, body) -> dict:
     return {"ok": True, "profile": profile}
 
 
-async def _clear_voice(ctx) -> dict:
-    """Forget the character's cloned voice and stop speaking for it; the backend stays selected."""
+async def _clear_voice(ctx, body) -> dict:
+    """Forget the character's cloned voice for ``body["backend"]`` and stop speaking for it; the backend stays selected."""
     if not ctx.character_id:
         return {"error": "no active character"}
     # The trigger route already holds this character's state lock.
-    stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
-    profile = apply_voice(normalize_profile(stored), None, "")
+    stored = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID))
+    if body.get("backend") == "zonos":
+        profile = apply_zonos_voice(stored, None, "")
+    else:
+        profile = apply_voice(stored, None, "")
     await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
     return {"ok": True, "profile": profile}
 
@@ -221,9 +227,12 @@ async def upload(ctx: UploadCtx, params: dict[str, str]) -> dict:
     """Enroll the uploaded clip as the character's cloned voice.
 
     Enrollment runs before the state lock is taken, so a long clip holds nothing.
-    ``params["mode"]`` picks the clone mode the panel shows; an unknown one is ignored.
+    ``params["mode"]`` picks the clone mode the panel shows; an unknown one is ignored. ``params["backend"]`` of ``zonos``
+    encodes the clip on the ZONOS server at ``params["api_url"]``, or on the built-in one when that is empty.
     """
     source_name = os.path.basename(ctx.filename)[:120]
+    if params.get("backend") == "zonos":
+        return await _upload_zonos(ctx, params, source_name)
     voice = await spark_voice_enroll(ctx.data, ctx.settings, filename=source_name)
     async with workflow_character_state_lock(ctx.character_id, WORKFLOW_ID):
         stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
@@ -235,6 +244,18 @@ async def upload(ctx: UploadCtx, params: dict[str, str]) -> dict:
         "reference_note": voice["reference_note"],
         "profile": profile,
     }
+
+
+async def _upload_zonos(ctx: UploadCtx, params: dict[str, str], source_name: str) -> dict:
+    stored = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID))
+    api_url = params["api_url"] if "api_url" in params else stored["api_url"]
+    wav, note = await prepare_voice_clip(ctx.data, ctx.settings, filename=source_name)
+    codes = await enroll_clip(wav, source_name, api_url, stored["api_key"] or None, ctx.settings)
+    async with workflow_character_state_lock(ctx.character_id, WORKFLOW_ID):
+        stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
+        profile = apply_zonos_voice(normalize_profile(stored), codes, source_name, api_url)
+        await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
+    return {"source_name": source_name, "reference_note": note, "profile": profile}
 
 
 # These back the config panel's Backend / Voice / Model selectors and the Preview button. They answer from the static backend
@@ -289,7 +310,7 @@ async def _preview(body) -> dict:
     text = body.get("text") or PREVIEW_TEXT
     try:
         audio, mime = await synthesize(text, profile)
-    except ValueError as exc:
+    except (ValueError, WorkflowUserFacingError) as exc:
         # An adapter raises ValueError for the refusals a user can act on: no voice enrolled yet, a model that is not
         # downloaded, a missing API key. That message IS the fix, so it reaches the panel's status line; "preview synthesis
         # failed" would send the user looking for a bug that is not there. Anything else IS a bug and stays generic below.

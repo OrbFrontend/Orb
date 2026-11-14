@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from ...toolkit import AxisStyle, speech_segments
+from dataclasses import dataclass
+
+from ...toolkit import AxisStyle, speech_segments, split_sentence_units
 from .base import SpeakableChunk
 
 # Audible vs silent action beats
@@ -222,6 +224,11 @@ def _extract_beat_action(beat_text: str) -> str:
     return ""
 
 
+def _bare_words(text: str) -> str:
+    """*text* with punctuation trimmed from each word, so ``whispers.`` reads as ``whispers``."""
+    return " ".join(word.strip("".join(ch for ch in word if not ch.isalnum())) for word in text.split())
+
+
 # Compatibility scanner for attachments created before shared segmentation.
 
 
@@ -244,6 +251,26 @@ def _legacy_segments(text: str) -> list[tuple[str, str]]:
 # Public API
 
 
+@dataclass
+class SpokenLine:
+    """What surrounds one spoken line in the source text; never stored with the chunk."""
+
+    text: str
+    lead: str = ""  # the narration sentence leading into the line, within its paragraph
+    trail: str = ""  # the narration after the line up to its first sentence end
+    beat_emotion: str = ""  # AUDIBLE_EMOTION_MAP value of the audible beat before the line
+    lead_in: str = ""  # lead, or the previous paragraph's closing narration when the line opens its paragraph
+
+    @property
+    def window(self) -> str:
+        return " ".join(part for part in (self.lead, f'"{self.text}"', self.trail) if part)
+
+
+def _sentences(parts: list[str]) -> list[str]:
+    """The sentences of *parts* joined; ``[""]`` when there are none."""
+    return split_sentence_units(" ".join(" ".join(parts).split())) or [""]
+
+
 def regex_extract(
     text: str,
     supports_emotion_tags: bool = False,
@@ -257,23 +284,49 @@ def regex_extract(
     Without emotion-tag support, audible beats become pauses. input_prepared
     requires the classified speech_input; legacy replay always reads original text.
     """
+    chunks, _ = regex_extract_lines(text, supports_emotion_tags, style=style, legacy=legacy, input_prepared=input_prepared)
+    return chunks
+
+
+def regex_extract_lines(
+    text: str,
+    supports_emotion_tags: bool = False,
+    *,
+    style: AxisStyle | None = None,
+    legacy: bool = False,
+    input_prepared: bool = False,
+) -> tuple[list[SpeakableChunk], list[SpokenLine]]:
+    """``regex_extract`` plus one ``SpokenLine`` per chunk, in the same order."""
     if not text or not text.strip():
-        return []
+        return [], []
 
     if legacy:
         events = _legacy_segments(text)
     else:
-        events = speech_segments(text, style, input_prepared=input_prepared, include_narration=True)
+        events = speech_segments(text, style, input_prepared=input_prepared, include_narration=True, paragraph_breaks=True)
 
     chunks: list[SpeakableChunk] = []
+    lines: list[SpokenLine] = []
+    between: list[str] = []  # narration and beats since the previous spoken line, within the paragraph
+    open_line: SpokenLine | None = None  # the line still collecting its trailing narration
+    paragraph_tail = ""  # closing narration sentence of the previous paragraph, until a line is spoken
     last_beat = None  # Most recent beat before the next dialogue
     gap_words = 0  # Narration, beats included, since the previous spoken line
     for event_type, segment_text in events:
+        if event_type == "paragraph":
+            if open_line:
+                open_line.trail = _sentences(between)[0]
+            paragraph_tail = _sentences(between)[-1] if between else paragraph_tail
+            open_line = None
+            between = []
+            continue
         if event_type == "narration":
+            between.append(segment_text)
             gap_words += _narration_words(segment_text)
             continue
         if event_type == "beat":
-            action = _extract_beat_action(segment_text)
+            between.append(segment_text)
+            action = _extract_beat_action(segment_text if legacy else _bare_words(segment_text))
             last_beat = {
                 "action": action,
                 "is_audible": action in AUDIBLE_BEATS or action in AUDIBLE_EMOTION_MAP,
@@ -312,10 +365,21 @@ def regex_extract(
                 text=final_text, spoken_text=dialogue_text, emotion=emotion, pause_before_ms=pause_before, pause_after_ms=0
             )
         )
+        if open_line:
+            open_line.trail = _sentences(between)[0]
+        lead = _sentences(between)[-1]
+        open_line = SpokenLine(
+            text=dialogue_text, lead=lead, beat_emotion=beat_emotion, lead_in=lead if between else paragraph_tail
+        )
+        lines.append(open_line)
+        between = []
+        paragraph_tail = ""
 
+    if open_line:
+        open_line.trail = _sentences(between)[0]
     if not chunks:
-        return []
+        return [], []
 
     # First chunk should not have a leading pause
     chunks[0].pause_before_ms = 0
-    return chunks
+    return chunks, lines

@@ -1,26 +1,35 @@
-"""Track live llama-server hosts for global lifecycle operations."""
+"""Track live child-process hosts for global lifecycle operations."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import Protocol, TypeVar
 
-if TYPE_CHECKING:  # the host imports this module at runtime; this is the other half
-    from .host import ManagedLlamaServerHost
+
+class Host(Protocol):
+    """A supervised child process the app releases and shuts down with the rest."""
+
+    name: str
+
+    async def release(self) -> None: ...
+
+    async def shutdown(self) -> None: ...
+
 
 logger = logging.getLogger(__name__)
 
-_HOSTS: list[ManagedLlamaServerHost] = []
+_HOSTS: list[Host] = []
+_H = TypeVar("_H", bound=Host)
 
 
-def register(host: ManagedLlamaServerHost) -> ManagedLlamaServerHost:
+def register(host: _H) -> _H:
     if not any(h is host for h in _HOSTS):
         _HOSTS.append(host)
     return host
 
 
-def hosts() -> tuple[ManagedLlamaServerHost, ...]:
+def hosts() -> tuple[Host, ...]:
     return tuple(_HOSTS)
 
 
@@ -37,7 +46,7 @@ async def _all(action: str) -> None:
     results = await asyncio.gather(*(getattr(h, action)() for h in targets), return_exceptions=True)
     for host, result in zip(targets, results, strict=True):
         if isinstance(result, BaseException):
-            logger.warning("llama-server host %r failed to %s", host.name, action, exc_info=result)
+            logger.warning("local model host %r failed to %s", host.name, action, exc_info=result)
 
 
 async def release_all() -> None:

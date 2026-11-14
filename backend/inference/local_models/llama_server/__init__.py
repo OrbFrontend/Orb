@@ -16,5 +16,5 @@ from .binary import (
     supports_flag,
 )
 from .client import BOOT_TIMEOUT, LaunchProfile, LlamaServerClient
-from .host import ManagedLlamaServerHost
+from .host import ManagedLlamaServerHost, ManagedServerHost
 from .process import Child, spawn

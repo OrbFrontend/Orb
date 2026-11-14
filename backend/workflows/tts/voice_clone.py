@@ -26,3 +26,17 @@ def apply_voice(profile: dict, voice: Mapping[str, Any] | None, source_name: str
         # Keep the backend selected for the next upload, but disable speech.
         profile["enabled"] = False
     return profile
+
+
+def apply_zonos_voice(profile: dict, codes: list[list[int]] | None, source_name: str, api_url: str = "") -> dict:
+    """Store a ZONOS voice's reference *codes* in *profile*, or clear them when ``None``."""
+    profile["zonos_reference_codes"] = [list(row) for row in codes] if codes else []
+    profile["zonos_ref_name"] = source_name if codes else ""
+    if codes:
+        profile["backend"] = "zonos"
+        profile["voice_id"] = VOICE_ID
+        profile["api_url"] = api_url
+        profile["enabled"] = True
+    else:
+        profile["enabled"] = False
+    return profile

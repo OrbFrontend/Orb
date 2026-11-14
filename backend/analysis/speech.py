@@ -134,13 +134,19 @@ def _speech_spans(para: str) -> list[tuple[str, int, int]]:
 
 
 def speech_segments(
-    text: str, style: AxisStyle | None = None, *, input_prepared: bool = False, include_narration: bool = False
+    text: str,
+    style: AxisStyle | None = None,
+    *,
+    input_prepared: bool = False,
+    include_narration: bool = False,
+    paragraph_breaks: bool = False,
 ) -> list[tuple[str, str]]:
     """Return ordered speech/action segments under the message-wide markup convention.
 
     Unknown conventions allow plain-chat fallback; positive narration excludes unquoted prose. Asides, OOC and protected
     formatting are never spoken. Set ``input_prepared`` only for the classified ``speech_input`` result. ``include_narration``
-    returns otherwise dropped prose as narration segments.
+    returns otherwise dropped prose as narration segments; ``paragraph_breaks`` adds a ``("paragraph", "")`` segment between
+    paragraphs.
     """
     if not input_prepared:
         text = speech_input(text)
@@ -157,7 +163,9 @@ def speech_segments(
         if include_narration and raw.strip():
             segments.append(("narration", raw))
 
-    for para in split_paragraphs(text):
+    for index, para in enumerate(split_paragraphs(text)):
+        if paragraph_breaks and index:
+            segments.append(("paragraph", ""))
         spans = _speech_spans(para)
         pending = ""
         silent_until = 0

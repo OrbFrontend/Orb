@@ -91,8 +91,8 @@ def _from_soundfile(data: bytes) -> tuple[np.ndarray, int] | None:
     return np.ascontiguousarray(block.mean(axis=1), dtype=np.float32), rate
 
 
-def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
-    """Use ffmpeg to decode formats unsupported by the in-process readers."""
+def _from_ffmpeg(data: bytes, suffix: str, rate: int) -> tuple[np.ndarray, int] | None:
+    """Use ffmpeg to decode formats unsupported by the in-process readers, at *rate*."""
     import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     binary = shutil.which("ffmpeg")
@@ -107,7 +107,7 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
             "-t", str(MAX_SOURCE_SECONDS),
             "-i", path,
             "-map", "a:0",  # the audio of a video file, and only the first track
-            "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(TARGET_RATE),
+            "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(rate),
             "pipe:1",
         ]  # fmt: skip
         try:
@@ -118,7 +118,7 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
         if done.returncode != 0 or not done.stdout:
             logger.warning("ffmpeg rejected the upload: %s", (done.stderr or b"").decode("utf-8", "replace")[-400:])
             return None
-        return np.frombuffer(done.stdout, dtype=np.float32).copy(), TARGET_RATE
+        return np.frombuffer(done.stdout, dtype=np.float32).copy(), rate
     finally:
         with contextlib.suppress(OSError):
             os.unlink(path)
@@ -189,6 +189,17 @@ def decode(data: bytes, *, filename: str = "") -> np.ndarray:
     """Decode uploaded audio as 16 kHz mono float32."""
     import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
+    signal, rate = decode_native(data, filename=filename, ffmpeg_rate=TARGET_RATE)
+    resampled = resample(signal, rate, TARGET_RATE)
+    # Keep silent or clipped uploads finite before mel extraction.
+    return np.nan_to_num(resampled, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+
+
+def decode_native(data: bytes, *, filename: str = "", ffmpeg_rate: int = TARGET_RATE) -> tuple[np.ndarray, int]:
+    """Decode uploaded audio as mono float32 at its own sample rate, at most ``MAX_SOURCE_SECONDS`` long.
+
+    A format only ffmpeg reads comes back at *ffmpeg_rate*.
+    """
     if not data:
         raise UnsupportedAudio("The uploaded file is empty.")
     suffix = os.path.splitext(filename)[1].lower()
@@ -198,16 +209,13 @@ def decode(data: bytes, *, filename: str = "") -> np.ndarray:
             signal, rate = got
             break
     else:
-        got = _from_ffmpeg(data, suffix)
+        got = _from_ffmpeg(data, suffix, ffmpeg_rate)
         if got is None:
             raise UnsupportedAudio(_unreadable_message(suffix))
         signal, rate = got
     if signal.size == 0:
         raise UnsupportedAudio("The uploaded file contains no audio.")
-    signal = signal[: rate * MAX_SOURCE_SECONDS]
-    resampled = resample(signal, rate, TARGET_RATE)
-    # Keep silent or clipped uploads finite before mel extraction.
-    return np.nan_to_num(resampled, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
+    return signal[: rate * MAX_SOURCE_SECONDS], rate
 
 
 def _unreadable_message(suffix: str) -> str:

@@ -15,7 +15,9 @@ from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
 from ...inference.local_models import assets, catalog, dependencies, llama_server, onnx_runtime
 from ...inference.local_models.llama_server import binary as llama_binary
-from ...workflows import prose_rewriter_host, spark_tts_host
+from ...inference.local_models.release_archive import RuntimeMissing
+from ...inference.local_models.zonos_server import binary as zonos_binary
+from ...workflows import prose_rewriter_host, spark_tts_host, zonos_tts_host
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,8 @@ class _FeatureManagement(Protocol):
 _MANAGEMENT: dict[str, _FeatureManagement] = {
     prose_rewriter_host.FEATURE: prose_rewriter_host,
     spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
+    zonos_tts_host.FEATURE: zonos_tts_host,
+    zonos_tts_host.FEATURE_REFERENCE: zonos_tts_host,
 }
 
 
@@ -54,11 +58,11 @@ class _Configurable(Protocol):
     async def apply_config(self, body: Mapping[str, Any]) -> dict: ...
 
 
-#: The features with a config route. Both llama-server features carry the GPU
-#: switch; only the rewriter also has a variant and a batch size.
+#: The features with a config route. Each carries the GPU switch; only the rewriter also has a variant and a batch size.
 _CONFIGURABLE: dict[str, _Configurable] = {
     prose_rewriter_host.FEATURE: prose_rewriter_host,
     spark_tts_host.FEATURE_LLM: spark_tts_host.LLM_MANAGEMENT,
+    zonos_tts_host.FEATURE: zonos_tts_host,
 }
 
 
@@ -120,6 +124,8 @@ async def api_local_ml_status():
             ]
         if spec.runtime == "llama_server":
             info["runtime_ok"] = llama_binary.runtime_ok()
+        elif spec.runtime == "zonos_server":
+            info["runtime_ok"] = zonos_binary.runtime_ok()
         if spec.extra_files:
             # Two files behind one button: the panel shows one combined size so
             # a user is not told 368 MB and then charged 391 MB.
@@ -265,19 +271,33 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
     return {"local_ml_enabled": settings.get("local_ml_enabled", {}), "local_ml_config": settings.get("local_ml_config", {})}
 
 
+async def _fetch_zonos_runtime() -> str:
+    if zonos_binary.runtime_ok():
+        return str(zonos_binary.find_binary())
+    async with zonos_tts_host.model_deletion():
+        return await asyncio.to_thread(zonos_binary.fetch)
+
+
+async def _fetch_llama_runtime() -> str:
+    if llama_binary.runtime_ok():  # a press queued behind another one finds its install
+        return str(llama_binary.find_binary(gpu=True))
+    # The fetch replaces the binaries every running child was launched from.
+    await llama_server.manager.release_all()
+    return await asyncio.to_thread(llama_binary.fetch)
+
+
 @router.post("/api/local-ml/runtime")
-async def api_local_ml_runtime():
-    """Fetch the shared llama-server runtime used by local model features."""
+async def api_local_ml_runtime(data: dict | None = Body(default=None)):  # noqa: B008
+    """Fetch a runtime binary: the shared llama-server one, or with ``{"runtime": "zonos_server"}`` the ZONOS3 server."""
+    zonos = (data or {}).get("runtime") == "zonos_server"
     async with _download_lock:
-        if llama_binary.runtime_ok():  # a press queued behind another one finds its install
-            return {"ok": True, "path": str(llama_binary.find_binary(gpu=True))}
         try:
-            # The fetch replaces the binaries every running child was launched from.
-            await llama_server.manager.release_all()
-            path = await asyncio.to_thread(llama_binary.fetch)
-        except llama_binary.LlamaServerMissing as exc:
+            path = await (_fetch_zonos_runtime() if zonos else _fetch_llama_runtime())
+        except RuntimeMissing as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from None
+        except TimeoutError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception:
-            logger.exception("llama-server fetch failed")
+            logger.exception("runtime fetch failed")
             raise HTTPException(status_code=500, detail="Runtime download failed; see server logs") from None
     return {"ok": True, "path": path}

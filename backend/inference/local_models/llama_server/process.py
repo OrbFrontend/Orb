@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 import subprocess
 import threading
 from collections.abc import Callable, Sequence
@@ -182,3 +183,25 @@ async def spawn(argv: Sequence[str], sink: Callable[[str], None]) -> Child:
     child: Child = _AsyncChild(sink) if _can_spawn_async() else _ThreadChild(sink)
     await child.start(argv)
     return child
+
+
+def free_port() -> int:
+    """A port the child can have. The race between closing this socket and the child binding it is the standard one: nothing
+    else on a single-user box is competing for an ephemeral port."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+async def stop(child: Child) -> None:
+    """Terminate *child*, kill it if it lingers, then close its log reader.
+
+    The reader closes AFTER the process is gone: draining it is what captures a dying child's last words.
+    """
+    if child.returncode is None:
+        child.terminate()
+        if not await child.wait(timeout=15):
+            child.kill()
+            await child.wait(timeout=5)
+    with contextlib.suppress(Exception):
+        await child.aclose()

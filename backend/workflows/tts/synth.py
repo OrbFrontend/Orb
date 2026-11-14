@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
@@ -17,8 +18,11 @@ from ..toolkit import (
     speech_input,
 )
 from .engine.base import SpeakableChunk
-from .engine.regex_extractor import regex_extract
+from .engine.regex_extractor import regex_extract_lines
 from .engine.router import get_adapter
+from .engine.zonos_adapter import clean_reference_codes
+from .engine.zonos_delivery import MAX_STRENGTH
+from .line_emotion import line_labels
 
 #: This workflow's registry id, and the key its per-character profile is stored
 #: under. Defined here rather than in ``hooks`` because the profile is this
@@ -46,6 +50,11 @@ _PROFILE_DEFAULTS: dict = {
     "clone_mode": "basic",
     "reference_tokens": [],
     "reference_text": "",
+    # ZONOS3: the cloned voice's reference codes, its clip's name, and per-line steering with its strength.
+    "zonos_reference_codes": [],
+    "zonos_ref_name": "",
+    "emotion_delivery": True,
+    "delivery_strength": 1.0,
 }
 
 CLONE_MODES = ("basic", "advanced")
@@ -64,6 +73,9 @@ _METADATA_KEYS = (
     "clone_mode",
     "reference_tokens",
     "reference_text",
+    "zonos_reference_codes",
+    "emotion_delivery",
+    "delivery_strength",
 )
 
 
@@ -95,7 +107,16 @@ def normalize_profile(raw: object) -> dict:
     out["clone_mode"] = out["clone_mode"] if out["clone_mode"] in CLONE_MODES else "basic"
     out["reference_tokens"] = spark_voice_clean_reference_tokens(out.get("reference_tokens"))
     out["reference_text"] = spark_voice_clean_reference_text(out.get("reference_text"))
+    out["zonos_reference_codes"] = clean_reference_codes(out.get("zonos_reference_codes"))
+    out["zonos_ref_name"] = str(out.get("zonos_ref_name") or "")
+    out["emotion_delivery"] = bool(out["emotion_delivery"])
+    out["delivery_strength"] = _bounded(out["delivery_strength"], 1.0, 0.0, MAX_STRENGTH)
     return out
+
+
+def _bounded(value: object, default: float, low: float, high: float) -> float:
+    number = _as_float(value, default)
+    return min(high, max(low, number)) if math.isfinite(number) else default
 
 
 def _speaks_advanced(profile: Mapping[str, Any]) -> bool:
@@ -113,12 +134,14 @@ def _voice_record(profile: Mapping[str, Any]) -> dict:
     record = {k: profile.get(k, _PROFILE_DEFAULTS.get(k, "")) for k in _METADATA_KEYS}
     if not _speaks_advanced(profile):
         record.update(clone_mode="basic", reference_tokens=[], reference_text="")
+    if profile.get("backend") != "zonos":
+        record["zonos_reference_codes"] = []
     return record
 
 
 # Local backends that stitch per-chunk clips together and emit WAV; every other backend returns MP3. `spark` is the built-in
 # cloner and `spark_remote` the sidecar it replaced; both emit 16 kHz PCM.
-_WAV_BACKENDS = frozenset({"kokoro", "spark", "spark_remote"})
+_WAV_BACKENDS = frozenset({"kokoro", "spark", "spark_remote", "zonos"})
 
 
 def audio_mime_ext(backend: str) -> tuple[str, str]:
@@ -222,6 +245,9 @@ def _backend_kwargs(profile: dict, settings: Settings | None) -> dict:
         "speaker_tokens": list(profile.get("speaker_tokens") or []),
         "reference_tokens": list(profile.get("reference_tokens") or []) if advanced else [],
         "reference_text": str(profile.get("reference_text") or "") if advanced else "",
+        "zonos_reference_codes": list(profile.get("zonos_reference_codes") or []),
+        "emotion_delivery": bool(profile.get("emotion_delivery")),
+        "delivery_strength": _as_float(profile.get("delivery_strength"), 1.0),
         "settings": settings,
     }
 
@@ -352,13 +378,17 @@ async def synthesize_blocks(
     else:
         prepared = text if legacy else speech_input(text)
         style = await markup_axes(prepared, settings) if settings is not None and not legacy else None
-        chunks = regex_extract(
+        chunks, lines = regex_extract_lines(
             text=prepared,
             supports_emotion_tags=adapter.supports_emotion_tags,
             style=style,
             legacy=legacy,
             input_prepared=not legacy,
         )
+        if backend == "zonos":
+            # Stored with the chunk, so replay speaks the same delivery without classifying again.
+            for chunk, label in zip(chunks, await line_labels(lines, profile, settings), strict=True):
+                chunk.emotion = label
     pause_after = [chunks[i + 1].pause_before_ms if i + 1 < len(chunks) else 0 for i in range(len(chunks))]
     voice_id = profile.get("voice_id") or _PROFILE_DEFAULTS["voice_id"]
     language = profile.get("language") or _PROFILE_DEFAULTS["language"]
