@@ -289,6 +289,8 @@ async def compose_scene(
         raise ValueError("couldn't compose an image prompt for this message")
     names = visible_subjects if visible_subjects is not None else args.get("visible_subjects")
     visible = _matching_subjects(sheets, names, "composition") if isinstance(names, (list, tuple)) else []
+    if sheets and sheets[0] not in visible:
+        visible = [sheets[0], *visible]
     if thread is not None and isinstance(result.get("replay"), Mapping):
         thread.messages = [*tail, dict(result["replay"])]
         thread.visible = visible
