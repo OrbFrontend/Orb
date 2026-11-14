@@ -11,6 +11,7 @@ from ...core import estimate_tokens
 from ...database import current_db_path, get_generated_chars, get_global_stats
 from ...inference.local_models.assets import model_dir
 from ...inference.local_models.llama_server.binary import bin_bytes as llama_bin_bytes
+from ...inference.local_models.zonos_server.binary import bin_bytes as zonos_bin_bytes
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ async def api_global_stats():
         p = os.path.join(models_dir, name)
         if os.path.isfile(p):
             storage_bytes += os.path.getsize(p)
-    storage_bytes += llama_bin_bytes()
+    storage_bytes += llama_bin_bytes() + zonos_bin_bytes()
     # The hero slot shows one of several "story beat" themes, chosen uniformly
     # among those with data (50/50 today, extensible by appending more themes).
     themes = []

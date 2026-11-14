@@ -37,7 +37,6 @@ const DEFAULT_API_URL = {
   fish: "http://localhost:8080",
   kokoro: "http://localhost:9200",
   spark_remote: "http://localhost:9300",
-  zonos: "http://localhost:1919",
 };
 
 const LANGUAGES = [
@@ -68,8 +67,9 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "voicePick", (el) => enrollFile(el.files?.[0]));
   registerAction(WORKFLOW_ID, "voiceDrop", (el, ev) => onVoiceDrop(el, ev));
   registerAction(WORKFLOW_ID, "voiceClear", () => clearVoiceReference());
-  registerAction(WORKFLOW_ID, "cloneSetup", () => runCloneSetup());
+  registerAction(WORKFLOW_ID, "cloneSetup", (el) => runCloneSetup(el.dataset.setup));
   registerAction(WORKFLOW_ID, "cloneGpu", (el) => saveCloneGpu(el));
+  registerAction(WORKFLOW_ID, "apiUrlInput", () => renderCloneControl());
   registerAction(WORKFLOW_ID, "cloneMode", (el) => selectCloneMode(el.dataset.mode));
   registerAction(WORKFLOW_ID, "referenceText", (el) => {
     cloned.referenceText = el.value;
@@ -87,14 +87,18 @@ const ADVANCED_FEATURES = [
   { id: "spark_tts_reference", label: "reference reader" },
   { id: "speech_recognizer", label: "speech recognizer" },
 ];
-const ZONOS_FEATURES = [{ id: "vocal_separator", label: "vocal separator" }];
+const ZONOS_FEATURES = [
+  { id: "zonos_tts", label: "voice model" },
+  { id: "zonos_reference", label: "reference reader" },
+];
+const SEPARATOR_FEATURES = [{ id: "vocal_separator", label: "vocal separator" }];
 const SEMANTIC_RATE = 50;
 
 let memberId = null;
 let cardId = null;
 let mlStatus = null;
 let mlPending = false;
-let setupBusy = false;
+let setupBusy = "";
 let setupStep = "";
 let enrolling = "";
 let cloned = emptyClone();
@@ -308,6 +312,10 @@ function field(name, inner) {
   return `<div class="tts-pf-field" data-field="${name}">${inner}</div>`;
 }
 
+function apiUrlLabel(backend) {
+  return backend === "zonos" ? "Server URL (empty: built-in)" : "API URL";
+}
+
 function profileFormHtml(p, backends, cast = null) {
   const backendOpts = backends.map((b) => opt(b.id, b.name || b.id, b.id === p.backend)).join("");
   const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language?.startsWith(code))).join("");
@@ -324,7 +332,7 @@ function profileFormHtml(p, backends, cast = null) {
         </label>
         ${field("language", `<label class="tts-field">Language <select id="tts-pf-language">${langOpts}</select></label>`)}
       </div>
-      ${field("api_url", `<label class="tts-field">API URL <input type="text" id="tts-pf-api_url" value="${esc(p.api_url || "")}"></label>`)}
+      ${field("api_url", `<label class="tts-field"><span id="tts-pf-api_url-label">${apiUrlLabel(p.backend)}</span> <input type="text" id="tts-pf-api_url" value="${esc(p.api_url || "")}" data-wf-action="tts:apiUrlInput" data-wf-on="input"></label>`)}
       ${field("api_key", `<label class="tts-field">API key <input type="password" id="tts-pf-api_key" value="${esc(p.api_key || "")}"></label>`)}
       ${field("model", `<label class="tts-field">Model <select id="tts-pf-model"><option value="${esc(p.model || "")}" selected>${esc(p.model || "(default)")}</option></select></label>`)}
       ${field(
@@ -411,9 +419,28 @@ function ensureMlStatus({ refresh = false } = {}) {
     });
 }
 
-function cloneFeatures() {
-  if (readForm().backend === "zonos") return ZONOS_FEATURES;
+/** Whether ZONOS3 runs on Orb's own server: the form names no other one. */
+function zonosBuiltin() {
+  return !readForm().api_url.trim();
+}
+
+function cloneFeatures(setup) {
+  if (setup === "separator") return SEPARATOR_FEATURES;
+  if (readForm().backend === "zonos") return zonosBuiltin() ? ZONOS_FEATURES : [];
   return cloned.mode === "advanced" ? [...CLONE_FEATURES, ...ADVANCED_FEATURES] : CLONE_FEATURES;
+}
+
+/** The runtime binary the selected backend's models run on. */
+function cloneRuntime() {
+  if (readForm().backend === "zonos") {
+    const mb = mlFeature("zonos_tts").runtime_mb || 110;
+    return { feature: "zonos_tts", name: "ZONOS3 runtime", mb, body: { runtime: "zonos_server" } };
+  }
+  return { feature: "spark_tts_llm", name: "llama.cpp runtime", mb: 150, body: {} };
+}
+
+function runtimeMissing(setup) {
+  return setup !== "separator" && cloneFeatures().length > 0 && mlFeature(cloneRuntime().feature).runtime_ok === false;
 }
 
 function setupNoticeHtml() {
@@ -425,16 +452,17 @@ function setupNoticeHtml() {
     return `<span class="tts-note">Voice cloning needs the optional ML extras: <code>${esc(cmd)}</code></span>`;
   }
   const missing = pending.filter((f) => !mlFeature(f.id).present);
-  const runtime = mlFeature("spark_tts_llm").runtime_ok === false;
+  const runtime = runtimeMissing();
   if (!pending.length && !runtime) return "";
   const names = [
-    ...(runtime ? ["llama.cpp runtime"] : []),
+    ...(runtime ? [cloneRuntime().name] : []),
     ...missing.map((f) => f.label),
     ...pending.filter((f) => mlFeature(f.id).present && !mlFeature(f.id).enabled).map((f) => f.label),
   ];
-  const size = missing.reduce((mb, f) => mb + (mlFeature(f.id).size_mb || 0), runtime ? 150 : 0);
-  const what = cloned.mode === "advanced" ? "Advanced cloning" : "Voice cloning";
-  const sentence = setupStep || `${what} needs ${listPhrase(names)}.`;
+  const size = missing.reduce((mb, f) => mb + (mlFeature(f.id).size_mb || 0), runtime ? cloneRuntime().mb : 0);
+  const what =
+    readForm().backend === "zonos" ? "ZONOS3" : cloned.mode === "advanced" ? "Advanced cloning" : "Voice cloning";
+  const sentence = (setupBusy === "models" && setupStep) || `${what} needs ${listPhrase(names)}.`;
   return `<span class="tts-setup">
       <span class="tts-note">${sentence}</span>
       <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(Boolean(missing.length || runtime), size)}</button>
@@ -449,6 +477,7 @@ function listPhrase(items) {
 function setupLabel(download, sizeMb) {
   if (setupBusy) return download ? "Downloading…" : "Turning on…";
   if (!download) return "Turn on";
+  if (sizeMb >= 1000) return `Download (${(sizeMb / 1000).toFixed(1)} GB)`;
   return sizeMb ? `Download (${sizeMb} MB)` : "Download";
 }
 
@@ -479,6 +508,11 @@ function removeButtonHtml(enrolled) {
     : "";
 }
 
+/** Whether a clip can be enrolled for ZONOS3 right now. */
+function zonosLive() {
+  return !zonosBuiltin() || (ZONOS_FEATURES.every((f) => featureReady(f.id)) && !runtimeMissing());
+}
+
 function zonosCloneHtml() {
   const enrolled = zonosVoice.codes.length > 0;
   let title = `Drop a clip of this character speaking, or <span class="tts-drop-link">choose a file</span>`;
@@ -492,9 +526,11 @@ function zonosCloneHtml() {
   }
   return `<div class="tts-field tts-clone">
       <span class="tts-clone-head"><label for="tts-pf-zonosfile">Cloned voice</label>${removeButtonHtml(enrolled)}</span>
-      ${dropZoneHtml("tts-pf-zonosfile", title, note, enrolled, !enrolling)}
+      ${setupNoticeHtml()}
+      ${dropZoneHtml("tts-pf-zonosfile", title, note, enrolled, zonosLive() && !enrolling)}
       ${referenceNote ? `<span class="tts-note">${esc(referenceNote)}</span>` : ""}
       ${zonosSetupHtml()}
+      ${zonosBuiltin() ? engineRowHtml("zonos_tts") : ""}
     </div>`;
 }
 
@@ -502,10 +538,12 @@ function zonosSetupHtml() {
   if (!mlStatus || featureReady("vocal_separator")) return "";
   const info = mlFeature("vocal_separator");
   if (!info.deps_ok) return "";
-  const sentence = setupStep || "To clean music or noise out from under the voice, Orb needs the vocal separator.";
+  const sentence =
+    (setupBusy === "separator" && setupStep) ||
+    "To clean music or noise out from under the voice, Orb needs the vocal separator.";
   return `<span class="tts-setup">
       <span class="tts-note">${sentence}</span>
-      <button class="btn btn-sm" type="button" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(!info.present, info.size_mb)}</button>
+      <button class="btn btn-sm" type="button" data-setup="separator" data-wf-action="tts:cloneSetup"${setupBusy ? " disabled" : ""}>${setupLabel(!info.present, info.size_mb)}</button>
     </span>`;
 }
 
@@ -590,12 +628,12 @@ async function playExcerpt() {
   }
 }
 
-function engineRowHtml() {
-  const llm = mlFeature("spark_tts_llm");
-  if (!llm.deps_ok || !llm.present || llm.runtime_ok === false) return "";
+function engineRowHtml(feature = "spark_tts_llm") {
+  const llm = mlFeature(feature);
+  if (!llm.deps_ok || !llm.present || llm.runtime_ok === false || llm.gpu_capable === false) return "";
   const state = llm.state === "loading" ? "loading…" : llm.state || "idle";
   return `<label class="tts-setting-toggle" title="Run the voice model on the GPU. Takes effect on the next spoken line.">
-      <input type="checkbox"${llm.gpu ? " checked" : ""} data-wf-action="tts:cloneGpu" data-wf-on="change">
+      <input type="checkbox"${llm.gpu ? " checked" : ""} data-feature="${feature}" data-wf-action="tts:cloneGpu" data-wf-on="change">
       <span class="tts-toggle-body">
         <span class="tts-toggle-label">Run on GPU</span>
         <span class="tts-note${llm.error ? " tts-engine-error" : ""}">Voice model ${esc(state)}${llm.error ? `: ${esc(llm.error)}` : ""}</span>
@@ -605,8 +643,8 @@ function engineRowHtml() {
 
 async function saveCloneGpu(box) {
   try {
-    await api.post("/local-ml/spark_tts_llm/config", { gpu: box.checked });
-    mlFeature("spark_tts_llm").gpu = box.checked;
+    await api.post(`/local-ml/${box.dataset.feature}/config`, { gpu: box.checked });
+    mlFeature(box.dataset.feature).gpu = box.checked;
   } catch (e) {
     console.warn("tts: voice model GPU switch failed", e);
     setStatus(e?.message || "Could not change the GPU setting");
@@ -630,25 +668,25 @@ function onVoiceDrop(el, ev) {
   }
   ev.preventDefault();
   if (enrolling) return; // one clip at a time; the zone already says which
-  const live = readForm().backend === "zonos" || featureReady("spark_tts_codec");
+  const live = readForm().backend === "zonos" ? zonosLive() : featureReady("spark_tts_codec");
   if (ev.type === "dragover") {
     if (live) el.classList.add("tts-drop-over");
     return;
   }
   el.classList.remove("tts-drop-over");
   if (!live) {
-    setStatus("Download the voice codec first");
+    setStatus(readForm().backend === "zonos" ? "Download the voice model first" : "Download the voice codec first");
     return;
   }
   enrollFile(ev.dataTransfer?.files?.[0]);
 }
 
-async function runCloneSetup() {
+async function runCloneSetup(setup) {
   if (setupBusy) return;
-  setupBusy = true;
+  setupBusy = setup === "separator" ? "separator" : "models";
   renderCloneControl();
   try {
-    const features = cloneFeatures();
+    const features = cloneFeatures(setup);
     for (const feature of features) {
       if (!mlFeature(feature.id).present) {
         setupStep = `Downloading the ${feature.label} (${mlFeature(feature.id).size_mb || "?"} MB).`;
@@ -660,26 +698,29 @@ async function runCloneSetup() {
       }
       mlStatus = await api.get("/local-ml/status");
       renderCloneControl();
-      if (feature.id === "spark_tts_codec" && mlFeature("spark_tts_llm").runtime_ok === false) {
-        setupStep = "Downloading the llama.cpp runtime (150 MB) — this takes a while.";
-        renderCloneControl();
-        await api.post("/local-ml/runtime", {});
-        mlStatus = await api.get("/local-ml/status");
-        renderCloneControl();
-      }
+    }
+    if (runtimeMissing(setup)) {
+      const runtime = cloneRuntime();
+      setupStep = `Downloading the ${runtime.name} (${runtime.mb} MB) — this takes a while.`;
+      renderCloneControl();
+      await api.post("/local-ml/runtime", runtime.body);
+      mlStatus = await api.get("/local-ml/status");
+      renderCloneControl();
     }
     const what =
-      readForm().backend === "zonos"
+      setup === "separator"
         ? "Vocal separation"
-        : cloned.mode === "advanced"
-          ? "Advanced cloning"
-          : "Voice cloning";
+        : readForm().backend === "zonos"
+          ? "ZONOS3"
+          : cloned.mode === "advanced"
+            ? "Advanced cloning"
+            : "Voice cloning";
     setStatus(features.every((f) => featureReady(f.id)) ? `${what} is ready` : "");
   } catch (e) {
     console.warn("tts: voice cloning setup failed", e);
     setStatus(e?.message || "Could not set up voice cloning");
   } finally {
-    setupBusy = false;
+    setupBusy = "";
     setupStep = "";
     renderCloneControl();
   }
@@ -798,7 +839,11 @@ function readForm() {
 function onBackendChange() {
   const backend = document.getElementById("tts-pf-backend")?.value || "spark";
   const apiUrl = document.getElementById("tts-pf-api_url");
+  // Another backend's prefilled address is not a ZONOS3 server.
+  if (apiUrl && backend === "zonos" && Object.values(DEFAULT_API_URL).includes(apiUrl.value)) apiUrl.value = "";
   if (apiUrl && !apiUrl.value && DEFAULT_API_URL[backend]) apiUrl.value = DEFAULT_API_URL[backend];
+  const label = document.getElementById("tts-pf-api_url-label");
+  if (label) label.textContent = apiUrlLabel(backend);
   applyFieldVisibility(backend);
   renderCloneControl();
   loadVoices();

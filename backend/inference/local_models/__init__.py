@@ -19,6 +19,7 @@ from .assets import (
 from .catalog import MODELS, ModelFileSpec, ModelSpec, ModelVariantSpec, RuntimeKind
 from .dependencies import deps_ok, install_cmd
 from .llama_server import binary as llama_binary
+from .zonos_server import binary as zonos_binary
 
 
 def available(feature: str = "autocomplete") -> tuple[bool, str]:
@@ -36,4 +37,6 @@ def available(feature: str = "autocomplete") -> tuple[bool, str]:
         return False, f"model file not found: {', '.join(assets.missing_files(feature)) or assets.resolve_path(feature)}"
     if catalog.MODELS[feature].runtime == "llama_server" and not llama_binary.runtime_ok():
         return False, "llama.cpp runtime not installed"
+    if catalog.MODELS[feature].runtime == "zonos_server" and not zonos_binary.runtime_ok():
+        return False, "ZONOS3 runtime not installed"
     return True, ""

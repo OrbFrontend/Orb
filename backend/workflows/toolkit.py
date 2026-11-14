@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 from ..analysis import (
@@ -78,6 +78,7 @@ from ..prompting.lorebook import compute_constant_lorebook_block as _compute_con
 from . import gpu_swap_host as _gpu_swap_host
 from . import spark_tts_host as _spark_tts_host
 from . import voice_clip_host as _voice_clip_host
+from . import zonos_tts_host as _zonos_tts_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import (
     EVICTED_MARKER,
@@ -233,6 +234,7 @@ __all__ = [
     "spark_voice_enroll",
     "spark_voice_reference_audio",
     "spark_voice_speak",
+    "zonos_voice_server",
     "protected_runs",
     "run_audit",
     "spoken_lines",
@@ -379,6 +381,15 @@ async def prepare_voice_clip(data: bytes, settings: Settings, *, filename: str =
         "separated": clip.separated,
         "separator_reason": reason if clip.background and not clip.separated else "",
     }
+
+
+def zonos_voice_server(settings: Settings, *, enroll: bool = False) -> AbstractAsyncContextManager[str]:
+    """The built-in ZONOS3 server's base URL, with the server kept running for the ``async with`` block.
+
+    With *enroll* the server must also be able to read a clip into reference codes. Entering raises
+    ``WorkflowUnavailableError`` when the model is not set up or the server will not start.
+    """
+    return _zonos_tts_host.server(settings, enroll=enroll)
 
 
 @asynccontextmanager

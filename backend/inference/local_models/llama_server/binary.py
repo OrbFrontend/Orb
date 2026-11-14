@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
-import urllib.request
-import zipfile
 from pathlib import Path
+
+from .. import release_archive
+from ..release_archive import EXE, IS_WINDOWS, RuntimeMissing
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +21,6 @@ logger = logging.getLogger(__name__)
 #: binary in.
 _ROOT = Path(__file__).resolve().parents[4]
 
-IS_WINDOWS = os.name == "nt"
-EXE = ".exe" if IS_WINDOWS else ""
 BINARY_NAME = f"llama-server{EXE}"
 
 #: Verified build. Bump deliberately, never automatically.
@@ -38,7 +35,7 @@ USER_AGENT = "Orb/llama-server"
 _BUILD_TAG = re.compile(r"^b\d+$")
 
 
-class LlamaServerMissing(RuntimeError):
+class LlamaServerMissing(RuntimeMissing):
     """No usable llama-server binary. Carries the message the panel shows."""
 
 
@@ -86,21 +83,6 @@ def flavour_dir(gpu: bool) -> str:
     return os.path.join(bin_dir(), "gpu" if gpu else "cpu")
 
 
-def _executable(path: Path) -> bool:
-    """Whether this path names a program that can be run.
-
-    ``os.access(..., X_OK)`` is the whole answer everywhere except Windows, which has no execute bit: there the call degrades to
-    "does this file exist" and would cheerfully hand back a README. The extension is the only signal that survives, and PATHEXT
-    is the machine's own list of which ones count.
-    """
-    if not path.is_file():
-        return False
-    if not IS_WINDOWS:
-        return os.access(path, os.X_OK)
-    suffixes = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep)
-    return path.suffix.lower() in {s.strip().lower() for s in suffixes if s.strip()}
-
-
 def _named(path: Path) -> tuple[Path, ...]:
     r"""A path as given, plus the .exe a Windows user meant by it.
 
@@ -122,16 +104,16 @@ def find_binary(gpu: bool = True) -> Path:
     if explicit:
         path = Path(explicit).expanduser()
         for candidate in _named(path):
-            if _executable(candidate):
+            if release_archive.executable(candidate):
                 return candidate
         raise LlamaServerMissing(f"ORB_LLAMA_SERVER points at {path}, which is not an executable file.")
     found = shutil.which("llama-server")
     if found:
         return Path(found)
     local = Path(flavour_dir(gpu)) / BINARY_NAME
-    if _executable(local) and _managed_current():
+    if release_archive.executable(local) and _managed_current():
         return local
-    if _executable(local):
+    if release_archive.executable(local):
         raise LlamaServerMissing(f"The llama.cpp runtime is out of date; download {wanted_build()} again.")
     raise LlamaServerMissing(
         "No llama-server binary. Downloading a model that needs it fetches one, "
@@ -252,17 +234,6 @@ def gpu_capable(binary: Path) -> bool | None:
     return None if found is None else bool(found)
 
 
-def _arch() -> str:
-    import platform  # noqa: PLC0415 -- only needed on the fetch path
-
-    machine = platform.machine().lower()
-    if machine in ("x86_64", "amd64"):
-        return "x64"
-    if machine in ("arm64", "aarch64"):
-        return "arm64"
-    raise LlamaServerMissing(f"No prebuilt llama.cpp binary for {machine}; build one and set ORB_LLAMA_SERVER.")
-
-
 def asset_name(tag: str, backend: str, *, system: str, arch: str) -> str:
     """The release asset for this platform, GPU flavour and architecture. macOS has one build, with Metal."""
     gpu = backend == "gpu"
@@ -273,20 +244,8 @@ def asset_name(tag: str, backend: str, *, system: str, arch: str) -> str:
     return f"llama-{tag}-bin-ubuntu-{'vulkan-' if gpu else ''}{arch}.tar.gz"
 
 
-def _system() -> str:
-    import sys  # noqa: PLC0415 -- fetch path only
-
-    if sys.platform == "darwin":
-        return "darwin"
-    if sys.platform.startswith("win"):
-        return "windows"
-    return "linux"
-
-
 def _api(url: str):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 -- fixed https host
-        return json.load(response)
+    return release_archive.github_api(url, USER_AGENT)
 
 
 def resolve_release(tag: str | None = None) -> dict:
@@ -298,31 +257,6 @@ def resolve_release(tag: str | None = None) -> dict:
         if _BUILD_TAG.fullmatch(release.get("tag_name") or "") and release.get("assets"):
             return release
     raise LlamaServerMissing("No llama.cpp build release with binaries was found.")
-
-
-def _unpack(archive: Path, into: Path) -> None:
-    if archive.name.endswith(".zip"):
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(into)  # nosec B202 -- official release archive; zipfile strips absolute and .. paths
-    else:
-        with tarfile.open(archive) as tf:
-            # `filter="data"` refuses absolute paths, `..` escapes, links that point out of the tree, and device nodes. Asked
-            # for explicitly rather than left to the default: it only becomes the default in 3.14, warns in between, and this is
-            # unpacking something fetched over the network. Probed because the keyword arrived in 3.11.4 as a backport and the
-            # three 3.11 patch releases before it raise TypeError on it -- the same reason `--no-webui` is probed on the binary
-            # rather than simply sent.
-            if hasattr(tarfile, "data_filter"):
-                tf.extractall(into, filter="data")  # nosec B202 -- data filter refuses escapes and links
-            else:
-                base = into.resolve()
-                for member in tf.getmembers():
-                    member_path = Path(member.name)
-                    if member_path.is_absolute() or ".." in member_path.parts:
-                        raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
-                    target = (base / member_path).resolve()
-                    if os.path.commonpath([str(base), str(target)]) != str(base):
-                        raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
-                    tf.extract(member, into)  # nosec B202 -- validated member path
 
 
 def _flatten(unpacked: Path, dest: Path) -> Path:
@@ -341,20 +275,6 @@ def _flatten(unpacked: Path, dest: Path) -> Path:
     for entry in source.iterdir():
         shutil.move(str(entry), str(dest / entry.name))
     return dest / BINARY_NAME
-
-
-def _download(release: dict, wanted: str, into: Path) -> Path:
-    """One release asset onto disk, or the message naming what the tag does have."""
-    asset = next((a for a in release.get("assets", []) if a.get("name") == wanted), None)
-    if asset is None:
-        published = ", ".join(sorted(a["name"] for a in release.get("assets", []))) or "nothing"
-        raise LlamaServerMissing(f"{release['tag_name']} does not publish {wanted}. It publishes: {published}")
-    logger.info("Fetching %s (%.0f MB)", wanted, asset.get("size", 0) / 1e6)
-    archive = into / wanted
-    request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # nosec B310 -- github release URL
-        shutil.copyfileobj(response, fh)
-    return archive
 
 
 def _prove(binary: Path) -> None:
@@ -391,7 +311,11 @@ def fetch() -> str:
     """
     release = resolve_release()
     tag = release["tag_name"]
-    system, arch = _system(), _arch()
+    system = release_archive.system()
+    try:
+        arch = release_archive.arch()
+    except RuntimeMissing as exc:
+        raise LlamaServerMissing(f"{exc} Build llama.cpp and set ORB_LLAMA_SERVER.") from None
     _clear_legacy_builds()
     installed: dict[str, Path] = {}
     with tempfile.TemporaryDirectory(prefix="orb-llama-") as tmp:
@@ -399,11 +323,11 @@ def fetch() -> str:
         for flavour in FLAVOURS:
             wanted = asset_name(tag, flavour, system=system, arch=arch)
             if wanted not in archives:
-                archives[wanted] = _download(release, wanted, Path(tmp))
+                archives[wanted] = release_archive.download_asset(release, wanted, Path(tmp), USER_AGENT)
             # Unpacked per flavour even when the archive is shared: `_flatten` MOVES what it finds, so a second pass over one
             # unpack directory would find it empty.
             unpacked = Path(tmp) / f"unpacked-{flavour}"
-            _unpack(archives[wanted], unpacked)
+            release_archive.unpack(archives[wanted], unpacked)
             dest = Path(flavour_dir(flavour == "gpu"))
             binary = _flatten(unpacked, dest)
             if not IS_WINDOWS:
@@ -426,10 +350,4 @@ def fetch() -> str:
 
 def bin_bytes() -> int:
     """Total size of ``data/llama-bin/``, for the storage figure on /api/stats."""
-    total = 0
-    for dirpath, _dirs, files in os.walk(bin_dir()):
-        for name in files:
-            path = os.path.join(dirpath, name)
-            if os.path.isfile(path):
-                total += os.path.getsize(path)
-    return total
+    return release_archive.dir_bytes(bin_dir())

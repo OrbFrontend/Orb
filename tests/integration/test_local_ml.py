@@ -312,6 +312,23 @@ async def test_the_runtime_fetch_is_shared_by_local_model_features(client, monke
     assert (await client.post_json("/api/local-ml/runtime", json={})) == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
 
 
+async def test_the_zonos_runtime_is_fetched_on_request_and_reported_per_feature(client, monkeypatch):
+    from backend.inference.local_models.zonos_server import binary as zonos_binary
+
+    installed = []
+    monkeypatch.setattr(zonos_binary, "runtime_ok", lambda: bool(installed))
+    monkeypatch.setattr(zonos_binary, "fetch", lambda: installed.append("zonos3-server") or "/bin/zonos-bin/zonos3-server")
+    monkeypatch.setattr(llama_binary, "fetch", lambda: (_ for _ in ()).throw(AssertionError("wrong runtime")))
+
+    before = (await client.get_json("/api/local-ml/status"))["features"]
+    fetched = await client.post_json("/api/local-ml/runtime", json={"runtime": "zonos_server"})
+    after = (await client.get_json("/api/local-ml/status"))["features"]
+
+    assert fetched == {"ok": True, "path": "/bin/zonos-bin/zonos3-server"}
+    assert [before[f]["runtime_ok"] for f in ("zonos_tts", "zonos_reference")] == [False, False]
+    assert [after[f]["runtime_ok"] for f in ("zonos_tts", "zonos_reference")] == [True, True]
+
+
 async def test_a_runtime_press_queued_behind_another_finds_the_install(client, monkeypatch):
     """Several cards ask for the runtime at once; only the first fetch replaces the binaries."""
     monkeypatch.setattr(llama_binary, "runtime_ok", lambda: True)

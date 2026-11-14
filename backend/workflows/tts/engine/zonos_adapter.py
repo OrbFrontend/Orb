@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import logging
 import uuid
+from collections.abc import AsyncIterator
 
 import httpx
 
-from ...toolkit import WorkflowInputError, WorkflowUnavailableError
+from ...toolkit import Settings, WorkflowInputError, WorkflowUnavailableError, get_settings, zonos_voice_server
 from .base import SpeakableChunk, SynthesisResult, TTSAdapter
 from .wav import pcm_duration_ms, pcm_to_wav, stitch_pcm, strip_header
 from .zonos_delivery import VOICE_CONTROLS, delivery_controls
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_API_URL = "http://localhost:1919"
 #: Frames the end-of-audio token is held back, so a line keeps its decay (a patched server's ``eoa_hold_frames``).
 EOA_HOLD_FRAMES = 6
 #: Codec silence before each line; the server default of 3 lets reference voices start with a loud first syllable.
@@ -70,8 +71,15 @@ def clean_reference_codes(raw: object) -> list[list[int]]:
     return rows
 
 
-def _base_url(api_url: str) -> str:
-    return (api_url or DEFAULT_API_URL).rstrip("/")
+@contextlib.asynccontextmanager
+async def _server(api_url: str, settings: Settings | None, *, enroll: bool = False) -> AsyncIterator[str]:
+    """The base URL to call: *api_url* when one is set, else the built-in server, kept running for the block."""
+    external = (api_url or "").strip().rstrip("/")
+    if external:
+        yield external
+        return
+    async with zonos_voice_server(settings if settings is not None else await get_settings(), enroll=enroll) as base:
+        yield base
 
 
 def _headers(api_key: str | None) -> dict[str, str]:
@@ -100,32 +108,34 @@ def _raise_for_status(response: httpx.Response) -> None:
     response.raise_for_status()
 
 
-async def enroll_clip(data: bytes, filename: str = "", api_url: str = "", api_key: str | None = None) -> list[list[int]]:
-    """Encode a prepared clip into reference codes on the ZONOS server.
+async def enroll_clip(
+    data: bytes, filename: str = "", api_url: str = "", api_key: str | None = None, settings: Settings | None = None
+) -> list[list[int]]:
+    """Encode a prepared clip into reference codes, on the server at *api_url* or the built-in one when it is empty.
 
     Raises ``WorkflowInputError`` for a clip the server refuses and ``WorkflowUnavailableError`` when it cannot be reached or
     cannot return codes.
     """
-    base = _base_url(api_url)
     headers = {**_headers(api_key), "X-TTS-Session-ID": uuid.uuid4().hex}
     body = {"speaker_audio_base64": base64.b64encode(data).decode("ascii"), "speaker_audio_name": filename or None}
-    try:
-        async with httpx.AsyncClient(timeout=_ENROLL_TIMEOUT) as client:
-            created = await client.post(f"{base}/v2/speakers", json=body, headers=headers)
-            if (refusal := _refusal(created)) is not None:
-                raise WorkflowInputError(f"ZONOS could not read this clip: {refusal}")
-            created.raise_for_status()
-            speaker_id = created.json()["id"]
-            fetched = await client.get(f"{base}/v2/speakers/{speaker_id}/reference_codes", headers=headers)
-            if fetched.status_code == 404:
-                raise WorkflowUnavailableError(
-                    f"The ZONOS3 server at {base} cannot return reference codes. Update it to a build with "
-                    "/v2/speakers/{id}/reference_codes."
-                )
-            fetched.raise_for_status()
-            codes = clean_reference_codes(fetched.json().get("codes"))
-    except httpx.TransportError as exc:
-        raise WorkflowUnavailableError(f"Start the ZONOS3 server at {base} first.") from exc
+    async with _server(api_url, settings, enroll=True) as base:
+        try:
+            async with httpx.AsyncClient(timeout=_ENROLL_TIMEOUT) as client:
+                created = await client.post(f"{base}/v2/speakers", json=body, headers=headers)
+                if (refusal := _refusal(created)) is not None:
+                    raise WorkflowInputError(f"ZONOS could not read this clip: {refusal}")
+                created.raise_for_status()
+                speaker_id = created.json()["id"]
+                fetched = await client.get(f"{base}/v2/speakers/{speaker_id}/reference_codes", headers=headers)
+                if fetched.status_code == 404:
+                    raise WorkflowUnavailableError(
+                        f"The ZONOS3 server at {base} cannot return reference codes. Update it to a build with "
+                        "/v2/speakers/{id}/reference_codes."
+                    )
+                fetched.raise_for_status()
+                codes = clean_reference_codes(fetched.json().get("codes"))
+        except httpx.TransportError as exc:
+            raise WorkflowUnavailableError(f"Start the ZONOS3 server at {base} first.") from exc
     if not codes:
         raise WorkflowUnavailableError("The ZONOS server returned no voice for this clip.")
     return codes
@@ -154,8 +164,6 @@ class ZonosAdapter(TTSAdapter):
         if not codes:
             raise ValueError("This character has no ZONOS voice yet — upload a reference clip first.")
         lang, normalize = server_language(language)
-        server = _base_url(api_url)
-        url = f"{server}/v2/generate"
         base: dict = {
             "speaker_reference_codes": codes,
             "language": lang,
@@ -167,35 +175,43 @@ class ZonosAdapter(TTSAdapter):
         if seed is not None:
             base["seed"] = seed
 
-        async with httpx.AsyncClient(timeout=_SYNTH_TIMEOUT) as client:
+        async with _server(api_url, kwargs.get("settings")) as server:
+            url = f"{server}/v2/generate"
+            async with httpx.AsyncClient(timeout=_SYNTH_TIMEOUT) as client:
 
-            async def generate(text: str, controls: dict[str, float]) -> tuple[bytes, int]:
-                body = {**base, "text": text, **({"controls": controls} if controls else {})}
-                if server not in _NO_HOLD:
-                    response = await client.post(
-                        url, json={**body, "eoa_hold_frames": EOA_HOLD_FRAMES}, headers=_headers(api_key)
-                    )
-                    if "eoa_hold_frames" not in (_refusal(response) or ""):
-                        _raise_for_status(response)
-                        return strip_header(response.content)
-                    logger.info("ZONOS: %s does not take eoa_hold_frames; line endings may be clipped", server)
-                    _NO_HOLD.add(server)
-                response = await client.post(url, json=body, headers=_headers(api_key))
-                _raise_for_status(response)
-                return strip_header(response.content)
+                async def generate(text: str, controls: dict[str, float]) -> tuple[bytes, int]:
+                    body = {**base, "text": text, **({"controls": controls} if controls else {})}
+                    if server not in _NO_HOLD:
+                        response = await client.post(
+                            url, json={**body, "eoa_hold_frames": EOA_HOLD_FRAMES}, headers=_headers(api_key)
+                        )
+                        if "eoa_hold_frames" not in (_refusal(response) or ""):
+                            _raise_for_status(response)
+                            return strip_header(response.content)
+                        logger.info("ZONOS: %s does not take eoa_hold_frames; line endings may be clipped", server)
+                        _NO_HOLD.add(server)
+                    response = await client.post(url, json=body, headers=_headers(api_key))
+                    _raise_for_status(response)
+                    return strip_header(response.content)
 
-            async def speak(chunk: SpeakableChunk) -> tuple[bytes, int]:
-                emotional = delivery_controls(chunk.emotion, delivery_strength) if emotion_delivery else {}
-                controls = emotional or dict(VOICE_CONTROLS)
-                pcm, clip_rate = await generate(chunk.text, controls)
-                if controls and len(chunk.text.split()) >= _COLLAPSE_WORDS and pcm_duration_ms(pcm, clip_rate) < _COLLAPSE_MS:
-                    logger.info(
-                        "ZONOS: %s collapsed a %d-word line; speaking it without controls", controls, len(chunk.text.split())
-                    )
-                    pcm, clip_rate = await generate(chunk.text, {})
-                return pcm, clip_rate
+                async def speak(chunk: SpeakableChunk) -> tuple[bytes, int]:
+                    emotional = delivery_controls(chunk.emotion, delivery_strength) if emotion_delivery else {}
+                    controls = emotional or dict(VOICE_CONTROLS)
+                    pcm, clip_rate = await generate(chunk.text, controls)
+                    if (
+                        controls
+                        and len(chunk.text.split()) >= _COLLAPSE_WORDS
+                        and pcm_duration_ms(pcm, clip_rate) < _COLLAPSE_MS
+                    ):
+                        logger.info(
+                            "ZONOS: %s collapsed a %d-word line; speaking it without controls",
+                            controls,
+                            len(chunk.text.split()),
+                        )
+                        pcm, clip_rate = await generate(chunk.text, {})
+                    return pcm, clip_rate
 
-            raw_pcm, sample_rate = await stitch_pcm(chunks, speak, fallback_rate=44100)
+                raw_pcm, sample_rate = await stitch_pcm(chunks, speak, fallback_rate=44100)
         if not raw_pcm:
             return SynthesisResult(audio_bytes=b"", content_type="audio/wav")
 

@@ -18,6 +18,7 @@ from ..toolkit import (
     RegenCtx,
     RerollGenCtx,
     UploadCtx,
+    WorkflowUserFacingError,
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
@@ -227,7 +228,7 @@ async def upload(ctx: UploadCtx, params: dict[str, str]) -> dict:
 
     Enrollment runs before the state lock is taken, so a long clip holds nothing.
     ``params["mode"]`` picks the clone mode the panel shows; an unknown one is ignored. ``params["backend"]`` of ``zonos``
-    encodes the clip on the ZONOS server at ``params["api_url"]`` instead.
+    encodes the clip on the ZONOS server at ``params["api_url"]``, or on the built-in one when that is empty.
     """
     source_name = os.path.basename(ctx.filename)[:120]
     if params.get("backend") == "zonos":
@@ -256,9 +257,9 @@ def _clip_note(clip: dict) -> str:
 
 async def _upload_zonos(ctx: UploadCtx, params: dict[str, str], source_name: str) -> dict:
     stored = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID))
-    api_url = params.get("api_url") or stored["api_url"]
+    api_url = params["api_url"] if "api_url" in params else stored["api_url"]
     clip = await prepare_voice_clip(ctx.data, ctx.settings, filename=source_name)
-    codes = await enroll_clip(clip["wav"], source_name, api_url, stored["api_key"] or None)
+    codes = await enroll_clip(clip["wav"], source_name, api_url, stored["api_key"] or None, ctx.settings)
     async with workflow_character_state_lock(ctx.character_id, WORKFLOW_ID):
         stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
         profile = apply_zonos_voice(normalize_profile(stored), codes, source_name, api_url)
@@ -318,7 +319,7 @@ async def _preview(body) -> dict:
     text = body.get("text") or PREVIEW_TEXT
     try:
         audio, mime = await synthesize(text, profile)
-    except ValueError as exc:
+    except (ValueError, WorkflowUserFacingError) as exc:
         # An adapter raises ValueError for the refusals a user can act on: no voice enrolled yet, a model that is not
         # downloaded, a missing API key. That message IS the fix, so it reaches the panel's status line; "preview synthesis
         # failed" would send the user looking for a bug that is not there. Anything else IS a bug and stays generic below.

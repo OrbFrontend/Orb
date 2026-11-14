@@ -35,7 +35,7 @@ def apply_zonos_voice(profile: dict, codes: list[list[int]] | None, source_name:
     if codes:
         profile["backend"] = "zonos"
         profile["voice_id"] = VOICE_ID
-        profile["api_url"] = api_url or profile.get("api_url") or ""
+        profile["api_url"] = api_url
         profile["enabled"] = True
     else:
         profile["enabled"] = False
