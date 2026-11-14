@@ -175,6 +175,16 @@ _CharacterEdit = _edit_args(
             "field's complete new list.",
         ),
     ),
+    index=(
+        int,
+        Field(
+            default=0,
+            ge=0,
+            description="alternate_greetings only: one greeting's number, from 1, in the list as this request's earlier "
+            "edits leave it. replace_all, find_replace and replace_every then edit that greeting's text, and remove_items "
+            "removes it; leave items empty.",
+        ),
+    ),
 )
 
 _EntryEdit = _edit_args(
@@ -233,7 +243,7 @@ _ON_PENDING = (
 )
 
 
-def _list_edit(args: Any) -> Callable[[list[str]], list[str]]:
+def _list_edit(args: Any) -> Callable[[list[str], str], list[str]]:
     """How *args* change a list field, applied to its stored list or the list already proposed for it."""
     if args.mode in ("find_replace", "replace_every") or args.text or args.find:
         raise ToolFailure(
@@ -242,7 +252,7 @@ def _list_edit(args: Any) -> Callable[[list[str]], list[str]]:
         )
     items = _items(args)
 
-    def edit(base: list[str]) -> list[str]:
+    def edit(base: list[str], _reread: str) -> list[str]:
         if args.mode == "replace_all":
             return items
         if args.mode == "add_items":
@@ -258,13 +268,37 @@ def _list_edit(args: Any) -> Callable[[list[str]], list[str]]:
     return edit
 
 
+def _item_edit(args: Any) -> Callable[[list[str], str], list[str]]:
+    """How *args* change the one item their index names: its text edited as a text field's is, or the item removed."""
+    if args.items or args.mode == "add_items":
+        raise ToolFailure(
+            "With index, leave items empty: replace_all, find_replace and replace_every edit that item's text, and "
+            "remove_items removes it. add_items takes no index. Nothing was proposed."
+        )
+    if args.mode == "remove_items" and (args.text or args.find):
+        raise ToolFailure("remove_items with index removes that item: leave text and find empty. Nothing was proposed.")
+
+    def edit(base: list[str], reread: str) -> list[str]:
+        if args.index > len(base):
+            raise ToolFailure(f"index is an item's number from 1 to {len(base)}. Nothing was proposed.")
+        head, tail = base[: args.index - 1], base[args.index :]
+        if args.mode == "remove_items":
+            return [*head, *tail]
+        text = _edited(base[args.index - 1], args, reread)
+        if not text.strip():
+            raise ToolFailure("An item cannot be left empty: remove_items with its index removes it. Nothing was proposed.")
+        return [*head, text, *tail]
+
+    return edit
+
+
 def _items(args: Any) -> list[str]:
     """*args*' items, checked and stripped; tags once each."""
     items = [item.strip() for item in args.items]
     if any(not item for item in items):
         raise ToolFailure("An item is blank. Nothing was proposed.")
     if any(_CLIP_MARK.search(item) for item in items):
-        reread = 'read_character with fields ["alternate_greetings"] reads them whole.'
+        reread = 'read_character with fields ["alternate_greetings"] and a greeting\'s index reads it whole.'
         raise ToolFailure(
             "An item contains a marker like …[+N chars], which a read puts where it shortened text. "
             f"{reread} Then send the items' real text. Nothing was proposed."
@@ -303,7 +337,7 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
         reread: str,
         *,
         required: str = "",
-        list_edit: Callable[[list[str]], list[str]] | None = None,
+        list_edit: Callable[[list[str], str], list[str]] | None = None,
         check: Callable[[str], str] | None = None,
     ) -> ToolOutput:
         """Propose the edit *args* make to field *name* of *target*; *required* names a field that may not be left empty.
@@ -324,12 +358,13 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
             base, note = stored, _STALE_EARLIER
         else:
             base = stored if held is None else held.after
+        reread = reread if held is None else f"{_ON_PENDING} {reread}"
         if list_edit is not None:
             assert isinstance(base, list)
-            after: str | list[str] = list_edit(base)
+            after: str | list[str] = list_edit(base, reread)
         else:
             assert isinstance(base, str)
-            after = _edited(base, args, reread if held is None else f"{_ON_PENDING} {reread}")
+            after = _edited(base, args, reread)
         if kind == "message" and isinstance(after, str):
             # Inline macros resolve once, here, as the edit route resolves them on save: Apply commits this exact text, so a
             # random macro cannot roll a second time and save something the preview did not show.
@@ -352,21 +387,30 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
         "confirm",
         _CharacterEdit,
         "Propose an edit to a character: its name, a text field (description, personality, scenario, first_mes (first "
-        "message), mes_example (example messages), creator_notes), or a list field (tags, alternate_greetings).",
+        "message), mes_example (example messages), creator_notes), or a list field (tags, alternate_greetings, one "
+        "greeting by its index).",
     )
     async def edit_character(args: Any) -> ToolOutput:
         card = await character_of(args.character_id, view)
         target = {"kind": "character", "character_id": card.get("id")}
         label = f"character {quoted(card.get('name'))}"
+        if args.index and args.field != "alternate_greetings":
+            raise ToolFailure("index is only for alternate_greetings. Nothing was proposed.")
         if args.field in CHARACTER_LIST_FIELDS:
+            reread = (
+                f'read_character with fields ["alternate_greetings"] and index {args.index} reads it whole, one page per '
+                "text_offset."
+                if args.index
+                else ""
+            )
             return propose(
                 target,
                 label,
                 args.field,
                 [str(item) for item in card.get(args.field) or []],
                 args,
-                "",
-                list_edit=_list_edit(args),
+                reread,
+                list_edit=_item_edit(args) if args.index else _list_edit(args),
             )
         if args.items or args.mode in ("add_items", "remove_items"):
             raise ToolFailure(

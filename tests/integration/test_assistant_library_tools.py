@@ -199,3 +199,26 @@ async def test_list_fields_are_proposed_whole_and_apply_compares_the_stored_list
     assert (await _apply(client, renamed["proposal_id"]))[0]["verdict"] == "applied"
     with pytest.raises(ToolFailure, match="cannot be left empty"):
         await edit.run(edit.arguments(field="name", mode="replace_all", text=" "))
+
+
+async def test_long_greetings_read_shortened_and_one_is_read_and_edited_by_index(client, library):
+    long = [f"Greeting {n}." + " word" * 1200 for n in range(1, 5)]
+    await client.put_checked(f"/api/characters/{library['card']}", json={"alternate_greetings": long})
+    tools = await _tools(mode="library", character_id=library["card"])
+    whole, _ = await _use(tools, "read_character", fields=["alternate_greetings"])
+    assert "note" in whole and all(item.startswith(f"Greeting {n}.") for n, item in enumerate(whole["alternate_greetings"], 1))
+    page, _ = await _use(tools, "read_character", fields=["alternate_greetings"], index=3)
+    assert page["greeting_count"] == 4 and page["truncated"] and long[2].startswith(page["alternate_greeting"])
+    with pytest.raises(ToolFailure, match="from 1 to 4"):
+        await _use(tools, "read_character", fields=["alternate_greetings"], index=5)
+
+    edited = await _propose(
+        tools, "edit_character", field="alternate_greetings", index=3, mode="find_replace", find="Greeting 3.", text="Third."
+    )
+    third = "Third." + long[2].removeprefix("Greeting 3.")
+    assert edited["fields"][0]["after"] == [long[0], long[1], third, long[3]]
+    removed = await _propose(tools, "edit_character", field="alternate_greetings", index=1, mode="remove_items")
+    assert removed["proposal_id"] == edited["proposal_id"] and removed["fields"][0]["after"] == [long[1], third, long[3]]
+    assert (await _apply(client, edited["proposal_id"]))[0]["verdict"] == "applied"
+    stored = (await client.get_json(f"/api/characters/{library['card']}"))["alternate_greetings"]
+    assert stored == [long[1], third, long[3]]

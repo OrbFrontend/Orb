@@ -124,7 +124,11 @@ class _CharacterArgs(ToolArguments):
         default_factory=list,
         max_length=len(CHARACTER_FIELDS) + 3,
         description="Text fields to read; empty reads all of them, shortened to fit. Name one to read it whole, in pages. "
-        "name and tags come with every read. alternate_greetings, named alone, reads every alternate greeting whole.",
+        "name and tags come with every read. alternate_greetings, named alone, reads every alternate greeting, shortened "
+        "to fit.",
+    )
+    index: int = Field(
+        default=0, ge=0, description="With alternate_greetings: one greeting's number, from 1, to read it whole in pages."
     )
     text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
 
@@ -344,6 +348,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         card_id = card.get("id")
         if "alternate_greetings" in args.fields:
             return greetings(card, args)
+        if args.index:
+            raise ToolFailure("index is only for alternate_greetings, named alone in fields.")
         # The name and tags head every read, so naming only them reads no text field.
         named = [name for name in dict.fromkeys(args.fields) if name not in ("name", "tags")]
         chosen = named if args.fields else list(CHARACTER_FIELDS)
@@ -393,19 +399,40 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         return ToolOutput(data, f"Read character {meta['name']}.", {"character_id": card_id})
 
     def greetings(card: Mapping[str, Any], args: _CharacterArgs) -> ToolOutput:
-        """Every alternate greeting whole, since an edit replaces the list whole; one too long to send is refused, not cut."""
-        if len(args.fields) != 1 or args.text_offset:
-            raise ToolFailure("alternate_greetings is read on its own and whole: name it alone, with no text_offset.")
+        """The alternate greetings, each shortened only as far as the whole list must be to fit; with index, one whole in pages."""
+        if len(args.fields) != 1:
+            raise ToolFailure("alternate_greetings is read on its own: name it alone in fields.")
         items = [str(item) for item in card.get("alternate_greetings") or []]
-        data = {"name": clip(card.get("name"), _QUERY_CHARS), "alternate_greetings": items}
-        if _size(data) > _RESULT_BUDGET:
-            raise ToolFailure(
-                f"Its {len(items)} alternate greetings are too long to read whole here, so they cannot be edited here either. "
-                "The character editor shows them."
+        name = clip(card.get("name"), _QUERY_CHARS)
+        ids = {"character_id": card["id"]}
+        if args.index:
+            if args.index > len(items):
+                raise ToolFailure(
+                    f"index is a greeting's number from 1 to {len(items)}." if items else f"{name} has no alternate greetings."
+                )
+            head = {"name": name, "index": args.index, "greeting_count": len(items)}
+            data = _text_page(items[args.index - 1], args.text_offset, head, "alternate_greeting")
+            return ToolOutput(data, f"Read alternate greeting {args.index} of character {name}.", ids)
+        if args.text_offset:
+            raise ToolFailure("text_offset pages through one greeting: name its index.")
+        longest = max(map(len, items), default=0)
+
+        def build(cap: int) -> dict[str, Any]:
+            note = (
+                {"note": "Shortened greetings end with …[+N chars]. Name one's index, from 1, to read it whole."}
+                if cap < longest
+                else {}
             )
-        return ToolOutput(
-            data, f"Read {len(items)} alternate greetings of character {data['name']}.", {"character_id": card["id"]}
-        )
+            return {"name": name, **note, "alternate_greetings": [clip(item, cap) for item in items]}
+
+        # One cap for every greeting, the largest that fits: a short greeting stays whole and the long ones share the rest.
+        low, high = 0, longest
+        while low < high:
+            middle = (low + high + 1) // 2
+            low, high = (middle, high) if _size(build(middle)) <= _RESULT_BUDGET else (low, middle - 1)
+        data = build(low)
+        shortened = ", shortened to fit" if "note" in data else ""
+        return ToolOutput(data, f"Read {len(items)} alternate greetings of character {name}{shortened}.", ids)
 
     @tools.add("read", _SqlArgs, f"Search the library with SQL; the way to find or list chats. {_VIEW_NOTES}")
     async def query_library(args: _SqlArgs) -> ToolOutput:

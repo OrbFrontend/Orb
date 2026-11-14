@@ -296,8 +296,8 @@ the id; `number` reads one message by its `#N`, so a request that names one
 never pages to find its id. `list_active_lore_entries` lists the entries in effect
 for a chat, overlays resolved as the prompt resolves them; nothing records which
 of them a given reply drew on. `read_character` reads the alternate greetings
-only whole, since an edit replaces the list whole; a list too long to send is
-refused rather than cut.
+together, each shortened only as far as the list must be to fit, and with
+`index` reads one greeting whole, a page per `text_offset`.
 
 `list_fragments` lists mood fragments by label, then interactive fragments
 stage by stage (judge, director, state, editor), each with its `position`, the
@@ -387,9 +387,11 @@ the definition is refused when it is proposed and when the user revises it.
 
 A card's `tags` and `alternate_greetings` are list fields: an edit adds
 `items` (`add_items`), removes them (`remove_items`) or makes them the whole new
-list (`replace_all`), and the proposal holds the complete list either way. Apply
-compares the stored list as decoded JSON. An item carrying a read's clip marker
-is refused, as text is.
+list (`replace_all`), and the proposal holds the complete list either way. An
+`index` on `alternate_greetings` names one greeting: the text modes edit its
+text as a text field's, and `remove_items` removes it, keeping the others in
+place. Apply compares the stored list as decoded JSON. An item carrying a
+read's clip marker is refused, as text is.
 
 A run holds one proposal per target and field. A second edit to a field already
 proposed in the run is made on that proposal's pending text, not the stored
@@ -684,7 +686,8 @@ ended: proposing wrote nothing, so showing them is safe. The card groups them by
 what they change and shows each field's diff and lengths, or for a delete what
 goes with it and that it cannot be undone. A diff is shown whole, its unchanged
 text shortened to the context around each change; in a panel wide enough it is
-two columns, the text now and the text proposed. A list field shows the items it
+two columns, the text now and the text proposed. A list field whose items were
+rewritten in place shows each one's diff; otherwise it shows the items it
 removes and adds and how many it keeps.
 
 Each change has its own controls while this page holds its proposal id: a

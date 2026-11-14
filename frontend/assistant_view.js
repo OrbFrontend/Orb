@@ -485,8 +485,16 @@ function splitHtml(entry) {
   return `<div class="asst-diff-split" aria-hidden="true">${side("Now", "insert")}${side("Proposed", "delete")}</div>`;
 }
 
-/** A list field's change: the items it removes and adds, and how many it keeps. */
+/** A list field's change: each item rewritten in place as its own diff, else the items it removes and adds, and how many it keeps. */
 function listDiffHtml(before, after) {
+  const changed = before.length === after.length ? after.flatMap((item, i) => (item === before[i] ? [] : [i])) : [];
+  if (changed.length && changed.every((i) => !after.includes(before[i]) && !before.includes(after[i]))) {
+    const rows = changed.map(
+      (i) => `<li><div class="asst-gap">Item ${i + 1}</div>${diffHtml(before[i], after[i])}</li>`,
+    );
+    const kept = after.length - changed.length;
+    return `<ul class="asst-diff-list">${rows.join("")}</ul>${kept ? `<div class="asst-gap">${kept} unchanged.</div>` : ""}`;
+  }
   const removed = before.filter((item) => !after.includes(item));
   const added = after.filter((item) => !before.includes(item));
   const kept = after.length - added.length;
