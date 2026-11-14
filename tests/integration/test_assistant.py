@@ -974,6 +974,9 @@ async def test_a_request_extends_the_conversation_its_session_names_and_any_othe
     assert second[0][: len(first[-1])] == first[-1]
     assert [message["role"] for message in second[0][len(first[-1]) :]] == ["assistant", "tool", "user"]
     assert sum(message["role"] == "tool" and "final kept line" in message["content"] for message in second[0]) == 1
+    # Its call ids go on past the previous request's: a provider may refuse a conversation that repeats one.
+    ids = [call["id"] for message in second[-1] for call in message.get("tool_calls") or ()]
+    assert ids == ["call1", "call2", "call3"]
 
     # Another browser's conversation is not this one: it starts at its own request.
     continued, other = await ask("And then?", "another-session")

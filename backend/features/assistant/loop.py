@@ -7,7 +7,7 @@ import contextlib
 import itertools
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
 from typing import Any, TypeVar
 
 from pydantic import ValidationError
@@ -176,6 +176,12 @@ def _closed(messages: list[WireMessage], note: str) -> list[WireMessage]:
     if note:
         messages.append({"role": "assistant", "content": note})
     return messages
+
+
+def _step_numbers(history: Sequence[Mapping[str, Any]]) -> Iterator[int]:
+    """Step numbers whose ``step``/``call`` ids no call in *history* holds: some providers refuse a repeated tool call id."""
+    taken = {call.get("id") for message in history for call in message.get("tool_calls") or ()}
+    return (number for number in itertools.count(1) if f"step{number}" not in taken and f"call{number}" not in taken)
 
 
 def _repeated(output: ToolOutput) -> str:
@@ -474,7 +480,7 @@ async def run_assistant(
     ending = _FAILED
     fit()
     try:
-        for step_number in itertools.count(1):
+        for step_number in _step_numbers(history):
             yield {"type": "progress", "label": "Thinking…"}
             if single_call:
                 response, name, arguments = await ask(None)
