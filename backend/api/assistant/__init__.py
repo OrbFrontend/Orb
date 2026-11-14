@@ -12,6 +12,8 @@ from ...core.settings import Settings
 from ...features.assistant import (
     AssistantTool,
     ViewContext,
+    flush_transcripts,
+    forget_transcript,
     held_transcript,
     hold_transcript,
     rewind_note,
@@ -27,6 +29,8 @@ __all__ = [
     "Proposal",
     "apply_proposals",
     "build_tools",
+    "flush_transcripts",
+    "forget_transcript",
     "held_transcript",
     "hold_transcript",
     "open_proposals",

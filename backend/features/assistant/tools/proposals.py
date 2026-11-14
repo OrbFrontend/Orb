@@ -215,14 +215,20 @@ def preview(proposal: Proposal) -> dict[str, Any]:
     return data
 
 
-def pending_note(held: Sequence[Proposal]) -> str:
+def pending_note(held: Sequence[Proposal], *, gone: bool = False) -> str:
     """The note a request carries about what earlier requests proposed and the user has not applied yet.
 
     Each pending text is shown so a further edit can build on it, clipped like a read; the server's own copy, never the
-    browser's.
+    browser's. *gone* says the model was left believing something waits that no longer does; with nothing held it is told
+    so, or it would go on treating those proposals as pending.
     """
     if not held:
-        return ""
+        return (
+            "[Nothing proposed in earlier requests is waiting for the user's Apply any more: each was applied, cancelled or "
+            "has expired.]"
+            if gone
+            else ""
+        )
     lines: list[str] = []
     room = _PENDING_NOTE_CHARS
     for proposal in held:

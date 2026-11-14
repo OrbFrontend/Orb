@@ -189,14 +189,10 @@ export function handoffOutcome(handoff, status) {
 }
 
 /**
- * The stored transcript as valid entries; malformed JSON or a wrong shape is an empty transcript. A request with no answer
+ * The stored transcript as valid entries; a wrong shape is an empty transcript. A request with no answer
  * after it (the page closed mid-run) gets an interrupted outcome, so it reads as unanswered rather than as still pending.
  */
-export function parseTranscript(stored) {
-  let raw = null;
-  try {
-    raw = JSON.parse(stored || "null");
-  } catch {}
+export function parseTranscript(raw) {
   if (!Array.isArray(raw)) return [];
   const items = [];
   const kept = raw.map(storedItem).filter(Boolean);
@@ -209,8 +205,8 @@ export function parseTranscript(stored) {
 }
 
 /** What is kept between page loads: summaries and ids, never a live run's state or an actionable proposal. */
-export function serializeTranscript(items) {
-  return JSON.stringify(items.map(storedItem).filter(Boolean).slice(-MAX_ITEMS));
+export function storedTranscript(items) {
+  return items.map(storedItem).filter(Boolean).slice(-MAX_ITEMS);
 }
 
 /** Drop the oldest entries past the cap, in place. The log is the reader's record only: the server holds the conversation. */

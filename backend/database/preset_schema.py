@@ -32,7 +32,7 @@ DOMAIN_ROOTS: dict[str, str] = {
 DERIVED_TABLES: frozenset[str] = frozenset({"slop_suggestions", "slop_mining_state", "message_subjects"})
 
 # Machine-local tables: never exported, and a full restore keeps the live rows.
-LOCAL_TABLES: frozenset[str] = frozenset({"access_password"})
+LOCAL_TABLES: frozenset[str] = frozenset({"access_password", "assistant_chats"})
 
 # Exclude bookkeeping, caches and historical artifacts from export/merge.
 # Coverage checks require every table to have a domain or an exclusion.

@@ -89,9 +89,20 @@ def _reset_module_locks():
     )
     for d in lock_dicts:
         d.clear()
+    _reset_assistant_conversations()
     yield
     for d in lock_dicts:
         d.clear()
+    _reset_assistant_conversations()
+
+
+def _reset_assistant_conversations() -> None:
+    """Each test's database starts with no assistant conversations, so memory does not hold another test's."""
+    from backend.features.assistant import session
+
+    session._held.clear()
+    session._writes.clear()
+    session._write_lock = asyncio.Lock()
 
 
 @pytest.fixture(scope="session")

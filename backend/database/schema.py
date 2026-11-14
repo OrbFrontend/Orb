@@ -538,6 +538,13 @@ CREATE TABLE IF NOT EXISTS slop_mining_state (
     last_status TEXT NOT NULL DEFAULT ''
 );
 
+-- The panel assistant's conversations as the model reads them, by the browser's session id; the newest few are kept.
+CREATE TABLE IF NOT EXISTS assistant_chats (
+    session TEXT PRIMARY KEY,
+    transcript TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 """
 
 

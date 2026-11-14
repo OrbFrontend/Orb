@@ -996,6 +996,14 @@ class AssistantRunRequest(BaseModel):
         return self
 
 
+class AssistantForgetRequest(BaseModel):
+    """A conversation the browser cleared, by the session id it made for it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session: str = Field(min_length=1, max_length=64)
+
+
 class AssistantApplyRequest(BaseModel):
     """Apply names server-held proposals and nothing else: their targets and texts are the server's, never the client's."""
 

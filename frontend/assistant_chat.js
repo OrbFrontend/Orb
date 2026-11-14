@@ -1,7 +1,7 @@
-// The assistant's own right panel: one transcript, about one character at a time, shown from this browser while the server
-// holds the conversation the model reads; one run at a time owned through
-// S.operations, and the cards of changes its runs proposed, each applied, discarded, edited or undone on its own. A card stays
-// live across later requests, which are told what it still holds. A run and its cards outlive a closed panel.
+// The assistant's own right panel: one chat per character, the one in view shown from this browser while the server holds
+// the conversation the model reads; one run at a time owned through S.operations, and the cards of changes its runs
+// proposed, each applied, discarded, edited or undone on its own. A card stays live across later requests, which are told
+// what it still holds. A run and its cards outlive a closed panel.
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import {
@@ -15,8 +15,8 @@ import {
   parseTranscript,
   pendingProposalIds,
   reviseEntry,
-  serializeTranscript,
   settleRun,
+  storedTranscript,
   transcriptEntries,
   trimTranscript,
   undoVerdicts,
@@ -37,7 +37,6 @@ import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments
 import { loadCharacters } from "./library_sidebar.js";
 import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
-import { showConfirmModal } from "./modal.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
@@ -45,13 +44,14 @@ import { loadPersonas } from "./settings_personas.js";
 import { reloadSettingKeys } from "./settings_store.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import { $, esc, toast } from "./utils.js";
+import { $, toast } from "./utils.js";
 
-const LS_TRANSCRIPT = "orb-assistant-transcript";
-const LS_SESSION = "orb-assistant-session";
+// One key per chat, by the key of the character it is about.
+const LS_CHAT = "orb-assistant-chat:";
 const LS_OPEN = "orb-assistant-open";
 const LS_THINK = "orb-assistant-think";
-const LS_CHARACTER = "orb-assistant-character";
+// As many chats as the server keeps conversations.
+const MAX_CHATS = 32;
 const PANEL = "assistant-panel";
 // The layout where panels slide over the page and an on-screen keyboard may rise with focus.
 const NARROW = "(max-width: 900px)";
@@ -78,8 +78,11 @@ let run = null;
 let following = true;
 // A Tools panel repaint held back while the reader is typing in it.
 let toolsRepaintHeld = false;
-// The character the transcript is about, null until a request is sent from a view that names one.
-let character = null;
+// The chats this page has read, by character key ("" for a view with none): `{ key, session, items }`. A run or an Apply
+// writes to the chat it started in, whichever is on screen by then.
+const chats = new Map();
+// The chat on screen, whose items S.assistant.items is.
+let shown = null;
 // The view the empty log's suggestions were drawn for, null once the log holds entries.
 let suggestedFor = null;
 
@@ -104,8 +107,76 @@ function stored(key) {
   }
 }
 
-function persist() {
-  store(LS_TRANSCRIPT, serializeTranscript(S.assistant.items));
+function chatFor(key) {
+  let chat = chats.get(key);
+  if (chat) return chat;
+  let saved = null;
+  try {
+    saved = JSON.parse(stored(LS_CHAT + key) || "null");
+  } catch {}
+  const session = typeof saved?.session === "string" ? saved.session.slice(0, 64) : "";
+  chat = { key, session: session || newId(), items: parseTranscript(saved?.items) };
+  chats.set(key, chat);
+  return chat;
+}
+
+/** Put the chat of the character in view on screen; true when that changed which chat is shown. */
+function showChat() {
+  const chat = chatFor(characterInView() || "");
+  if (chat === shown) return false;
+  shown = chat;
+  S.assistant.items = chat.items;
+  following = true;
+  return true;
+}
+
+function persist(chat) {
+  const key = LS_CHAT + chat.key;
+  if (!chat.items.length) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+    return;
+  }
+  const fresh = stored(key) === null;
+  store(key, JSON.stringify({ session: chat.session, at: Date.now(), items: storedTranscript(chat.items) }));
+  if (fresh) evictChats();
+}
+
+// The one chat a browser kept before chats were per character, moved under its character at load.
+const LEGACY_KEYS = ["orb-assistant-transcript", "orb-assistant-session", "orb-assistant-character"];
+
+function adoptLegacyChat() {
+  const [transcript, session, character] = LEGACY_KEYS.map(stored);
+  if (transcript === null && session === null && character === null) return;
+  let items = null;
+  try {
+    items = JSON.parse(transcript || "null");
+  } catch {}
+  const key = LS_CHAT + (character || "");
+  if (Array.isArray(items) && items.length && stored(key) === null)
+    store(key, JSON.stringify({ session: session || "", at: Date.now(), items }));
+  try {
+    for (const legacy of LEGACY_KEYS) localStorage.removeItem(legacy);
+  } catch {}
+}
+
+/** Drop the chats stored longest ago past the cap. */
+function evictChats() {
+  try {
+    const kept = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(LS_CHAT)) continue;
+      let at = 0;
+      try {
+        at = Number(JSON.parse(localStorage.getItem(key))?.at) || 0;
+      } catch {}
+      kept.push([at, key]);
+    }
+    kept.sort((a, b) => b[0] - a[0]);
+    for (const [, key] of kept.slice(MAX_CHATS)) localStorage.removeItem(key);
+  } catch {}
 }
 
 // A title is the reader's own text and can be any length; the label is stored with every request in the log.
@@ -157,6 +228,7 @@ function toEnd() {
 function paintLog() {
   const log = $("assistant-log");
   if (!log) return;
+  showChat();
   const busy = Boolean(activeOperation());
   const view = shownView();
   suggestedFor = S.assistant.items.length ? null : view;
@@ -321,6 +393,7 @@ function paintLaunchers(busy) {
 }
 
 function paintControls() {
+  if (showChat()) paintLog();
   const operation = activeOperation();
   const busy = Boolean(operation);
   paintLaunchers(busy);
@@ -371,12 +444,12 @@ function togglePanel() {
  * Stream one run over *body* and settle it. *context* is the view it is about and *request* the user's words, which a
  * card of proposed edits remembers for Ask again.
  */
-async function stream(body, context, request) {
-  const items = S.assistant.items;
+async function stream(chat, body, context, request) {
+  const items = chat.items;
   const current = { items, context, request, note: "", status: "", terminal: null };
   run = current;
   const record = beginStream("assistant", wireContext(context), "/assistant/stop");
-  persist();
+  persist(chat);
   paint();
   let failure = "";
   try {
@@ -386,14 +459,14 @@ async function stream(body, context, request) {
       // Committed now, so shown now; the stream carries on meanwhile.
       if (committed.length) refreshResources(committed);
       const answered = event === "assistant_message" && current.items.at(-1)?.kind === "assistant";
-      if (PERSISTED_EVENTS.has(event) || answered) persist();
+      if (PERSISTED_EVENTS.has(event) || answered) persist(chat);
       paint();
     }
   } catch (error) {
     failure = error?.message || "The assistant failed.";
   } finally {
     settleRun(current, { stopped: record.stream.stopping, failure });
-    persist();
+    persist(chat);
     paint();
     await settle(record);
     if (run === current) run = null;
@@ -402,7 +475,7 @@ async function stream(body, context, request) {
       if (record.stream.stopping) current.items.push(handoffOutcome(current.handoff, "stopped"));
       else launchHandoff(current);
       trimTranscript(current.items);
-      persist();
+      persist(chat);
     }
     paint();
     // Only once the server has settled, so whatever it committed is final: a write whose result never came, or a media job
@@ -416,7 +489,8 @@ async function stream(body, context, request) {
  * conversation back to where that request began, here and on the server, and goes on from there; only the conversation
  * goes back. What the removed requests changed stays changed, and the cards among them go with their entries, so a
  * change still waiting there is discarded. Either way the request is about the view open now, since the tools act on what
- * is there now. Returns the run once it has started, or null when nothing was sent.
+ * is there now, and goes to the chat of the character in view. Returns the run once it has started, or null when nothing
+ * was sent.
  */
 function submit(text, replaced = null) {
   if (activeOperation() || !text) return null;
@@ -425,11 +499,12 @@ function submit(text, replaced = null) {
     return null;
   }
   if (!requestSendPermission()) return null;
-  adoptCharacter();
-  // Captured once, here: switching chats or documents while this runs changes the next request, not this one.
+  // Both captured once, here: switching chats or documents while this runs changes the next request, not this one.
+  if (showChat()) paintLog();
+  const chat = shown;
   const context = captureContext();
-  const items = S.assistant.items;
-  // Gone when the log was cleared for another character first: the text is then a request of its own.
+  const items = chat.items;
+  // Gone when the view turned to another character's chat: the text is then a request of its own.
   const at = replaced ? items.indexOf(replaced) : -1;
   const edit = at >= 0;
   if (edit) items.length = at;
@@ -441,16 +516,15 @@ function submit(text, replaced = null) {
   // The changes earlier cards still hold, so this request can build on them; the server reads their texts itself.
   const pending = pendingProposalIds(items);
   // Only the request goes out: the server holds the conversation this session names, every call and result in it.
-  const body = { text, context: wireContext(context), session: S.assistant.session, request_id: requestId, edit };
-  return stream({ ...body, reasoning, pending }, context, text);
+  const body = { text, context: wireContext(context), session: chat.session, request_id: requestId, edit };
+  return stream(chat, { ...body, reasoning, pending }, context, text);
 }
 
 function send() {
   const input = $("assistant-input");
-  return request(input.value.trim(), null, () => {
-    input.value = "";
-    fitInput();
-  });
+  if (!submit(input.value.trim())) return;
+  input.value = "";
+  fitInput();
 }
 
 /** The request *el* names by its place in the log, or null. */
@@ -498,21 +572,21 @@ function editDraft(el, e) {
 async function editSend(el) {
   const item = requestOf(el);
   if (!item?.editing) return;
-  await request((item.draft ?? item.text).trim(), item);
+  await submit((item.draft ?? item.text).trim(), item);
 }
 
 /**
- * Run one change request over proposals *entries* of *card* (`[{ entry }]`): Apply, Undo or a revision. Message changes are
- * chat work while they commit, so the chat's delete dialog names them and the server makes a delete wait for them.
+ * Run one change request over proposals *entries* (`[{ entry, card }]`) of *chat*: Apply, Undo or a revision. Message
+ * changes are chat work while they commit, so the chat's delete dialog names them and the server makes a delete wait for them.
  */
-async function changing(entries, work) {
+async function changing(chat, entries, work) {
   if (!entries.length || activeOperation()) return;
   if (!requestSendPermission()) return;
-  const chats = new Set(
+  const conversations = new Set(
     entries.flatMap(({ entry }) => (entry.target?.kind === "message" ? [entry.target.conversation_id] : [])),
   );
-  const ops = chats.size
-    ? [...chats].map((conversationId) => begin(APPLY_KIND, { conversationId }))
+  const ops = conversations.size
+    ? [...conversations].map((conversationId) => begin(APPLY_KIND, { conversationId }))
     : [begin(APPLY_KIND, {})];
   paint();
   try {
@@ -520,7 +594,7 @@ async function changing(entries, work) {
   } finally {
     for (const op of ops) finish(op);
   }
-  persist();
+  persist(chat);
   paint();
 }
 
@@ -538,10 +612,11 @@ function pendingOf(el) {
 }
 
 /** Record what a change request settled: its summary in the transcript, and the resources it changed read again. */
-async function settled(outcome, fallback) {
+async function settled(chat, outcome, fallback) {
   if (outcome?.summaries.length) {
-    S.assistant.items.push({ kind: "outcome", reason: "applied", text: outcome.summaries.join(" ") });
-    trimTranscript(S.assistant.items);
+    chat.items.push({ kind: "outcome", reason: "applied", text: outcome.summaries.join(" ") });
+    trimTranscript(chat.items);
+    persist(chat);
   }
   await refreshResources(outcome ? outcome.resources : fallback);
 }
@@ -551,10 +626,11 @@ async function settled(outcome, fallback) {
  * again, as does an Apply that ends without verdicts, which also reads their targets again.
  */
 async function apply(el) {
+  const chat = shown;
   const entries = pendingOf(el);
   const card = entries[0]?.card;
   let applied = null;
-  await changing(entries, async () => {
+  await changing(chat, entries, async () => {
     delete card.note;
     try {
       const results = (
@@ -567,6 +643,7 @@ async function apply(el) {
   });
   if (card)
     await settled(
+      chat,
       applied,
       entries.flatMap(({ entry }) => (entry.target ? [entry.target] : [])),
     );
@@ -574,10 +651,11 @@ async function apply(el) {
 
 /** Put back the text an applied edit replaced; it is pending again afterwards, to apply or discard. */
 async function undo(el) {
-  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  const chat = shown;
+  const found = findProposal(chat.items, el.dataset.proposal || "");
   if (found?.entry.status !== "applied") return;
   let undone = null;
-  await changing([found], async () => {
+  await changing(chat, [found], async () => {
     try {
       undone = undoVerdicts(
         found.card,
@@ -587,7 +665,7 @@ async function undo(el) {
       found.entry.note = "Undo did not finish. Try again.";
     }
   });
-  await settled(undone, found.entry.target ? [found.entry.target] : []);
+  await settled(chat, undone, found.entry.target ? [found.entry.target] : []);
 }
 
 /** Discard pending changes, all of a card's or the one *el* names; nothing was written, so nothing is sent. */
@@ -598,7 +676,7 @@ function cancel(el) {
     delete entry.editing;
     delete entry.proposalId;
   }
-  persist();
+  persist(shown);
   paint();
 }
 
@@ -628,10 +706,11 @@ function reviseClose(el) {
 }
 
 async function reviseSave(el) {
-  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  const chat = shown;
+  const found = findProposal(chat.items, el.dataset.proposal || "");
   if (found?.entry.status !== "pending") return;
   const { entry } = found;
-  await changing([found], async () => {
+  await changing(chat, [found], async () => {
     try {
       const result = await api.post("/assistant/revise", {
         proposal_id: entry.proposalId,
@@ -668,19 +747,18 @@ function fillInput(text) {
   input.focus();
 }
 
-/** Start a conversation the server has never seen: its next request extends nothing. */
-function newSession() {
-  S.assistant.session = newId();
-  store(LS_SESSION, S.assistant.session);
-}
-
+/** Empty the chat on screen, here and on the server; its next request starts a conversation the server has never seen. */
 function clear() {
   if (activeOperation()) return;
-  S.assistant.items.length = 0;
-  setCharacter(null);
-  newSession();
-  persist();
+  showChat();
+  const session = shown.session;
+  shown.items.length = 0;
+  shown.session = newId();
+  persist(shown);
   paint();
+  api
+    .post("/assistant/forget", { session })
+    .catch((error) => console.warn("Failed to clear the assistant chat:", error));
 }
 
 /** The character the page is about: a solo chat's or the library's, a group as one of its own, null where there is none. */
@@ -691,63 +769,10 @@ function characterInView() {
   return S.activeCharId || null;
 }
 
-function setCharacter(key) {
-  character = key;
-  store(LS_CHARACTER, key || "");
-}
-
-/** The transcript is about the character in view from its first request on; a view with no character changes nothing. */
-function adoptCharacter() {
-  const now = characterInView();
-  if (now && now !== character) setCharacter(now);
-}
-
-function characterName(key) {
-  if (key.startsWith("group:"))
-    return S.conversations.find((conv) => `group:${conv.id}` === key)?.title || "a group chat";
-  return charactersView().find((card) => card.id === key)?.name || "another character";
-}
-
-/**
- * Send *text* as submit does, calling *sent* once it goes out. The conversation is about one character at a time, so a
- * request from another character's view first asks to start over; the log stays as it is until the reader agrees.
- */
-function request(text, replaced = null, sent = () => {}) {
-  if (activeOperation() || !text) return null;
-  const now = characterInView();
-  const go = () => {
-    const started = submit(text, replaced);
-    if (started) sent();
-    return started;
-  };
-  if (!now || !character || now === character || !S.assistant.items.length) return go();
-  const pending = pendingProposalIds(S.assistant.items).length;
-  const waiting = pending
-    ? ` ${pending === 1 ? "A change still waiting" : `${pending} changes still waiting`} for Apply will be discarded.`
-    : "";
-  showConfirmModal(
-    {
-      title: "Start a new assistant chat?",
-      message: `This assistant chat is about <strong>${esc(characterName(character))}</strong>. Sending about <strong>${esc(characterName(now))}</strong> will clear it.${waiting}`,
-      confirmText: "Clear and send",
-      confirmClass: "btn-accent",
-    },
-    () => {
-      if (activeOperation()) return;
-      clear();
-      go();
-    },
-  );
-  return null;
-}
-
 export function initAssistant() {
   const panel = $(PANEL);
   if (!panel) return;
-  S.assistant.items = parseTranscript(stored(LS_TRANSCRIPT));
-  S.assistant.session = (stored(LS_SESSION) || "").slice(0, 64);
-  if (!S.assistant.session) newSession();
-  character = stored(LS_CHARACTER) || null;
+  adoptLegacyChat();
   registerActions("assistant", {
     toggle: () => togglePanel(),
     clear: () => clear(),
