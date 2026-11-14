@@ -197,23 +197,16 @@ class SubjectAppearance(NamedTuple):
 def inject_profile_appearance(scene: str, subjects: Sequence[SubjectAppearance], prompt_format: str) -> str:
     """Insert fixed appearance traits for visible subjects."""
     normalized_format = normalize_prompt_format(prompt_format)
-    blocks: list[tuple[str, str]] = []
+    rendered: list[str] = []
     for subject in subjects:
         fixed = strip_chunks(bounded(subject.appearance), _COUNT_CHUNK_RE)
         fixed = strip_chunks(fixed, _NEGATION_CHUNK_RE, whole=False)
         if not subject.face_visible:
             fixed = strip_chunks(fixed, _FACE_CHUNK_RE, whole=False)
         if fixed:
-            blocks.append((bounded(subject.name, 200), fixed))
-    if not blocks:
+            rendered.append(fixed if normalized_format != "prose" or fixed[-1] in ".!?" else f"{fixed}.")
+    if not rendered:
         return scene
-
-    def render(name: str, fixed: str) -> str:
-        if not name or (normalized_format == "tags" and len(blocks) == 1):
-            return fixed
-        return f"{name} has these traits: {fixed}." if normalized_format == "prose" else f"{name}: {fixed}"
-
-    rendered = [render(name, fixed) for name, fixed in blocks]
     # Seated right after the count anchor, so identity stays near the high-attention head rather than landing after the setting.
     count_lead, body = split_lead_count(scene)
     if normalized_format == "prose":
