@@ -208,7 +208,7 @@ function settingsPaneHtml(conv, rootId) {
     <div class="field"><label for="group-settings-context">Mode</label>
       <select id="group-settings-context">${contextModeOptions(S.groupCast.context_mode)}</select></div>
     <div class="field" id="group-settings-sheet-row"><label class="modal-checkbox-label"><input type="checkbox" id="group-settings-sheet-updates"${S.groupCast.sheet_updates ? " checked" : ""}> Propose sheet updates after each reply</label>
-      <p class="modal-hint">A character card describes turn one forever, so a long scene drifts away from it, e.g. change of appearance. After each exchange, each member who spoke is offered a rewritten sheet.</p>
+      <p class="modal-hint">After each exchange, each member who spoke is offered a rewritten sheet.</p>
       <p class="modal-hint">Costs one extra model call per member who spoke, per exchange.</p></div>
     <div class="modal-heading" role="heading" aria-level="3">Reply behavior</div>
     <div class="field"><label for="group-settings-mode">Mode</label>

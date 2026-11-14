@@ -27,7 +27,7 @@ const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_ch
 // applied, and an applied edit undone. A stored card keeps no ids, so its pending changes load as historical.
 const PROPOSAL_NOTES = {
   applied: "Applied.",
-  cancelled: "Cancelled; nothing was changed.",
+  cancelled: "Cancelled.",
   superseded: "Replaced by a later proposal for the same change.",
   stale: "Not applied: the text changed after this preview.",
   missing: "Not applied: what it edits no longer exists.",
@@ -150,7 +150,7 @@ function handoffTarget(d) {
 
 // What the transcript says once the chat was asked to start a handoff, by why it did not ("" when it did).
 const HANDOFF_NOTES = {
-  "": "Started {what} in the chat. The chat writes the reply, and its own Stop ends it.",
+  "": "Started {what} in the chat.",
   not_open:
     "Not started: the chat for {what} is no longer the one open. Open it and ask again, or use the reply's own button.",
   moved: "Not started: that reply is no longer on the branch the chat shows. Ask again for the reply you mean.",

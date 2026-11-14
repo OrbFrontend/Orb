@@ -1069,7 +1069,7 @@ function resetWorldToAuthored(worldId) {
       title: "Reset to Authored World",
       message:
         "Retire every Agent-managed entry, restoring this lorebook to the entries you wrote. " +
-        "Your own entries are never touched, and this reset can itself be undone from History.",
+        "This reset can be undone from History.",
       confirmText: "Reset",
       confirmClass: "btn-danger",
     },

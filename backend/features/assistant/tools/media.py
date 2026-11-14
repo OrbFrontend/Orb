@@ -220,7 +220,7 @@ async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageAr
         created = await host.create_image(description, character_id, args.reference_image_id, run)
     except HostRefusal as exc:
         raise ToolFailure(str(exc)) from None
-    summary = "Created a standalone picture in the assistant panel. Download it to set and crop an avatar; no chat or card was changed."
+    summary = "Created a standalone picture in the assistant panel."
     return ToolOutput(
         {"image_id": created.image_id},
         summary,

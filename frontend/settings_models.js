@@ -1041,8 +1041,7 @@ async function enableClaudeCode() {
       return;
     }
     if (!check.authenticated) {
-      status.textContent =
-        "Run claude auth login --claudeai in a terminal on the Orb host, then try again. For unattended CLI use, you may run claude setup-token yourself; Orb never handles that token.";
+      status.textContent = "Run claude auth login --claudeai in a terminal on the Orb host, then try again.";
       return;
     }
     let endpoint = S.endpoints.find((item) => item.url === CLAUDE_CODE_ENDPOINT);

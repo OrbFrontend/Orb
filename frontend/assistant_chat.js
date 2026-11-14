@@ -638,7 +638,7 @@ async function apply(el) {
       )?.results;
       applied = applyVerdicts(card, results);
     } catch {
-      card.note = "Apply did not finish. Try again; a change already applied is not applied twice.";
+      card.note = "Apply did not finish. Try again.";
     }
   });
   if (card)
