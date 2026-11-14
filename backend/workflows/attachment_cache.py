@@ -747,9 +747,9 @@ def _delete_result(deleted_ids: list[int], *, group_empty: bool, root_id: int, a
 
 
 async def delete_workflow_attachments(target_id: int, *, scope: str, expected_message_id: int | None = None) -> dict:
-    """Delete an attachment variant or group."""
-    if scope not in ("variant", "group"):
-        raise ValueError(f"scope must be 'variant' or 'group'; got {scope!r}")
+    """Delete an attachment variant, its group, or every variant but this one."""
+    if scope not in ("variant", "group", "others"):
+        raise ValueError(f"scope must be 'variant', 'group' or 'others'; got {scope!r}")
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")
         rows = list(
@@ -780,6 +780,30 @@ async def delete_workflow_attachments(target_id: int, *, scope: str, expected_me
             await db.execute("DELETE FROM workflow_attachments WHERE id = ? OR parent_attachment_id = ?", (root_id, root_id))
             await db.commit()
             return _delete_result(del_ids, group_empty=True, root_id=root_id, active_sibling_id=None)
+
+        if scope == "others":
+            del_ids = [
+                x["id"]
+                for x in await db.execute_fetchall(
+                    "SELECT id FROM workflow_attachments WHERE (id = ? OR parent_attachment_id = ?) AND id != ? ORDER BY id",
+                    (root_id, root_id, target_id),
+                )
+            ]
+            if target_id != root_id:
+                root_rows = list(
+                    await db.execute_fetchall("SELECT annotation FROM workflow_attachments WHERE id = ?", (root_id,))
+                )
+                await db.execute(
+                    "UPDATE workflow_attachments SET parent_attachment_id = NULL, annotation = ? WHERE id = ?",
+                    (root_rows[0]["annotation"] if root_rows else None, target_id),
+                )
+            await _set_active_sibling_on(db, target_id, None)
+            await db.execute(
+                "DELETE FROM workflow_attachments WHERE (id = ? OR parent_attachment_id = ?) AND id != ?",
+                (root_id, root_id, target_id),
+            )
+            await db.commit()
+            return _delete_result(del_ids, group_empty=False, root_id=target_id, active_sibling_id=None)
 
         if target_id != root_id:
             await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (target_id,))

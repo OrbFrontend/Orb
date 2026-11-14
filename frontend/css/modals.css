@@ -22,6 +22,11 @@
 .modal .modal-hint { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 12px 0 0; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 
+/* Several ways through a confirm read as a list of choices, Cancel apart below. */
+.modal-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.modal-choices > .btn { justify-content: flex-start; padding: 8px 12px; text-align: left; }
+.modal-choices + .modal-actions { margin-top: 16px; }
+
 /* A destructive action leading the row stands apart from Cancel and the
    commit on the right. */
 .modal-actions > .btn-danger:first-child:not(:last-child) { margin-right: auto; }

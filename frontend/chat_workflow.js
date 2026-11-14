@@ -529,7 +529,7 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess,
   return landed;
 }
 
-async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
+async function _recoverWorkflowDeletion(convId, msgId, rootId, settled) {
   const deadline = Date.now() + 200_000;
   // Same shape as _recoverWorkflowSibling: the row still being there is not a failure while some request holds the
   // group, but two consecutive "nothing running" answers mean the delete is not coming.
@@ -543,7 +543,7 @@ async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
       continue;
     }
     const msg = msgs.find((m) => m.id === msgId);
-    if ((msg?.workflow_attachments || []).some((a) => a.id === aid)) {
+    if (!settled(msg?.workflow_attachments || [])) {
       if (await _workflowGroupInFlight(convId, msgId, rootId)) idle = 0;
       else if (++idle >= 2) return false;
       continue;
@@ -778,10 +778,11 @@ export function deleteWorkflowAttachment(msgId, rootId) {
   }
   showConfirmModal({
     title: "Delete attachment",
-    message: `<strong>${label}</strong> has ${total} variants. Delete only the one you are viewing (${idx + 1} / ${total}), or the whole attachment and every variant?`,
+    message: `<strong>${label}</strong> has ${total} variants.`,
     actions: [
       { label: "Delete this variant", run: remove("variant") },
-      { label: `Delete all ${total}`, run: remove("group") },
+      { label: `Keep this variant, delete the other ${total - 1}`, run: remove("others") },
+      { label: `Delete all ${total} variants`, run: remove("group") },
     ],
   });
 }
@@ -792,6 +793,9 @@ async function _sendAttachmentDelete(msgId, rootId, activeId, scope, convId) {
   if (_workflowDeleteInFlight.has(rootId)) return;
   _workflowDeleteInFlight.set(rootId, msgId);
   const aid = scope === "group" ? rootId : activeId;
+  const siblings = _rootSiblingIds(_workflowGroup(msgId, rootId).msg, rootId);
+  const gone = scope === "others" ? [...siblings].filter((id) => id !== activeId) : [aid];
+  const settled = (atts) => !atts.some((a) => gone.includes(a.id));
   const wid = _resolveWorkflowId(msgId, activeId);
   const ch = `workflow:${wid || "op"}:delete:${rootId}`;
   try {
@@ -812,7 +816,7 @@ async function _sendAttachmentDelete(msgId, rootId, activeId, scope, convId) {
     if (S.activeConvId !== convId) return;
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    if (_isNetworkError(e) && (await _recoverWorkflowDeletion(convId, msgId, rootId, aid))) {
+    if (_isNetworkError(e) && (await _recoverWorkflowDeletion(convId, msgId, rootId, settled))) {
     } else {
       console.error("Delete failed:", e);
       toast("Delete failed", true);

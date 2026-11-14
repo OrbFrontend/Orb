@@ -116,6 +116,43 @@ async def test_group_delete_removes_root_and_all_siblings(client):
         assert await get_workflow_attachment_by_id(aid) is None
 
 
+async def test_others_delete_of_sibling_promotes_it_and_carries_annotation(client):
+    cid, mid = await seed_message(client)
+    root = await _insert(mid, annotation="ROOT")
+    sib1 = await _insert(mid, parent=root, annotation="SIB1")
+    sib2 = await _insert(mid, parent=root, annotation="SIB2")
+    await _activate(client, cid, mid, root, sib1)
+    resp = await _delete(client, cid, mid, sib1, "others")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted_ids"] == [root, sib2]
+    assert body["group_empty"] is False
+    assert body["root_id"] == sib1
+    assert body["active_sibling_id"] is None
+    for aid in (root, sib2):
+        assert await get_workflow_attachment_by_id(aid) is None
+    kept = await must_get_workflow_attachment(sib1)
+    assert kept["parent_attachment_id"] is None
+    assert kept["annotation"] == "ROOT"
+    assert kept["active_sibling_id"] is None
+
+
+async def test_others_delete_of_root_removes_every_sibling(client):
+    cid, mid = await seed_message(client)
+    root = await _insert(mid, annotation="ROOT")
+    sib1 = await _insert(mid, parent=root)
+    sib2 = await _insert(mid, parent=root)
+    await _activate(client, cid, mid, root, sib2)
+    resp = await _delete(client, cid, mid, root, "others")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted_ids"] == [sib1, sib2]
+    assert body["root_id"] == root
+    kept = await must_get_workflow_attachment(root)
+    assert kept["annotation"] == "ROOT"
+    assert kept["active_sibling_id"] is None
+
+
 async def test_anchor_on_other_conversation_returns_404(client):
     _, mid = await seed_message(client)
     root = await _insert(mid)

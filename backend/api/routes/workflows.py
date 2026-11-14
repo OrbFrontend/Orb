@@ -759,17 +759,18 @@ async def api_delete_workflow_attachment(
     body: dict = Body(default={}),  # noqa: B008
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Delete a workflow attachment: one variant, or the whole group.
+    """Delete a workflow attachment: one variant, the whole group, or every variant but ``aid``.
 
-    ``aid`` is the acted-on row. Body: ``{"scope": "variant" | "group"}``. Deleting the root variant of a multi-variant group
-    promotes the oldest survivor to root; the response ``root_id`` reports the resulting root.
+    ``aid`` is the acted-on row. Body: ``{"scope": "variant" | "group" | "others"}``. Deleting the root variant of a
+    multi-variant group promotes the oldest survivor to root, and ``others`` makes ``aid`` the root; the response ``root_id``
+    reports the resulting root.
     """
     anchor = await get_message_by_id(mid)
     if anchor is None or anchor["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found in conversation")
     scope = body.get("scope") if isinstance(body, dict) else None
-    if scope not in ("variant", "group"):
-        raise HTTPException(status_code=400, detail="scope must be 'variant' or 'group'")
+    if scope not in ("variant", "group", "others"):
+        raise HTTPException(status_code=400, detail="scope must be 'variant', 'group' or 'others'")
     # locked_attachment_group resolves the canonical root and locks it, retrying if a concurrent delete promotes the root
     # mid-acquire -- so a delete that promotes a sibling and a delete racing it never end up holding different keys for what is
     # now one group. delete_workflow_attachments re-derives the root in its own BEGIN IMMEDIATE, which remains the integrity

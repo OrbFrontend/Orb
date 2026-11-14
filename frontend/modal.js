@@ -186,18 +186,24 @@ export function switchTab(tab, contentId) {
 /**
  * A title, a message, Cancel and one action -- or several, as
  * `actions: [{ label, className, run }]`, when the choice has more than one way
- * to go through (delete a variant or the whole attachment).
+ * to go through (delete a variant or the whole attachment). Several stack as a
+ * column of choices above Cancel.
  */
 function mountConfirm(rootId, show, close, opts, onConfirm) {
   const { title, message, confirmText = "Confirm", confirmClass = "btn-danger", extraHtml = "" } = opts;
   const actions = opts.actions || [{ label: confirmText, className: confirmClass, run: onConfirm }];
+  const buttons = actions
+    .map((a, i) => `<button class="btn ${a.className ?? "btn-danger"}" data-confirm-action="${i}">${a.label}</button>`)
+    .join("");
+  const choices = actions.length > 1;
   show(
     `
     <h2>${title}</h2>
     <div class="modal-confirm-body">${message ? `<p>${message}</p>` : ""}${extraHtml}</div>
+    ${choices ? `<div class="modal-choices">${buttons}</div>` : ""}
     <div class="modal-actions">
       <button class="btn" data-confirm-action="cancel">Cancel</button>
-      ${actions.map((a, i) => `<button class="btn ${a.className ?? "btn-danger"}" data-confirm-action="${i}">${a.label}</button>`).join("")}
+      ${choices ? "" : buttons}
     </div>`,
     { size: "narrow" },
   );
