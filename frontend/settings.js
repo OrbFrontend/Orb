@@ -8,7 +8,7 @@ import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints 
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { applySettings, loadSettingsRow, persistSettings, saveSettings } from "./settings_store.js";
 import { effectiveWorkflowEnabled, localMlReady, notify, S } from "./state.js";
-import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
+import { $, bumpThumbnails, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 let _themes = null;
@@ -179,6 +179,7 @@ const LOCAL_ML_LABELS = {
   pov_classifier: "Auto-POV",
   markup_classifier: "Markup Classifier",
   subjects_classifier: "Subject Analyzer",
+  head_detector: "Avatar Head Snap",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
@@ -187,6 +188,7 @@ const LOCAL_ML_DESCS = {
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
   subjects_classifier: "For the subject fixation audit.",
+  head_detector: "Crop avatars to the character's head.",
 };
 
 // Models with a single consumer are managed by it: Spark-TTS, ZONOS3, the speech recognizer and the vocal separator in the TTS
@@ -209,8 +211,11 @@ const settingsFeatures = (features) =>
 /** Publish local model status and repaint dependent surfaces. */
 function publishLocalMlFeatures(features) {
   const before = mlReadySignature();
+  const snapped = before && localMlReady("head_detector");
   S.localMlFeatures = features || {};
   if (mlReadySignature() === before) return;
+  // The server decides each thumbnail's crop; the first status only reports what it has been serving all along.
+  if (before && localMlReady("head_detector") !== snapped) bumpThumbnails();
   renderToolsPanel();
   notify("local-ml");
 }

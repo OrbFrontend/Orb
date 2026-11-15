@@ -14,7 +14,7 @@ import {
 import { showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
-import { avatarBust, loadCharacters } from "./library_sidebar.js";
+import { loadCharacters } from "./library_sidebar.js";
 import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
 import { saveSettings } from "./settings_store.js";
 import { charactersView, S } from "./state.js";
@@ -428,8 +428,7 @@ function charItemMatchAttrs(c) {
 }
 
 function renderCharBrowserCard(c) {
-  const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
-  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
+  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { attrs: 'loading="lazy"' });
   return `
     <div class="char-browser-card" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${escAttr(c.id)}">
       <div class="char-browser-avatar">${av}</div>
@@ -438,8 +437,7 @@ function renderCharBrowserCard(c) {
 }
 
 function renderCharBrowserListItem(c) {
-  const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
-  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
+  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { attrs: 'loading="lazy"' });
   const cardTags = c.tags || [];
   const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";

@@ -274,7 +274,15 @@ export function showCropModal(onConfirm, { kind, ratio = "portrait" }) {
   input.click();
 }
 
-function _openCropEditor(dataUrl, onConfirm, kind, ratio) {
+/**
+ * Choose the square of an avatar that lists and chat show. `focus` is the current square as
+ * [left, top, right, bottom] in fractions of the image, or null. `onReset` drops a chosen square.
+ */
+export function showFocusModal(src, focus, onConfirm, onReset) {
+  _openCropEditor(src, onConfirm, "focus", "square", { focus, onReset });
+}
+
+function _openCropEditor(dataUrl, onConfirm, kind, ratio, focusMode = null) {
   const ratioButtons = Object.entries(CROP_RATIOS)
     .map(
       ([key, { label }]) =>
@@ -283,17 +291,22 @@ function _openCropEditor(dataUrl, onConfirm, kind, ratio) {
     .join("");
   const root = mountLayer(
     "modal-crop-root",
-    `<h2>Crop avatar</h2>
-        <div class="btn-row" role="group" aria-label="Crop shape">${ratioButtons}</div>
+    `<h2>${focusMode ? "Avatar focus" : "Crop avatar"}</h2>
+        ${focusMode ? "" : `<div class="btn-row" role="group" aria-label="Crop shape">${ratioButtons}</div>`}
         <canvas id="crop-canvas"></canvas>
-        <div style="font-size:11px;color:var(--text-muted)">Drag to move &middot; Drag corners to resize</div>
+        <div style="font-size:11px;color:var(--text-muted)">${focusMode ? "Lists and chat show what is inside this square." : "Drag to move &middot; Drag corners to resize"}</div>
         <div class="modal-actions">
           <button class="btn" data-crop-action="cancel">Cancel</button>
-          <button class="btn btn-accent" data-crop-action="confirm">Use Image</button>
+          ${focusMode ? '<button class="btn" data-crop-action="reset">Reset</button>' : ""}
+          <button class="btn btn-accent" data-crop-action="confirm">${focusMode ? "Use Focus" : "Use Image"}</button>
         </div>`,
     { modalClass: "modal modal-crop" },
   );
   root.querySelector('[data-crop-action="cancel"]').addEventListener("click", closeCropModal);
+  root.querySelector('[data-crop-action="reset"]')?.addEventListener("click", () => {
+    closeCropModal();
+    focusMode.onReset();
+  });
   root.querySelector('[data-crop-action="confirm"]').addEventListener("click", () => _confirmCrop());
   for (const button of root.querySelectorAll("[data-crop-ratio]")) {
     button.addEventListener("click", () => {
@@ -325,7 +338,11 @@ function _openCropEditor(dataUrl, onConfirm, kind, ratio) {
     canvas.height = Math.round(H * dpr);
     canvas.style.width = `${W}px`;
     const { aspect } = CROP_RATIOS[ratio];
-    _cs = { img, scale, onConfirm, aspect, W, H, box: cropInitial(W, H, aspect), drag: null };
+    const [fl, ft, fr, fb] = focusMode?.focus || [];
+    const box = focusMode?.focus
+      ? cropReshape({ cx: fl * W, cy: ft * H, cw: (fr - fl) * W, ch: (fb - ft) * H }, aspect, W, H)
+      : cropInitial(W, H, aspect);
+    _cs = { img, scale, onConfirm, aspect, W, H, box, drag: null, asFocus: !!focusMode };
     _drawCrop(canvas);
     _attachCropEvents(canvas);
   };
@@ -428,6 +445,12 @@ function _confirmCrop() {
   if (!_cs) return;
   const { img, scale, onConfirm, aspect } = _cs;
   const { cx, cy, cw, ch } = _cs.box;
+  if (_cs.asFocus) {
+    const { W, H } = _cs;
+    closeCropModal();
+    onConfirm([cx / W, cy / H, (cx + cw) / W, (cy + ch) / H]);
+    return;
+  }
   const { w, h } = cropOutputSize(_cs.box, scale, aspect, CROP_OUT_MAX);
   const out = document.createElement("canvas");
   out.width = w;

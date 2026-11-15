@@ -442,6 +442,7 @@ async def update_character_card(
             vals.append(data["avatar_b64"])
             sets.append("avatar_mime = ?")
             vals.append(data.get("avatar_mime"))
+            await db.execute("DELETE FROM character_avatar_focus WHERE character_card_id = ?", (card_id,))
 
         if sets:
             sets.append("updated_at = ?")
@@ -600,16 +601,6 @@ async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
     if not rows or not rows[0]["avatar_b64"]:
         return None
     return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
-
-
-async def get_character_avatar_stamp(card_id: str) -> str | None:
-    """The avatar's version, or None when the card has no avatar.
-
-    The version is the card's ``updated_at``, which every avatar write bumps. The NULL test reads only the record header, so a
-    caller can revalidate a cached image without loading the avatar's overflow pages.
-    """
-    rows = await select_rows("SELECT updated_at FROM character_cards WHERE id = ? AND avatar_b64 IS NOT NULL", (card_id,))
-    return str(rows[0]["updated_at"]) if rows else None
 
 
 async def get_workflow_character_state(character_id: str, workflow_id: str) -> dict | None:

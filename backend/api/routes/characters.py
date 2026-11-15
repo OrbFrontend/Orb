@@ -17,12 +17,15 @@ from fastapi.responses import Response
 
 from ...core import scrub_log
 from ...database import (
+    AVATAR_FOCUS_MANUAL,
+    apply_detected_avatar_focus,
+    clear_avatar_focus,
     create_character_card,
     delete_character_card,
     delete_character_expressions,
+    get_avatar_version,
     get_card_source_auth,
     get_character_avatar,
-    get_character_avatar_stamp,
     get_character_card,
     get_character_expression,
     get_character_usage,
@@ -34,12 +37,22 @@ from ...database import (
     list_expression_labels,
     set_card_source_auth,
     set_character_expressions,
+    set_manual_avatar_focus,
     set_public_profile,
     sync_conversations_for_card,
     update_character_card,
     upgrade_card_fragment_types,
 )
-from ...features.cards import THUMB_EDGE, avatar_thumbnail, draft_card_profile
+from ...database.models import AvatarVersionRow
+from ...features.cards import (
+    AUTO_FOCUS_STAMP,
+    FOCUS_FEATURE,
+    THUMB_EDGE,
+    avatar_thumbnail,
+    detect_focus,
+    draft_card_profile,
+    focus_ready,
+)
 from ...features.cards import downloader as card_downloader
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
@@ -47,6 +60,7 @@ from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, pro
 from ...inference import agent_lane_from_settings, client_from_settings
 from ..deps import cached_image_response, idle_chats_guard, image_not_modified, profile_draft_failures, rows_response
 from ..schemas import (
+    AvatarFocusUpdate,
     CardSourceLoginRequest,
     CharacterCardCreate,
     CharacterCardUpdate,
@@ -284,17 +298,29 @@ async def api_get_avatar(card_id: str, request: Request):
     return cached_image_response(image_bytes, mime_type, request)
 
 
+async def _focus_source(current: AvatarVersionRow) -> tuple[Literal["manual", "auto", ""], bool]:
+    """Who picks the thumbnail's square (the user, the head detector, or "" for the center) and whether the stored focus is it."""
+    if current["focus_stamp"] == AVATAR_FOCUS_MANUAL:
+        return "manual", True
+    if not current["detector_enabled"] or not await asyncio.to_thread(focus_ready):
+        return "", False
+    return "auto", current["focus_stamp"] == AUTO_FOCUS_STAMP
+
+
 @router.get("/api/characters/{card_id}/avatar/thumb")
 async def api_get_avatar_thumb(card_id: str, request: Request):
     """The avatar as a small square for list surfaces; the full image stays at ``/avatar``.
 
-    The ETag comes from the avatar's version rather than its bytes, so a
-    revalidation answers 304 without loading the avatar or rebuilding the thumbnail.
+    The square is the user's focus, else the detected head when the head detector is on, else the center. The ETag comes from
+    the avatar's version and focus rather than its bytes, so a revalidation answers 304 without loading the avatar or
+    rebuilding the thumbnail.
     """
-    stamp = await get_character_avatar_stamp(card_id)
-    if stamp is None:
+    current = await get_avatar_version(card_id, FOCUS_FEATURE)
+    if current is None:
         raise HTTPException(status_code=404, detail="No avatar found")
-    version = f"{THUMB_EDGE}:{card_id}:{stamp}".encode()
+    source, stored = await _focus_source(current)
+    focus_tag = f"manual:{current['focus']}" if source == "manual" else AUTO_FOCUS_STAMP if source else ""
+    version = f"{THUMB_EDGE}:{card_id}:{current['updated_at']}:{focus_tag}".encode()
     etag = '"t' + hashlib.md5(version, usedforsecurity=False).hexdigest() + '"'
     not_modified = image_not_modified(etag, request)
     if not_modified is not None:
@@ -303,10 +329,41 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="No avatar found")
     image_bytes, mime_type = result
-    thumb = await asyncio.to_thread(avatar_thumbnail, image_bytes)
+    focus = current["focus"] if stored else None
+    if source == "auto" and not stored:
+        try:
+            focus = await asyncio.to_thread(detect_focus, image_bytes)
+        except Exception:
+            logger.exception("Head detection failed for card %s", scrub_log(card_id))
+        else:
+            await apply_detected_avatar_focus(card_id, focus, AUTO_FOCUS_STAMP, current["updated_at"])
+    thumb = await asyncio.to_thread(avatar_thumbnail, image_bytes, focus)
     if thumb is not None:
         image_bytes, mime_type = thumb, "image/webp"
     return cached_image_response(image_bytes, mime_type, request, etag=etag)
+
+
+@router.get("/api/characters/{card_id}/avatar/focus")
+async def api_get_avatar_focus(card_id: str):
+    """The square the thumbnail crops to, and whether the user set it; a null focus crops the center."""
+    current = await get_avatar_version(card_id, FOCUS_FEATURE)
+    if current is None:
+        raise HTTPException(status_code=404, detail="No avatar found")
+    source, stored = await _focus_source(current)
+    return {"focus": current["focus"] if stored else None, "manual": source == "manual"}
+
+
+@router.put("/api/characters/{card_id}/avatar/focus")
+async def api_set_avatar_focus(card_id: str, data: AvatarFocusUpdate):
+    if not await set_manual_avatar_focus(card_id, data.focus):
+        raise HTTPException(status_code=404, detail="No avatar found")
+    return {"focus": data.focus, "manual": True}
+
+
+@router.delete("/api/characters/{card_id}/avatar/focus")
+async def api_clear_avatar_focus(card_id: str):
+    await clear_avatar_focus(card_id)
+    return {"ok": True}
 
 
 @router.get("/api/characters/{card_id}/export")

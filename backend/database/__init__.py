@@ -14,6 +14,13 @@ from .connection import (
 )
 from .queries.access import clear_access_password, get_access_password, set_access_password
 from .queries.assistant_chats import delete_assistant_chat, get_assistant_chat, put_assistant_chat
+from .queries.avatar_focus import (
+    AVATAR_FOCUS_MANUAL,
+    apply_detected_avatar_focus,
+    clear_avatar_focus,
+    get_avatar_version,
+    set_manual_avatar_focus,
+)
 from .queries.character_cards import (
     card_embedded_fragments,
     cast_embedded_fragments,
@@ -21,7 +28,6 @@ from .queries.character_cards import (
     delete_character_card,
     get_card_activity,
     get_character_avatar,
-    get_character_avatar_stamp,
     get_character_card,
     get_character_usage,
     get_workflow_character_state,
