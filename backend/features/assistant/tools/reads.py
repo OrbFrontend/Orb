@@ -248,7 +248,7 @@ def _listed(result: Mapping[str, Any], what: str) -> ToolOutput:
     return ToolOutput(result, f"Listed {len(rows)}{more} {what}.", {"ids": [row["id"] for row in rows]})
 
 
-def _text_page(
+def text_page(
     text: str,
     offset: int,
     head: Mapping[str, Any],
@@ -376,7 +376,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
 
         if len(chosen) == 1 and args.fields:
             # One field named: read whole, a page at a time, never clipped.
-            data = _text_page(texts[chosen[0]], args.text_offset, meta, chosen[0])
+            data = text_page(texts[chosen[0]], args.text_offset, meta, chosen[0])
             return ToolOutput(data, f"Read the {chosen[0]} of character {meta['name']}.", {"character_id": card_id})
 
         def build() -> dict[str, Any]:
@@ -411,7 +411,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
                     f"index is a greeting's number from 1 to {len(items)}." if items else f"{name} has no alternate greetings."
                 )
             head = {"name": name, "index": args.index, "greeting_count": len(items)}
-            data = _text_page(items[args.index - 1], args.text_offset, head, "alternate_greeting")
+            data = text_page(items[args.index - 1], args.text_offset, head, "alternate_greeting")
             return ToolOutput(data, f"Read alternate greeting {args.index} of character {name}.", ids)
         if args.text_offset:
             raise ToolFailure("text_offset pages through one greeting: name its index.")
@@ -536,7 +536,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             "role": message["role"],
             **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
         }
-        data = _text_page(message["content"] or "", args.text_offset, head, "content")
+        data = text_page(message["content"] or "", args.text_offset, head, "content")
         ids = {"conversation_id": conv["id"], "message_ids": [message["id"]]}
         label = message_label(path, message["id"])
         return ToolOutput(data, f"Read {label} from character {args.text_offset}.", ids)
@@ -567,7 +567,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         if args.entry_id:
             _, entry = await entry_of(world["id"], args.entry_id, view)
             head = {"world": world_name, "name": clip(entry["name"], _WHOLE_NAME_CHARS)}
-            data = _text_page(entry["content"] or "", args.text_offset, head, "content")
+            data = text_page(entry["content"] or "", args.text_offset, head, "content")
             return ToolOutput(data, f"Read lore entry {entry['id']}.", {"world_id": world["id"], "entry_id": entry["id"]})
         if args.text_offset:
             raise ToolFailure("text_offset pages through one entry: name its entry_id.")
@@ -642,7 +642,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         if args.persona_id:
             persona = await persona_of(args.persona_id)
             head = {"name": clip(persona["name"], _WHOLE_NAME_CHARS), "active": persona["id"] == active}
-            data = _text_page(persona["description"] or "", args.text_offset, head, "description")
+            data = text_page(persona["description"] or "", args.text_offset, head, "description")
             return ToolOutput(data, f"Read persona {persona['id']}.", {"persona_id": persona["id"]})
         if args.text_offset:
             raise ToolFailure("text_offset pages through one persona: name its persona_id.")
@@ -681,7 +681,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             raise ToolFailure(f"No document has the id {document_id}. list_documents shows the ids.")
         content = document["content"] or ""
         head = {"title": clip(document["title"], _QUERY_CHARS)}
-        data = _text_page(content, args.offset, head, "content", length=_DOCUMENT_CHARS, offset_key="offset")
+        data = text_page(content, args.offset, head, "content", length=_DOCUMENT_CHARS, offset_key="offset")
         summary = f"Read {len(data['content'])} of {len(content)} saved characters of {data['title']}."
         return ToolOutput(data, summary, {"document_id": document["id"]})
 
@@ -797,7 +797,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
                 raise ToolFailure(f"A mood fragment's texts are {', '.join(MOOD_TEXT_FIELDS[1:])}.")
             if args.field:
                 head = {"label": clip(mood["label"], _WHOLE_NAME_CHARS)}
-                data = _text_page(str(mood[args.field] or ""), args.text_offset, head, args.field)
+                data = text_page(str(mood[args.field] or ""), args.text_offset, head, args.field)
                 return ToolOutput(data, f"Read the {args.field} of mood fragment {quoted(mood['label'])}.", ids)
             data = _fitted(lambda cap: mood_projection(mood, cap))
             return ToolOutput(data, f"Read mood fragment {quoted(mood['label'])}.", ids)
@@ -806,7 +806,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         if args.field:
             check_field_applies(fragment, args.field, args.outcome)
             head = {"label": clip(fragment["label"], _WHOLE_NAME_CHARS)}
-            data = _text_page(fragment_text(fragment, args.field, args.outcome) or "", args.text_offset, head, args.field)
+            data = text_page(fragment_text(fragment, args.field, args.outcome) or "", args.text_offset, head, args.field)
             return ToolOutput(data, f"Read the {args.field.replace('_', ' ')} of {label}.", ids)
         if args.outcome:
             raise ToolFailure("outcome goes with field outcome_meaning or outcome_guidance.")

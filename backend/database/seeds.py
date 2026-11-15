@@ -343,6 +343,7 @@ DEFAULT_SETTINGS: Settings = {
     "assistant_instructions": "",
     "assistant_reasoning": 0,
     "assistant_tool_groups": {},
+    "searxng_url": "",
     "director_individual_fragments": 0,
     "workflows_globally_enabled": 1,
 }

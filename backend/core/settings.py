@@ -66,6 +66,7 @@ class _SettingsBase(ConnectionSettings):
     assistant_reasoning: ReadOnly[int]
     # Decoded by get_settings(); assistant tool group on/off by group id, missing key => on, so a new group needs no migration.
     assistant_tool_groups: ReadOnly[dict[str, bool]]
+    searxng_url: ReadOnly[str]  # empty: the assistant's web search has no server to ask
     director_individual_fragments: ReadOnly[int]
     workflows_globally_enabled: ReadOnly[int]
 

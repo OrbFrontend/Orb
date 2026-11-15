@@ -75,6 +75,19 @@ class SettingsUpdate(_PartialUpdate):
     assistant_tool_groups: dict[Annotated[str, Field(min_length=1, max_length=32)], bool] | None = Field(
         default=None, max_length=32
     )
+    searxng_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("searxng_url")
+    @classmethod
+    def _validate_searxng_url(cls, v: str | None) -> str | None:
+        # Empty means no search server. A set value is the server's base address, stored without a trailing slash.
+        if v is None:
+            return v
+        v = v.strip().rstrip("/")
+        if v and urlsplit(v).scheme.lower() not in ("http", "https"):
+            raise ValueError("SearXNG URL must start with http:// or https://")
+        return v
+
     director_individual_fragments: bool | None = None
     inspector_open_states: dict | None = None
     workflows_globally_enabled: bool | None = None

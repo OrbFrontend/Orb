@@ -274,6 +274,7 @@ async def update_settings(data: dict) -> Settings:
             "assistant_instructions",
             "assistant_reasoning",
             "assistant_tool_groups",
+            "searxng_url",
             "director_individual_fragments",
             "inspector_open_states",
             "workflows_globally_enabled",

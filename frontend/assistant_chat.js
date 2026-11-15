@@ -540,6 +540,8 @@ function paintOptions() {
   $("assistant-think").checked = Boolean(S.settings?.assistant_reasoning);
   const off = offGroups(S.settings?.assistant_tool_groups);
   for (const box of categoryBoxes()) box.checked = !off.includes(box.dataset.category);
+  const searx = $("assistant-searxng-url");
+  if (document.activeElement !== searx) searx.value = S.settings?.searxng_url || "";
   const prompt = $("assistant-instructions");
   if (document.activeElement !== prompt) prompt.value = S.settings?.assistant_instructions || defaultInstructions || "";
 }
@@ -572,6 +574,8 @@ function storeOptions() {
   if (off.join() !== offGroups(S.settings?.assistant_tool_groups).join()) {
     patch.assistant_tool_groups = Object.fromEntries(off.map((id) => [id, false]));
   }
+  const searxngUrl = $("assistant-searxng-url").value.trim();
+  if (searxngUrl !== (S.settings?.searxng_url || "")) patch.searxng_url = searxngUrl;
   const instructions = customInstructions();
   if (instructions !== (S.settings?.assistant_instructions || "")) patch.assistant_instructions = instructions;
   if (Object.keys(patch).length) optionsSaved = persistSettings(patch, paintOptions);
