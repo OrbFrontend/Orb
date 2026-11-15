@@ -1,7 +1,7 @@
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { replacePlaceholders } from "./identity_macros.js";
 import { createScrollFollow } from "./scroll_follow.js";
-import { charactersView, localMlReady, S } from "./state.js";
+import { charactersView, notify, S } from "./state.js";
 import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
 import { localPx } from "./ui_sizing.js";
 
@@ -137,13 +137,26 @@ export function pinStreamingMessage(el) {
   if (el.isConnected) scrollChatTarget(el, "start");
 }
 
-/**
- * A character's avatar as a small square thumbnail, for list and header surfaces. `bust` is a "?v=" query or "".
- * The head detector changes what the thumbnail shows, so its state is part of the URL the browser caches under.
- */
-export function avatarUrl(charId, bust = "") {
-  const snap = localMlReady("head_detector") ? `${bust ? "&" : "?"}f=1` : "";
-  return `/api/characters/${encodeURIComponent(charId)}/avatar/thumb${bust}${snap}`;
+const avatarVersions = new Map();
+let thumbsVersion = 0;
+
+/** Make every later URL for this card's avatar fetch afresh, once its avatar or focus has changed. */
+export function bumpAvatar(charId) {
+  avatarVersions.set(charId, Date.now());
+}
+
+/** Make every thumbnail fetch afresh once the head detector turns on or off, and repaint the avatar surfaces. */
+export function bumpThumbnails() {
+  thumbsVersion = Date.now();
+  notify("avatars");
+}
+
+/** A character's avatar as a small square thumbnail for list and header surfaces, or with `full` the original image. */
+export function avatarUrl(charId, { full = false } = {}) {
+  const own = avatarVersions.get(charId) || 0;
+  const version = full ? own : Math.max(own, thumbsVersion);
+  const path = `/api/characters/${encodeURIComponent(charId)}/avatar${full ? "" : "/thumb"}`;
+  return version ? `${path}?v=${version}` : path;
 }
 
 function personaAvatarUrl(personaId) {

@@ -43,10 +43,11 @@ from ...database import (
     update_character_card,
     upgrade_card_fragment_types,
 )
+from ...database.models import AvatarVersionRow
 from ...features.cards import (
+    AUTO_FOCUS_STAMP,
     FOCUS_FEATURE,
     THUMB_EDGE,
-    auto_focus_stamp,
     avatar_thumbnail,
     detect_focus,
     draft_card_profile,
@@ -297,9 +298,13 @@ async def api_get_avatar(card_id: str, request: Request):
     return cached_image_response(image_bytes, mime_type, request)
 
 
-async def _detects_focus() -> bool:
-    settings = await get_settings()
-    return bool(settings.get("local_ml_enabled", {}).get(FOCUS_FEATURE, True)) and await asyncio.to_thread(focus_ready)
+async def _focus_source(current: AvatarVersionRow) -> tuple[Literal["manual", "auto", ""], bool]:
+    """Who picks the thumbnail's square (the user, the head detector, or "" for the center) and whether the stored focus is it."""
+    if current["focus_stamp"] == AVATAR_FOCUS_MANUAL:
+        return "manual", True
+    if not current["detector_enabled"] or not await asyncio.to_thread(focus_ready):
+        return "", False
+    return "auto", current["focus_stamp"] == AUTO_FOCUS_STAMP
 
 
 @router.get("/api/characters/{card_id}/avatar/thumb")
@@ -310,13 +315,11 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
     the avatar's version and focus rather than its bytes, so a revalidation answers 304 without loading the avatar or
     rebuilding the thumbnail.
     """
-    current = await get_avatar_version(card_id)
+    current = await get_avatar_version(card_id, FOCUS_FEATURE)
     if current is None:
         raise HTTPException(status_code=404, detail="No avatar found")
-    manual = current["focus_stamp"] == AVATAR_FOCUS_MANUAL
-    detects = not manual and await _detects_focus()
-    auto_stamp = auto_focus_stamp(current["updated_at"])
-    focus_tag = f"manual:{current['focus']}" if manual else f"auto:{auto_stamp}" if detects else ""
+    source, stored = await _focus_source(current)
+    focus_tag = f"manual:{current['focus']}" if source == "manual" else AUTO_FOCUS_STAMP if source else ""
     version = f"{THUMB_EDGE}:{card_id}:{current['updated_at']}:{focus_tag}".encode()
     etag = '"t' + hashlib.md5(version, usedforsecurity=False).hexdigest() + '"'
     not_modified = image_not_modified(etag, request)
@@ -326,15 +329,14 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail="No avatar found")
     image_bytes, mime_type = result
-    stored = manual or (detects and current["focus_stamp"] == auto_stamp)
     focus = current["focus"] if stored else None
-    if detects and not stored:
+    if source == "auto" and not stored:
         try:
             focus = await asyncio.to_thread(detect_focus, image_bytes)
         except Exception:
             logger.exception("Head detection failed for card %s", scrub_log(card_id))
         else:
-            await apply_detected_avatar_focus(card_id, focus, auto_stamp, current["updated_at"])
+            await apply_detected_avatar_focus(card_id, focus, AUTO_FOCUS_STAMP, current["updated_at"])
     thumb = await asyncio.to_thread(avatar_thumbnail, image_bytes, focus)
     if thumb is not None:
         image_bytes, mime_type = thumb, "image/webp"
@@ -344,12 +346,11 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
 @router.get("/api/characters/{card_id}/avatar/focus")
 async def api_get_avatar_focus(card_id: str):
     """The square the thumbnail crops to, and whether the user set it; a null focus crops the center."""
-    current = await get_avatar_version(card_id)
+    current = await get_avatar_version(card_id, FOCUS_FEATURE)
     if current is None:
         raise HTTPException(status_code=404, detail="No avatar found")
-    manual = current["focus_stamp"] == AVATAR_FOCUS_MANUAL
-    shown = manual or (current["focus_stamp"] == auto_focus_stamp(current["updated_at"]) and await _detects_focus())
-    return {"focus": current["focus"] if shown else None, "manual": manual}
+    source, stored = await _focus_source(current)
+    return {"focus": current["focus"] if stored else None, "manual": source == "manual"}
 
 
 @router.put("/api/characters/{card_id}/avatar/focus")

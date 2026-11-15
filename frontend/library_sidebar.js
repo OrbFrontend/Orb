@@ -5,16 +5,9 @@ import { syncActivity } from "./operations.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, CHAT_AVATAR_ICON, convActivity, esc, escAttr } from "./utils.js";
 
-export const avatarBust = new Map();
-
-/** The query that busts a card's cached avatar once it has changed this session, else "". */
-export function avatarBustQuery(cardId) {
-  return avatarBust.has(cardId) ? `?v=${avatarBust.get(cardId)}` : "";
-}
-
 /** The conversation header's avatar for a card; clicking it opens the larger avatar popup. */
 export function chatHeaderAvatarHtml(cardId) {
-  return avatarCell(avatarUrl(cardId, avatarBustQuery(cardId)), {
+  return avatarCell(avatarUrl(cardId), {
     icon: CHAT_AVATAR_ICON,
     attrs: 'data-wf-action="inspector:avatarPopup" style="cursor:pointer"',
   });
@@ -95,7 +88,7 @@ export function renderCharacters() {
   }
   $("char-list").innerHTML = S.characters
     .map((c) => {
-      const av = avatarCell(c.has_avatar ? avatarUrl(c.id, avatarBustQuery(c.id)) : "");
+      const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "");
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
       return `<div class="char-item${isActive ? " active" : ""}" data-wf-action="conversations:selectChar" data-char-id="${escAttr(c.id)}" data-source="recent">
@@ -119,3 +112,8 @@ function syncCharacterActivity() {
   syncActivity("#char-list [data-activity]", (conv) => conv.character_card_id);
 }
 subscribe("operations", syncCharacterActivity);
+subscribe("avatars", () => {
+  if (S.characters.length) renderCharacters();
+  const header = $("chat-avatar");
+  if (header && S.activeCharId) header.innerHTML = chatHeaderAvatarHtml(S.activeCharId);
+});

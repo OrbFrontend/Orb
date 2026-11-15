@@ -11,8 +11,9 @@ from ...inference.local_models import head_detector
 from ...inference.local_models.head_detector import Head
 
 FOCUS_FEATURE = head_detector.FEATURE
-#: Bump when the detector or the rule below changes what a stored focus would be.
-FOCUS_REVISION = 1
+#: The stamp of a stored detected focus. Bump when the detector or the rule below changes what it would be; a new avatar
+#: drops the stored focus, so the stamp needs no avatar version.
+AUTO_FOCUS_STAMP = "detected:1"
 
 Focus = tuple[float, float, float, float]
 
@@ -26,10 +27,6 @@ _MIN_SIDE = 160
 
 def focus_ready() -> bool:
     return head_detector.ready()[0]
-
-
-def auto_focus_stamp(updated_at: str) -> str:
-    return f"{FOCUS_REVISION}:{updated_at}"
 
 
 def focus_square(width: int, height: int, heads: Sequence[Head]) -> Focus | None:

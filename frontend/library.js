@@ -11,7 +11,7 @@ import {
   showCardInteractiveFragmentModal,
   showCardMoodFragmentModal,
 } from "./library_fragments.js";
-import { avatarBust, avatarBustQuery, chatHeaderAvatarHtml, loadCharacters } from "./library_sidebar.js";
+import { chatHeaderAvatarHtml, loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, renderWorldsSidebar } from "./lorebooks.js";
 import {
   closeModal,
@@ -23,7 +23,18 @@ import {
   switchTab,
 } from "./modal.js";
 import { charactersView, S } from "./state.js";
-import { $, avatarCell, avatarUrl, downloadBlob, esc, escAttr, NO_AVATAR_ICON, plural, toast } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  avatarUrl,
+  bumpAvatar,
+  downloadBlob,
+  esc,
+  escAttr,
+  NO_AVATAR_ICON,
+  plural,
+  toast,
+} from "./utils.js";
 import { validate } from "./validate.js";
 
 export { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
@@ -123,7 +134,7 @@ function triggerAvatarCrop(prefix, _cardId) {
 }
 
 function refreshAvatarSurfaces(id) {
-  avatarBust.set(id, Date.now());
+  bumpAvatar(id);
   if (S.activeCharId === id) {
     const av = document.getElementById("chat-avatar");
     if (av) av.innerHTML = chatHeaderAvatarHtml(id);
@@ -144,14 +155,14 @@ async function editAvatarFocus(id) {
     }
     refreshAvatarSurfaces(id);
     const preview = $("ce-avatar-preview");
-    if (preview) preview.innerHTML = avatarCell(avatarUrl(id, avatarBustQuery(id)));
+    if (preview) preview.innerHTML = avatarCell(avatarUrl(id));
     await loadCharacters();
     renderMessages();
   };
   try {
     const { focus } = await api.get(`/characters/${id}/avatar/focus`);
     showFocusModal(
-      `/api/characters/${id}/avatar${avatarBustQuery(id)}`,
+      avatarUrl(id, { full: true }),
       focus,
       (box) => store(() => api.put(`/characters/${id}/avatar/focus`, { focus: box })),
       () => store(() => api.del(`/characters/${id}/avatar/focus`)),
@@ -443,7 +454,7 @@ export async function showCharEditModal(idOrData) {
     _pendingAvatar = { b64: c.avatar_b64, mime: c.avatar_mime || "image/png" };
     av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
   } else {
-    av = avatarCell(c.has_avatar ? avatarUrl(c.id, avatarBustQuery(c.id)) : "");
+    av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "");
   }
 
   _pendingTags = c.tags || [];

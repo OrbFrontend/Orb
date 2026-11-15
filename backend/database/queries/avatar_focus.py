@@ -15,16 +15,17 @@ def _encode(focus: Sequence[float] | None) -> str:
     return json.dumps([round(float(v), 4) for v in focus]) if focus else ""
 
 
-async def get_avatar_version(card_id: str) -> AvatarVersionRow | None:
-    """The avatar's version and stored focus, or None when the card has no avatar.
+async def get_avatar_version(card_id: str, detector: str) -> AvatarVersionRow | None:
+    """The avatar's version and stored focus, and whether the *detector* local-ML feature is on; None without an avatar.
 
-    The NULL test reads only the record header, so a caller can revalidate a cached image without loading the avatar.
+    One read answers a revalidation: the NULL test reads only the record header, and the switch rides the same statement.
     """
     rows = await select_rows(
-        "SELECT c.updated_at, f.focus, f.stamp FROM character_cards c "
-        "LEFT JOIN character_avatar_focus f ON f.character_card_id = c.id "
+        "SELECT c.updated_at, f.focus, f.stamp, "
+        "COALESCE((SELECT json_extract(local_ml_enabled, ?) FROM settings WHERE id = 1), 1) != 0 AS detector_enabled "
+        "FROM character_cards c LEFT JOIN character_avatar_focus f ON f.character_card_id = c.id "
         "WHERE c.id = ? AND c.avatar_b64 IS NOT NULL",
-        (card_id,),
+        (f"$.{detector}", card_id),
     )
     if not rows:
         return None
@@ -33,13 +34,14 @@ async def get_avatar_version(card_id: str) -> AvatarVersionRow | None:
         "updated_at": str(row["updated_at"]),
         "focus": json.loads(row["focus"]) if row["focus"] else None,
         "focus_stamp": row["stamp"] or "",
+        "detector_enabled": int(row["detector_enabled"]),
     }
 
 
-async def apply_detected_avatar_focus(card_id: str, focus: Sequence[float] | None, stamp: str, updated_at: str) -> bool:
+async def apply_detected_avatar_focus(card_id: str, focus: Sequence[float] | None, stamp: str, updated_at: str) -> None:
     """Store a detected focus unless the card changed since it was read or the user set one."""
     async with get_db() as db:
-        cursor = await db.execute(
+        await db.execute(
             "INSERT INTO character_avatar_focus (character_card_id, focus, stamp) "
             "SELECT id, ?, ? FROM character_cards WHERE id = ? AND updated_at = ? "
             "ON CONFLICT(character_card_id) DO UPDATE SET focus = excluded.focus, stamp = excluded.stamp "
@@ -47,7 +49,6 @@ async def apply_detected_avatar_focus(card_id: str, focus: Sequence[float] | Non
             (_encode(focus), stamp, card_id, updated_at, AVATAR_FOCUS_MANUAL),
         )
         await db.commit()
-    return cursor.rowcount == 1
 
 
 async def set_manual_avatar_focus(card_id: str, focus: Sequence[float]) -> bool:

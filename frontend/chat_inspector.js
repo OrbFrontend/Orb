@@ -5,7 +5,6 @@ import { currentDecisionsHtml } from "./chat_decisions.js";
 import { expressionLabels, expressionPlaybackCue } from "./expression_playback.js";
 import { syncGenerationStatusMarquee, WAITING_LABEL } from "./generation_status.js";
 import { sectionHtml } from "./inspector_section.js";
-import { avatarBustQuery } from "./library_sidebar.js";
 import {
   buildFeedbackHtml,
   buildStateHtml,
@@ -33,7 +32,7 @@ import {
   subscribe,
 } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
-import { $, convUrl, esc, escAttr, sentenceTail } from "./utils.js";
+import { $, avatarUrl, convUrl, esc, escAttr, sentenceTail } from "./utils.js";
 
 let inspectionRequest = 0;
 
@@ -551,7 +550,7 @@ async function _bindExpressionChar(img, charId) {
   img._exprLabels = labels;
   const neutral = labels.includes("neutral") ? `/api/characters/${charId}/expressions/neutral` : null;
   img._exprSrc = neutral;
-  img.src = neutral || `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
+  img.src = neutral || avatarUrl(charId, { full: true });
 }
 
 async function _expressionTick() {
@@ -566,9 +565,7 @@ async function _expressionTick() {
   const cue = expressionPlaybackCue();
   if (cue) {
     if (cue.loading) return; // hold the current image rather than flash the plain avatar
-    const next = cue.label
-      ? `/api/characters/${charId}/expressions/${cue.label}`
-      : `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
+    const next = cue.label ? `/api/characters/${charId}/expressions/${cue.label}` : avatarUrl(charId, { full: true });
     if (img._exprSrc !== next) {
       img._exprSrc = next;
       img.src = next;
@@ -609,7 +606,7 @@ async function _expressionTick() {
   const labels = img._exprLabels || [];
   const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
   if (!resolved) {
-    img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`; // no matching expression -> plain avatar
+    img.src = avatarUrl(charId, { full: true }); // no matching expression -> plain avatar
     return;
   }
   const next = `/api/characters/${charId}/expressions/${resolved}`;
@@ -640,7 +637,7 @@ export async function showAvatarPopup() {
   const img = document.getElementById("avatar-popup-image");
   if (!img) return;
   const hasExpr = charactersView().find((c) => c.id === charId)?.has_expressions;
-  if (!hasExpr) img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
+  if (!hasExpr) img.src = avatarUrl(charId, { full: true });
   popup.classList.remove("hidden");
   img._exprCharId = null;
   await _bindExpressionChar(img, charId);

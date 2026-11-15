@@ -294,7 +294,7 @@ function _openCropEditor(dataUrl, onConfirm, kind, ratio, focusMode = null) {
     `<h2>${focusMode ? "Avatar focus" : "Crop avatar"}</h2>
         ${focusMode ? "" : `<div class="btn-row" role="group" aria-label="Crop shape">${ratioButtons}</div>`}
         <canvas id="crop-canvas"></canvas>
-        <div style="font-size:11px;color:var(--text-muted)">${focusMode ? "Avatars show whatever inside this square." : "Drag to move &middot; Drag corners to resize"}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${focusMode ? "Lists and chat show what is inside this square." : "Drag to move &middot; Drag corners to resize"}</div>
         <div class="modal-actions">
           <button class="btn" data-crop-action="cancel">Cancel</button>
           ${focusMode ? '<button class="btn" data-crop-action="reset">Reset</button>' : ""}

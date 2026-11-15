@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS character_expressions (
 );
 
 -- Where a card's avatar thumbnail crops, as JSON [left, top, right, bottom] in fractions of the image; '' crops the centre.
--- stamp is 'manual' for a box the user set, else the detector revision and card updated_at the box was found for.
+-- stamp is 'manual' for a box the user set, else the detector revision the box was found with. A new avatar drops the row.
 CREATE TABLE IF NOT EXISTS character_avatar_focus (
     character_card_id TEXT PRIMARY KEY REFERENCES character_cards(id) ON DELETE CASCADE,
     focus TEXT NOT NULL DEFAULT '',

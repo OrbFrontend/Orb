@@ -8,7 +8,7 @@ import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints 
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { applySettings, loadSettingsRow, persistSettings, saveSettings } from "./settings_store.js";
 import { effectiveWorkflowEnabled, localMlReady, notify, S } from "./state.js";
-import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
+import { $, bumpThumbnails, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 let _themes = null;
@@ -211,8 +211,11 @@ const settingsFeatures = (features) =>
 /** Publish local model status and repaint dependent surfaces. */
 function publishLocalMlFeatures(features) {
   const before = mlReadySignature();
+  const snapped = before && localMlReady("head_detector");
   S.localMlFeatures = features || {};
   if (mlReadySignature() === before) return;
+  // The server decides each thumbnail's crop; the first status only reports what it has been serving all along.
+  if (before && localMlReady("head_detector") !== snapped) bumpThumbnails();
   renderToolsPanel();
   notify("local-ml");
 }

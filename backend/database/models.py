@@ -470,11 +470,12 @@ class LibraryQueryResult(TypedDict, total=False):
 
 
 class AvatarVersionRow(TypedDict):
-    """A card avatar's version and thumbnail focus."""
+    """A card avatar's version, thumbnail focus, and whether the focus detector is switched on."""
 
     updated_at: str
     focus: list[float] | None
     focus_stamp: str
+    detector_enabled: int
 
 
 class UserPersonaRow(TypedDict):
