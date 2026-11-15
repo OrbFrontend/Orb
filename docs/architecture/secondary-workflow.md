@@ -316,6 +316,19 @@ per surface. Its workflow card manages the model through the generic Local ML
 routes, which also own the shared llama-server runtime. A hook failure is
 isolated so the main reply and other workflows can continue.
 
+Format Consistency's voice check reads every few-sentence narration window
+with the local povtense classifier, which gives each window a POV, a tense,
+and an addressee: who else the narration names besides its narrator (`you`,
+someone else, or nobody). A message's POV and addressee are the
+highest-precedence label across its windows, and its tense is a stable
+majority. The three newest assistant replies vote the target, each axis on its
+own, and a draft is rewritten when a confident axis differs from it. The
+addressee is compared only when both sides narrate in first person, because
+`I guide you inside` and `I guide him inside` share a POV and tense, and an
+addressee of nobody never compares. A window whose `someone else` holds
+less than 0.8 of the classifier's mass reads as nobody. The rewrite is shown the newest reply that
+already carries all three target labels, which is what tells it who `you` is.
+
 With the image workflow's GPU swap option on, every turn holds the GPU from
 start to `done`, and a ComfyUI render waits for it. Image renders run from
 on-demand, regenerate and reroll hooks, outside any turn. A post-hook that

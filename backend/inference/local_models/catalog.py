@@ -133,11 +133,12 @@ MODELS: dict[str, ModelSpec] = {
         revision="9f8d0100e45c133e713283499e55105f61d29118",
     ),
     "pov_classifier": ModelSpec(
-        repo_id="chartreuse-verte/ettin-povtense-17m-v2",
+        repo_id="chartreuse-verte/ettin-povtense-17m-v3",
         filename="gguf/povtense-17m-q8_0.gguf",
         size_mb=20,
-        revision="bacd633b181b7efdfbb9ba668c8c530ba47ad8a0",
-        local_filename="povtense-17m-v2-q8_0.gguf",
+        revision="9aa7b60ebe72f20144b28406eb585de20ed2ed96",
+        local_filename="povtense-17m-v3-q8_0.gguf",
+        sha256="19bc8c188d98df413ea96f3f3b0e4ae93e9a497bb19eabbebf01a2b785f33196",
     ),
     "markup_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-markup-17m",

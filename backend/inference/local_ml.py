@@ -106,11 +106,28 @@ GO_EMOTIONS: tuple[str, ...] = (
     "neutral",
 )
 
-# The povtense head's 12 logits are a row-major 4x3 grid: POV rows x tense columns. Row-sum the softmax for the POV, column-sum
-# it for the tense. Order MUST match the GGUF head's logit order -- a transposed reading still returns a plausible label.
-_POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
+# The povtense head's 18 logits are a row-major 6x3 grid: voice rows x tense columns. A voice row is a (POV, addressee) pair, and
+# only first person is split by addressee -- who else the narration names besides the narrator's "I". Outside first person the
+# addressee follows from the POV: "second" addresses "you", "third" names someone else, "ambiguous" names nobody. Each axis is
+# the argmax of its own marginal: rows summed by POV, rows summed by addressee, columns for the tense. Order MUST match the GGUF
+# head's logit order -- a misordered reading still returns plausible labels.
+_VOICE_ROWS: tuple[tuple[str, str], ...] = (
+    ("first", "you"),
+    ("first", "other"),
+    ("first", "none"),
+    ("second", "you"),
+    ("third", "other"),
+    ("ambiguous", "none"),
+)
+_POV_LABELS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
+_ADDRESSEE_LABELS: tuple[str, ...] = ("you", "other", "none")
 _TENSE_COLS: tuple[str, ...] = ("past", "present", "ambiguous")
-_TENSE_COUNT = len(_TENSE_COLS)
+_VOICE_CELLS = len(_VOICE_ROWS) * len(_TENSE_COLS)
+# A window whose `other` holds less than this share of the mass reads "none": no call. Replaying stored chats, the false
+# addressee drift was largely narration that names nobody yet leaned `other`; this floor removed 8 of 22 false rewrites for 1
+# of 25 real ones. Never floor "you": a dropped "you" flips its message to "other" and ADDS rewrites (the message reads "you"
+# if any window does).
+_OTHER_FLOOR = 0.8
 
 _REPEAT_PENALTY = 1.1
 _FREQUENCY_PENALTY = 0.1
@@ -441,36 +458,48 @@ def _argmax(values: Sequence[float]) -> int:
     return max(range(len(values)), key=values.__getitem__)
 
 
-def _grid_margins(logits: Sequence[float], rows: Sequence[str], cols: Sequence[str]) -> tuple[str, str]:
-    """Read a row-major joint head as (row label, column label).
+def _grid_masses(logits: Sequence[float], n_rows: int, width: int) -> tuple[list[float], list[float]]:
+    """A row-major joint head's softmax mass per row and per column.
 
-    Each label is the argmax of its own softmax marginal (row sums, column sums), never the top cell's coordinates. The softmax
-    stays unnormalized: dividing every mass by one constant cannot move an argmax.
+    The softmax stays unnormalized: dividing every mass by one constant cannot move an argmax.
     """
     m = max(logits)
     exp = [math.exp(x - m) for x in logits]
-    width = len(cols)
-    row_mass = [sum(exp[r * width : (r + 1) * width]) for r in range(len(rows))]
-    col_mass = [sum(exp[r * width + c] for r in range(len(rows))) for c in range(width)]
+    row_mass = [sum(exp[r * width : (r + 1) * width]) for r in range(n_rows)]
+    col_mass = [sum(exp[r * width + c] for r in range(n_rows)) for c in range(width)]
+    return row_mass, col_mass
+
+
+def _grid_margins(logits: Sequence[float], rows: Sequence[str], cols: Sequence[str]) -> tuple[str, str]:
+    """Read a row-major joint head as (row label, column label).
+
+    Each label is the argmax of its own softmax marginal (row sums, column sums), never the top cell's coordinates.
+    """
+    row_mass, col_mass = _grid_masses(logits, len(rows), len(cols))
     return rows[_argmax(row_mass)], cols[_argmax(col_mass)]
 
 
-def _pov_tense_from_logits(logits: Sequence[float]) -> tuple[str, str]:
-    return _grid_margins(logits, _POV_ROWS, _TENSE_COLS)
+def _pooled(labels: Sequence[str], keys: Sequence[str], mass: Sequence[float]) -> dict[str, float]:
+    """Each label's summed mass; *keys* names each row's label."""
+    total = dict.fromkeys(labels, 0.0)
+    for key, m in zip(keys, mass, strict=True):
+        total[key] += m
+    return total
 
 
-def _pov_from_logits(logits: Sequence[float]) -> str:
-    """Marginalize the 4x3 joint head to one POV row label."""
-    return _pov_tense_from_logits(logits)[0]
-
-
-def _tense_from_logits(logits: Sequence[float]) -> str:
-    """Marginalize the 4x3 joint head to one tense column label."""
-    return _pov_tense_from_logits(logits)[1]
+def _voice_from_logits(logits: Sequence[float]) -> tuple[str, str, str]:
+    """Marginalize the 6x3 povtense head to (POV, tense, addressee), with `_OTHER_FLOOR` applied to the addressee."""
+    row_mass, col_mass = _grid_masses(logits, len(_VOICE_ROWS), len(_TENSE_COLS))
+    pov = _pooled(_POV_LABELS, [p for p, _ in _VOICE_ROWS], row_mass)
+    addressee = _pooled(_ADDRESSEE_LABELS, [a for _, a in _VOICE_ROWS], row_mass)
+    best = max(_ADDRESSEE_LABELS, key=addressee.__getitem__)
+    if best == "other" and addressee["other"] < _OTHER_FLOOR * sum(row_mass):
+        best = "none"
+    return max(_POV_LABELS, key=pov.__getitem__), _TENSE_COLS[_argmax(col_mass)], best
 
 
 async def aclassify_pov(text: str) -> str:
-    """One message -> one of _POV_ROWS ("first" | "second" | "third" | "ambiguous").
+    """One message -> one of _POV_LABELS ("first" | "second" | "third" | "ambiguous").
 
     Only the span `_pov_input` selects is read, not the whole message.
 
@@ -480,18 +509,18 @@ async def aclassify_pov(text: str) -> str:
     shaped = _pov_input(text)
     if not shaped:
         return "ambiguous"
-    (logits,) = await _logits("pov_classifier", [shaped], len(_POV_ROWS) * _TENSE_COUNT)
-    return _pov_from_logits(logits)
+    (logits,) = await _logits("pov_classifier", [shaped], _VOICE_CELLS)
+    return _voice_from_logits(logits)[0]
 
 
-async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
-    """One (POV, tense) pair per `_pov_chunks` window, newest first; ``[]`` for a reply with no narration.
+async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str, str]]:
+    """One (POV, tense, addressee) triple per `_pov_chunks` window, newest first; ``[]`` for a reply with no narration.
 
-    For callers that judge a whole message rather than its final instant. One request for every window; both grid margins of
-    each come off its one forward pass, so asking for the tense separately would pay for the model twice.
+    For callers that judge a whole message rather than its final instant. One request for every window; all three margins of
+    each come off its one forward pass, so asking for an axis separately would pay for the model again.
     """
     windows = _pov_chunks(text)
-    return [_pov_tense_from_logits(v) for v in await _logits("pov_classifier", windows, len(_POV_ROWS) * _TENSE_COUNT)]
+    return [_voice_from_logits(v) for v in await _logits("pov_classifier", windows, _VOICE_CELLS)]
 
 
 # Classify markup from the whole message, excluding classify_axes protected runs. Keep quote/emphasis variants; turn genuine

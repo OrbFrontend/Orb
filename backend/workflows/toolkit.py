@@ -282,8 +282,8 @@ async def classify_pov(text: str) -> str:
     return await _local_ml.aclassify_pov(text)
 
 
-async def classify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
-    """Classify each few-sentence narration window of *text*, newest first."""
+async def classify_pov_tense_chunks(text: str) -> list[tuple[str, str, str]]:
+    """Classify each few-sentence narration window of *text* as (POV, tense, addressee), newest first."""
     return await _local_ml.aclassify_pov_tense_chunks(text)
 
 
