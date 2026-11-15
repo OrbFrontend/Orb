@@ -138,12 +138,13 @@ class MediaRun:
     """What the media tools take from the run they belong to.
 
     *job* is the workflow job id their jobs are filed under, unique to the run's operation; *abort* is the run's Stop; *report*
-    sends a progress label to the run's stream while a job renders.
+    sends a progress label to the run's stream while a job renders, and *landed* a resource one of its renders committed.
     """
 
     job: str
     abort: AbortToken
     report: Callable[[str], None]
+    landed: Callable[[Mapping[str, Any]], None]
 
 
 @dataclass

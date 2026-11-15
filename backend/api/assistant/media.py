@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException
@@ -69,12 +69,22 @@ def _message_of(data: object, fallback: str) -> str:
 
 
 async def _consume(
-    stream: WorkflowEventStream, wid: str, noun: str, outcome: MediaOutcome, report: Callable[[str], None]
+    stream: WorkflowEventStream, where: tuple[str, int], wid: str, noun: str, outcome: MediaOutcome, run: MediaRun
 ) -> None:
     """Read a lazy workflow stream through to its end, inside the job that owns it.
 
     A cancelled job cancels the stream's pending step, so the hook's own cleanup (withdrawing a queued render) runs there.
+    Each render is announced to the run as it is saved, so the chat shows it before the job ends.
     """
+    cid, mid = where
+
+    def saved(attachment: object) -> None:
+        if type(attachment) is int and attachment not in outcome.ids:
+            outcome.saved(attachment)
+            run.landed(
+                {"kind": "media", "conversation_id": cid, "message_id": mid, "attachment_ids": [attachment], "workflow_id": wid}
+            )
+
     events = stream.events
     try:
         async for event in events:
@@ -85,13 +95,13 @@ async def _consume(
             if name == "phase_status":
                 label = payload.get("label")
                 if isinstance(label, str) and label.strip():
-                    report(label.strip()[:_LABEL_CHARS])
+                    run.report(label.strip()[:_LABEL_CHARS])
             elif name == f"{wid}_render":
-                outcome.saved(payload.get("attachment_id"))
+                saved(payload.get("attachment_id"))
             elif name == f"{wid}_error":
                 outcome.error = _message_of(payload, f"The {noun} failed.")
             elif name == f"{wid}_done":
-                outcome.saved(payload.get("attachment_id"))
+                saved(payload.get("attachment_id"))
                 outcome.finished = True
             elif name == "error":
                 outcome.error = _message_of(data, f"The {noun} failed.")
@@ -102,15 +112,13 @@ async def _consume(
                 await close()
 
 
-async def _produce(
-    cid: str, wid: str, noun: str, body: Mapping[str, Any], outcome: MediaOutcome, report: Callable[[str], None]
-) -> None:
+async def _produce(cid: str, wid: str, noun: str, body: Mapping[str, Any], outcome: MediaOutcome, run: MediaRun) -> None:
     """The job: the hook through the shared dispatch with *body*, and its stream if it returns one."""
     mid = body["message_id"]
     try:
         result = await run_on_demand(cid, wid, dict(body))
         if isinstance(result, WorkflowEventStream):
-            await _consume(result, wid, noun, outcome, report)
+            await _consume(result, (cid, mid), wid, noun, outcome, run)
             return
         outcome.finished = True
         if not isinstance(result, Mapping):
@@ -142,7 +150,7 @@ async def run_media(cid: str, workflow_id: str, noun: str, body: Mapping[str, An
     outcome = MediaOutcome()
     try:
         task = start_workflow_job(
-            cid, _produce(cid, workflow_id, noun, body, outcome, run.report), job=run.job, message_id=body["message_id"]
+            cid, _produce(cid, workflow_id, noun, body, outcome, run), job=run.job, message_id=body["message_id"]
         )
     except HTTPException as exc:
         raise HostRefusal(str(exc.detail)) from None

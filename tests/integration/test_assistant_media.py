@@ -88,7 +88,11 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
             yield {"event": "phase_status", "data": {"label": "Rendering in ComfyUI..."}}
             first = await _save(body["message_id"])
             yield {"event": "image_gen_render", "data": {"attachment_id": first}}
-            yield {"event": "image_gen_done", "data": {"attachment_id": first}}
+            # A review turn: the first render is in the chat before its redo is saved.
+            await asyncio.sleep(0.05)
+            redo = await _save(body["message_id"])
+            yield {"event": "image_gen_render", "data": {"attachment_id": redo}}
+            yield {"event": "image_gen_done", "data": {"attachment_id": redo}}
 
         return WorkflowEventStream(events=events())
 
@@ -116,17 +120,20 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
     assert seen[1] == [("assistant:op-1", kept)]
     assert "speech" not in seen, "the switched-off workflow never reached its hook"
     saved = await message_workflow_attachment_ids(kept, "image_gen")
-    assert len(saved) == 1
+    assert len(saved) == 2
     assert ("progress", {"label": "Rendering in ComfyUI..."}) in events
     result, refused = _results(events)
     assert result["ok"] is True and result["ids"]["attachment_ids"] == saved
     assert refused["ok"] is False and "`workflow:tts`" in refused["summary"] and "set_pipeline_toggle" in refused["summary"]
     assert "`workflows`" not in refused["summary"]
     assert "`workflows`" in both["summary"] and "`workflow:tts`" in both["summary"]
-    mutation = next(data for event, data in events if event == "mutation")
-    assert mutation["resources"] == [
-        {"kind": "media", "conversation_id": chat, "message_id": kept, "attachment_ids": saved, "workflow_id": "image_gen"}
-    ]
+    media = {"kind": "media", "conversation_id": chat, "message_id": kept, "workflow_id": "image_gen"}
+    names = [event for event, _ in events]
+    mutations = [data["resources"] for event, data in events if event == "mutation"]
+    # Each render is announced as it is saved, before the tool settles; the settled write names them all.
+    assert mutations[0] == [{**media, "attachment_ids": saved[:1]}]
+    assert mutations[-1] == [{**media, "attachment_ids": saved}]
+    assert names.index("mutation") < names.index("tool_result")
     assert events[-1] == ("done", {"reason": "reply", "message": ""})
     assert not deps._workflow_jobs.get(chat), "the job settled with the stream"
     assert await message_workflow_attachment_ids(kept, "tts") == []

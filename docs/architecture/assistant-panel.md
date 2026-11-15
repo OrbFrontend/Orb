@@ -709,7 +709,11 @@ until the stream settles. That job is linked to the run:
   deletes, as for any media job.
 
 A media tool is a write: it settles whole and reports progress, each hook
-`phase_status` label becoming a `progress` event. Its result names the
+`phase_status` label becoming a `progress` event. Each `<wid>_render` or
+`<wid>_done` attachment the job reports is announced at once as a `mutation`
+naming that one attachment, so the chat shows each render, review redos
+included, while the job goes on; one that lands as the tool settles is left to
+the settled write's `mutation`, which names them all. Its result names the
 attachment ids its own job reported saving, never bytes. A job that started and
 saved nothing is a tool error. A job stopped or cut short that reported nothing
 while new rows appeared on the message claims none of them: the error says an
@@ -725,7 +729,7 @@ render.
 | `progress` | `{label}` | What the run is doing now, or a media job's phase. Not stored. |
 | `assistant_message` | `{text, final}` | A step's note (`final: false`) or the answer. |
 | `tool_start` | `{call_id, tool}` | A tool is about to run. |
-| `mutation` | `{call_id, tool, resources}` | A write committed these resources. |
+| `mutation` | `{call_id, tool, resources}` | A write committed these resources; a media tool also sends one per render while it runs. |
 | `tool_result` | `{call_id, tool, ok, summary, ids}` | Its outcome, paired by `call_id`. |
 | `confirm` | `{call_id, tool, proposal}` | A proposal's preview (`action` is `edit` or `delete`); a later one with the same `proposal_id` replaces it, and one naming an earlier request's proposal in `replaces` supersedes that one. |
 | `handoff` | `{call_id, tool, handoff}` | The checked chat target to start. |
