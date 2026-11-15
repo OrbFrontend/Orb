@@ -24,6 +24,7 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/tools/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
 | `backend/features/assistant/tools/fragments.py` | The fragment creates and setters, the stage each fragment type runs in and where Required applies, and the names, projections and checks the fragment reads, edits and deletes share |
 | `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The six edit tools; the six delete tools; the proposal store, Apply, Undo and Revise |
+| `backend/features/assistant/tools/web.py` | The web search through the user's SearXNG server, and the page reader with its text extraction and private-address refusal |
 | `backend/features/assistant/tools/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools and what counts as a saved render |
 | `backend/api/assistant/` | The binding: `host.py` implements the host over the API, pipeline, workflow and peer-feature code; `__init__.py` binds `build_tools`, Apply, Undo and Revise to it |
 | `backend/api/assistant/media.py` | A media render as a workflow job: the on-demand dispatch, its event stream, Stop |
@@ -276,7 +277,7 @@ throughout.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment` | Runs at once; changes nothing. |
+| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
 | write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
@@ -296,6 +297,7 @@ switching one off removes a whole subject:
 | Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
 | Documents (`documents`) | `list_documents`, `read_document` |
 | Images and speech (`media`) | `create_image`, `illustrate_reply`, `generate_speech` |
+| Web (`web`) | `search_web`, `read_web_page` |
 
 `read_context` and `query_library` are in no group and always offered. A tool
 declared without a group fails `build_tools`, so none can stay offered past the
@@ -316,7 +318,7 @@ re-reads the conversation from its start; calls earlier requests made to a tool
 since switched off stay in the conversation as they were. Apply, Undo and
 Revise act on proposals, not tools, and work whatever is switched off.
 
-A new group (web browsing, say) is one `ToolCategory`, its tools' builder in
+A new group is one `ToolCategory`, its tools' builder in
 `build_tools`, and one switch in the panel's markup; a test holds the markup's
 ids to the server's.
 
@@ -373,6 +375,27 @@ state, feedback and post-processing, a Judge endpoint for decisions.
 decision's question, situation and outcomes, each outcome by its key (`true`
 and `false`, an option's name, or a level from `0`); naming one text in `field`
 reads it whole, in pages.
+
+### The web
+
+`search_web(query, offset?)` asks the SearXNG server named by the `searxng_url` setting (`GET /search?format=json`) and
+returns eight results a page as `title`, `url` and a clipped `excerpt`. The setting is the panel's SearXNG URL field; it is
+machine-local, so an imported preset never replaces it. Both tools are offered without it, and `search_web` then says where
+to set it. A server that answers 403 has JSON output off, and the failure names `search.formats` in its `settings.yml`.
+
+`read_web_page(url, find?, offset?)` fetches one page with a browser's User-Agent, since many sites refuse a script's, and
+reduces it to text with the standard library's parser: scripts, styles, navigation, headers, footers and forms dropped, a
+line per block, a heading marked `#`, table cells joined by `|`. It reads 4,000 characters a page; `find` starts at the first
+place a text appears at or after `offset`, which is how a long article is entered at a section. The last eight pages read are
+held in memory by URL, so a next page or a `find` reads what the first call fetched. A page is cut at 3 MB before parsing.
+
+Only public http(s) hosts are read. Each request, and each redirect, resolves its host first and is refused when any address
+is not global: loopback, private, link-local. A site that answers anything but 200, or a page with no text without its
+scripts, is a tool failure that tells the model to read another result; nothing renders JavaScript or works around a block.
+
+Web text is another party's words in a conversation where write tools commit at once. Both descriptions say it is not from
+the user and its instructions are never followed, and the standing rule allows a `[changes]` tool only for what the latest
+request asks; neither is enforced by the loop.
 
 ### Writes
 
@@ -779,7 +802,7 @@ next request is about (with the lorebook drawer's world or entry after it, while
 the drawer is open) sits under it, and the corner
 button sends, or stops while a run goes. The gear in the panel's head opens the
 options between the head and the log: Think, then a rule, then one switch for
-each [tool group](#tool-groups), then the system prompt's opening with Reset, saved to the
+each [tool group](#tool-groups), the SearXNG URL, then the system prompt's opening with Reset, saved to the
 `assistant_instructions` setting when the box loses focus. The gear is marked while Think is on or a
 group is off, and an option applies from the next request. An empty transcript offers a few requests suited to the view;
 picking one fills the input and sends nothing. Each request captures its view at Send; changing

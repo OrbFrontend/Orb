@@ -18,6 +18,7 @@ from .reads import build_read_tools
 from .setters import build_setter_tools
 from .targets import reply_target
 from .toggles import build_toggle_tools, switch_summary
+from .web import build_web_tools
 
 __all__ = [
     "CATEGORIES",
@@ -64,6 +65,8 @@ def build_tools(
         *build_edit_tools(view, host, held),
         *build_delete_tools(view, host, held),
         *build_action_tools(view, host),
+        *build_web_tools(settings),
+        # Last: they are left out of a run without media, and nothing after them then moves.
         *build_media_tools(view, media, host),
     ]
     return offered(tools, settings["assistant_tool_groups"])

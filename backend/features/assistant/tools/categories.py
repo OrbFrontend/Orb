@@ -114,6 +114,7 @@ CATEGORIES: tuple[ToolCategory, ...] = (
     ),
     ToolCategory("documents", "Documents", frozenset({"list_documents", "read_document"})),
     ToolCategory("media", "Images and speech", frozenset({"create_image", "illustrate_reply", "generate_speech"})),
+    ToolCategory("web", "Web", frozenset({"search_web", "read_web_page"})),
 )
 
 _CATEGORY_OF = {name: category.id for category in CATEGORIES for name in category.tools}

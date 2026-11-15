@@ -98,6 +98,7 @@
 .asst-option:has(input:checked) { color: var(--text-primary); }
 .asst-options-label { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px;
   color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; }
+.asst-url input { flex: 1 1 auto; min-width: 0; max-width: 60%; font-size: 12px; }
 .asst-prompt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .asst-instructions { flex: 0 0 auto; min-height: 96px; resize: vertical; font-size: 12px; line-height: 1.5; }
 .asst-send { --ui-icon-size: 16px; flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;

@@ -94,6 +94,8 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
         "local_ml_config",
         # A card-site login belongs to this machine; an imported preset never signs it out or into someone else's account.
         "card_source_auth",
+        # The search server is one this machine reaches; another machine's address would point nowhere.
+        "searxng_url",
     )
 }
 

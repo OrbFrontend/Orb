@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS settings (
     assistant_instructions TEXT NOT NULL DEFAULT '',
     assistant_reasoning INTEGER NOT NULL DEFAULT 0,
     assistant_tool_groups TEXT NOT NULL DEFAULT '{}',
+    searxng_url TEXT NOT NULL DEFAULT '',
     director_individual_fragments INTEGER NOT NULL DEFAULT 0,
     inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
     workflow_config TEXT NOT NULL DEFAULT '{}',
