@@ -70,6 +70,11 @@ _HANDOFFS = (
     "\n- A tool marked [hands off] ends this request, and the chat then does the work in its own stream. Run it last, after "
     "every other step."
 )
+_WITHHELD = (
+    "\n- The user has switched these tool groups off in the assistant's options: {groups}. Their tools are not "
+    "available, even where a description or a result names one; look an id up with query_library instead. When a request "
+    "needs one of them, say that the group is switched off there."
+)
 
 _MARKERS = {"write": "[changes]", "confirm": "[proposes]", "handoff": "[hands off]"}
 
@@ -81,7 +86,9 @@ def _signature(tool: AssistantTool) -> str:
     return f"{tool.name}({', '.join(names)}){f' {marker}' if marker else ''}"
 
 
-def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False, plain_answer: bool = False) -> str:
+def system_prompt(
+    tools: Sequence[AssistantTool], *, single_call: bool = False, plain_answer: bool = False, withheld: Sequence[str] = ()
+) -> str:
     """The stable prefix.
 
     *plain_answer* is the two-call protocol whose final answer is its own plain-text call instead of the step's message.
@@ -89,6 +96,9 @@ def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False, 
     The two-call protocol lists the tools here: a structured-output endpoint is sent no tool list. *single_call* is the
     protocol where each step is one call to the tool itself, or to ``reply``; its schemas are always on the wire and carry
     each tool's marker and description, so the prompt lists nothing.
+
+    *withheld* are the labels of the tool groups the user switched off, which the prompt names so that a request needing
+    one is answered with where to switch it on.
     """
     behaviors = {tool.behavior for tool in tools}
     rules = _MARKED if behaviors - {"read"} else ""
@@ -98,6 +108,8 @@ def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False, 
         rules += _PROPOSALS
     if "handoff" in behaviors:
         rules += _HANDOFFS
+    if withheld:
+        rules += _WITHHELD.format(groups="; ".join(withheld))
     if single_call:
         return f"{_INSTRUCTIONS}{_ONE_CALL}{_RULES}{rules}"
     catalog = "\n".join(f"- {_signature(tool)}: {tool.description}" for tool in tools)

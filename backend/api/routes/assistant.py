@@ -39,6 +39,7 @@ from ..assistant import (
     rewind_note,
     rewound,
     undo_proposals,
+    withheld_labels,
 )
 from ..assistant.images import get_image
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
@@ -179,7 +180,7 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 agent_client,
                 model,
                 settings=settings,
-                tools=build_tools(settings, view, media=media, held=held),
+                tools=build_tools(settings, view, media=media, held=held, categories=data.categories),
                 transcript=transcript,
                 request=data.text.strip(),
                 view=view,
@@ -189,6 +190,7 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 progress=progress,
                 keep=keep,
                 reasoning=data.reasoning,
+                withheld=withheld_labels(data.categories),
             ):
                 if event["type"] == "confirm":
                     proposed.append(event["proposal"]["proposal_id"])

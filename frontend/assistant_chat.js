@@ -50,6 +50,8 @@ import { $, toast } from "./utils.js";
 const LS_CHAT = "orb-assistant-chat:";
 const LS_OPEN = "orb-assistant-open";
 const LS_THINK = "orb-assistant-think";
+// The tool groups switched off, by id; a group this browser has not seen is on.
+const LS_TOOLS_OFF = "orb-assistant-tools-off";
 // As many chats as the server keeps conversations.
 const MAX_CHATS = 32;
 const PANEL = "assistant-panel";
@@ -517,7 +519,39 @@ function submit(text, replaced = null) {
   const pending = pendingProposalIds(items);
   // Only the request goes out: the server holds the conversation this session names, every call and result in it.
   const body = { text, context: wireContext(context), session: chat.session, request_id: requestId, edit };
-  return stream(chat, { ...body, reasoning, pending }, context, text);
+  const categories = categoryBoxes().flatMap((box) => (box.checked ? [box.dataset.category] : []));
+  return stream(chat, { ...body, reasoning, categories, pending }, context, text);
+}
+
+const categoryBoxes = () => [...$("assistant-options").querySelectorAll("input[data-category]")];
+
+// The gear is marked while an option differs from how the panel comes: thinking on, or a tool group off.
+function paintGear() {
+  const set = $("assistant-think").checked || categoryBoxes().some((box) => !box.checked);
+  $("assistant-gear").classList.toggle("asst-gear-set", set);
+}
+
+function restoreOptions() {
+  $("assistant-think").checked = stored(LS_THINK) === "1";
+  let off = [];
+  try {
+    off = JSON.parse(stored(LS_TOOLS_OFF) || "[]");
+  } catch {}
+  for (const box of categoryBoxes()) box.checked = !(Array.isArray(off) && off.includes(box.dataset.category));
+  paintGear();
+}
+
+// Either kind of option applies from the next request.
+function storeOptions() {
+  store(LS_THINK, $("assistant-think").checked ? "1" : "0");
+  const off = categoryBoxes().flatMap((box) => (box.checked ? [] : [box.dataset.category]));
+  store(LS_TOOLS_OFF, JSON.stringify(off));
+  paintGear();
+}
+
+function toggleOptions() {
+  const hidden = $("assistant-options").classList.toggle("hidden");
+  $("assistant-gear").setAttribute("aria-expanded", String(!hidden));
 }
 
 function send() {
@@ -804,9 +838,10 @@ export function initAssistant() {
     askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),
     focusInput: () => $("assistant-input").focus(),
-    think: () => store(LS_THINK, $("assistant-think").checked ? "1" : "0"),
+    options: () => toggleOptions(),
+    option: () => storeOptions(),
   });
-  $("assistant-think").checked = stored(LS_THINK) === "1";
+  restoreOptions();
   const log = $("assistant-log");
   log.addEventListener("scroll", () => {
     if (log.clientHeight) following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;

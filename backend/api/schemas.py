@@ -988,6 +988,9 @@ class AssistantRunRequest(BaseModel):
     request_id: str | None = Field(default=None, min_length=1, max_length=64)
     edit: bool = False
     reasoning: bool = False
+    # The tool groups the panel's options leave switched on, by id; ``None`` is every group. An id the server does not know
+    # is ignored, so a page loaded before an upgrade keeps working.
+    categories: list[Annotated[str, Field(min_length=1, max_length=32)]] | None = Field(default=None, max_length=32)
     # The proposals earlier requests made that the user's card still holds pending: the request is told of them, and a further
     # edit or delete of the same thing replaces one. Ids only; the texts are the server's.
     pending: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=32)

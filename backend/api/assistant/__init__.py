@@ -5,7 +5,7 @@ The tools, the proposal store and the model loop are ``features.assistant``; thi
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 from ...core.settings import Settings
@@ -21,7 +21,7 @@ from ...features.assistant import (
     rewound,
     tools,
 )
-from ...features.assistant.tools import MediaRun, Proposal, open_proposals, pending_note
+from ...features.assistant.tools import MediaRun, Proposal, open_proposals, pending_note, withheld_labels
 from .host import HOST
 
 __all__ = [
@@ -41,13 +41,19 @@ __all__ = [
     "rewind_note",
     "rewound",
     "undo_proposals",
+    "withheld_labels",
 ]
 
 
 def build_tools(
-    settings: Settings, view: ViewContext, *, media: MediaRun | None = None, held: Sequence[Proposal] = ()
+    settings: Settings,
+    view: ViewContext,
+    *,
+    media: MediaRun | None = None,
+    held: Sequence[Proposal] = (),
+    categories: Collection[str] | None = None,
 ) -> list[AssistantTool]:
-    return tools.build_tools(settings, view, HOST, media=media, held=held)
+    return tools.build_tools(settings, view, HOST, media=media, held=held, categories=categories)
 
 
 async def apply_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
