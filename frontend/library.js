@@ -427,6 +427,10 @@ const _charTagChips = createChipInput({
   },
 });
 
+function _charTagsHtml(tags) {
+  return (tags || []).map((t) => `<span class="char-tag">${esc(t)}</span>`).join("");
+}
+
 export async function showCharEditModal(idOrData) {
   _pendingAvatar = null;
   const isNew = typeof idOrData === "object";
@@ -446,8 +450,6 @@ export async function showCharEditModal(idOrData) {
   _pendingCharacterBook = isNew ? c.character_book || null : null;
   _pendingExtensions = structuredClone(c.extensions || {});
   initCardFragments(_pendingExtensions.orb?.fragments);
-
-  const tags = (c.tags || []).map((t) => `<span class="char-tag">${esc(t)}</span>`).join("");
 
   let worlds = [];
   try {
@@ -469,7 +471,7 @@ export async function showCharEditModal(idOrData) {
           <input id="ce-name" value="${esc(c.name)}" style="font-size:18px;font-weight:600;width:100%">
         </div>
         ${c.creator ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">by ${esc(c.creator)}</div>` : ""}
-        ${tags ? `<div class="char-tags">${tags}</div>` : ""}
+        <div class="char-tags" id="ce-header-tags"${c.tags?.length ? "" : " hidden"}>${_charTagsHtml(c.tags)}</div>
       </div>
     </div>
     ${charFormTabs("ce", c, true, worlds)}
@@ -578,6 +580,11 @@ async function saveCharEdit(id, exportAfter = false) {
       if (titleEl) titleEl.textContent = activeConv.title || activeConv.character_name || "";
     }
     renderMessages();
+    const headerTags = $("ce-header-tags");
+    if (headerTags) {
+      headerTags.innerHTML = _charTagsHtml(updated.tags);
+      headerTags.hidden = !updated.tags?.length;
+    }
     markCharEditClean(saved);
     setCharEditStatus("Saved");
     if (exportAfter) exportCharacter(id, name);
