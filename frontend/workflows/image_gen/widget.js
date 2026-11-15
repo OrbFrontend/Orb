@@ -6,8 +6,10 @@ import {
   esc,
   escAttr,
   getActiveConvId,
+  pressedSelection,
   refreshConversationMessages,
   registerAction,
+  registerRegenerateParams,
   registerRerollParams,
   registerRerollSuccess,
   requestRepaint,
@@ -48,6 +50,7 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "toggleDetails", toggleDetails);
   registerAction(WORKFLOW_ID, "download", download);
   registerRerollParams(WORKFLOW_ID, rerollParams);
+  registerRegenerateParams(WORKFLOW_ID, (msgId, _attId, button) => excerptParams(msgId, button));
   registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
 }
 
@@ -147,6 +150,17 @@ function rerollParams(_msgId, attId) {
   return Object.keys(params).length ? params : null;
 }
 
+// The text selected in the reply as *button* was pressed: `{excerpt}` to draw that moment, `{}` for the reply's end, or
+// `false` once the user has been told it could not be matched.
+function excerptParams(msgId, button) {
+  const excerpt = pressedSelection(button, msgId);
+  if (excerpt === false) {
+    toast("Couldn't match the selection to this message's text", "error");
+    return false;
+  }
+  return excerpt ? { excerpt } : {};
+}
+
 function clearPendingEdit(_msgId, attId) {
   const submitted = rerollEditSnapshots.get(attId);
   rerollEditSnapshots.delete(attId);
@@ -158,7 +172,7 @@ function clearPendingEdit(_msgId, attId) {
 
 export function createButtonRenderer(msg) {
   const job = inFlight.get(msg?.id);
-  const stop = stopButtonState(job, "Visualize reply");
+  const stop = stopButtonState(job, "Visualize reply or the selected text");
   return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop, running: !!job });
 }
 
@@ -168,6 +182,8 @@ async function generate(msgId, button) {
   if (running) return running.stop();
   if (!getActiveConvId() || !canMutate()) return;
   const convId = getActiveConvId();
+  const params = excerptParams(msgId, button);
+  if (!params) return;
   const styleId = cfg.default_style || "realistic";
   const controller = new AbortController();
   const job = startWorkflowJob({ convId, messageId: msgId, title: "Stop image generation", controller });
@@ -178,7 +194,7 @@ async function generate(msgId, button) {
     setWorkflowPhase(channel, "Composing image prompt...", convId);
     const response = await streamPost(
       job.url(convUrl(convId, "workflows", WORKFLOW_ID, "trigger")),
-      { action: "generate", message_id: msgId, style_id: styleId },
+      { action: "generate", message_id: msgId, style_id: styleId, ...params },
       controller.signal,
     );
     if (!response.ok) throw await responseError(response);

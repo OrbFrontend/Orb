@@ -129,6 +129,7 @@ export const S = {
   workflowAttachmentRenderers: {}, // Attachment renderers by workflow id
   workflowAttachmentPlacements: {}, // Attachment placements by workflow id
   workflowRerollParams: {}, // Extra reroll parameters by workflow id
+  workflowRegenerateParams: {}, // Regenerate request bodies by workflow id
   workflowRerollSuccess: {}, // Success callbacks after a reroll creates a sibling
   workflowRegenerateSettled: {}, // Callbacks when a regenerate ends, on any outcome
   workflowPipelines: [], // Registered workflow pipelines

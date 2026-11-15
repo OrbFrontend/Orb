@@ -20,6 +20,7 @@ from backend.database import (
     get_workflow_attachments_for_message,
     insert_workflow_attachment_row,
     set_active_leaf,
+    update_message_content,
 )
 from backend.workflows import set_workflow_character_state, set_workflow_config
 from backend.workflows.attachment_cache import insert_workflow_variant, set_active_sibling
@@ -618,6 +619,31 @@ async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(c
     [error] = [data["message"] for name, data in events if name == "image_gen_error"]
     assert "earlier chat image failed" in error and "does not accept image input" in error
     assert events[-1] == ("image_gen_done", {"attachment_id": None})
+
+
+async def test_a_selected_excerpt_is_the_moment_the_prompter_is_asked_to_draw(client, llm_mock, monkeypatch):
+    """A reply tells many actions; the selection names the one to show, and a selection that no longer matches is refused."""
+    mid = await _seed("ig-excerpt")
+    content = "She turns toward the door. Outside, she opens her umbrella and walks into the rain."
+    await update_message_content(mid, content)
+
+    async def render(adapter, request, **kwargs):
+        return _png_image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
+    llm_mock.enqueue_workflow(_compose_call())
+    picked = "She turns toward the door."
+
+    await _trigger(client, "ig-excerpt", {"action": "generate", "message_id": mid, "excerpt": {"start": 0, "text": picked}})
+
+    [compose] = [c for c in llm_mock.captured if c["pass"] == "workflow"]
+    request = compose["messages"][-1]["content"]
+    assert f"“{picked}”" in request and "after the excerpt did not occur yet" in request
+    [row] = await get_workflow_attachments_for_message(mid)
+    assert json.loads(row["generation_metadata"])["excerpt"] == picked
+    url = f"/api/conversations/ig-excerpt/messages/{mid}/workflow-attachments/{row['id']}/regenerate"
+    refused = await client.post_checked(url, json={"excerpt": {"start": 3, "text": picked}}, expected_status=400)
+    assert "no longer matches" in refused.json()["detail"]
 
 
 async def test_a_review_the_provider_rejects_stops_generation_and_keeps_the_render(client, llm_mock, monkeypatch):

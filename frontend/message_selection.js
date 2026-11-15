@@ -1,5 +1,8 @@
 /** Map a selection in a rendered message body back to the span of saved text it shows. */
 
+import { S } from "./state.js";
+import { messageBody } from "./utils.js";
+
 // What rendering hides between two visible characters: whitespace, emphasis and code marks, heading hashes, tags, links.
 const GAP = "(?:[\\s*`#\\[]|<[^>]*>|\\]\\([^)]*\\))*";
 const WORD = /[\p{L}\p{N}_'’]/u;
@@ -11,7 +14,7 @@ const escapeRe = (ch) => ch.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
  * The selected span of *source*, widened to whole words: `{start, text}` with *start* in code points, `null` when
  * nothing in *body* is selected, or `false` when the selection does not match *source*.
  */
-export function selectionInSource(body, range, source) {
+function selectionInSource(body, range, source) {
   if (!body || !range || range.collapsed || !range.intersectsNode(body)) return null;
   const head = document.createRange();
   head.selectNodeContents(body);
@@ -32,4 +35,28 @@ export function selectionInSource(body, range, source) {
   while (start > 0 && WORD.test(source[start - 1]) && WORD.test(source[start])) start--;
   while (end < source.length && WORD.test(source[end]) && WORD.test(source[end - 1])) end++;
   return { start: Array.from(source.slice(0, start)).length, text: source.slice(start, end) };
+}
+
+const liveRange = () => {
+  const sel = window.getSelection();
+  return sel?.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+};
+
+// Taken on press, before a tap can collapse a touch selection; a keyboard press reads the live one.
+let pressed = null;
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    const button = e.target.closest?.("[data-wf-action]");
+    pressed = button ? { button, range: liveRange() } : null;
+  },
+  true,
+);
+
+/** The selection in message *msgId* as *button* was pressed, mapped onto its saved text as `selectionInSource` does. */
+export function pressedSelection(button, msgId) {
+  const range = pressed?.button === button ? pressed.range : liveRange();
+  pressed = null;
+  const source = S.messages.find((m) => m.id === msgId)?.content || "";
+  return selectionInSource(messageBody(msgId), range, source);
 }
