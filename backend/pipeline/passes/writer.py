@@ -20,7 +20,7 @@ from ...core import (
 )
 from ...core.llm_types import ContentDelta, ReasoningDelta
 from ...core.settings import Settings
-from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
+from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
@@ -129,6 +129,7 @@ async def writer_pass(
     kv_tracker: KVCacheTracker | None = None,
     reasoning_on: bool = True,
     reasoning_prefill: str = "",
+    text_record: TextCallRecord | None = None,
 ) -> AsyncIterator[ContentDelta | ReasoningDelta]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
@@ -150,6 +151,7 @@ async def writer_pass(
         # but is barred from calling anything.
         tool_choice="none" if base.tools else None,
         kv_tracker=kv_tracker,
+        text_record=text_record,
         **reasoning_cfg(reasoning_on, reasoning_prefill),
         **hyperparams,
     ):
@@ -199,6 +201,7 @@ async def writer_stage(
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         context_mode=context_mode,
     )
+    state.writer_call = TextCallRecord()
     label_buffer = ""
     label_pending = speaker is not None
     # Long names are intentionally supported. Markdown wrappers, a heading,
@@ -214,6 +217,7 @@ async def writer_stage(
             kv_tracker=kv_tracker,
             reasoning_on=cfg.writer_reasoning_on,
             reasoning_prefill=cfg.writer_reasoning_prefill,
+            text_record=state.writer_call,
         ),
         state.latency_breakdown,
         "writer",
@@ -245,3 +249,41 @@ async def writer_stage(
     # change the Editor's input or the pre-rewriter draft retained after editing.
     state.resp_text = resolve_inline(state.resp_text)
     yield latency_event(state)
+
+
+async def continue_pass(
+    client: LLMClient,
+    base: CachedBase,
+    settings: Settings,
+    prefill: str,
+    *,
+    kv_tracker: KVCacheTracker,
+    text_record: TextCallRecord,
+) -> AsyncIterator[ContentDelta]:
+    """Yield the Writer's continuation of *prefill*, the open final assistant turn after *base*.
+
+    Reasoning stays off and the template renders with the lane's thinking flag, so the prompt keeps the lane's first bytes.
+    """
+    async for item in base.complete(
+        client,
+        label="writer",
+        trailing=[],
+        tool_choice="none" if base.tools else None,
+        kv_tracker=kv_tracker,
+        prefill=prefill,
+        prefill_thinking=base.template_thinking,
+        text_record=text_record,
+        **reasoning_cfg(False),
+        **extract_hyperparams(settings),
+    ):
+        if item["type"] == "done":
+            return
+        if item["type"] == "content":
+            yield item
+
+
+async def raw_continue_pass(client: LLMClient, settings: Settings, prompt: str) -> AsyncIterator[ContentDelta]:
+    """Yield the Writer's continuation of *prompt*, sent to ``/completion`` exactly as given."""
+    async for item in client.complete_raw(prompt, settings["model_name"], **extract_hyperparams(settings)):
+        if item["type"] == "content":
+            yield item

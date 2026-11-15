@@ -39,7 +39,7 @@ import {
   startExpressionPlayback,
 } from "./expression_playback.js";
 import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
-import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
+import { restNotice, speakerAvatarCell, speakerLabel, unansweredHint } from "./group_cast.js";
 import {
   consumeSpeakerOverride,
   refreshCastRailIntent,
@@ -457,7 +457,7 @@ async function afterStream(op, { settled = true } = {}) {
   const saved = settledReply(state.messages, op.anchor, speakerMatch);
   // Text the server did not confirm stays on screen, unsaved, rather than lost.
   const unconfirmed = !synced || !settled || !!state.turnError;
-  if (!saved && preservedContent?.trim() && unconfirmed && (!wasGroupExchange || inFlightSpeaker)) {
+  if (!saved && !op.continued && preservedContent?.trim() && unconfirmed && (!wasGroupExchange || inFlightSpeaker)) {
     const parent = state.messages[state.messages.length - 1];
     state.messages.push(
       unsavedReply(
@@ -540,7 +540,7 @@ async function afterStream(op, { settled = true } = {}) {
   refreshCharacters();
 }
 
-async function processSSEStream(resp, container, holder, signal, state = S) {
+async function processSSEStream(resp, container, holder, signal, state = S, seed = "") {
   // Writer tokens, the last announced rewrite, and the last cosmetic preview are
   // kept apart: only the first two are ever what the turn saves.
   let fullResponse = "",
@@ -570,6 +570,7 @@ async function processSSEStream(resp, container, holder, signal, state = S) {
     state.reasoningUserOverride = false; // true when user has manually clicked a dot
   };
   resetSpeakerTurnState();
+  fullResponse = seed;
   // Reset once per exchange; later speakers reuse its result.
   state.lastDecisions = null;
 
@@ -924,7 +925,7 @@ export function turnPayload() {
 export async function runStreamRequest(
   path,
   body,
-  { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
+  { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null, continueFrom = null } = {},
 ) {
   const state = conversationState(S.activeConvId);
   cancelExpressionPlayback();
@@ -954,11 +955,17 @@ export async function runStreamRequest(
   const ct = $("chat-messages");
   const holder = { el: null };
   op.holder = holder;
-  if (state.groupCast) {
+  // A continued reply grows in place: its bubble starts from the saved text and keeps its speaker.
+  op.continued = !!continueFrom;
+  const seed = continueFrom?.content || "";
+  if (state.groupCast && !continueFrom) {
     state.currentExchangeId = "pending";
     state.completedExchangeMessageIds = [];
   } else {
-    holder.el = createStreamingDiv();
+    holder.el = continueFrom?.speaker_member_id
+      ? createStreamingDiv(speakerLabel(continueFrom), continueFrom.speaker_member_id)
+      : createStreamingDiv();
+    if (seed) holder.el.querySelector(".msg-body").innerHTML = renderMessageHtml(streamingDisplaySource(seed));
     if (!streamingHidden()) ct.appendChild(holder.el);
     if (cutoffMsgId != null || anchorStream) pinStreamingMessage(holder.el);
     else scrollToBottom();
@@ -980,7 +987,7 @@ export async function runStreamRequest(
       };
       if (!state.turnError.headline) state.turnError.headline = `Orb returned HTTP ${resp.status}.`;
     } else {
-      await processSSEStream(resp, ct, holder, op.signal, state);
+      await processSSEStream(resp, ct, holder, op.signal, state, seed);
     }
   } catch (e) {
     // An AbortError is this operation dropping its own connection (a Stop the
@@ -1020,6 +1027,19 @@ async function speakAsMember(memberId) {
 
 document.addEventListener("group-speak-request", (event) => speakAsMember(event.detail || S.pinnedSpeakerId));
 
+// Text mode only: a chat endpoint cannot be handed an open reply to finish.
+function writerTextMode() {
+  return S.endpoints.find((e) => e.id === S.activeEndpointId)?.completion_mode === "text";
+}
+
+function continueReply(msg) {
+  return runStreamRequest(
+    convUrl(S.activeConvId, "messages", msg.id, "continue"),
+    {},
+    { cutoffMsgId: msg.id, continueFrom: msg },
+  );
+}
+
 export async function sendMessage() {
   if (!S.activeConvId || !canStartGeneration()) return;
 
@@ -1027,6 +1047,10 @@ export async function sendMessage() {
   const content = inp.value.trim();
 
   const lastMsg = S.messages[S.messages.length - 1];
+  if (!content && lastMsg?.role === "assistant" && lastMsg.id && writerTextMode()) {
+    await continueReply(lastMsg);
+    return;
+  }
   if (lastMsg?.role === "user" && lastMsg.id) {
     if (content) {
       toast(unansweredHint());

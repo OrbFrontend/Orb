@@ -75,6 +75,16 @@ class MessageSubjectsRow(TypedDict):
     probs: dict[str, list[float]]
 
 
+class ReplyPromptRow(TypedDict):
+    """A ``reply_prompts`` row: the raw prompt and generated head behind a chat's latest reply."""
+
+    conversation_id: str
+    message_id: int
+    model: str
+    prompt: str
+    head: str
+
+
 class SlopReplyRow(TypedDict):
     """A model reply as the suggestion miner reads it. ``character_key`` is the
     speaking group member's card or name, else the conversation's card, name, or

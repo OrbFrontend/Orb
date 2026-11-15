@@ -33,6 +33,7 @@ from ...database.models import ConversationRow
 from ...features import autocomplete
 from ...inference import AbortToken, local_ml, until_aborted
 from ...pipeline import (
+    handle_continue_reply,
     handle_fork_edit,
     handle_magic_rewrite,
     handle_regenerate,
@@ -275,6 +276,17 @@ async def _stream_prose_rewrite_message(
             "warning": warning,
         },
     }
+
+
+@router.post("/api/conversations/{cid}/messages/{msg_id}/continue")
+async def api_continue_reply(
+    cid: str,
+    msg_id: int,
+    request: Request,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """Stream the rest of the latest reply after its saved text, in text mode only."""
+    return pipeline_sse_response(lambda tok: handle_continue_reply(cid, msg_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/prose-rewrite")

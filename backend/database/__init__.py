@@ -179,6 +179,7 @@ from .queries.phrase_bank import (
     get_phrase_bank_rows,
     update_phrase_group,
 )
+from .queries.reply_prompts import get_reply_prompt, set_reply_prompt
 from .queries.settings import (
     get_card_source_auth,
     get_settings,

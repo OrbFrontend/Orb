@@ -9,7 +9,7 @@ from typing import Any, TypedDict
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
 from ..core.llm_types import ParsedToolCall
 from ..database.models import DirectorStateRow, GenerationTimingRow
-from ..inference import CachedBase, LLMClient
+from ..inference import CachedBase, LLMClient, TextCallRecord
 from ..prompting.lorebook import compute_agentic_lorebook_block
 from .passes.editor.length_guard import LengthGuard
 
@@ -97,6 +97,7 @@ class TurnResultData(TypedDict):
     staged_message_state: dict
     macro_choices: dict[str, str]
     world_proposals: list[dict]
+    writer_call: TextCallRecord | None
 
 
 # Fields copied from the shared Director result to each group speaker.
@@ -171,6 +172,8 @@ class TurnState:
     # reply. ``writer_draft`` is the legacy persistence/API name for this source.
     writer_draft: str = ""
     writer_content: str | list[ContentPart] = ""
+    # What the Writer's text-mode call sent and streamed back, for Continue.
+    writer_call: TextCallRecord | None = None
     reasoning_director: str = ""
     reasoning_writer: str = ""
     reasoning_editor: str = ""
@@ -237,6 +240,7 @@ class TurnState:
             "staged_message_state": self.staged_message_state,
             "macro_choices": self.macro_choices,
             "world_proposals": self.world_proposals,
+            "writer_call": self.writer_call,
         }
 
     def as_director_output(self) -> dict:

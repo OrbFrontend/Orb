@@ -311,9 +311,12 @@ the feature, and preserve specialized terminal events their callers rely on.
 
 ## Routes using the stream
 
-`/send`, `/continue`, regenerate, fork-edit, super-regenerate, and Magic Rewrite
-all use the same SSE wrapper and event vocabulary. This keeps one frontend
-dispatcher responsible for generated turns.
+`/send`, `/continue`, regenerate, fork-edit, super-regenerate, Magic Rewrite,
+and `/messages/{id}/continue` all use the same SSE wrapper and event vocabulary.
+`/messages/{id}/continue` sends only `step_start`, `token`, and a terminal event.
+It grows the reply it names rather than saving a new one, so the browser seeds
+that reply's bubble with its saved text and repaints it from the refetch. This
+keeps one frontend dispatcher responsible for generated turns.
 
 `/prose-rewrite` is the exception. It rewrites an already-saved assistant row
 without creating a message or branch, then passes the result through Format

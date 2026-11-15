@@ -409,7 +409,7 @@ class LLMClient:
         b = self.base_url
         return b[:-3] if b.endswith("/v1") else b
 
-    def _uses_text_transport(self, messages: Sequence[Mapping[str, Any]]) -> bool:
+    def uses_text_transport(self, messages: Sequence[Mapping[str, Any]]) -> bool:
         """Return the transport branch :meth:`complete` will initially use."""
         return self.completion_mode == "text" and not text_completion.has_image_parts(messages)
 
@@ -429,7 +429,7 @@ class LLMClient:
         Text transport omits schemas unless images force chat fallback. Provider
         templates may still narrow or omit supplied schemas.
         """
-        if self._uses_text_transport(messages):
+        if self.uses_text_transport(messages):
             return False
         _, sends_schemas = self._chat_tool_policy(model, tools_in_prompt=tools_in_prompt)
         return sends_schemas
@@ -445,7 +445,7 @@ class LLMClient:
         """Stream one completion and yield deltas followed by the assembled message."""
         # Transport choice and chat-only param scrubbing happen once, outside the
         # retry loop; each attempt re-opens a fresh stream from the same inputs.
-        if self._uses_text_transport(messages):
+        if self.uses_text_transport(messages):
             transport = self._complete_text
         else:
             # Chat transport: prefill (no render step) and raw GBNF grammar are text-mode concepts; drop them so such calls
@@ -458,6 +458,8 @@ class LLMClient:
             params.pop("reasoning_prefill", None)
             # The server renders the chat template, so the lane's thinking render is text mode's alone.
             params.pop("template_thinking", None)
+            params.pop("prefill_thinking", None)
+            params.pop("text_record", None)
             # n_probs is a llama.cpp /completion field; a text->chat fallback (e.g. a
             # call carrying image parts) must not leak it into the OpenAI-compat body.
             params.pop("n_probs", None)
@@ -975,8 +977,13 @@ class LLMClient:
         fmt: rf.ReasoningFormat | None,
         template_thinking: bool,
         preserve: bool = False,
+        prefill_thinking: bool | None = None,
     ) -> str:
-        """:meth:`render_prompt` without the GPU lease, for the text transport's own call inside its lease."""
+        """:meth:`render_prompt` without the GPU lease, for the text transport's own call inside its lease.
+
+        *prefill_thinking* renders a prefilled call with that thinking flag, so it keeps the lane's first bytes; None leaves the
+        template's default.
+        """
         close_thought = template_thinking and not reasoning and not prefill
         reasoning = reasoning or close_thought
         server_root = self.server_root()
@@ -984,7 +991,10 @@ class LLMClient:
         if prefill:
             render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
         ctk: dict[str, Any] | None = None
-        if not prefill:
+        if prefill:
+            if prefill_thinking is not None:
+                ctk = {"enable_thinking": prefill_thinking, "thinking": prefill_thinking}
+        else:
             ctk = {"enable_thinking": reasoning, "thinking": reasoning}
             if preserve and reasoning:
                 ctk.update(preserve_thinking=True, clear_thinking=False)
@@ -1031,6 +1041,8 @@ class LLMClient:
         # same llama.cpp server, which reuses its slot prefix without markers.
         params.pop("cache_prefix_len", None)
         template_thinking = bool(params.pop("template_thinking", False))
+        prefill_thinking = params.pop("prefill_thinking", None)
+        record: text_completion.TextCallRecord | None = params.pop("text_record", None)
         server_root = self.server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         sent_kwargs = params.get("chat_template_kwargs")
@@ -1046,6 +1058,7 @@ class LLMClient:
                 fmt=fmt,
                 template_thinking=template_thinking,
                 preserve=preserve,
+                prefill_thinking=prefill_thinking,
             )
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
@@ -1073,6 +1086,8 @@ class LLMClient:
         )
         prompt, rprefill = prepared.text, prepared.reasoning_prefill
 
+        if record is not None:
+            record.reset(prompt)
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
         body["stream"] = True
@@ -1114,6 +1129,8 @@ class LLMClient:
                 usage, finish_reason = text_completion.terminal_state(data)
             delta = data.get("content") or ""
             if delta:
+                if record is not None:
+                    record.raw.append(delta)
                 if forced_name is not None:
                     # Forced call: buffer as arguments, emit no content deltas (mirrors chat mode, where args stream as
                     # tool_calls deltas the pipeline doesn't surface).
@@ -1124,6 +1141,8 @@ class LLMClient:
                         if kind == "reasoning":
                             yield {"type": "reasoning", "delta": text}
                         else:
+                            if record is not None:
+                                record.content.append(text)
                             yield {"type": "content", "delta": text}
             # Per-token alternatives ride a separate channel (Document mode's token-swap steering); never for a forced tool
             # call, whose output is buffered as arguments rather than surfaced as content.
@@ -1142,6 +1161,8 @@ class LLMClient:
                 if kind == "reasoning":
                     yield {"type": "reasoning", "delta": text}
                 else:
+                    if record is not None:
+                        record.content.append(text)
                     yield {"type": "content", "delta": text}
             message = _text_message(content_parts, reasoning_parts)
         if finish_reason:

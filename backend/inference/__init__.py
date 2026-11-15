@@ -55,4 +55,4 @@ from .jev import (
 )
 from .kv_tracker import KVCacheTracker
 from .retry import RetryPolicy
-from .text_completion import has_image_parts
+from .text_completion import TextCallRecord, has_image_parts

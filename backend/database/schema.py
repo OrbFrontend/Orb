@@ -455,6 +455,18 @@ CREATE TABLE IF NOT EXISTS message_subjects (
     probs TEXT NOT NULL
 );
 
+-- The raw text-mode Writer prompt behind a chat's latest generated reply, and the bytes generated before its text (the thought
+-- and its tags), so Continue resends them byte for byte to the model that rendered them. One row per chat.
+CREATE TABLE IF NOT EXISTS reply_prompts (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    head TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reply_prompts_message ON reply_prompts(message_id);
+
 CREATE TABLE IF NOT EXISTS dataset_meta (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     epoch TEXT NOT NULL

@@ -5,6 +5,7 @@ from __future__ import annotations
 from .context import resolve_card_and_persona, resolve_judge_config
 from .context_size import estimate_context_size
 from .entrypoints import (
+    handle_continue_reply,
     handle_fork_edit,
     handle_magic_rewrite,
     handle_regenerate,

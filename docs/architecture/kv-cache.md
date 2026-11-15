@@ -341,6 +341,29 @@ over the server's default. On Gemma 4 31B a thinking follow-up re-read 235–306
 tokens with them and 462–1,071 without. Toggling Think still moves the first
 bytes, as above.
 
+## Continue resends the Writer's bytes
+
+In text mode, Send with an empty box on the latest reply continues that reply
+in place. Each text-mode Writer call records the exact `/completion` prompt and
+the raw bytes it generated before the reply text: the thought and its channel
+tags, or nothing when reasoning was off. The latest reply's record is kept in
+`reply_prompts`, one row per chat, with the model that rendered it. Continue
+sends that prompt, that head, and
+the reply's saved text, with trailing spaces trimmed, to `/completion`, so the
+request is the original Writer request extended by the reply. The model picks
+up mid-turn with the Writer's own lore, direction, and thought in front of it.
+Nothing else runs: no Judge, Director, Editor, or workflow hook.
+
+Editing or rewriting any other message in the chat drops the record, since the
+stored prompt quotes that message as it was.
+
+A reply without a record (a greeting, a reply written in chat mode, one another
+model wrote, or one whose history changed since) rides the conversation's own
+prefix with the reply as an open assistant turn. That render uses the lane's
+thinking flag, so its first bytes match the lane's other calls. The prompt it
+sent before the reply becomes the reply's record, so later continues on it send
+the same bytes.
+
 ## Providers that cache only where asked
 
 llama.cpp, DeepSeek, OpenAI, and most routed open models reuse any matching
