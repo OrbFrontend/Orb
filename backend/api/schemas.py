@@ -646,6 +646,19 @@ class CharacterCardCreate(BaseModel):
     extensions: dict | None = None
 
 
+class AvatarFocusUpdate(BaseModel):
+    """A thumbnail crop as ``[left, top, right, bottom]`` in fractions of the avatar."""
+
+    focus: list[float]
+
+    @field_validator("focus")
+    @classmethod
+    def validate_focus(cls, v):
+        if len(v) != 4 or not all(0.0 <= x <= 1.0 for x in v) or v[2] <= v[0] or v[3] <= v[1]:
+            raise ValueError("focus must be [left, top, right, bottom] within the image")
+        return v
+
+
 class CharacterCardUpdate(BaseModel):
     name: str | None = None
     description: str | None = None

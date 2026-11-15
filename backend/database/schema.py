@@ -149,6 +149,14 @@ CREATE TABLE IF NOT EXISTS character_expressions (
     PRIMARY KEY (character_card_id, label)
 );
 
+-- Where a card's avatar thumbnail crops, as JSON [left, top, right, bottom] in fractions of the image; '' crops the centre.
+-- stamp is 'manual' for a box the user set, else the detector revision and card updated_at the box was found for.
+CREATE TABLE IF NOT EXISTS character_avatar_focus (
+    character_card_id TEXT PRIMARY KEY REFERENCES character_cards(id) ON DELETE CASCADE,
+    focus TEXT NOT NULL DEFAULT '',
+    stamp TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS group_members (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

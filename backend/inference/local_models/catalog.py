@@ -301,6 +301,16 @@ MODELS: dict[str, ModelSpec] = {
         runtime="onnx",
         sha256="806696c599cc58694e5251873b8db11c618288638e28bd0d81e039a0d65532fe",
     ),
+    # YOLOv8-nano head detector for anime and photo portraits; avatar thumbnails crop to what it finds.
+    "head_detector": ModelSpec(
+        repo_id="deepghs/anime_head_detection",
+        filename="head_detect_v2.0_n/model.onnx",
+        local_filename="head-detect-v2.0-n.onnx",
+        size_mb=12,
+        revision="06604feee81983792a57c21081e539c0ae229833",
+        runtime="onnx",
+        sha256="69b069d15c9b97e0d7e6db33ac1c3fd480b1be67b078922c29beacfac81ad9ac",
+    ),
     # Whisper small ONNX encoder, decoder, vocabulary, and generation config.
     "speech_recognizer": ModelSpec(
         repo_id=_WHISPER_REPO,

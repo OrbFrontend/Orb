@@ -351,6 +351,7 @@ SIGNATURE_TABLES = frozenset(
     {
         "character_cards",
         "character_expressions",
+        "character_avatar_focus",
         "library_tags",
         "user_personas",
         "conversations",
@@ -413,6 +414,10 @@ def _signature(path: str) -> dict:
             "character_expressions": q(
                 "SELECT cc.name, ce.label, ce.mime FROM character_expressions ce "
                 "JOIN character_cards cc ON ce.character_card_id = cc.id"
+            ),
+            "character_avatar_focus": q(
+                "SELECT cc.name, f.focus, f.stamp FROM character_avatar_focus f "
+                "JOIN character_cards cc ON f.character_card_id = cc.id"
             ),
             "conversations": q("SELECT id, title FROM conversations"),
             "conversation_worlds": q("SELECT conversation_id, world_id, enabled FROM conversation_worlds"),
@@ -503,7 +508,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     await client.post(f"/api/worlds/{w1}/entries", json={"name": "Lore B", "content": "beta"})
     linked = await client.create("/api/characters", json={"name": "Linked"})
     await client.put(f"/api/characters/{linked}", json={"world_id": w1})
-    locked = await client.create("/api/characters", json={"name": "Locked"})
+    locked = await client.create("/api/characters", json={"name": "Locked", "avatar_b64": "eA==", "avatar_mime": "image/png"})
+    await client.put(f"/api/characters/{locked}/avatar/focus", json={"focus": [0.1, 0.0, 0.6, 0.5]})
     await client.put(f"/api/characters/{locked}", json={"persona_lock_id": p1})
     from backend.database import set_workflow_character_state
     from backend.workflows.tts.synth import WORKFLOW_ID, normalize_profile

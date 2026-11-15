@@ -14,7 +14,7 @@ export function avatarBustQuery(cardId) {
 
 /** The conversation header's avatar for a card; clicking it opens the larger avatar popup. */
 export function chatHeaderAvatarHtml(cardId) {
-  return avatarCell(`${avatarUrl(cardId)}${avatarBustQuery(cardId)}`, {
+  return avatarCell(avatarUrl(cardId, avatarBustQuery(cardId)), {
     icon: CHAT_AVATAR_ICON,
     attrs: 'data-wf-action="inspector:avatarPopup" style="cursor:pointer"',
   });
@@ -95,8 +95,7 @@ export function renderCharacters() {
   }
   $("char-list").innerHTML = S.characters
     .map((c) => {
-      const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
-      const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
+      const av = avatarCell(c.has_avatar ? avatarUrl(c.id, avatarBustQuery(c.id)) : "");
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
       return `<div class="char-item${isActive ? " active" : ""}" data-wf-action="conversations:selectChar" data-char-id="${escAttr(c.id)}" data-source="recent">

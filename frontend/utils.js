@@ -1,7 +1,7 @@
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { replacePlaceholders } from "./identity_macros.js";
 import { createScrollFollow } from "./scroll_follow.js";
-import { charactersView, S } from "./state.js";
+import { charactersView, localMlReady, S } from "./state.js";
 import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
 import { localPx } from "./ui_sizing.js";
 
@@ -137,9 +137,13 @@ export function pinStreamingMessage(el) {
   if (el.isConnected) scrollChatTarget(el, "start");
 }
 
-/** A character's avatar as a small square thumbnail, for list and header surfaces. */
-export function avatarUrl(charId) {
-  return `/api/characters/${encodeURIComponent(charId)}/avatar/thumb`;
+/**
+ * A character's avatar as a small square thumbnail, for list and header surfaces. `bust` is a "?v=" query or "".
+ * The head detector changes what the thumbnail shows, so its state is part of the URL the browser caches under.
+ */
+export function avatarUrl(charId, bust = "") {
+  const snap = localMlReady("head_detector") ? `${bust ? "&" : "?"}f=1` : "";
+  return `/api/characters/${encodeURIComponent(charId)}/avatar/thumb${bust}${snap}`;
 }
 
 function personaAvatarUrl(personaId) {

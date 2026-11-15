@@ -2,7 +2,7 @@ import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { loadConversations, refreshSceneCardFragments, renderMessages, resetChatUI, stashSceneCards } from "./chat.js";
 import { createChipInput } from "./chips.js";
-import { CLOSE_ICON } from "./icons.js";
+import { CLOSE_ICON, FOCUS_ICON } from "./icons.js";
 import { mountCardScriptsEditor } from "./library_card_scripts.js";
 import {
   initCardFragments,
@@ -11,9 +11,17 @@ import {
   showCardInteractiveFragmentModal,
   showCardMoodFragmentModal,
 } from "./library_fragments.js";
-import { avatarBust, chatHeaderAvatarHtml, loadCharacters } from "./library_sidebar.js";
+import { avatarBust, avatarBustQuery, chatHeaderAvatarHtml, loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, renderWorldsSidebar } from "./lorebooks.js";
-import { closeModal, setModalCloseGuard, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
+import {
+  closeModal,
+  setModalCloseGuard,
+  showConfirmModal,
+  showCropModal,
+  showFocusModal,
+  showModal,
+  switchTab,
+} from "./modal.js";
 import { charactersView, S } from "./state.js";
 import { $, avatarCell, avatarUrl, downloadBlob, esc, escAttr, NO_AVATAR_ICON, plural, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -112,6 +120,45 @@ function triggerAvatarCrop(prefix, _cardId) {
     },
     { kind: "character", ratio: "portrait" },
   );
+}
+
+function refreshAvatarSurfaces(id) {
+  avatarBust.set(id, Date.now());
+  if (S.activeCharId === id) {
+    const av = document.getElementById("chat-avatar");
+    if (av) av.innerHTML = chatHeaderAvatarHtml(id);
+  }
+}
+
+async function editAvatarFocus(id) {
+  if (_pendingAvatar) {
+    toast("Save the new avatar first.", true);
+    return;
+  }
+  const store = async (request) => {
+    try {
+      await request();
+    } catch (e) {
+      toast(e.message, true);
+      return;
+    }
+    refreshAvatarSurfaces(id);
+    const preview = $("ce-avatar-preview");
+    if (preview) preview.innerHTML = avatarCell(avatarUrl(id, avatarBustQuery(id)));
+    await loadCharacters();
+    renderMessages();
+  };
+  try {
+    const { focus } = await api.get(`/characters/${id}/avatar/focus`);
+    showFocusModal(
+      `/api/characters/${id}/avatar${avatarBustQuery(id)}`,
+      focus,
+      (box) => store(() => api.put(`/characters/${id}/avatar/focus`, { focus: box })),
+      () => store(() => api.del(`/characters/${id}/avatar/focus`)),
+    );
+  } catch (e) {
+    toast(e.message, true);
+  }
 }
 
 function exportCharacter(id, name) {
@@ -392,8 +439,7 @@ export async function showCharEditModal(idOrData) {
     _pendingAvatar = { b64: c.avatar_b64, mime: c.avatar_mime || "image/png" };
     av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
   } else {
-    const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
-    av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
+    av = avatarCell(c.has_avatar ? avatarUrl(c.id, avatarBustQuery(c.id)) : "");
   }
 
   _pendingTags = c.tags || [];
@@ -413,8 +459,11 @@ export async function showCharEditModal(idOrData) {
   showModal(
     `
     <div class="modal-char-header">
-      <div id="ce-avatar-preview" class="char-avatar-lg" data-wf-action="library:avatarCrop" data-prefix="ce"
-           title="Click to change avatar" style="cursor:pointer">${av}</div>
+      <div class="char-avatar-edit">
+        <div id="ce-avatar-preview" class="char-avatar-lg" data-wf-action="library:avatarCrop" data-prefix="ce"
+             title="Click to change avatar" style="cursor:pointer">${av}</div>
+        ${!isNew ? `<button type="button" class="btn btn-sm avatar-focus-btn" data-wf-action="library:avatarFocus" data-char-id="${escAttr(c.id)}" title="Choose the focus for avatars">${FOCUS_ICON}Focus</button>` : ""}
+      </div>
       <div style="flex:1">
         <div class="field" style="margin-bottom:4px">
           <input id="ce-name" value="${esc(c.name)}" style="font-size:18px;font-weight:600;width:100%">
@@ -519,13 +568,7 @@ async function saveCharEdit(id, exportAfter = false) {
     else if ((S.groupCast?.members || []).some((member) => member.character_card_id === id)) {
       await refreshSceneCardFragments();
     }
-    if (avatarChanged) {
-      avatarBust.set(id, Date.now());
-      if (S.activeCharId === id) {
-        const av = document.getElementById("chat-avatar");
-        if (av) av.innerHTML = chatHeaderAvatarHtml(id);
-      }
-    }
+    if (avatarChanged) refreshAvatarSurfaces(id);
     await loadCharacters();
     renderWorldsSidebar(); // a changed World link moves the linked World to the top
     await loadConversations();
@@ -587,6 +630,7 @@ registerActions("library", {
   export: (el) => saveCharEdit(el.dataset.charId, true),
   delete: (el) => deleteCharacter(el.dataset.charId),
   avatarCrop: (el) => triggerAvatarCrop(el.dataset.prefix),
+  avatarFocus: (el) => editAvatarFocus(el.dataset.charId),
   addGreeting: (el) => addAltGreeting(el.dataset.prefix),
   removeRow: (el) => el.parentElement.remove(),
   focusTags: (el) => document.getElementById(`${el.dataset.prefix}-tag-text`)?.focus(),

@@ -179,6 +179,7 @@ const LOCAL_ML_LABELS = {
   pov_classifier: "Auto-POV",
   markup_classifier: "Markup Classifier",
   subjects_classifier: "Subject Analyzer",
+  head_detector: "Avatar Head Snap",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
@@ -187,6 +188,7 @@ const LOCAL_ML_DESCS = {
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
   subjects_classifier: "For the subject fixation audit.",
+  head_detector: "Crop avatars to the character's head.",
 };
 
 // Models with a single consumer are managed by it: Spark-TTS, ZONOS3, the speech recognizer and the vocal separator in the TTS

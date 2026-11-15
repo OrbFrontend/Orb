@@ -142,6 +142,91 @@ async def test_avatar_thumbnail_is_small_square_and_versioned_by_the_card(client
     assert (await client.get(f"/api/characters/{bare.json()['id']}/avatar/thumb")).status_code == 404
 
 
+def _split_png_b64() -> str:
+    """600x900: red top third, blue below."""
+    image = Image.new("RGB", (600, 900), (40, 40, 200))
+    image.paste((200, 40, 40), (0, 0, 600, 300))
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _thumb_is_red(content: bytes) -> bool:
+    r, _, b = Image.open(io.BytesIO(content)).convert("RGB").getpixel((96, 96))
+    return r > b
+
+
+async def test_avatar_thumbnail_crops_to_the_users_focus_until_the_avatar_changes(client, db):
+    card_id = await client.create(
+        "/api/characters", json={"name": "Split", "avatar_b64": _split_png_b64(), "avatar_mime": "image/png"}
+    )
+    centered = await client.get_checked(f"/api/characters/{card_id}/avatar/thumb")
+    assert not _thumb_is_red(centered.content)
+
+    focus = [0.25, 0.0, 0.75, 1 / 3]
+    await client.put(f"/api/characters/{card_id}/avatar/focus", json={"focus": focus})
+    focused = await client.get_checked(
+        f"/api/characters/{card_id}/avatar/thumb", headers={"If-None-Match": centered.headers["etag"]}
+    )
+    assert _thumb_is_red(focused.content)
+    assert (await client.get_json(f"/api/characters/{card_id}/avatar/focus"))["manual"] is True
+    # Editing the card's text keeps the focus; a new avatar drops it.
+    await client.put(f"/api/characters/{card_id}", json={"description": "edited"})
+    assert _thumb_is_red((await client.get_checked(f"/api/characters/{card_id}/avatar/thumb")).content)
+    await client.put(f"/api/characters/{card_id}", json={"avatar_b64": _split_png_b64(), "avatar_mime": "image/png"})
+    assert not _thumb_is_red((await client.get_checked(f"/api/characters/{card_id}/avatar/thumb")).content)
+
+    await client.put_checked(f"/api/characters/{card_id}/avatar/focus", json={"focus": [0.5, 0, 0.2, 1]}, expected_status=422)
+
+
+async def test_avatar_thumbnail_snaps_to_a_detected_head(client, db, monkeypatch):
+    from backend.features.cards import avatar_focus
+    from backend.inference.local_models.head_detector import Head
+
+    calls = []
+
+    def heads(image):
+        calls.append(image.size)
+        return [Head(left=200, top=50, right=400, bottom=250, score=0.9)]
+
+    monkeypatch.setattr(avatar_focus.head_detector, "ready", lambda: (True, ""))
+    monkeypatch.setattr(avatar_focus.head_detector, "heads", heads)
+    card_id = await client.create(
+        "/api/characters", json={"name": "Split", "avatar_b64": _split_png_b64(), "avatar_mime": "image/png"}
+    )
+    snapped = await client.get_checked(f"/api/characters/{card_id}/avatar/thumb")
+    assert _thumb_is_red(snapped.content)
+    # The stored box serves later requests without detecting again.
+    assert _thumb_is_red((await client.get_checked(f"/api/characters/{card_id}/avatar/thumb")).content)
+    assert calls == [(600, 900)]
+
+    # Switched off, thumbnails return to the center crop.
+    await client.post_json("/api/local-ml/head_detector/enabled", json={"enabled": False})
+    assert not _thumb_is_red((await client.get_checked(f"/api/characters/{card_id}/avatar/thumb")).content)
+
+
+def test_focus_square_frames_one_head_and_keeps_a_group_together():
+    from backend.features.cards.avatar_focus import focus_square
+    from backend.inference.local_models.head_detector import Head
+
+    main = Head(left=200, top=100, right=400, bottom=300, score=0.9)
+    bystander = Head(left=20, top=600, right=80, bottom=660, score=0.8)
+    solo = focus_square(600, 900, [main, bystander])
+    assert solo is not None
+    left, top, right, bottom = solo
+    assert left * 600 < 200 and right * 600 > 400 and top * 900 < 100 and bottom * 900 < 450
+
+    partner = Head(left=380, top=420, right=560, bottom=600, score=0.85)
+    pair = focus_square(600, 900, [main, partner])
+    assert pair is not None
+    assert pair[1] * 900 <= 100 and pair[3] * 900 >= 600
+
+    # A tiny head is not enlarged past the thumbnail's resolution.
+    tiny = focus_square(600, 900, [Head(left=290, top=290, right=310, bottom=310, score=0.9)])
+    assert tiny is not None and (tiny[2] - tiny[0]) * 600 >= 160
+    assert focus_square(600, 900, []) is None
+
+
 async def test_list_characters_omits_heavy_text_fields(client, db):
     await client.post(
         "/api/characters", json={"name": "Heavy", "description": "x" * 100, "first_mes": "y" * 100, "scenario": "z" * 100}
