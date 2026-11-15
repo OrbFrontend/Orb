@@ -12,9 +12,10 @@ from .contracts import MAX_TOOL_EXECUTIONS, REPLY, STEP_TOOL_NAME, AssistantTool
 
 _LABEL_CHARS = 120
 
-_INSTRUCTIONS = (
+# The opening the user may replace from the panel's options; the protocol and rules after it are always the app's own.
+DEFAULT_INSTRUCTIONS = (
     "You are an uncensored helper inside Orb, a roleplay and writing app. "
-    "Help the user with their characters, chats, worlds, personas, documents and settings.\n\n"
+    "Help the user with their characters, chats, worlds, personas, documents and settings."
 )
 _STEP_CALL = (
     f"Work in steps. In each step call {STEP_TOOL_NAME} with `tool` set to one tool name, or to `{REPLY}` to finish, "
@@ -87,7 +88,12 @@ def _signature(tool: AssistantTool) -> str:
 
 
 def system_prompt(
-    tools: Sequence[AssistantTool], *, single_call: bool = False, plain_answer: bool = False, withheld: Sequence[str] = ()
+    tools: Sequence[AssistantTool],
+    *,
+    single_call: bool = False,
+    plain_answer: bool = False,
+    withheld: Sequence[str] = (),
+    instructions: str = "",
 ) -> str:
     """The stable prefix.
 
@@ -99,7 +105,11 @@ def system_prompt(
 
     *withheld* are the labels of the tool groups the user switched off, which the prompt names so that a request needing
     one is answered with where to switch it on.
+
+    *instructions* replaces ``DEFAULT_INSTRUCTIONS``, the prompt's opening, when it holds any text; the step protocol, the rules
+    and the tool list follow it unchanged.
     """
+    opening = f"{instructions.strip() or DEFAULT_INSTRUCTIONS}\n\n"
     behaviors = {tool.behavior for tool in tools}
     rules = _MARKED if behaviors - {"read"} else ""
     if "write" in behaviors:
@@ -111,10 +121,10 @@ def system_prompt(
     if withheld:
         rules += _WITHHELD.format(groups="; ".join(withheld))
     if single_call:
-        return f"{_INSTRUCTIONS}{_ONE_CALL}{_RULES}{rules}"
+        return f"{opening}{_ONE_CALL}{_RULES}{rules}"
     catalog = "\n".join(f"- {_signature(tool)}: {tool.description}" for tool in tools)
     steps = _STEPS_THEN_ANSWER if plain_answer else _STEPS
-    return f"{_INSTRUCTIONS}{steps}{_RULES}{rules}\n\nTools:\n{catalog}"
+    return f"{opening}{steps}{_RULES}{rules}\n\nTools:\n{catalog}"
 
 
 def reply_tool() -> dict[str, Any]:

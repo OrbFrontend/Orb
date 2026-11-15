@@ -19,6 +19,7 @@ from .contracts import (
     ViewContext,
 )
 from .loop import run_assistant, settled
+from .prompt import DEFAULT_INSTRUCTIONS
 from .session import (
     chat_moved,
     flush_transcripts,

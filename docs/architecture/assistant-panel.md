@@ -31,7 +31,7 @@ browser stores and refreshes what changed.
 | `backend/api/deletions.py` | The chat and message deletes their routes and Apply share, and the document delete, with their fences |
 | `backend/api/fragments/` | The interactive fragment write rules the fragment routes and the assistant share: type-scoped settings, defaults and the decision check |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
-| `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, and the view check |
+| `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, `GET /api/assistant/instructions`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
 | `frontend/assistant_chat.js` (layer 5) | The panel, its run, Stop, Apply, handoffs and refreshes |
 
@@ -44,7 +44,7 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 POST /api/assistant/run?operation_id=<id>
   { text, session, request_id?, edit?,
     context: {mode, conversation_id?, character_id?, document_id?, world_id?, entry_id?},
-    reasoning?, categories?, pending? }
+    pending? }
 ```
 
 `text` is the new request, at most 8,000 characters, and nothing else of the
@@ -66,8 +66,14 @@ named without a world is found in its own world.
 already sent, whose place this text takes; see
 [An edited request](#an-edited-request).
 
-`categories` names the tool groups the panel's options leave switched on; see
-[Tool groups](#tool-groups).
+The panel's options are settings the server reads at Send, not request fields:
+`assistant_reasoning` (Think), `assistant_tool_groups` (see
+[Tool groups](#tool-groups)) and `assistant_instructions`, which replaces the
+system prompt's opening (`DEFAULT_INSTRUCTIONS` in `prompt.py`, served by
+`GET /api/assistant/instructions`); empty is the default. The protocol, rules
+and tool list after the opening are not replaceable. Like the tool groups, a
+change re-reads the conversation from its start. The browser waits for its
+last options save before it sends a run.
 
 `pending` names the proposals earlier requests made that the user's cards still
 hold. The server keeps those still held and not applied, and ignores the rest;
@@ -85,7 +91,7 @@ The browser registers the run in `S.operations` with wire-style target keys
 ## The model protocol
 
 Calls go to the Agent lane, with its model and `max_tokens`. Reasoning is off
-unless the request sets `reasoning`, which the panel's Think option sends; then
+unless the `assistant_reasoning` setting, the panel's Think option, is on; then
 every call of the run thinks, its reasoning replays under the names it streamed
 (see [Reasoning can create another lane](kv-cache.md#reasoning-can-create-another-lane)), and the call asks the template to
 `preserve_thinking`, so earlier turns keep their reasoning in the rendered
@@ -295,8 +301,9 @@ switching one off removes a whole subject:
 declared without a group fails `build_tools`, so none can stay offered past the
 switches by omission.
 
-A request's `categories` lists the ids left on; without the field every group
-is offered, and an id the server does not know is ignored. Tools of a group
+The `assistant_tool_groups` setting maps a group id to whether it is on; a
+group it does not name is on, so a new group needs no migration, and an id the
+server does not know is ignored. Tools of a group
 left out are not built into the run: they appear in no schema, step enum or
 prompt list. The system prompt then names the groups switched off, so the model
 answers a request that needs one by saying where to switch it on. A
@@ -726,9 +733,7 @@ Each chat lives in `localStorage` under `orb-assistant-chat:<character>`: its
 session id and its transcript of at most 100 entries; the 32 most recently
 stored are kept, and an empty chat is not stored. Whether the panel is open is
 under `orb-assistant-open`, which is
-restored at load on the wide layout only, the Think option under
-`orb-assistant-think`, and the ids of the tool groups switched off under
-`orb-assistant-tools-off`. Loading validates every entry from its
+restored at load on the wide layout only. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
 leaves the assistant working from memory. What is stored is user text, answers,
 tool summaries and ids, and each proposed edit's labels, lengths and state,
@@ -774,7 +779,8 @@ next request is about (with the lorebook drawer's world or entry after it, while
 the drawer is open) sits under it, and the corner
 button sends, or stops while a run goes. The gear in the panel's head opens the
 options between the head and the log: Think, then a rule, then one switch for
-each [tool group](#tool-groups). The gear is marked while Think is on or a
+each [tool group](#tool-groups), then the system prompt's opening with Reset, saved to the
+`assistant_instructions` setting when the box loses focus. The gear is marked while Think is on or a
 group is off, and an option applies from the next request. An empty transcript offers a few requests suited to the view;
 picking one fills the input and sends nothing. Each request captures its view at Send; changing
 view affects the next request, not a running one. The transcript shows a separator where the view changes,

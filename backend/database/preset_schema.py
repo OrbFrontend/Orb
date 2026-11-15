@@ -51,6 +51,7 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("settings", "system_prompt"): "",
     ("settings", "shared_system_prompt"): "",
     ("settings", "agent_shared_system_prompt"): "",
+    ("settings", "assistant_instructions"): "",
     ("endpoints", "api_key"): "",
     ("endpoints", "proxy"): "",
     # Free-form and user-supplied, so its contents are unknown and may be sensitive; declared secret alongside endpoints.proxy.

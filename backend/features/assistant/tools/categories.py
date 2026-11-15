@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ..contracts import AssistantTool
@@ -119,21 +119,17 @@ CATEGORIES: tuple[ToolCategory, ...] = (
 _CATEGORY_OF = {name: category.id for category in CATEGORIES for name in category.tools}
 
 
-def offered(tools: Sequence[AssistantTool], categories: Collection[str] | None) -> list[AssistantTool]:
-    """The tools of *tools* in the groups *categories* names, in their order; ``None`` is every group.
+def offered(tools: Sequence[AssistantTool], switches: Mapping[str, bool]) -> list[AssistantTool]:
+    """The tools of *tools* in the groups *switches* leaves on, in their order; a group it does not name is on.
 
     A tool in no group is a declaration error: it would stay offered whatever the user switched off.
     """
     for tool in tools:
         if tool.name not in ALWAYS_OFFERED and tool.name not in _CATEGORY_OF:
             raise LookupError(f"Assistant tool {tool.name} is in no category")
-    if categories is None:
-        return list(tools)
-    return [tool for tool in tools if tool.name in ALWAYS_OFFERED or _CATEGORY_OF[tool.name] in categories]
+    return [tool for tool in tools if tool.name in ALWAYS_OFFERED or switches.get(_CATEGORY_OF[tool.name], True)]
 
 
-def withheld_labels(categories: Collection[str] | None) -> list[str]:
-    """The labels of the groups *categories* leaves out, for the prompt to name."""
-    if categories is None:
-        return []
-    return [category.label for category in CATEGORIES if category.id not in categories]
+def withheld_labels(switches: Mapping[str, bool]) -> list[str]:
+    """The labels of the groups *switches* turns off, for the prompt to name."""
+    return [category.label for category in CATEGORIES if not switches.get(category.id, True)]

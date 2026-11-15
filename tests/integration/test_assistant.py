@@ -205,6 +205,24 @@ async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments
     assert replayed["name"] == "read_messages" and json.loads(replayed["arguments"]) == {"count": 2}
 
 
+async def test_custom_instructions_replace_only_the_system_prompts_opening(client, library, monkeypatch):
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs)
+        yield _reply("Hi.")
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    default = (await client.get_json("/api/assistant/instructions"))["default"]
+    await client.put_checked("/api/settings", json={"assistant_instructions": "  Be terse.  "})
+    await client.post_checked(RUN, json=_body())
+    await client.put_checked("/api/settings", json={"assistant_instructions": " "})
+    await client.post_checked(RUN, json=_body())
+    custom, blank = (call["messages"][0]["content"] for call in calls)
+    assert custom.startswith("Be terse.\n\n") and default not in custom
+    assert blank.startswith(default) and custom.split("\n\n", 1)[1] == blank.split("\n\n", 1)[1]
+
+
 async def test_a_model_that_repeats_one_call_is_stopped_before_the_third_runs(client, library, monkeypatch):
     calls = []
 
@@ -1112,8 +1130,10 @@ async def test_a_request_offers_only_the_tool_groups_left_on_and_the_prompt_name
         yield _step("reply", "") if len(calls) == 1 else {"type": "done", "message": {"content": "Done."}}
 
     monkeypatch.setattr(LLMClient, "complete", complete)
-    body = {**_body(), "categories": ["characters", "a-group-from-a-newer-page"]}
-    events = frames(await client.post_checked(RUN, json=body))
+    # Only the groups switched off are stored; an id the server does not know is ignored.
+    switches = {category.id: False for category in CATEGORIES if category.id != "characters"} | {"retired-group": False}
+    await client.put_checked("/api/settings", json={"assistant_tool_groups": switches})
+    events = frames(await client.post_checked(RUN, json=_body()))
     assert events[-1][0] == "done"
     offered = set(calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"])
     # What is always offered, the one group left on, and nothing of a group switched off.
@@ -1122,6 +1142,7 @@ async def test_a_request_offers_only_the_tool_groups_left_on_and_the_prompt_name
     prompt = calls[0]["messages"][0]["content"]
     assert "switched these tool groups off" in prompt and "Fragments" in prompt and "Characters and personas" not in prompt
 
+    await client.put_checked("/api/settings", json={"assistant_tool_groups": {}})
     # Every tool the table names is one that exists; the media tools need a run, and are built with one elsewhere.
     grouped = {name for category in CATEGORIES if category.id != "media" for name in category.tools}
     assert grouped < {tool.name for tool in await _tools_for_library()}

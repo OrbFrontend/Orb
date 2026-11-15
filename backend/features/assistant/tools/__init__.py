@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 
 from ....core.settings import Settings
 from ..contracts import AssistantTool, ViewContext
@@ -49,13 +49,12 @@ def build_tools(
     *,
     media: MediaRun | None = None,
     held: Sequence[Proposal] = (),
-    categories: Collection[str] | None = None,
 ) -> list[AssistantTool]:
     """The assistant's tools, in their stable order, bound to the view the request was sent from and to *host*.
 
     *media* links the media tools to the run's Stop and progress; without it they are left out. *held* are the proposals
-    earlier requests made that still wait for the user, which a further edit or delete of the same thing replaces. *categories* names the
-    groups the user left switched on in the panel's options, and the rest are left out; ``None`` is every group.
+    earlier requests made that still wait for the user, which a further edit or delete of the same thing replaces. The groups the
+    ``assistant_tool_groups`` setting switches off are left out.
     """
     tools = [
         *build_read_tools(settings, view, host),
@@ -67,4 +66,4 @@ def build_tools(
         *build_action_tools(view, host),
         *build_media_tools(view, media, host),
     ]
-    return offered(tools, categories)
+    return offered(tools, settings["assistant_tool_groups"])

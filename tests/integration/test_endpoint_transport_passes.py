@@ -222,7 +222,7 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
 
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "gemini"])
 async def test_assistant_picture_uses_existing_image_transport_after_its_tool_result(provider):
-    from backend.core.settings import Settings
+    from backend.database.seeds import DEFAULT_SETTINGS
     from backend.features.assistant import AssistantTool, ToolOutput, ViewContext, run_assistant
     from backend.features.assistant.contracts import NoArguments
 
@@ -255,7 +255,7 @@ async def test_assistant_picture_uses_existing_image_transport_after_its_tool_re
             async for event in run_assistant(
                 client,
                 model,
-                settings=Settings({}),
+                settings=DEFAULT_SETTINGS,
                 tools=[AssistantTool("picture", "Make a picture.", NoArguments, "write", picture)],
                 request="Make and inspect a picture.",
                 view=ViewContext("library"),

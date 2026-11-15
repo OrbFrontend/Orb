@@ -340,6 +340,9 @@ DEFAULT_SETTINGS: Settings = {
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
+    "assistant_instructions": "",
+    "assistant_reasoning": 0,
+    "assistant_tool_groups": {},
     "director_individual_fragments": 0,
     "workflows_globally_enabled": 1,
 }

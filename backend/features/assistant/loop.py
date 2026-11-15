@@ -403,7 +403,13 @@ async def run_assistant(
 
     system: ChatMessage = {
         "role": "system",
-        "content": system_prompt(tools, single_call=single_call, plain_answer=plain_answer, withheld=withheld),
+        "content": system_prompt(
+            tools,
+            single_call=single_call,
+            plain_answer=plain_answer,
+            withheld=withheld,
+            instructions=settings["assistant_instructions"],
+        ),
     }
     history: list[WireMessage] = []
     if transcript is not None:

@@ -69,6 +69,12 @@ class SettingsUpdate(_PartialUpdate):
     agent_same_as_writer: bool | None = None
     agent_endpoint_id: int | None = None
     agent_shared_system_prompt: str | None = None
+    assistant_instructions: str | None = Field(default=None, max_length=MAX_ITEM_CHARS)
+    assistant_reasoning: bool | None = None
+    # Group id -> on; a missing id is on. Ids the server does not know are kept and ignored.
+    assistant_tool_groups: dict[Annotated[str, Field(min_length=1, max_length=32)], bool] | None = Field(
+        default=None, max_length=32
+    )
     director_individual_fragments: bool | None = None
     inspector_open_states: dict | None = None
     workflows_globally_enabled: bool | None = None
@@ -987,10 +993,6 @@ class AssistantRunRequest(BaseModel):
     # where that one began, and this text takes its place.
     request_id: str | None = Field(default=None, min_length=1, max_length=64)
     edit: bool = False
-    reasoning: bool = False
-    # The tool groups the panel's options leave switched on, by id; ``None`` is every group. An id the server does not know
-    # is ignored, so a page loaded before an upgrade keeps working.
-    categories: list[Annotated[str, Field(min_length=1, max_length=32)]] | None = Field(default=None, max_length=32)
     # The proposals earlier requests made that the user's card still holds pending: the request is told of them, and a further
     # edit or delete of the same thing replaces one. Ids only; the texts are the server's.
     pending: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=32)

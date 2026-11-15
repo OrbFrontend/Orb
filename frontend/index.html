@@ -271,6 +271,8 @@ Write a haiku about the sea.&lt;|im_end|&gt;
       <label class="asst-option" title="Read and flip pipeline switches, the Length Guard and banned phrases"><span>Settings and phrase bank</span><span class="tog"><input type="checkbox" data-category="settings" checked><span class="tog-slider"></span></span></label>
       <label class="asst-option" title="Read saved documents"><span>Documents</span><span class="tog"><input type="checkbox" data-category="documents" checked><span class="tog-slider"></span></span></label>
       <label class="asst-option" title="Create pictures, illustrate a reply, generate speech"><span>Images and speech</span><span class="tog"><input type="checkbox" data-category="media" checked><span class="tog-slider"></span></span></label>
+      <div class="asst-options-label asst-prompt-head"><span>System prompt</span><button type="button" class="btn btn-xs" data-wf-action="assistant:resetInstructions">Reset</button></div>
+      <textarea class="asst-instructions" id="assistant-instructions" rows="5" maxlength="8000" spellcheck="false" aria-label="System prompt"></textarea>
     </div>
     <div class="asst-log" id="assistant-log" role="log" aria-label="Assistant conversation"></div>
     <div class="asst-status" id="assistant-status" role="status"></div>

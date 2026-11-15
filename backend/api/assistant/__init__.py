@@ -5,7 +5,7 @@ The tools, the proposal store and the model loop are ``features.assistant``; thi
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from ...core.settings import Settings
@@ -51,9 +51,8 @@ def build_tools(
     *,
     media: MediaRun | None = None,
     held: Sequence[Proposal] = (),
-    categories: Collection[str] | None = None,
 ) -> list[AssistantTool]:
-    return tools.build_tools(settings, view, HOST, media=media, held=held, categories=categories)
+    return tools.build_tools(settings, view, HOST, media=media, held=held)
 
 
 async def apply_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
