@@ -174,6 +174,8 @@ class StandaloneCtx:
     character: Mapping[str, Any] | None = None
     phase: Callable[[str], None] = lambda _label: None
     reference: StandaloneReference | None = None
+    # The workflow's own style id; empty: its default style.
+    style_id: str = ""
 
 
 @dataclass(frozen=True)

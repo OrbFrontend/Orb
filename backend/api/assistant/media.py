@@ -22,10 +22,11 @@ from typing import Any
 from fastapi import HTTPException
 
 from ...database import get_character_card, get_settings
-from ...features.assistant.tools import CreatedImage, HostRefusal, MediaOutcome, MediaRun
+from ...features.assistant.tools import CreatedImage, HostRefusal, ImageStyles, MediaOutcome, MediaRun
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...workflows import (
     HookType,
+    QueryCtx,
     StandaloneCtx,
     StandaloneReference,
     WorkflowEventStream,
@@ -168,7 +169,28 @@ def standalone_available() -> bool:
     return get_workflow(_IMAGE_WORKFLOW) is not None and get_subscription(_IMAGE_WORKFLOW, HookType.STANDALONE) is not None
 
 
-async def create_image(description: str, character_id: str | None, reference_image_id: str, run: MediaRun) -> CreatedImage:
+async def image_styles() -> ImageStyles:
+    """What the image workflow's ``styles`` query reports, as the settings form lists them."""
+    sub = get_subscription(_IMAGE_WORKFLOW, HookType.QUERY)
+    if sub is None:
+        raise HostRefusal("Image Generation lists no styles; leave style_id empty for its default style.")
+    try:
+        result = await sub.callable(QueryCtx(settings=readonly_view(await get_settings())), {"action": "styles"})
+    except Exception:
+        logger.exception("Assistant image style listing failed")
+        raise HostRefusal("The image styles could not be read; the server log has the details.") from None
+    raw, default = result.get("styles"), result.get("default_style")
+    labels = {
+        style["id"]: str(style.get("label") or style["id"])
+        for style in (raw if isinstance(raw, list) else ())
+        if isinstance(style, Mapping) and isinstance(style.get("id"), str) and style["id"]
+    }
+    return ImageStyles(labels, default if isinstance(default, str) else "")
+
+
+async def create_image(
+    description: str, character_id: str | None, reference_image_id: str, style_id: str, run: MediaRun
+) -> CreatedImage:
     """Render under the assistant's Stop token, without a conversation-keyed workflow job or attachment.
 
     The tool has already refused a switched-off workflow, naming the switch.
@@ -198,6 +220,7 @@ async def create_image(description: str, character_id: str | None, reference_ima
             character=readonly_view(character),
             phase=lambda label: run.report(label[:_LABEL_CHARS]),
             reference=reference,
+            style_id=style_id,
         )
         task = asyncio.ensure_future(sub.callable(ctx))
         try:

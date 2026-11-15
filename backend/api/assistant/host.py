@@ -18,6 +18,7 @@ from ...features.assistant.tools import (
     ChatUnavailable,
     CreatedImage,
     HostRefusal,
+    ImageStyles,
     MediaOutcome,
     MediaRun,
     NamedWorkflow,
@@ -160,10 +161,13 @@ class ApiHost:
     def standalone_available(self) -> bool:
         return media.standalone_available()
 
+    async def image_styles(self) -> ImageStyles:
+        return await media.image_styles()
+
     async def create_image(
-        self, description: str, character_id: str | None, reference_image_id: str, run: MediaRun
+        self, description: str, character_id: str | None, reference_image_id: str, style_id: str, run: MediaRun
     ) -> CreatedImage:
-        return await media.create_image(description, character_id, reference_image_id, run)
+        return await media.create_image(description, character_id, reference_image_id, style_id, run)
 
     def message_deleting(self, message_id: int) -> bool:
         return deps.message_deleting(message_id)

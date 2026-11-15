@@ -166,6 +166,14 @@ class MediaOutcome:
 
 
 @dataclass(frozen=True)
+class ImageStyles:
+    """The image workflow's styles: each id's label in the workflow's order, and the id a render without one uses."""
+
+    labels: Mapping[str, str]
+    default: str
+
+
+@dataclass(frozen=True)
 class CreatedImage:
     """A temporary picture's id and model-facing preview, independent of its stored download bytes."""
 
@@ -184,10 +192,17 @@ class MediaJobs(Protocol):
         """Whether the image workflow is installed with a standalone render hook."""
         ...
 
+    async def image_styles(self) -> ImageStyles:
+        """The image workflow's styles; :class:`HostRefusal` when they cannot be read."""
+        ...
+
     async def create_image(
-        self, description: str, character_id: str | None, reference_image_id: str, run: MediaRun
+        self, description: str, character_id: str | None, reference_image_id: str, style_id: str, run: MediaRun
     ) -> CreatedImage:
-        """Render with an optional earlier picture and return its temporary id and preview; HostRefusal on failure or Stop."""
+        """Render with an optional earlier picture and return its temporary id and preview; HostRefusal on failure or Stop.
+
+        An empty *style_id* renders in the workflow's default style.
+        """
         ...
 
     def message_deleting(self, message_id: int) -> bool: ...

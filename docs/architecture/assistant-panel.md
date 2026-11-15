@@ -277,7 +277,7 @@ throughout.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
+| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_image_styles`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
 | write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
@@ -296,7 +296,7 @@ switching one off removes a whole subject:
 | Fragments (`fragments`) | The fragment reads, creates, setters and edits |
 | Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
 | Documents (`documents`) | `list_documents`, `read_document` |
-| Images and speech (`media`) | `create_image`, `illustrate_reply`, `generate_speech` |
+| Images and speech (`media`) | `list_image_styles`, `create_image`, `illustrate_reply`, `generate_speech` |
 | Web (`web`) | `search_web`, `read_web_page` |
 
 `read_context` and `query_library` are in no group and always offered. A tool
@@ -602,11 +602,11 @@ back. The transcript draws the opened chat as a view separator.
 
 ## Media
 
-`create_image(description, character_id?, reference_image_id?)` makes a standalone picture shown in
+`create_image(description, character_id?, reference_image_id?, style_id?)` makes a standalone picture shown in
 this panel, separate from saved RP reply illustration. The assistant reads a
 card and writes the visual description itself; an explicit optional character
 id applies its saved appearance tags and exclusions, plus its reference picture
-when the default style enables references. An
+when the rendering style enables references. An
 empty id means no character, even with a character in view. Nothing is assigned
 to a card or chat. The user saves the picture from the browser, sets it as an avatar and
 crops it themselves. `illustrate_reply` directs requests unrelated to saved
@@ -618,8 +618,8 @@ tool makes that check, and the host does not repeat it. The host builds `Standal
 a conversation or history, with the resolved Agent client and the run's Stop
 token. Its `phase(label)` reports progress on the assistant stream. Stop or a
 dropped connection cancels and awaits the hook's cleanup; this lane uses no
-conversation-keyed workflow job registry. The image plug-in uses the default
-style, one prompter call in that style's format and one render, without scene
+conversation-keyed workflow job registry. The image plug-in uses the named style, else the
+default, one prompter call in that style's format and one render, without scene
 skills, camera resolution, RP-specific prompt cleanup, or review turns. Enabled
 reference inputs draw from the supplied character, with no RP image history in scope.
 The tool bounds the description (1–8,000 characters, not blank); the hook takes it as given.
@@ -627,7 +627,7 @@ The tool bounds the description (1–8,000 characters, not blank); the hook take
 An explicit `reference_image_id` names a still-held picture from an earlier
 `create_image` result. It takes precedence over the character's reference image;
 saved appearance tags and exclusions still apply when `character_id` is also
-supplied. It enables the default style's available image inputs for this render,
+supplied. It enables the rendering style's available image inputs for this render,
 without changing its saved settings. The image's stored bytes go to those inputs;
 a style/backend with no usable image inputs refuses before composing. An expired
 id is a tool failure; it is never silently ignored.
@@ -678,6 +678,16 @@ a chat's kept branch. They are listed whenever their workflow (`image_gen`,
 off: the refusal names the switch that is off, the workflow's own or the
 `workflows` master, and says the assistant can turn it on if asked.
 
+Both image tools take an optional `style_id`; empty renders in the workflow's
+default style, as the reply's image button does. `list_image_styles`, offered
+beside either tool, reads the styles through the image workflow's `styles`
+query: each style's id and label, and the current `default_style`. The tool
+checks a named id against that list before rendering, and an unknown one fails,
+naming every style, so the model can correct it. `illustrate_reply` passes the id
+in the hook's body; `create_image` passes it in `StandaloneCtx.style_id`. The ids
+stay out of the tool schemas, so editing styles leaves the tool definitions,
+and the prefix they sit in, unchanged.
+
 `illustrate_reply` takes an optional `direction`: what the user wants this image
 to show, beside the reply it is made of. The image workflow's composer follows
 it over the reply on the moment, framing, focus, pose, mood and lighting, keeping
@@ -692,7 +702,7 @@ dispatch, enablement gate, workflow-state and character-state locks, character
 resolution, context and failure mapping as
 `POST /conversations/{cid}/workflows/{wid}/trigger`. The body is the plug-in's
 own on-demand contract (`{action, message_id}`, and for an image an optional
-`direction`), and the result is read from
+`direction` and `style_id`), and the result is read from
 what the hook returns: `attachment_id` or `error`, or a stream of
 `phase_status`, `<wid>_render`, `<wid>_error` and `<wid>_done` events. Nothing
 imports a plug-in.
