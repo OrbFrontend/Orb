@@ -283,36 +283,21 @@ REFINE_TOOL = ToolSpec(
 )
 
 
-# The instant every request freezes: the end of the reply, or the end of the excerpt the user selected from it. A reply can tell
-# many actions, and the user may want to see one moment from its middle.
+# The instant every request freezes: the end of the reply, or the end of the passage the user selected in it. The marked reply
+# ends at the selection, so the prompter never reads what the reply tells after it.
 _REPLY_INSTANT = "the final visible instant of the assistant reply"
-_EXCERPT_INSTANT = "the final visible instant of the excerpt"
+_EXCERPT_INSTANT = "the final visible instant of the passage marked >>> <<<"
 
 
-def _composer_mission(excerpted: bool) -> str:
-    where = (
-        "the excerpt of the previous assistant reply that the user selected (quoted below)"
-        if excerpted
-        else "the previous assistant reply"
-    )
-    return f"Pause the roleplay and prompt one scene for a text-to-image model. Freeze one coherent still at the final visible instant of {where}. "
+def mark_excerpt(before: str, excerpt: str) -> str:
+    """The reply as the prompter reads it when the user selected `excerpt`: the text `before` it, then the marked selection."""
+    return f"{before}>>> {excerpt} <<<"
 
 
-def _story_facts(excerpt: str) -> str:
-    """Which text is the current visible story, and which only gives continuity."""
-    if not excerpt:
-        return (
-            "Use the final assistant reply as the current visible story facts and use earlier conversation only for stable "
-            "visible continuity such as identity, the current outfit, and the setting. "
-        )
-    return (
-        f"The user selected this excerpt of the final assistant reply: “{excerpt}”. "
-        "Show the excerpt, not the end of the reply. If the excerpt tells more than one action, show its last visible action. "
-        "Use the final assistant reply up to the end of the excerpt as the current visible story facts. The actions and "
-        "changes that the reply tells after the excerpt did not occur yet at this instant: do not show them. Use the rest "
-        "of the reply and earlier conversation only for stable visible continuity such as identity, the current outfit, and "
-        "the setting. "
-    )
+_STORY_FACTS = (
+    "Use the final assistant reply as the current visible story facts and use earlier conversation only for stable "
+    "visible continuity such as identity, the current outfit, and the setting. "
+)
 
 
 def _subject_roster(subjects: Sequence[SubjectAppearance]) -> str:
@@ -450,9 +435,9 @@ def compose_ooc(
     prompter_reference: bool = False,
     prompter_reference_sent: bool = False,
     direction: str = "",
-    excerpt: str = "",
+    excerpted: bool = False,
 ) -> str:
-    """The compose request. `excerpt` is the span of the reply the user selected to show; empty shows the reply's end."""
+    """The compose request. `excerpted` says the reply ends at a passage the user marked to show."""
     guide = _format_guide(prompt_format, pov, supports_negative=supports_negative)
     profile = _profile_instruction(subjects)
     # With the other downstream facts: an edit model handed a likeness and a
@@ -463,15 +448,16 @@ def compose_ooc(
     downstream = _downstream_blocks(
         style_prompt, style_negative_prompt, profile_negative_prompt, supports_negative=supports_negative
     )
-    earlier_picture = _prompter_reference_instruction(prompter_reference_sent, bool(excerpt)) if prompter_reference else ""
+    earlier_picture = _prompter_reference_instruction(prompter_reference_sent, excerpted) if prompter_reference else ""
+    instant = _EXCERPT_INSTANT if excerpted else "the final visible instant of the previous assistant reply"
     return (
         "[OOC: "
-        + _composer_mission(bool(excerpt))
+        + f"Pause the roleplay and prompt one scene for a text-to-image model. Freeze one coherent still at {instant}. "
         + "Call compose_image_prompt for the shot. "
         + profile
         + downstream
         + reference
-        + _story_facts(excerpt)
+        + _STORY_FACTS
         + earlier_picture
         + _direction_block(direction)
         + "Resolve conflicts in this order: "
@@ -486,23 +472,15 @@ def compose_ooc(
 _SELECTOR_POV = {BACKGROUND: "background: the setting only, no person in frame, though a subject can be a place"}
 
 
-def select_skills_ooc(pov: str, subjects: Sequence[SubjectAppearance], skills: Sequence[dict], excerpt: str = "") -> str:
-    """Build the compact selector tail without appearance sheets or skill bodies.
-
-    A separate call from the compose, so it quotes the user's `excerpt` itself.
-    """
+def select_skills_ooc(pov: str, subjects: Sequence[SubjectAppearance], skills: Sequence[dict], excerpted: bool = False) -> str:
+    """Build the compact selector tail without appearance sheets or skill bodies."""
     names = [bounded(subject.name, 200) for subject in subjects if bounded(subject.name, 200)]
     roster = "\n".join(f"- {name}" for name in names) or "- none"
     catalog = "\n".join(
         f"- {bounded(skill.get('id'), 64)} | {bounded(skill.get('label'), 80)} | {bounded(skill.get('description'), 500)}"
         for skill in skills
     )
-    instant = (
-        f"{_EXCERPT_INSTANT} of the assistant reply that the user selected: “{excerpt}”. The actions that the reply tells "
-        "after the excerpt did not occur yet at this instant"
-        if excerpt
-        else _REPLY_INSTANT
-    )
+    instant = _EXCERPT_INSTANT if excerpted else _REPLY_INSTANT
     return (
         "[OOC: Pause the roleplay. Decide which image-composition skills are needed for one coherent still at "
         + instant
@@ -552,8 +530,8 @@ def refine_ooc(
     `turns_left` counts the renders still available after this review, so the model knows when a revision is its last chance.
     `prompter_reference` says the compose request carried the chat's earlier picture, so the review checks against it too.
     `directed` says it carried the user's direction for this image: the review holds the render to that first, so a departure
-    from the reply the user asked for is never corrected away. `excerpted` says it quoted the excerpt of the reply the user
-    selected, so the review checks the excerpt's instant and not the reply's end.
+    from the reply the user asked for is never corrected away. `excerpted` says the reply ends at a passage the user
+    marked, so the review checks that passage's instant.
     """
     unwanted = "Revise `unwanted` by the same rules as before." if supports_negative else _LEAVE_UNWANTED_EMPTY
     reseed = _RESEED if supports_seed else _NO_SEED

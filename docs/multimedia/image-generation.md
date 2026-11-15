@@ -161,9 +161,11 @@ after preparation. A provider may accept fewer references or refuse to use them.
 The image shows the last moment of the reply. To show an earlier moment, select
 that part of the reply first, then select the image button. The image shows the
 end of the selection, and events the reply tells after it are left out. The
-same works for **Regenerate**: select text first to draw that moment, or
-select nothing to draw the end of the reply. A selection that crosses an image
-or code block may not match the saved text; Orb then asks you to select again.
+image button stays on a reply that already has an image; each press adds a new
+take to the same image box. **Regenerate** does the same: it draws the selected
+text, or the end of the reply when nothing is selected. A selection that crosses
+an image or code block may not match the saved text; Orb then asks you to select
+again.
 
 Orb shows whether it is composing the prompt, waiting in a queue, or rendering.
 Select the image button again to cancel an active request. A submitted ComfyUI
@@ -492,7 +494,7 @@ the servers above. When it can't work, it reads **Inactive** with the reason.
 
 | Problem | Try this |
 |---|---|
-| Image button is missing | Enable the workflow and select an assistant reply without an image. |
+| Image button is missing | Enable the workflow and select an assistant reply. |
 | **Import a ComfyUI workflow** | Import and assign a workflow to the selected style. |
 | **Choose a model** | Select a model in each ComfyUI style that needs one. |
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |

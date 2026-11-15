@@ -27,6 +27,7 @@ from backend.workflows.attachment_cache import insert_workflow_variant, set_acti
 from backend.workflows.image_gen import pov
 from backend.workflows.image_gen.composer import Revision
 from backend.workflows.image_gen.engine import ImageGenerationError, ImageResult
+from backend.workflows.image_gen.prompts import mark_excerpt
 
 # Reroll/rehydrate route through the adapter, so the render seam is its `generate`.
 _COMFY_GENERATE = "backend.workflows.image_gen.engine.adapters.external_comfy.ExternalComfyAdapter.generate"
@@ -637,13 +638,24 @@ async def test_a_selected_excerpt_is_the_moment_the_prompter_is_asked_to_draw(cl
     await _trigger(client, "ig-excerpt", {"action": "generate", "message_id": mid, "excerpt": {"start": 0, "text": picked}})
 
     [compose] = [c for c in llm_mock.captured if c["pass"] == "workflow"]
-    request = compose["messages"][-1]["content"]
-    assert f"“{picked}”" in request and "after the excerpt did not occur yet" in request
+    reply = [m["content"] for m in compose["messages"] if m["role"] == "assistant"][-1]
+    assert reply.endswith(mark_excerpt("", picked)) and "umbrella" not in str(compose["messages"])
     [row] = await get_workflow_attachments_for_message(mid)
     assert json.loads(row["generation_metadata"])["excerpt"] == picked
+    refused = await _trigger(
+        client, "ig-excerpt", {"action": "generate", "message_id": mid, "excerpt": {"start": 3, "text": picked}}
+    )
+    assert refused[0][0] == "image_gen_error" and "no longer matches" in refused[0][1]["message"]
+
+    later = "Outside, she opens her umbrella"
+    llm_mock.enqueue_workflow(_compose_call())
     url = f"/api/conversations/ig-excerpt/messages/{mid}/workflow-attachments/{row['id']}/regenerate"
-    refused = await client.post_checked(url, json={"excerpt": {"start": 3, "text": picked}}, expected_status=400)
-    assert "no longer matches" in refused.json()["detail"]
+    await client.post_checked(url, json={"excerpt": {"start": content.index(later), "text": later}})
+    llm_mock.enqueue_workflow(_compose_call())
+    await _trigger(client, "ig-excerpt", {"action": "generate", "message_id": mid})
+    rows = await get_workflow_attachments_for_message(mid)
+    assert [json.loads(r["generation_metadata"]).get("excerpt") for r in rows] == [picked, later, None]
+    assert [r["parent_attachment_id"] for r in rows] == [None, row["id"], row["id"]]
 
 
 async def test_a_review_the_provider_rejects_stops_generation_and_keeps_the_render(client, llm_mock, monkeypatch):

@@ -22,6 +22,7 @@ from ..toolkit import (
     get_workflow_character_state,
     get_workflow_config,
     insert_workflow_variant,
+    message_workflow_attachment_ids,
     set_workflow_character_state,
 )
 from . import macros as macros_mod
@@ -57,7 +58,7 @@ from .engine import (
 )
 from .engine.contracts import ImageResult, ResolvedReference
 from .engine.display_encode import shrink_for_review
-from .prompts import DIRECTION_CHARS
+from .prompts import DIRECTION_CHARS, mark_excerpt
 from .references import last_reply_image, plan_slots, previous_image, refetch_references, replay_slots, resolve_references
 from .scrub import bounded
 from .subjects import Subject
@@ -158,21 +159,30 @@ def render_progress(emit: Callable[[str], None], *, reason: str = "") -> Progres
     return report
 
 
-def _excerpt(body: Mapping[str, Any], content: str) -> str:
-    """The span of `content` the user selected to show, or "" for the whole reply.
+def _excerpt(body: Mapping[str, Any], content: str) -> tuple[int, str] | None:
+    """The span of `content` the user selected to show as `(start, text)`, or None for the whole reply.
 
     The body names it as `{start, text}`: a code-point offset into the saved content and the text found there. Raises
     `WorkflowInputError` when it no longer matches, such as after an edit. A selection of the whole reply is no excerpt.
     """
     picked = body.get("excerpt")
     if picked is None:
-        return ""
+        return None
     start, text = (picked.get("start"), picked.get("text")) if isinstance(picked, Mapping) else (None, None)
     if type(start) is not int or start < 0 or not isinstance(text, str) or not text.strip():
         raise WorkflowInputError("excerpt must be {start, text}")
     if not content.startswith(text, start):
         raise WorkflowInputError("The selection no longer matches this message. Select the text again.")
-    return "" if text.strip() == content.strip() else text
+    return None if text.strip() == content.strip() else (start, text)
+
+
+def _marked(history: Sequence[Mapping[str, Any]], excerpt: tuple[int, str] | None) -> list[dict]:
+    """`history` as the prompter reads it: its last reply ends at the marked `excerpt`."""
+    shown = [dict(msg) for msg in history]
+    if excerpt is not None and shown:
+        start, text = excerpt
+        shown[-1]["content"] = mark_excerpt(str(shown[-1].get("content") or "")[:start], text)
+    return shown
 
 
 def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> list[dict]:
@@ -400,19 +410,19 @@ async def _generate_fresh(
     phase: Callable[[str], None],
     history: Sequence[Mapping[str, Any]] | None = None,
     direction: str = "",
-    excerpt: str = "",
+    excerpt: tuple[int, str] | None = None,
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
 
     `direction` is the user's own ask for this image; the composer follows it over the reply on what the shot shows. `excerpt`
-    is the span of the reply the user selected; the shot freezes its instant instead of the reply's end.
+    is the span of the reply the user selected; the prompter reads the reply cut and marked there.
 
     With refinement on, every revision is kept too, as it lands: the prompter's pick is only the last one, and the user may
     prefer an earlier render or stop the run once one is good enough. Review reasons appear only in live progress.
     """
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
-        prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
+        prefix = await build_offturn_prefix(ctx.conversation_id, _marked(history, excerpt), ctx.settings, lane="agent")
     macros = await conversation_macros(ctx.conversation_id, ctx.settings, seed="")
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     adapter = get_adapter(config, selected_style)
@@ -443,7 +453,7 @@ async def _generate_fresh(
             pov=pov,
             reasoning_on=bool(config.get("prompter_reasoning")),
             subjects=subjects,
-            excerpt=excerpt,
+            excerpted=excerpt is not None,
         )
         if config.get("scene_skills_enabled")
         else SkillSelection()
@@ -489,7 +499,7 @@ async def _generate_fresh(
             prompter_reference_url=prompter_reference_url,
             prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
             direction=direction,
-            excerpt=excerpt,
+            excerpted=excerpt is not None,
         )
     except PrompterCallError as exc:
         # Only a compose that carried the image raises; composing blind instead would
@@ -536,7 +546,7 @@ async def _generate_fresh(
             composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
             prompter_reference=prompter_reference,
             direction=direction,
-            excerpt=excerpt,
+            excerpt=excerpt[1] if excerpt else "",
         )
         consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
         if unfilled > 0:
@@ -629,7 +639,8 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
         history = _history_through(ctx.history, mid)
     except (ValueError, WorkflowInputError) as exc:
         return _failed_stream(str(exc))
-    prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
+    prefix = await build_offturn_prefix(ctx.conversation_id, _marked(history, excerpt), ctx.settings, lane="agent")
+    existing = await message_workflow_attachment_ids(mid, WORKFLOW_ID)
 
     async def stream() -> AsyncIterator[PublicEvent]:
         kept: list[int] = []
@@ -640,13 +651,14 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
             updates.put_nowait(_phase(label))
 
         async def keep(attachment: dict) -> int:
-            # The first render starts the group and each revision joins it, so the
-            # client can page through them while the run goes on.
+            # Every render joins the reply's one group, so the client can page through them while the run goes on.
             attachment["generation_metadata"] = {
                 **(attachment.get("generation_metadata") or {}),
                 "source_text": message["content"],
             }
-            new_id, rejected = await insert_workflow_variant(mid, attachment, group=kept, shown=kept[-1] if kept else None)
+            new_id, rejected = await insert_workflow_variant(
+                mid, attachment, group=[*existing, *kept], shown=kept[-1] if kept else None
+            )
             if new_id is None:
                 raise ImageGenerationError((rejected or {}).get("reason") or "attachment rejected")
             kept.append(new_id)
@@ -737,7 +749,6 @@ async def regenerate(ctx: RegenCtx, body: dict) -> list[dict]:
     if message is None or message.get("role") != "assistant":
         return []
     config, style_id, profile = await _render_inputs(ctx, body)
-    # Regenerate takes the selection the user made when they pressed it, as the reply's own button does; none draws the end.
     excerpt = _excerpt(body, message["content"] or "")
     history = tuple([*ctx.history, message])
     returned: list[dict] = []

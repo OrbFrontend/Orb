@@ -6,6 +6,7 @@ import {
   esc,
   escAttr,
   getActiveConvId,
+  getMessages,
   pressedSelection,
   refreshConversationMessages,
   registerAction,
@@ -24,8 +25,8 @@ import {
 } from "/static/workflow_api.js";
 import {
   attachmentDetailsHtml,
+  attachmentIds,
   downloadButtonHtml,
-  hasAttachment,
   messageButtonHtml,
   viewToggleHtml,
 } from "./render.js";
@@ -173,7 +174,7 @@ function clearPendingEdit(_msgId, attId) {
 export function createButtonRenderer(msg) {
   const job = inFlight.get(msg?.id);
   const stop = stopButtonState(job, "Visualize reply or the selected text");
-  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop, running: !!job });
+  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop });
 }
 
 // Closing the stream is the stop: the server cancels the render with it.
@@ -190,6 +191,7 @@ async function generate(msgId, button) {
   inFlight.set(msgId, job);
   job.show(button);
   const channel = `workflow:image_gen:generate:${msgId}`;
+  const before = new Set(attachmentIds(getMessages().find((m) => m.id === msgId)));
   try {
     setWorkflowPhase(channel, "Composing image prompt...", convId);
     const response = await streamPost(
@@ -233,19 +235,19 @@ async function generate(msgId, button) {
     if (e?.name === "AbortError") await refreshConversationMessages(null, convId);
     else {
       console.warn("image generation stream dropped; polling for the result", e);
-      if (!(await pollForAttachment(msgId, controller.signal, convId)) && !controller.signal.aborted)
+      if (!(await pollForAttachment(msgId, before, controller.signal, convId)) && !controller.signal.aborted)
         toast("Image generation failed", "error");
     }
   } finally {
     inFlight.delete(msgId);
     clearWorkflowPhase(channel, convId);
     job.end();
-    // The button outlived the first render only as this run's Stop.
+    // The button turns back from Stop.
     requestRepaint();
   }
 }
 
-async function pollForAttachment(msgId, signal, convId, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
+async function pollForAttachment(msgId, before, signal, convId, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (signal.aborted) return false;
@@ -257,7 +259,7 @@ async function pollForAttachment(msgId, signal, convId, { timeoutMs = 120_000, i
       continue; // transient; keep waiting for the render to land
     }
     const msg = msgs.find((m) => m.id === msgId);
-    if (msg && hasAttachment(msg)) {
+    if (msg && attachmentIds(msg).some((id) => !before.has(id))) {
       if (!signal.aborted) await refreshConversationMessages(msgId, convId);
       return true;
     }
