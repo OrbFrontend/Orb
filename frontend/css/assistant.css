@@ -85,9 +85,11 @@
 .asst-compose-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .asst-scope { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
   color: var(--text-muted); cursor: default; }
+/* Options and Clear are one pair of framed buttons; open reads as pressed. */
+.asst-head-btn { --ui-icon-size: 13px; height: 24px; padding: 0 9px; gap: 5px; }
+.asst-gear { margin-left: auto; }
+.asst-gear[aria-expanded="true"] { background: var(--accent-glow); border-color: var(--accent-dim); color: var(--accent); }
 /* The options the gear opens, between the head and the log: thinking, a rule, then the tool groups the model may use. */
-.asst-gear { --ui-icon-size: 15px; margin-left: auto; }
-.asst-gear:is([aria-expanded="true"], .asst-gear-set) { color: var(--accent); }
 .asst-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
   background: var(--bg-surface); font-size: 12px; }

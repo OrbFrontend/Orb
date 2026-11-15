@@ -525,12 +525,6 @@ function submit(text, replaced = null) {
 
 const categoryBoxes = () => [...$("assistant-options").querySelectorAll("input[data-category]")];
 
-// The gear is marked while an option differs from how the panel comes: thinking on, or a tool group off.
-function paintGear() {
-  const set = $("assistant-think").checked || categoryBoxes().some((box) => !box.checked);
-  $("assistant-gear").classList.toggle("asst-gear-set", set);
-}
-
 function restoreOptions() {
   $("assistant-think").checked = stored(LS_THINK) === "1";
   let off = [];
@@ -538,7 +532,6 @@ function restoreOptions() {
     off = JSON.parse(stored(LS_TOOLS_OFF) || "[]");
   } catch {}
   for (const box of categoryBoxes()) box.checked = !(Array.isArray(off) && off.includes(box.dataset.category));
-  paintGear();
 }
 
 // Either kind of option applies from the next request.
@@ -546,7 +539,6 @@ function storeOptions() {
   store(LS_THINK, $("assistant-think").checked ? "1" : "0");
   const off = categoryBoxes().flatMap((box) => (box.checked ? [] : [box.dataset.category]));
   store(LS_TOOLS_OFF, JSON.stringify(off));
-  paintGear();
 }
 
 function toggleOptions() {
