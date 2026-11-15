@@ -27,7 +27,6 @@ from backend.workflows.attachment_cache import insert_workflow_variant, set_acti
 from backend.workflows.image_gen import pov
 from backend.workflows.image_gen.composer import Revision
 from backend.workflows.image_gen.engine import ImageGenerationError, ImageResult
-from backend.workflows.image_gen.prompts import mark_excerpt
 
 # Reroll/rehydrate route through the adapter, so the render seam is its `generate`.
 _COMFY_GENERATE = "backend.workflows.image_gen.engine.adapters.external_comfy.ExternalComfyAdapter.generate"
@@ -623,7 +622,7 @@ async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(c
 
 
 async def test_a_selected_excerpt_is_the_moment_the_prompter_is_asked_to_draw(client, llm_mock, monkeypatch):
-    """A reply tells many actions; the selection names the one to show, and a selection that no longer matches is refused."""
+    """A reply tells many actions; the selection names the one to show, a regenerate replays its take's selection, and a stale selection is refused."""
     mid = await _seed("ig-excerpt")
     content = "She turns toward the door. Outside, she opens her umbrella and walks into the rain."
     await update_message_content(mid, content)
@@ -639,9 +638,9 @@ async def test_a_selected_excerpt_is_the_moment_the_prompter_is_asked_to_draw(cl
 
     [compose] = [c for c in llm_mock.captured if c["pass"] == "workflow"]
     reply = [m["content"] for m in compose["messages"] if m["role"] == "assistant"][-1]
-    assert reply.endswith(mark_excerpt("", picked)) and "umbrella" not in str(compose["messages"])
+    assert reply.endswith(picked) and "umbrella" not in str(compose["messages"])
     [row] = await get_workflow_attachments_for_message(mid)
-    assert json.loads(row["generation_metadata"])["excerpt"] == picked
+    assert json.loads(row["generation_metadata"])["excerpt"] == {"start": 0, "text": picked}
     refused = await _trigger(
         client, "ig-excerpt", {"action": "generate", "message_id": mid, "excerpt": {"start": 3, "text": picked}}
     )
@@ -652,10 +651,13 @@ async def test_a_selected_excerpt_is_the_moment_the_prompter_is_asked_to_draw(cl
     url = f"/api/conversations/ig-excerpt/messages/{mid}/workflow-attachments/{row['id']}/regenerate"
     await client.post_checked(url, json={"excerpt": {"start": content.index(later), "text": later}})
     llm_mock.enqueue_workflow(_compose_call())
+    await client.post_checked(url, json={})
+    llm_mock.enqueue_workflow(_compose_call())
     await _trigger(client, "ig-excerpt", {"action": "generate", "message_id": mid})
     rows = await get_workflow_attachments_for_message(mid)
-    assert [json.loads(r["generation_metadata"]).get("excerpt") for r in rows] == [picked, later, None]
-    assert [r["parent_attachment_id"] for r in rows] == [None, row["id"], row["id"]]
+    spans = [(json.loads(r["generation_metadata"]).get("excerpt") or {}).get("text") for r in rows]
+    assert spans == [picked, later, picked, None]
+    assert [r["parent_attachment_id"] for r in rows] == [None, row["id"], row["id"], row["id"]]
 
 
 async def test_a_review_the_provider_rejects_stops_generation_and_keeps_the_render(client, llm_mock, monkeypatch):

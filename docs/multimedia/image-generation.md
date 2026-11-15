@@ -162,8 +162,8 @@ The image shows the last moment of the reply. To show an earlier moment, select
 that part of the reply first, then select the image button. The image shows the
 end of the selection, and events the reply tells after it are left out. The
 image button stays on a reply that already has an image; each press adds a new
-take to the same image box. **Regenerate** does the same: it draws the selected
-text, or the end of the reply when nothing is selected. A selection that crosses
+take to the same image box. **Regenerate** draws the selected text, or the
+moment its image was made for when nothing is selected. A selection that crosses
 an image or code block may not match the saved text; Orb then asks you to select
 again.
 
@@ -197,7 +197,7 @@ Each image result is a variant of the selected reply.
 | Action | Behavior |
 |---|---|
 | **Reroll** | Reuses the stored prompt and settings with a new seed when supported. |
-| **Regenerate** | Composes a new prompt using the current style, scene-skill library, and character settings, for the selected text or the end of the reply. |
+| **Regenerate** | Composes a new prompt using the current style, scene-skill library, and character settings, for the selected text or the same moment as the image. |
 | **Rehydrate** | Recreates an image whose stored bytes were evicted, using its saved prompt and seed. |
 
 Each cloud action is a new provider request and may be billed. Providers that do

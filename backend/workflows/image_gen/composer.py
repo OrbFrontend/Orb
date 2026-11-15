@@ -49,8 +49,8 @@ class RefineThread:
     `messages` extends the shared prefix: the compose tail, then per render the replayed call, its tool result, and the image
     under review. `call_id` names the call the next render answers. `prompter_reference` says the compose tail carried the
     chat's earlier picture, so each review checks against it too. `directed` says the compose tail carried the user's direction
-    for this image, so each review holds the render to it first rather than pulling it back to the reply. `excerpted` says the
-    reply ends at a passage the user marked, so each review checks that passage's instant.
+    for this image, so each review holds the render to it first rather than pulling it back to the reply. `excerpted` says it
+    quoted the passage the user selected, so each review holds the render to where that passage ends.
     """
 
     messages: list[dict] = field(default_factory=list)
@@ -158,7 +158,7 @@ async def read_image_skills(
     pov: str = THIRD,
     reasoning_on: bool = False,
     subjects: Sequence[Subject] = (),
-    excerpted: bool = False,
+    excerpt: str = "",
 ) -> SkillSelection:
     """Select up to four skills; degrade every selector failure to no selection."""
     catalog = _enabled_scene_skills(skills)
@@ -169,7 +169,7 @@ async def read_image_skills(
             client=client,
             model_name=model_name,
             prefix=prefix,
-            tail=[{"role": "user", "content": select_skills_ooc(pov, _sheets(subjects), catalog, excerpted)}],
+            tail=[{"role": "user", "content": select_skills_ooc(pov, _sheets(subjects), catalog, excerpt)}],
             tool_name="read_image_skills",
             settings=settings,
             reasoning_on=reasoning_on,
@@ -243,15 +243,15 @@ async def compose_scene(
     prompter_reference_url: str = "",
     prompter_reference_sent: bool = False,
     direction: str = "",
-    excerpted: bool = False,
+    excerpt: str = "",
 ) -> tuple[str, str, str]:
     """Compose scene text as ``(scene, unwanted, mode)``.
 
     A `thread` is filled with the call as the model made it, so a review can follow. `prompter_reference_url` is the chat's
     earlier picture, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
     image model receives that picture as well. A provider that rejects the image raises rather than composing blind.
-    `direction` is the user's own ask for this one image, which outranks the reply on what the shot shows. `excerpted` says
-    the reply in `prefix` ends at a passage the user marked: the shot freezes its instant.
+    `direction` is the user's own ask for this one image, which outranks the reply on what the shot shows. `excerpt` is the
+    passage the user selected, which the reply in `prefix` ends with.
     """
     sheets = _sheets(subjects)
     request = compose_ooc(
@@ -269,7 +269,7 @@ async def compose_scene(
         prompter_reference=bool(prompter_reference_url),
         prompter_reference_sent=prompter_reference_sent,
         direction=direction,
-        excerpted=excerpted,
+        excerpt=excerpt,
     )
     content: str | list[dict] = (
         [{"type": "image_url", "image_url": {"url": prompter_reference_url}}, {"type": "text", "text": request}]
@@ -303,7 +303,7 @@ async def compose_scene(
         thread.call_id = _call_id(0)
         thread.prompter_reference = bool(prompter_reference_url)
         thread.directed = bool(bounded(direction, DIRECTION_CHARS))
-        thread.excerpted = excerpted
+        thread.excerpted = bool(bounded(excerpt))
     scene = inject_profile_appearance(scene, visible, prompt_format)
     return scene, bounded(args.get("unwanted")), "scene_skills" if visible_subjects is not None else "single_call"
 
