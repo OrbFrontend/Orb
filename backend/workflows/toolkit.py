@@ -64,6 +64,7 @@ from ..database import (
     get_user_persona,
     get_user_personas,
     get_workflow_attachment_by_id,
+    message_workflow_attachment_ids,
     resolve_cast,
 )
 from ..inference import local_ml as _local_ml
@@ -222,6 +223,7 @@ __all__ = [
     "gpu_swap_support",
     "insert_workflow_attachment",
     "insert_workflow_variant",
+    "message_workflow_attachment_ids",
     "local_feature_available",
     "local_feature_ready",
     "local_model_identity",

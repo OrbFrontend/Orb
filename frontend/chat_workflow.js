@@ -419,8 +419,8 @@ function _showActionFailure(container, cls, action, e) {
 
 // A stream that ends without a verdict throws a status-less TypeError, so the caller recovers the sibling.
 // The workflow's own events (`ctx.emit`) go to its registered event handlers.
-async function _regenerateStreamed(path, wid, onPhase, onSibling) {
-  const resp = await streamPost(path, {});
+async function _regenerateStreamed(path, body, wid, onPhase, onSibling) {
+  const resp = await streamPost(path, body);
   if (!resp.ok) throw await responseError(resp);
   for await (const { event, data } of sseEvents(resp.body)) {
     if (event === "error") throw sseError(data);
@@ -614,17 +614,19 @@ async function _syncAfterStop(convId, msgId, rootId, before, onLanded) {
   _showSiblings(convId, msgId, rootId, msgs, _siblingLanded(msgs, msgId, rootId, before), onLanded);
 }
 
-// A second press on a running regenerate or reroll is its Stop.
-function _startWorkflowAction(msgId, attId, btn, kind, title) {
+// A second press on a running regenerate or reroll is its Stop. Any other press reads the request *body* from it first;
+// `false` cancels the start.
+function _startWorkflowAction(msgId, attId, btn, kind, title, readBody = () => ({})) {
   const rootId = _resolveWorkflowRootId(msgId, attId);
   const running = _workflowActionInFlight.get(rootId);
   if (running) {
     if (running.kind === kind) running.job.stop();
     return null;
   }
-  if (!requestSendPermission()) return null;
+  const body = readBody();
+  if (body === false || !requestSendPermission()) return null;
   const job = startWorkflowJob({ convId: S.activeConvId, title, messageId: msgId, attachmentId: rootId });
-  const run = { msgId, kind, job, rootId };
+  const run = { msgId, kind, job, rootId, body };
   _workflowActionInFlight.set(rootId, run);
   job.show(btn);
   return run;
@@ -652,11 +654,18 @@ function _endWorkflowAction(run) {
 /** Render a new take of an artifact; *btn* becomes its Stop button. */
 export async function regenerateWorkflowAttachment(msgId, attId, btn) {
   if (!S.activeConvId) return;
-  const run = _startWorkflowAction(msgId, attId, btn, "regen", "Stop regenerating");
-  if (!run) return;
-  const { rootId, job } = run;
-  const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
   const wid = _resolveWorkflowId(msgId, attId);
+  const run = _startWorkflowAction(msgId, attId, btn, "regen", "Stop regenerating", () => {
+    try {
+      return S.workflowRegenerateParams[wid]?.(msgId, attId, btn) ?? {};
+    } catch (e) {
+      console.error("regenerate params callback threw:", e);
+      return {};
+    }
+  });
+  if (!run) return;
+  const { rootId, job, body } = run;
+  const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
   const ch = `workflow:${wid || "op"}:regen:${rootId}`;
   const convId = S.activeConvId;
   const beforeSiblings = _rootSiblingIds(
@@ -683,6 +692,7 @@ export async function regenerateWorkflowAttachment(msgId, attId, btn) {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."), conversationState(convId));
     const result = await _regenerateStreamed(
       job.url(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate")),
+      body,
       wid,
       (label) => setWorkflowPhase(ch, label, conversationState(convId)),
       showLanded,

@@ -113,8 +113,12 @@ async def settled(operation: Awaitable[_T]) -> _T:
         raise
 
 
-async def _labels(operation: asyncio.Future[Any], progress: asyncio.Queue[str]) -> AsyncGenerator[str, None]:
-    """Each label *progress* receives while *operation* runs; one that arrives after it has finished is stale and dropped.
+async def _labels(
+    operation: asyncio.Future[Any], progress: asyncio.Queue[str | Mapping[str, Any]]
+) -> AsyncGenerator[str | Mapping[str, Any], None]:
+    """Each label or resource *progress* receives while *operation* runs; one that arrives after it has finished is dropped.
+
+    A late resource is not lost: the tool's own result names everything it committed.
 
     Closed early, it cancels *operation* and waits for it to end; a write wrapped in :func:`settled` ends whole.
     """
@@ -338,7 +342,7 @@ async def run_assistant(
     request: str,
     view: ViewContext,
     transcript: Transcript | None = None,
-    progress: asyncio.Queue[str] | None = None,
+    progress: asyncio.Queue[str | Mapping[str, Any]] | None = None,
     single_call: bool | None = None,
     keep: Callable[[Transcript], None] | None = None,
     reasoning: bool = False,
@@ -364,7 +368,8 @@ async def run_assistant(
     A write never runs on a retried or refused reply. Once it starts it settles whole, a ``mutation`` follows its commit, the
     same change is not made twice in one request, nor the same edit proposed twice, and an early ``done`` names the changes
     already committed. A confirm tool's proposal becomes a ``confirm`` event and the run carries on. *progress* is where a
-    tool that reports progress puts its labels; each one becomes a ``progress`` event while that tool runs.
+    tool that reports progress puts its labels; each one becomes a ``progress`` event while that tool runs, and each resource
+    it puts there (a render saved before the tool ends) a ``mutation`` event.
 
     *single_call* makes each step one call over every tool's schema plus ``reply``, in place of a step call followed by an
     argument call. Left ``None``, the run takes it wherever the endpoint sends native tool schemas and honours forced tool
@@ -616,8 +621,11 @@ async def run_assistant(
                             progress.get_nowait()
                         task = asyncio.ensure_future(running)
                         async with contextlib.aclosing(_labels(task, progress)) as labels:
-                            async for label in labels:
-                                yield {"type": "progress", "label": label[:_PROGRESS_LABEL_CHARS]}
+                            async for update in labels:
+                                if isinstance(update, str):
+                                    yield {"type": "progress", "label": update[:_PROGRESS_LABEL_CHARS]}
+                                else:
+                                    yield {"type": "mutation", "call_id": call_id, "tool": name, "resources": [dict(update)]}
                         output = task.result()
                 except ToolFailure as exc:
                     failure = str(exc)

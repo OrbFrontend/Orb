@@ -48,16 +48,16 @@ function compositionSkillsRow(cm, esc) {
   return labels.length ? `<dt>Composition skills</dt><dd>${esc(labels.join(", "))}</dd>` : "";
 }
 
-export function hasAttachment(msg) {
-  return (msg?.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
+export function attachmentIds(msg) {
+  return (msg?.workflow_attachments || []).filter((a) => a.workflow_id === WORKFLOW_ID).map((a) => a.id);
 }
 
 // *stop* is `stopButtonState` for the reply's running render, if any.
 const IDLE_CREATE = { cls: "", attrs: ' title="Visualize reply"' };
 
-// A running render keeps its button, as its Stop, after its first image lands.
-export function messageButtonHtml(msg, { mutable, icon, escAttr, stop = IDLE_CREATE, running = false }) {
-  if (!msg?.id || msg.role !== "assistant" || (hasAttachment(msg) && !running)) return "";
+// Stays beside an existing image: each press adds a take to its box.
+export function messageButtonHtml(msg, { mutable, icon, escAttr, stop = IDLE_CREATE }) {
+  if (!msg?.id || msg.role !== "assistant") return "";
   if (!mutable)
     return `<button class="image-gen-create" disabled title="Close other tabs to generate an image">${icon}</button>`;
   return `<button class="image-gen-create${stop.cls}"${stop.attrs} data-wf-action="image_gen:generate" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;

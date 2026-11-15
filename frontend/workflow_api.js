@@ -27,6 +27,7 @@ import {
   workflowActionJob,
 } from "./chat.js";
 import { responseError, sseError } from "./errors.js";
+import { pressedSelection } from "./message_selection.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showModal } from "./modal.js";
 import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
@@ -48,7 +49,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 11;
+export const WORKFLOW_API_VERSION = 12;
 
 export {
   activateWorkflowVariant,
@@ -69,6 +70,7 @@ export {
   onChannel,
   pauseChannel,
   playAudio,
+  pressedSelection,
   refreshConversationMessages,
   refreshLocalMlStatus,
   regenerateWorkflowAttachment,
@@ -125,6 +127,19 @@ export function registerAttachmentRenderer(wid, fn, options = {}) {
 
 export function registerRerollParams(wid, fn) {
   S.workflowRerollParams[wid] = fn;
+}
+
+// Called as `(msgId, attId, button)` when a regenerate of *wid* is pressed: answers the request body, or `false` to cancel.
+export function registerRegenerateParams(wid, fn) {
+  if (typeof wid !== "string" || !wid) {
+    console.error("registerRegenerateParams: workflow id required", wid);
+    return;
+  }
+  if (typeof fn !== "function") {
+    console.error(`registerRegenerateParams: fn must be a function (${wid})`);
+    return;
+  }
+  S.workflowRegenerateParams[wid] = fn;
 }
 
 export function registerRerollSuccess(wid, fn) {

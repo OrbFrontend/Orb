@@ -158,7 +158,13 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the three media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 60 and enum[-4:] == ["illustrate_reply", "generate_speech", "create_image", "reply"]
+    assert len(enum) == 61 and enum[-5:] == [
+        "illustrate_reply",
+        "generate_speech",
+        "list_image_styles",
+        "create_image",
+        "reply",
+    ]
     # The browser sends no history: a conversation the server has never seen starts at the request.
     assert events[0] == ("start", {"continued": False})
     assert [message["role"] for message in calls[0]["messages"]] == ["system", "user"]

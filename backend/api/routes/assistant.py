@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
@@ -156,8 +156,8 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     view = await resolve_view(data.context)
     abort_token = AbortToken()
     # A media tool's render runs as a workflow job filed under this run, which the run's Stop cancels and waits for alone.
-    progress: asyncio.Queue[str] = asyncio.Queue()
-    media = MediaRun(job=f"assistant:{operation_id}", abort=abort_token, report=progress.put_nowait)
+    progress: asyncio.Queue[str | Mapping[str, Any]] = asyncio.Queue()
+    media = MediaRun(job=f"assistant:{operation_id}", abort=abort_token, report=progress.put_nowait, landed=progress.put_nowait)
     # Read at Send: what the user's card still holds pending, by the ids it names; the texts are the server's own.
     held = open_proposals(data.pending)
     # What this run proposes, as its confirm events pass: with what is held, what the model is left believing waits.

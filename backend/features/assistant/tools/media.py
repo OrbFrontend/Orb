@@ -10,8 +10,8 @@ from pydantic import Field
 
 from ....core.settings import Settings
 from ....database import get_active_path, get_message_by_id, get_settings, message_workflow_attachment_ids
-from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ViewContext
-from .host import AssistantHost, HostRefusal, MediaOutcome, MediaRun, WorkflowSwitches
+from ..contracts import AssistantTool, NoArguments, ToolArguments, ToolFailure, ToolOutput, ViewContext
+from .host import AssistantHost, HostRefusal, ImageStyles, MediaOutcome, MediaRun, WorkflowSwitches
 from .targets import chat_field, message_label, quoted, reply_target
 
 
@@ -33,6 +33,8 @@ class _Medium:
 
 # The longest direction an image request carries; the image workflow bounds it again.
 _DIRECTION_CHARS = 1000
+
+_STYLE_ID = "An image style id from list_image_styles, when the user asks for a style; empty: the default style."
 
 _MEDIA = (
     _Medium(
@@ -74,6 +76,7 @@ class _ImageArgs(_MediaArgs):
         max_length=_DIRECTION_CHARS,
         description="What the user wants this image to show, in their words or a faithful paraphrase; empty: from the reply alone.",
     )
+    style_id: str = Field(default="", max_length=64, description=_STYLE_ID)
 
 
 def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHost) -> list[AssistantTool]:
@@ -92,7 +95,19 @@ def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHo
         for m in _MEDIA
         if host.media_available(m.workflow_id)
     ]
-    if host.standalone_available():
+    standalone = host.standalone_available()
+    if standalone or host.media_available("image_gen"):
+        tools.append(
+            AssistantTool(
+                "list_image_styles",
+                "List the Image Generation styles: the style_id that create_image and illustrate_reply take, and which style "
+                "renders when none is named.",
+                NoArguments,
+                "read",
+                partial(_list_styles, host),
+            )
+        )
+    if standalone:
         tools.append(
             AssistantTool(
                 "create_image",
@@ -135,8 +150,13 @@ async def _make(view: ViewContext, run: MediaRun, host: AssistantHost, medium: _
             "set_pipeline_toggle if they ask."
         )
 
-    direction = args.direction.strip() if isinstance(args, _ImageArgs) else ""
-    body: dict[str, Any] = {"action": medium.action, "message_id": mid, **({"direction": direction} if direction else {})}
+    body: dict[str, Any] = {"action": medium.action, "message_id": mid}
+    if isinstance(args, _ImageArgs):
+        direction, style_id = args.direction.strip(), await _checked_style(host, args.style_id)
+        if direction:
+            body["direction"] = direction
+        if style_id:
+            body["style_id"] = style_id
     before = set(await message_workflow_attachment_ids(mid, medium.workflow_id))
     run.report(medium.starting)
     try:
@@ -204,6 +224,7 @@ class _CreateImageArgs(ToolArguments):
         max_length=64,
         description="Card whose saved appearance tags and reference picture apply. Empty: no character, even with one in view.",
     )
+    style_id: str = Field(default="", max_length=64, description=_STYLE_ID)
 
 
 async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageArgs) -> ToolOutput:
@@ -216,8 +237,9 @@ async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageAr
         raise ToolFailure(
             f"{' and '.join(off)} switched off, so nothing was made. Tell the user; you can turn it on with set_pipeline_toggle if they ask."
         )
+    style_id = await _checked_style(host, args.style_id)
     try:
-        created = await host.create_image(description, character_id, args.reference_image_id, run)
+        created = await host.create_image(description, character_id, args.reference_image_id, style_id, run)
     except HostRefusal as exc:
         raise ToolFailure(str(exc)) from None
     summary = "Created a standalone picture in the assistant panel."
@@ -227,3 +249,30 @@ async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageAr
         {"image_id": created.image_id},
         images=({"type": "image_url", "image_url": {"url": created.preview_url}},) if created.preview_url else (),
     )
+
+
+async def _styles(host: AssistantHost) -> ImageStyles:
+    try:
+        return await host.image_styles()
+    except HostRefusal as exc:
+        raise ToolFailure(str(exc)) from None
+
+
+async def _checked_style(host: AssistantHost, style_id: str) -> str:
+    """*style_id* when it names a style, empty for the default; a failure listing the styles when it names none."""
+    style_id = style_id.strip()
+    if not style_id:
+        return ""
+    labels = (await _styles(host)).labels
+    if style_id not in labels:
+        known = ", ".join(f"{sid} ({label})" for sid, label in labels.items())
+        raise ToolFailure(f"No image style has the id {style_id!r}; nothing was made. The styles are: {known}.")
+    return style_id
+
+
+async def _list_styles(host: AssistantHost, _args: NoArguments) -> ToolOutput:
+    styles = await _styles(host)
+    label = styles.labels.get(styles.default)
+    named = f"; the default is {label} ({styles.default})" if label else ""
+    data = {"default_style": styles.default, "styles": dict(styles.labels)}
+    return ToolOutput(data, f"Listed {len(styles.labels)} image styles{named}.")

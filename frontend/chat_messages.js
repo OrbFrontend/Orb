@@ -20,7 +20,7 @@ import { refreshConversationMessages, replayAttachmentInvalidations } from "./ch
 import { responseError, sseError } from "./errors.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
-import { selectionInSource } from "./message_selection.js";
+import { pressedSelection } from "./message_selection.js";
 import { confirmDelete } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { conversationState, isViewing, S } from "./state.js";
@@ -145,30 +145,10 @@ async function deleteMessage(msgId) {
 
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
-const liveRange = () => {
-  const sel = window.getSelection();
-  return sel?.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
-};
-// Taken on press, before a tap can collapse a touch selection; a keyboard press reads the live one.
-let pressedRange = null;
-document.addEventListener(
-  "pointerdown",
-  (e) => {
-    if (e.target.closest?.(".msg-btn-prose-rewrite")) pressedRange = liveRange();
-  },
-  true,
-);
-
-function takeRewriteSelection(msgId, source) {
-  const range = pressedRange ?? liveRange();
-  pressedRange = null;
-  return selectionInSource(messageBody(msgId), range, source);
-}
-
-async function rewriteMessageProse(msgId) {
+async function rewriteMessageProse(msgId, button) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
-  const selection = takeRewriteSelection(msgId, source);
+  const selection = pressedSelection(button, msgId);
   if (selection === false) {
     toast("Couldn't match the selection to this message's text", true);
     return;
@@ -590,5 +570,5 @@ registerActions("messages", {
   saveEditPending: () => saveEditPending(),
   delete: (el) => deleteMessage(Number(el.dataset.msgId)),
   switchBranch: (el) => switchBranch(Number(el.dataset.branchId)),
-  proseRewrite: (el) => rewriteMessageProse(Number(el.dataset.msgId)),
+  proseRewrite: (el) => rewriteMessageProse(Number(el.dataset.msgId), el),
 });

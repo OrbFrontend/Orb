@@ -158,6 +158,15 @@ after preparation. A provider may accept fewer references or refuse to use them.
 3. Find the assistant reply to visualize.
 4. Select **Visualize reply**.
 
+The image shows the last moment of the reply. To show an earlier moment, select
+that part of the reply first, then select the image button. The image shows the
+end of the selection, and events the reply tells after it are left out. The
+image button stays on a reply that already has an image; each press adds a new
+take to the same image box. **Regenerate** draws the selected text, or the
+moment its image was made for when nothing is selected. A selection that crosses
+an image or code block may not match the saved text; Orb then asks you to select
+again.
+
 Orb shows whether it is composing the prompt, waiting in a queue, or rendering.
 Select the image button again to cancel an active request. A submitted ComfyUI
 job may continue in ComfyUI after Orb cancels it; check that queue before starting
@@ -188,7 +197,7 @@ Each image result is a variant of the selected reply.
 | Action | Behavior |
 |---|---|
 | **Reroll** | Reuses the stored prompt and settings with a new seed when supported. |
-| **Regenerate** | Composes a new prompt using the current style, scene-skill library, and character settings. |
+| **Regenerate** | Composes a new prompt using the current style, scene-skill library, and character settings, for the selected text or the same moment as the image. |
 | **Rehydrate** | Recreates an image whose stored bytes were evicted, using its saved prompt and seed. |
 
 Each cloud action is a new provider request and may be billed. Providers that do
@@ -321,7 +330,7 @@ prompt steps with thinking on come back empty.
 **Show the prompter the last image** sends the chat's most recent generated image
 to the Agent model when it writes the prompt, so the outfit, setting, lighting and
 look carry over between renders even when the story text does not restate them.
-The prompter composes the final visible instant of the latest assistant reply.
+The prompter composes the final visible instant of the latest assistant reply, or of the selected text.
 It uses the earlier picture only for continuity details the story leaves unchanged,
 and replaces any pose, action, expression, setting, or framing the story changes.
 The setting is off by default.
@@ -485,7 +494,7 @@ the servers above. When it can't work, it reads **Inactive** with the reason.
 
 | Problem | Try this |
 |---|---|
-| Image button is missing | Enable the workflow and select an assistant reply without an image. |
+| Image button is missing | Enable the workflow and select an assistant reply. |
 | **Import a ComfyUI workflow** | Import and assign a workflow to the selected style. |
 | **Choose a model** | Select a model in each ComfyUI style that needs one. |
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |

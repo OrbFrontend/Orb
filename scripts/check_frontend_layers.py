@@ -161,6 +161,7 @@ FROZEN_ABI = {
     "registerAttachmentRenderer",
     "registerRerollParams",
     "registerRerollSuccess",
+    "registerRegenerateParams",
     "registerRegenerateSettled",
     "registerAction",
     # http / dom helpers
@@ -193,6 +194,7 @@ FROZEN_ABI = {
     "onChannel",
     # text
     "messageSegments",
+    "pressedSelection",
     "startTextEffect",
     "clearTextEffect",
     # chat / framework

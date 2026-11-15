@@ -2,11 +2,13 @@
 
 import asyncio
 import contextlib
+import json
 import uuid
 
 from backend.api import deps
 from backend.database import get_message_by_id, message_workflow_attachment_ids, set_workflow_enabled
-from backend.workflows import WorkflowEventStream
+from backend.inference import LLMClient
+from backend.workflows import StandaloneResult, WorkflowEventStream
 from backend.workflows.attachment_cache import insert_workflow_attachment
 from tests.integration.test_assistant import RUN, _call, _reply, _script, build_library, frames
 from tests.integration.workflows._fixtures import (  # noqa: F401
@@ -35,7 +37,7 @@ async def _save(message_id, workflow_id="image_gen"):
     return new_id
 
 
-def _media(workflow_id, on_demand=None):
+def _media(workflow_id, on_demand=None, **hooks):
     """A scripted artifact workflow under a real workflow's id, standing in for its renderer."""
 
     async def regenerate(ctx, body):
@@ -52,6 +54,7 @@ def _media(workflow_id, on_demand=None):
         regenerate=regenerate,
         reroll_gen=reroll_gen,
         produces_artifacts=True,
+        **hooks,
     )
 
 
@@ -88,7 +91,11 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
             yield {"event": "phase_status", "data": {"label": "Rendering in ComfyUI..."}}
             first = await _save(body["message_id"])
             yield {"event": "image_gen_render", "data": {"attachment_id": first}}
-            yield {"event": "image_gen_done", "data": {"attachment_id": first}}
+            # A review turn: the first render is in the chat before its redo is saved.
+            await asyncio.sleep(0.05)
+            redo = await _save(body["message_id"])
+            yield {"event": "image_gen_render", "data": {"attachment_id": redo}}
+            yield {"event": "image_gen_done", "data": {"attachment_id": redo}}
 
         return WorkflowEventStream(events=events())
 
@@ -116,17 +123,20 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
     assert seen[1] == [("assistant:op-1", kept)]
     assert "speech" not in seen, "the switched-off workflow never reached its hook"
     saved = await message_workflow_attachment_ids(kept, "image_gen")
-    assert len(saved) == 1
+    assert len(saved) == 2
     assert ("progress", {"label": "Rendering in ComfyUI..."}) in events
     result, refused = _results(events)
     assert result["ok"] is True and result["ids"]["attachment_ids"] == saved
     assert refused["ok"] is False and "`workflow:tts`" in refused["summary"] and "set_pipeline_toggle" in refused["summary"]
     assert "`workflows`" not in refused["summary"]
     assert "`workflows`" in both["summary"] and "`workflow:tts`" in both["summary"]
-    mutation = next(data for event, data in events if event == "mutation")
-    assert mutation["resources"] == [
-        {"kind": "media", "conversation_id": chat, "message_id": kept, "attachment_ids": saved, "workflow_id": "image_gen"}
-    ]
+    media = {"kind": "media", "conversation_id": chat, "message_id": kept, "workflow_id": "image_gen"}
+    names = [event for event, _ in events]
+    mutations = [data["resources"] for event, data in events if event == "mutation"]
+    # Each render is announced as it is saved, before the tool settles; the settled write names them all.
+    assert mutations[0] == [{**media, "attachment_ids": saved[:1]}]
+    assert mutations[-1] == [{**media, "attachment_ids": saved}]
+    assert names.index("mutation") < names.index("tool_result")
     assert events[-1] == ("done", {"reason": "reply", "message": ""})
     assert not deps._workflow_jobs.get(chat), "the job settled with the stream"
     assert await message_workflow_attachment_ids(kept, "tts") == []
@@ -222,3 +232,51 @@ async def test_a_stopped_render_never_claims_an_image_another_render_saved(clien
     assert not [event for event, _ in events if event == "mutation"], "the other render's image is not this run's"
     assert events[-1] == ("done", {"reason": "stopped", "message": ""}), "nothing is listed as already done"
     assert await message_workflow_attachment_ids(kept, "image_gen") == [theirs]
+
+
+async def test_both_image_tools_render_in_a_listed_style_and_an_unknown_one_is_refused_naming_the_styles(
+    client, db, monkeypatch
+):
+    library = await build_library(client, db)
+    chat, kept = library["chat"], library["kept"]
+    seen = []
+
+    async def query(ctx, body):
+        assert body == {"action": "styles"}
+        return {
+            "default_style": "realistic",
+            "styles": [{"id": "realistic", "label": "Realistic"}, {"id": "ink", "label": "Ink"}],
+        }
+
+    async def on_demand(ctx, body):
+        seen.append(dict(body))
+        return {"attachment_id": await _save(body["message_id"])}
+
+    async def standalone(ctx):
+        seen.append(ctx.style_id)
+        return StandaloneResult(b"picture", "image/png")
+
+    calls = []
+    script = [
+        _call("list_image_styles", {}),
+        _call("illustrate_reply", {"message_id": kept, "style_id": "ink"}),
+        _call("create_image", {"description": "A lighthouse.", "style_id": "ink"}),
+        _call("create_image", {"description": "A lighthouse."}),
+        _call("create_image", {"description": "A lighthouse.", "style_id": "Ink"}),
+        _reply("Done."),
+    ]
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield script.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    with register_for_test(_media("image_gen", on_demand, standalone=standalone, query=query)):
+        listed, illustrated, created, default, unknown = _results(frames(await client.post_checked(RUN, json=_body(chat))))
+
+    listing = json.loads(next(message["content"] for message in calls[1] if message["role"] == "tool"))
+    assert listing == {"default_style": "realistic", "styles": {"realistic": "Realistic", "ink": "Ink"}}
+    assert listed["ok"] and "Realistic (realistic)" in listed["summary"]
+    assert seen == [{"action": "generate", "message_id": kept, "style_id": "ink"}, "ink", ""]
+    assert illustrated["ok"] and created["ok"] and default["ok"]
+    assert not unknown["ok"] and "ink (Ink)" in unknown["summary"]

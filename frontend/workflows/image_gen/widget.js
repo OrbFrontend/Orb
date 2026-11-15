@@ -6,8 +6,11 @@ import {
   esc,
   escAttr,
   getActiveConvId,
+  getMessages,
+  pressedSelection,
   refreshConversationMessages,
   registerAction,
+  registerRegenerateParams,
   registerRerollParams,
   registerRerollSuccess,
   requestRepaint,
@@ -22,8 +25,8 @@ import {
 } from "/static/workflow_api.js";
 import {
   attachmentDetailsHtml,
+  attachmentIds,
   downloadButtonHtml,
-  hasAttachment,
   messageButtonHtml,
   viewToggleHtml,
 } from "./render.js";
@@ -48,6 +51,7 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "toggleDetails", toggleDetails);
   registerAction(WORKFLOW_ID, "download", download);
   registerRerollParams(WORKFLOW_ID, rerollParams);
+  registerRegenerateParams(WORKFLOW_ID, (msgId, _attId, button) => excerptParams(msgId, button));
   registerRerollSuccess(WORKFLOW_ID, clearPendingEdit);
 }
 
@@ -147,6 +151,17 @@ function rerollParams(_msgId, attId) {
   return Object.keys(params).length ? params : null;
 }
 
+// The text selected in the reply as *button* was pressed: `{excerpt}` to draw that moment, `{}` for the reply's end, or
+// `false` once the user has been told it could not be matched.
+function excerptParams(msgId, button) {
+  const excerpt = pressedSelection(button, msgId);
+  if (excerpt === false) {
+    toast("Couldn't match the selection to this message's text", "error");
+    return false;
+  }
+  return excerpt ? { excerpt } : {};
+}
+
 function clearPendingEdit(_msgId, attId) {
   const submitted = rerollEditSnapshots.get(attId);
   rerollEditSnapshots.delete(attId);
@@ -158,8 +173,8 @@ function clearPendingEdit(_msgId, attId) {
 
 export function createButtonRenderer(msg) {
   const job = inFlight.get(msg?.id);
-  const stop = stopButtonState(job, "Visualize reply");
-  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop, running: !!job });
+  const stop = stopButtonState(job, "Visualize reply or the selected text");
+  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr, stop });
 }
 
 // Closing the stream is the stop: the server cancels the render with it.
@@ -168,17 +183,20 @@ async function generate(msgId, button) {
   if (running) return running.stop();
   if (!getActiveConvId() || !canMutate()) return;
   const convId = getActiveConvId();
+  const params = excerptParams(msgId, button);
+  if (!params) return;
   const styleId = cfg.default_style || "realistic";
   const controller = new AbortController();
   const job = startWorkflowJob({ convId, messageId: msgId, title: "Stop image generation", controller });
   inFlight.set(msgId, job);
   job.show(button);
   const channel = `workflow:image_gen:generate:${msgId}`;
+  const before = new Set(attachmentIds(getMessages().find((m) => m.id === msgId)));
   try {
     setWorkflowPhase(channel, "Composing image prompt...", convId);
     const response = await streamPost(
       job.url(convUrl(convId, "workflows", WORKFLOW_ID, "trigger")),
-      { action: "generate", message_id: msgId, style_id: styleId },
+      { action: "generate", message_id: msgId, style_id: styleId, ...params },
       controller.signal,
     );
     if (!response.ok) throw await responseError(response);
@@ -217,19 +235,19 @@ async function generate(msgId, button) {
     if (e?.name === "AbortError") await refreshConversationMessages(null, convId);
     else {
       console.warn("image generation stream dropped; polling for the result", e);
-      if (!(await pollForAttachment(msgId, controller.signal, convId)) && !controller.signal.aborted)
+      if (!(await pollForAttachment(msgId, before, controller.signal, convId)) && !controller.signal.aborted)
         toast("Image generation failed", "error");
     }
   } finally {
     inFlight.delete(msgId);
     clearWorkflowPhase(channel, convId);
     job.end();
-    // The button outlived the first render only as this run's Stop.
+    // The button turns back from Stop.
     requestRepaint();
   }
 }
 
-async function pollForAttachment(msgId, signal, convId, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
+async function pollForAttachment(msgId, before, signal, convId, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (signal.aborted) return false;
@@ -241,7 +259,7 @@ async function pollForAttachment(msgId, signal, convId, { timeoutMs = 120_000, i
       continue; // transient; keep waiting for the render to land
     }
     const msg = msgs.find((m) => m.id === msgId);
-    if (msg && hasAttachment(msg)) {
+    if (msg && attachmentIds(msg).some((id) => !before.has(id))) {
       if (!signal.aborted) await refreshConversationMessages(msgId, convId);
       return true;
     }

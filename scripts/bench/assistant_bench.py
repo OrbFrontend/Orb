@@ -1082,8 +1082,8 @@ async def _job(job: Mapping[str, Any]) -> dict[str, Any]:
     context = {key: seed[value] if key.endswith("_id") else value for key, value in request.view.items()}
     view = await resolve_view(AssistantViewContext(**context))
     settings = await get_settings()
-    progress: asyncio.Queue[str] = asyncio.Queue()
-    media = MediaRun(job=f"assistant:bench-{os.getpid()}", abort=abort, report=progress.put_nowait)
+    progress: asyncio.Queue[str | Mapping[str, Any]] = asyncio.Queue()
+    media = MediaRun(job=f"assistant:bench-{os.getpid()}", abort=abort, report=progress.put_nowait, landed=progress.put_nowait)
     tools = []
     for tool in build_tools(settings, view, media=media):
         if tool.reports_progress:

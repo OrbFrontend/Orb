@@ -658,9 +658,10 @@ const SUGGESTIONS = {
   chat: [
     "Help me find a lost chat branch.",
     "How do I strategically get into her pants?",
-    "Tighten entries for the active lorebooks.",
+    "Update the active lorebooks based on how the story has progressed.",
     "What are the most used 2-grams in this chat?",
     "Create an avatar image for this character. ComfyUI is up.",
+    "Illustrate this reply, but…",
   ],
   character: [
     "Summarise this character.",
@@ -687,6 +688,7 @@ const SUGGESTIONS = {
     "Make a character based on my favorite archetype, then start a chat.",
     "Create a fantasy world called India with an entry for its cursed denizens.",
     "Rate my fragments library.",
+    "Fix the Miku card to be lore-accurate, use web search.",
   ],
 };
 
@@ -701,7 +703,7 @@ function emptyEntries(view) {
   return [
     {
       key: "empty",
-      html: '<div class="asst-empty">Ask about your characters, chats, worlds, personas, documents or settings.</div>',
+      html: '<div class="asst-empty">I can do most things you can from the UI, but not beyond.</div>',
     },
     {
       key: "suggestions",

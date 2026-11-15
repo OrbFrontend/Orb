@@ -204,7 +204,7 @@ framework.
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
 | `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
-| `StandaloneCtx` | Description, settings, Agent client/model, optional character, optional `StandaloneReference`, `phase(label)` | No conversation or history; caller owns cancellation |
+| `StandaloneCtx` | Description, settings, Agent client/model, optional character, optional `StandaloneReference`, `phase(label)`, optional `style_id` (empty: the workflow's default) | No conversation or history; caller owns cancellation |
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
@@ -539,6 +539,7 @@ registerWorkflowToolsPanelCard(wid, render)
 registerWorkflowMessageButton(wid, render)
 registerWorkflowEventHandler(wid, event, handler)
 registerAttachmentRenderer(wid, render)
+registerRegenerateParams(wid, (msgId, attId, button) => body | false)
 registerWorkflowPipeline({ id: wid, passes })
 registerTextEffect({ id, label })
 registerClickHandler({ id, claims, onClick })

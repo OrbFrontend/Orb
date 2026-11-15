@@ -11,7 +11,17 @@ from .categories import CATEGORIES, offered, withheld_labels
 from .deletes import build_delete_tools
 from .edits import build_edit_tools
 from .fragments import build_fragment_tools
-from .host import AssistantHost, ChatUnavailable, CreatedImage, HostRefusal, MediaOutcome, MediaRun, NamedWorkflow, SchemaName
+from .host import (
+    AssistantHost,
+    ChatUnavailable,
+    CreatedImage,
+    HostRefusal,
+    ImageStyles,
+    MediaOutcome,
+    MediaRun,
+    NamedWorkflow,
+    SchemaName,
+)
 from .media import build_media_tools
 from .proposals import Proposal, apply_proposals, open_proposals, pending_note, revise_proposal, undo_proposals
 from .reads import build_read_tools
@@ -26,6 +36,7 @@ __all__ = [
     "ChatUnavailable",
     "CreatedImage",
     "HostRefusal",
+    "ImageStyles",
     "MediaOutcome",
     "MediaRun",
     "NamedWorkflow",

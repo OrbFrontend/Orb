@@ -15,11 +15,11 @@ from .subjects import Subject
 
 
 async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
-    """Use the default style, one prompter call and one render, returning bytes to the host."""
+    """Use the named style (else the default), one prompter call and one render, returning bytes to the host."""
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     name = str((ctx.character or {}).get("name") or "")
     macros = Macros(user=str(ctx.settings.get("user_name") or "User"), char=name, seed="")
-    style = expand_style(resolve_style(config, config["default_style"]), macros)
+    style = expand_style(resolve_style(config, ctx.style_id or config["default_style"]), macros)
     profile = expand_profile(
         normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None),
         macros,
@@ -35,7 +35,7 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
     slots = plan_slots(target, subjects, previous=previous)
     if ctx.reference is not None and not slots:
         raise ImageGenerationError(
-            "The default image style has no reference image inputs. Choose a style or backend that accepts references."
+            "This image style has no reference image inputs. Choose a style or backend that accepts references."
         )
     references = await resolve_references(slots, subjects=subjects, previous=previous)
     ctx.phase("Composing the image prompt…")
