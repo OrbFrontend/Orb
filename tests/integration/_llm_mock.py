@@ -435,6 +435,9 @@ class _EndpointBound:
         client = LLMClient(self._base_url, completion_mode=self._fake.completion_mode)
         return client.sends_tool_schemas(messages, model, tools_in_prompt=tools_in_prompt)
 
+    def uses_text_transport(self, messages) -> bool:
+        return LLMClient(self._base_url, completion_mode=self._fake.completion_mode).uses_text_transport(messages)
+
     def complete(self, *args, **kwargs):
         return self._fake.complete(*args, _endpoint=self._base_url, **kwargs)
 

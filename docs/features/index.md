@@ -38,6 +38,7 @@ and revise it afterward.
 |---|---|
 | [Macros](macros.md) | Insert names, dice rolls, random choices, dates, and times. |
 | [Super-regenerate](super-regenerate.md) | Ask for a substantially different version of a reply. |
+| [Continue Reply](continue-reply.md) | Let the model finish a reply you cut short, in text completion mode. |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message using your instructions. |
 | [Compress History](compress-history.md) | Summarize a conversation and continue in a new one. |
 | [Document Mode](document-mode.md) | Write and continue freeform text outside a character chat. |

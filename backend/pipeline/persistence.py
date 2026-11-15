@@ -76,6 +76,18 @@ async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_i
     return payloads
 
 
+async def _save_reply_prompt(conversation_id: str, asst_id: int, res: TurnState, settings: Settings) -> None:
+    """Keep the Writer's raw text-mode prompt and thought for Continue; a chat-mode reply has none."""
+    call = res.writer_call
+    head = call.head() if call is not None and call.prompt else None
+    if call is None or head is None:
+        return
+    try:
+        await db.set_reply_prompt(conversation_id, asst_id, settings["model_name"], call.prompt, head)
+    except Exception:
+        logger.exception("Failed to save the reply prompt for message %s; row already committed", asst_id)
+
+
 async def _persist_result(
     conversation_id: str,
     res: TurnState,
@@ -131,6 +143,7 @@ async def _persist_result(
                     wid,
                     asst_id,
                 )
+        await _save_reply_prompt(conversation_id, asst_id, res, settings)
         # Tag the final saved text after all editing and secondary workflows have finished.
         await tag_saved_reply(asst_id, resp_text, settings)
         # Counter seed scans existing rows, so this must run after add_message.

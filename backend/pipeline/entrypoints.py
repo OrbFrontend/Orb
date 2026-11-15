@@ -11,14 +11,14 @@ from typing import Any
 from .. import database as db
 from ..core import card_description, resolve_inline
 from ..core.settings import Settings
-from ..inference import AbortToken, DecisionCancelled
+from ..inference import AbortToken, CachedBase, DecisionCancelled, KVCacheTracker, TextCallRecord
 from ..inference.gpu_swap import turn_hold
-from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
+from ..prompting import prefix_cache_shape, prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
 from .context import PipelineContext, TurnSetup, build_prefixes, enabled_moods, load_pipeline_context, prepare_turn
 from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
-from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
+from .failures import STAGE_JUDGE, STAGE_SAVE, STAGE_WRITER, describe_failure, mark_stage, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
 from .passes.judge import (
@@ -30,6 +30,7 @@ from .passes.judge import (
     judge_pass,
     stored_evaluations,
 )
+from .passes.writer import continue_pass, raw_continue_pass
 from .persistence import consume_pipeline, conversation_log_writer
 from .predicates import agent_enabled
 from .state import SheetUpdateTurn, empty_state_report
@@ -1059,6 +1060,145 @@ async def handle_regenerate(
 
     async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Regenerate"):
         yield event
+
+
+async def handle_continue_reply(
+    conversation_id: str, assistant_msg_id: int, abort_token: AbortToken | None = None
+) -> AsyncIterator[PublicTurnEvent]:
+    """Extend the latest reply in place from where its text stops.
+
+    Entry point for ``POST /messages/{id}/continue``, text mode only. A reply the Writer generated in text mode goes back as the
+    raw prompt that produced it, its thought, and its text, byte for byte. Any other reply rides the conversation's own prefix
+    as an open assistant turn. The continuation is appended to the saved row; no Judge, Director, Editor or workflow runs.
+    """
+
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
+        target = await _resolve_target(conversation_id, assistant_msg_id)
+        if isinstance(target, str):
+            yield {"event": "error", "data": target}
+            return
+        if ctx.conv.get("active_leaf_id") != target["id"]:
+            yield {"event": "error", "data": "Only the latest reply can be continued"}
+            return
+        if ctx.client.completion_mode != "text":
+            yield {"event": "error", "data": "Continue needs a text completion endpoint"}
+            return
+        original = str(target.get("content") or "")
+        # A trailing space would be its own token, one the model rarely writes before a word.
+        kept = original.rstrip(" \t")
+        if not kept.strip():
+            yield {"event": "error", "data": "The reply is empty, so there is nothing to continue"}
+            return
+
+        model = ctx.settings["model_name"]
+        stored = await db.get_reply_prompt(conversation_id)
+        record: TextCallRecord | None = None
+        # A prompt another model's template rendered is not this model's to continue.
+        if stored is not None and stored["message_id"] == target["id"] and stored["model"] == model:
+            stream = raw_continue_pass(ctx.client, ctx.settings, stored["prompt"] + stored["head"] + kept)
+        else:
+            opened: _OpenReply | None = None
+            async for ev in _open_continue(ctx, conversation_id, target, kept):
+                if isinstance(ev, tuple):
+                    opened = ev
+                else:
+                    yield ev
+            if opened is None:
+                return
+            base, prefill, kv_tracker = opened
+            record = TextCallRecord()
+            stream = continue_pass(ctx.client, base, ctx.settings, prefill, kv_tracker=kv_tracker, text_record=record)
+
+        async def _save(parts: Sequence[str]) -> bool:
+            continuation = resolve_inline("".join(parts))
+            if not continuation:
+                return True
+            try:
+                saved = await db.save_message_edit(target, kept + continuation, expected=original)
+                # The rebuilt prompt ends in the reply itself, so what precedes it is this reply's raw prompt from now on.
+                if saved and record is not None and record.prompt.endswith(kept):
+                    await db.set_reply_prompt(conversation_id, target["id"], model, record.prompt[: -len(kept)], "")
+            except Exception as e:
+                mark_stage(e, STAGE_SAVE)
+                raise
+            return saved
+
+        yield {"event": "step_start", "data": {"step": "writer"}}
+        parts: list[str] = []
+        try:
+            async for item in staged(STAGE_WRITER, stream):
+                parts.append(item["delta"])
+                yield {"event": "token", "data": item["delta"]}
+        except Exception:
+            # A failed call keeps what it streamed, as a turn's fallback save does.
+            await _save(parts)
+            raise
+        if not await _save(parts):
+            yield {"event": "error", "data": "That message is no longer in this conversation — reload it"}
+            return
+        yield {"event": "done"}
+
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Continue reply"):
+        yield event
+
+
+# The Writer base without the reply, the reply as the model reads it, and the turn's KV tracker.
+_OpenReply = tuple[CachedBase, str, KVCacheTracker]
+
+
+async def _open_continue(
+    ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], kept: str
+) -> AsyncIterator[PublicTurnEvent | _OpenReply]:
+    """Rebuild the conversation prefix ending in *target* as *kept*, for a reply with no raw prompt of its own.
+
+    Yields hook events, then an ``_OpenReply``, or an ``error`` event in its place.
+    """
+    path = await db.get_path_to_leaf(conversation_id, target["id"])
+    history = [*path[:-1], {**path[-1], "content": kept}]
+    last_user = next((str(m.get("content") or "") for m in reversed(history) if m.get("role") == "user"), "")
+
+    speaker = None
+    if ctx.cast.grouped and prefix_is_speaker_scoped(ctx.cast.context_mode):
+        speaker = next((m for m in ctx.cast.members if m.member_id == target.get("speaker_member_id")), None)
+        if speaker is None:
+            yield {"event": "error", "data": "This reply's speaker is no longer in the scene"}
+            return
+
+    setup: TurnSetup | None = None
+    async for ev in prepare_turn(
+        ctx, conversation_id, history=history, settings=ctx.settings, last_user_message=last_user, lorebook_messages=history
+    ):
+        if isinstance(ev, TurnSetup):
+            setup = ev
+        else:
+            yield ev
+    assert setup is not None
+    prefix = setup.prefix
+    if speaker is not None:
+        prefix, _ = build_prefixes(ctx, history, extra_system_blocks=list(setup.extra_system_blocks) or None, speaker=speaker)
+    *base_prefix, open_reply = prefix
+    if open_reply["role"] != "assistant" or not isinstance(open_reply["content"], str):
+        yield {"event": "error", "data": "This reply cannot be continued as text"}
+        return
+    if not ctx.client.uses_text_transport(prefix):
+        yield {"event": "error", "data": "Continue needs text mode, which cannot send the images in this chat"}
+        return
+
+    cfg = resolve_pipeline_config(
+        ctx.settings,
+        setup.merged_enabled_tools,
+        macros=setup.macros,
+        client=ctx.client,
+        agent_client=ctx.agent_client,
+        agent_prefix=setup.agent_prefix,
+        prefix=base_prefix,
+        phrase_bank=ctx.phrase_bank,
+        schema_overrides=setup.schema_overrides,
+        cache_shape=prefix_cache_shape(ctx.cast.context_mode, speaker),
+    )
+    base = cfg.writer_lane.base
+    prefill = base.resolve([open_reply])[0]["content"] if base.resolve else open_reply["content"]
+    yield base, str(prefill), setup.kv_tracker
 
 
 _SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightly different but still realistic direction.]"

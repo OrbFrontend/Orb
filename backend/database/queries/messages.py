@@ -12,6 +12,7 @@ from ..models import MessageListing, MessageRow, MessageWithAttachments, UserAtt
 from .conversations import get_conversation
 from .director_state import update_director_state
 from .fragment_state import insert_state_events
+from .reply_prompts import drop_reply_prompt_outdated_by
 from .workflow_attachments import EVICTED_MARKER
 from .worlds import mark_changesets_stale_on
 
@@ -389,6 +390,7 @@ async def update_message_content(msg_id: int, content: str) -> None:
     """Update the content of an existing message."""
     async with get_db() as db:
         await db.execute("UPDATE messages SET content = ? WHERE id = ?", (content, msg_id))
+        await drop_reply_prompt_outdated_by(db, msg_id)
         await db.commit()
 
 
@@ -409,6 +411,7 @@ async def save_message_edit(original: Mapping[str, Any], content: str, *, expect
             await db.execute("BEGIN IMMEDIATE")
         try:
             await db.execute("UPDATE messages SET content = ? WHERE id = ?", (content, msg_id))
+            await drop_reply_prompt_outdated_by(db, msg_id)
             # Editing an unfrozen greeting drops its stashed template -- otherwise the next fetch would re-roll from it and
             # clobber the manual edit.
             if assistant and original["parent_id"] is None:
