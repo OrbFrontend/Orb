@@ -302,7 +302,7 @@ class InteractiveFragmentCreate(_DecisionFields, _StateFields):
     required: bool = False
     enabled: bool = True
     injection_label: str
-    sort_order: int = 0
+    sort_order: int | None = None
     cooldown_turns: int = Field(0, ge=0, le=50)
     post_processing_gate: str = Field("", max_length=4000)
     post_processing_gate_replies: int = Field(0, ge=0, le=10)
@@ -321,17 +321,12 @@ class InteractiveFragmentUpdate(_DecisionFields, _StateFields):
     post_processing_gate_replies: int | None = Field(None, ge=0, le=10)
 
 
-class InteractiveFragmentOrderItem(BaseModel):
-    id: str
-    sort_order: int
-
-
 class InteractiveFragmentReorder(BaseModel):
-    items: list[InteractiveFragmentOrderItem] = Field(min_length=1)
+    ids: list[str] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _unique_ids(self):
-        if len({item.id for item in self.items}) != len(self.items):
+        if len(set(self.ids)) != len(self.ids):
             raise ValueError("Each interactive fragment may appear only once in a reorder")
         return self
 

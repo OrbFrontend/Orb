@@ -207,25 +207,6 @@ async def test_switching_a_decision_to_another_type_clears_its_decision_columns(
     assert updated["decision_criteria"] is None
 
 
-async def test_a_decision_shares_the_director_priority_lane(client, db):
-    await _add_decision(client, sort_order=5)
-    await client.post(
-        "/api/interactive-fragments",
-        json={
-            "id": "pacing",
-            "label": "Pacing",
-            "description": "Pace.",
-            "field_type": "string",
-            "injection_label": "Pacing",
-            "sort_order": 6,
-        },
-    )
-    await client.put_checked(
-        "/api/interactive-fragments/reorder",
-        json={"items": [{"id": "pacing", "sort_order": 5}, {"id": "outcome", "sort_order": 6}]},
-    )
-
-
 # -- configuration, preview, and the connection test --------------------------
 
 

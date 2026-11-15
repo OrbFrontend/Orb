@@ -95,12 +95,12 @@ async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
 @router.put("/api/interactive-fragments/reorder")
 async def api_reorder_interactive_fragments(data: InteractiveFragmentReorder):
     try:
-        reordered = await reorder_interactive_fragments([(item.id, item.sort_order) for item in data.items])
+        placed = await reorder_interactive_fragments(data.ids)
     except InteractiveFragmentReorderLaneMismatch as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if not reordered:
+    if placed is None:
         raise HTTPException(status_code=404, detail="One or more interactive fragments no longer exist")
-    return {"ok": True}
+    return {"sort_orders": placed}
 
 
 @router.put("/api/interactive-fragments/{fid}")

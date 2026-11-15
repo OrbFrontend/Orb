@@ -209,7 +209,8 @@ export function renderInteractiveFragments() {
     const orderA = a.sort_order || 0;
     const orderB = b.sort_order || 0;
     if (orderA !== orderB) return orderA - orderB;
-    return a.id.localeCompare(b.id);
+    // Code-unit order, as the server breaks the same tie.
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
   const lanes = INTERACTIVE_LANES.map((lane) => ({
@@ -269,31 +270,19 @@ function setupDragAndDrop(container) {
 }
 
 function updateFragmentOrder(container) {
-  const items = container.querySelectorAll(".fragment-item");
-  // A lane's order is its priority for the passes that consume it. Retain the lane's existing global priority slots
-  // instead of renumbering every fragment: that keeps each lane's priorities independent.
-  const prioritySlots = Array.from(items)
-    .map((item) => {
-      const fragment = S.interactiveFragments.find((f) => f.id === item.dataset.id);
-      return Number(fragment?.sort_order) || 0;
-    })
-    .sort((a, b) => a - b);
-  const updatedOrder = Array.from(items).map((item, index) => ({
-    id: item.dataset.id,
-    sort_order: prioritySlots[index],
-  }));
-  updatedOrder.forEach(({ id, sort_order }) => {
-    const frag = S.interactiveFragments.find((f) => f.id === id);
-    if (frag) frag.sort_order = sort_order;
-  });
+  const ids = Array.from(container.querySelectorAll(".fragment-item"), (item) => item.dataset.id);
   api
-    .put("/interactive-fragments/reorder", { items: updatedOrder })
-    .then(() => {
+    .put("/interactive-fragments/reorder", { ids })
+    .then(({ sort_orders }) => {
+      for (const frag of S.interactiveFragments) {
+        if (frag.id in sort_orders) frag.sort_order = sort_orders[frag.id];
+      }
       toast("Interactive fragments reordered");
     })
     .catch((e) => {
       console.error("Reorder failed", e);
       toast("Failed to save order", true);
+      renderInteractiveFragments();
     });
 }
 
@@ -600,7 +589,6 @@ function showInteractiveFragmentModal(fragId = null) {
     field_type: "string",
     required: false,
     injection_label: "",
-    sort_order: 0,
     cooldown_turns: 0,
   };
   _openDecisionDraft(d);

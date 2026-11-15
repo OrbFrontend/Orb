@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from ...core import DECISION_COLUMNS, STATE_COLUMNS
+from ...core import DECISION_COLUMNS, STATE_COLUMNS, fragment_stage
 from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import InteractiveFragmentRow
-
-_EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
 
 # Decode decision JSON at the read boundary; malformed values remain invalid definitions instead of failing the fragment list.
 _DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs")
@@ -29,8 +27,11 @@ _BASE_WRITE_COLUMNS = (
 )
 
 
+_LAST_SLOT = "COALESCE(?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM interactive_fragments))"
+
+
 class InteractiveFragmentReorderLaneMismatch(ValueError):
-    """A reorder attempted to mix the Director and Editor priority lanes."""
+    """A reorder named fragments from more than one stage."""
 
 
 def _decoded(row: Any) -> InteractiveFragmentRow:
@@ -59,7 +60,7 @@ def _encoded_decision_values(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def get_interactive_fragments() -> list[InteractiveFragmentRow]:
-    rows = await select_rows("SELECT * FROM interactive_fragments ORDER BY sort_order ASC, label ASC")
+    rows = await select_rows("SELECT * FROM interactive_fragments ORDER BY sort_order ASC, id ASC")
     return [_decoded(r) for r in rows]
 
 
@@ -69,6 +70,7 @@ async def get_interactive_fragment(fid: str) -> InteractiveFragmentRow | None:
 
 
 async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | None:
+    """Insert a fragment; without a ``sort_order`` it goes last."""
     payload = _encoded_decision_values(data)
     columns = ("id", *_BASE_WRITE_COLUMNS, *DECISION_COLUMNS)
     values = (
@@ -79,7 +81,7 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
         1 if payload.get("required", False) else 0,
         1 if payload.get("enabled", True) else 0,
         payload["injection_label"],
-        payload.get("sort_order", 0),
+        payload.get("sort_order"),
         payload.get("cooldown_turns", 0),
         # An explicit NULL would bypass the column default and violate NOT NULL.
         payload.get("post_processing_gate") or "",
@@ -90,7 +92,7 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
     async with get_db() as db:
         await db.execute(
             f"INSERT INTO interactive_fragments ({', '.join(columns)}) "  # nosec B608 -- columns from module literals
-            f"VALUES ({', '.join('?' for _ in columns)})",
+            f"VALUES ({', '.join(_LAST_SLOT if column == 'sort_order' else '?' for column in columns)})",
             values,
         )
         await db.commit()
@@ -122,33 +124,33 @@ async def update_interactive_fragment(
         return await get_interactive_fragment(fid)
 
 
-async def reorder_interactive_fragments(items: list[tuple[str, int]]) -> bool:
-    """Atomically update a lane's existing fragment-priority slots.
+async def reorder_interactive_fragments(ids: Sequence[str]) -> dict[str, int] | None:
+    """Put one stage's fragments in the order of *ids*; every fragment's slot by id, or ``None`` when an id is gone.
 
-    Callers send only the fragments in the reordered lane. All ids are checked while holding SQLite's write lock, so a stale,
-    mixed-lane, or malformed batch cannot partly update priorities.
+    The named fragments trade the places they hold in the full list, so no other fragment moves, and tied slots are spread
+    apart in the order they ran. Read and written under one write lock; a refused batch changes nothing.
     """
-    if not items:
-        return True
-
-    ids = [fid for fid, _ in items]
-    placeholders = ", ".join("?" for _ in ids)
     async with immediate_tx() as db:
         rows = list(
-            await db.execute_fetchall(
-                f"SELECT id, field_type FROM interactive_fragments WHERE id IN ({placeholders})",  # nosec B608 -- placeholder count derives solely from bound ids
-                ids,
-            )
+            await db.execute_fetchall("SELECT id, field_type, sort_order FROM interactive_fragments ORDER BY sort_order, id")
         )
-        if {str(row["id"]) for row in rows} != set(ids):
-            return False
-        lanes = {"editor" if row["field_type"] in _EDITOR_LANE_FIELD_TYPES else "director" for row in rows}
-        if len(lanes) != 1:
-            raise InteractiveFragmentReorderLaneMismatch("Fragments must belong to the same priority lane")
+        stage_by_id = {str(row["id"]): fragment_stage(row["field_type"]) for row in rows}
+        if any(fid not in stage_by_id for fid in ids):
+            return None
+        if len({stage_by_id[fid] for fid in ids}) > 1:
+            raise InteractiveFragmentReorderLaneMismatch("Fragments must belong to the same stage")
+        named, asked = set(ids), iter(ids)
+        order = [next(asked) if row["id"] in named else str(row["id"]) for row in rows]
+        slots = [int(row["sort_order"]) for row in rows]
+        for index in range(1, len(slots)):
+            slots[index] = max(slots[index], slots[index - 1] + 1)
+        placed = dict(zip(order, slots))
+        held = {str(row["id"]): row["sort_order"] for row in rows}
         await db.executemany(
-            "UPDATE interactive_fragments SET sort_order = ? WHERE id = ?", [(order, fid) for fid, order in items]
+            "UPDATE interactive_fragments SET sort_order = ? WHERE id = ?",
+            [(slot, fid) for fid, slot in placed.items() if held[fid] != slot],
         )
-    return True
+    return placed
 
 
 async def delete_interactive_fragment(fid: str) -> bool:

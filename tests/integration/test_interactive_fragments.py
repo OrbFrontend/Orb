@@ -82,38 +82,48 @@ async def test_update_nonexistent_interactive_fragment_returns_404(client, db):
     await client.put_checked("/api/interactive-fragments/ghost", json={"label": "Ghost"}, expected_status=404)
 
 
-async def test_reorder_interactive_fragments_updates_a_lane_atomically(client, db):
-    await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    await client.post("/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "focus", "label": "Focus", "sort_order": 11})
+async def _stage_order(client, ids):
+    listed = await client.get_json("/api/interactive-fragments")
+    return [row["id"] for row in listed if row["id"] in ids]
 
-    await client.put_checked(
-        "/api/interactive-fragments/reorder",
-        json={"items": [{"id": "pacing", "sort_order": 11}, {"id": "focus", "sort_order": 10}]},
-    )
 
-    rows = await db.all("SELECT id, sort_order FROM interactive_fragments WHERE id IN ('pacing', 'focus') ORDER BY id")
-    assert [(row["id"], row["sort_order"]) for row in rows] == [("focus", 10), ("pacing", 11)]
+async def test_reorder_spreads_tied_slots_so_the_asked_order_holds(client, db):
+    ids = ["pacing", "focus", "aim"]
+    for fid in ids:
+        await client.post("/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": fid, "label": fid, "sort_order": 0})
+    before = [row["id"] for row in await client.get_json("/api/interactive-fragments") if row["id"] not in ids]
+
+    await client.put_checked("/api/interactive-fragments/reorder", json={"ids": ["pacing", "aim", "focus"]})
+
+    listed = await client.get_json("/api/interactive-fragments")
+    assert [row["id"] for row in listed if row["id"] in ids] == ["pacing", "aim", "focus"]
+    assert [row["id"] for row in listed if row["id"] not in ids] == before
+    assert len({row["sort_order"] for row in listed}) == len(listed)
+
+
+async def test_a_new_fragment_without_a_slot_goes_last(client, db):
+    payload = {key: value for key, value in _BASE_PAYLOAD.items() if key != "sort_order"}
+    await client.post("/api/interactive-fragments", json=payload)
+
+    assert (await client.get_json("/api/interactive-fragments"))[-1]["id"] == "pacing"
 
 
 async def test_reorder_interactive_fragments_rejects_a_missing_item_without_partial_update(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
+    await client.post("/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "focus", "label": "Focus", "sort_order": 11})
 
     await client.put_checked(
-        "/api/interactive-fragments/reorder",
-        json={"items": [{"id": "pacing", "sort_order": 99}, {"id": "gone", "sort_order": 10}]},
-        expected_status=404,
+        "/api/interactive-fragments/reorder", json={"ids": ["focus", "gone", "pacing"]}, expected_status=404
     )
 
-    assert (await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'"))["sort_order"] == 10
+    assert await _stage_order(client, ["pacing", "focus"]) == ["pacing", "focus"]
 
 
-async def test_reorder_interactive_fragments_rejects_mixed_lanes(client, db):
+async def test_reorder_interactive_fragments_rejects_mixed_stages(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
 
     await client.put_checked(
-        "/api/interactive-fragments/reorder",
-        json={"items": [{"id": "pacing", "sort_order": 5}, {"id": "suggested_actions", "sort_order": 10}]},
-        expected_status=422,
+        "/api/interactive-fragments/reorder", json={"ids": ["suggested_actions", "pacing"]}, expected_status=422
     )
 
     assert (await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'"))["sort_order"] == 10

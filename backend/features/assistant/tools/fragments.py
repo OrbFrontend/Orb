@@ -14,10 +14,13 @@ from ....core import (
     DECISION_RESOLUTIONS_BY_TYPE,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_TEMPLATE,
+    FRAGMENT_STAGES,
     MAX_SCORE_LEVELS,
     MIN_SCORE_LEVELS,
     RESERVED_FRAGMENT_IDS,
     STATE_FIELD_TYPE,
+    FragmentStage,
+    fragment_stage,
     outcome_keys_of,
     outcome_text,
     with_outcome_text,
@@ -39,10 +42,6 @@ from .host import AppReads, AssistantHost, HostRefusal
 from .targets import clip, fragment_field, interactive_fragment_of, mood_fragment_of, not_blank, quoted
 from .toggles import switch_summary
 
-# The stages an interactive fragment runs in, as the fragment list groups them; order counts within a stage.
-Stage = Literal["judge", "director", "state", "editor"]
-_EDITOR_FIELD_TYPES = frozenset(("feedback", "post_processing"))
-
 # The field types under the names the fragment editor shows; Single and List are stored as string and array.
 FIELD_TYPE_NAMES = {
     "string": "single",
@@ -55,7 +54,6 @@ FIELD_TYPE_NAMES = {
 _STORED_TYPES = {name: stored for stored, name in FIELD_TYPE_NAMES.items()}
 DECISION_TYPE_NAMES = {"noul": "yes_no", "choice": "choice", "score": "score"}
 _STORED_DECISION_TYPES = {name: stored for stored, name in DECISION_TYPE_NAMES.items()}
-STAGES: tuple[Stage, ...] = ("judge", "director", "state", "editor")
 
 # An interactive fragment's text fields under the names the tools take, and the columns they live in.
 INTERACTIVE_TEXT_COLUMNS = {
@@ -117,14 +115,6 @@ def _flag(key: str, value: Switch) -> dict[str, bool]:
     return {} if value == "unchanged" else {key: value == "on"}
 
 
-def stage_of(field_type: str) -> Stage:
-    if field_type == DECISION_FIELD_TYPE:
-        return "judge"
-    if field_type == STATE_FIELD_TYPE:
-        return "state"
-    return "editor" if field_type in _EDITOR_FIELD_TYPES else "director"
-
-
 def required_applies(field_type: str, state_mode: str | None, state_update: str | None) -> bool:
     """Whether Required means anything: a field the Director fills, or a single state value it sets before the Writer."""
     if field_type == STATE_FIELD_TYPE:
@@ -173,12 +163,9 @@ def check_field_applies(row: Mapping[str, Any], field: str, outcome: str) -> Non
         raise ToolFailure("outcome is only for outcome_meaning and outcome_guidance; leave it empty.")
 
 
-def ordered_stage(fragments: Iterable[InteractiveFragmentRow], stage: Stage) -> list[InteractiveFragmentRow]:
+def ordered_stage(fragments: Iterable[InteractiveFragmentRow], stage: FragmentStage) -> list[InteractiveFragmentRow]:
     """One stage's fragments in the order they run and the fragment list shows them."""
-    return sorted(
-        (row for row in fragments if stage_of(row["field_type"]) == stage),
-        key=lambda row: (row["sort_order"] or 0, row["id"]),
-    )
+    return [row for row in fragments if fragment_stage(row["field_type"]) == stage]
 
 
 def decision_settings(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -228,7 +215,7 @@ def interactive_projection(
         "id": row["id"],
         "label": clip(row["label"], _LABEL_CHARS),
         "field_type": FIELD_TYPE_NAMES.get(field_type, field_type),
-        "stage": stage_of(field_type),
+        "stage": fragment_stage(field_type),
         "position": position,
         "enabled": bool(row["enabled"]),
     }
@@ -462,14 +449,12 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         return {**data, "note": note} if note else data
 
     async def stage_place(row: InteractiveFragmentRow) -> int:
-        stage = ordered_stage(await get_interactive_fragments(), stage_of(row["field_type"]))
+        stage = ordered_stage(await get_interactive_fragments(), fragment_stage(row["field_type"]))
         return next((index + 1 for index, item in enumerate(stage) if item["id"] == row["id"]), 0)
 
     async def create_interactive(payload: dict[str, Any], label: str) -> ToolOutput:
         rows = await get_interactive_fragments()
         payload["id"] = new_fragment_id(label, [*(row["id"] for row in rows), *RESERVED_FRAGMENT_IDS])
-        # Last in its stage, as a new fragment the user adds to the end of the list.
-        payload["sort_order"] = max((row["sort_order"] or 0 for row in rows), default=0) + 1
         try:
             fields = host.checked_fragment_write(host.validated("interactive_fragment_create", payload))
         except HostRefusal as exc:
@@ -481,7 +466,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         if row is None:
             raise ToolFailure("The fragment was not created.")
         ids = {"fragment_id": row["id"]}
-        placed = {"stage": stage_of(row["field_type"]), "position": await stage_place(row)}
+        placed = {"stage": fragment_stage(row["field_type"]), "position": await stage_place(row)}
         data = await noted({"created": True, **ids, **placed}, row["field_type"], row["enabled"])
         kind = FIELD_TYPE_NAMES.get(row["field_type"], row["field_type"])
         summary = f"Created {kind} fragment {quoted(row['label'])}."
@@ -682,7 +667,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
                 raise ToolFailure(f"That would leave the decision unable to run: {exc}. Nothing was changed.") from None
             if await update_interactive_fragment(row["id"], fields) is None:
                 raise ToolFailure(f"No interactive fragment has the id {args.fragment_id}.")
-        moved = await _move(row["id"], stage_of(field_type), args.position) if args.position else False
+        moved = await _move(row["id"], fragment_stage(field_type), args.position) if args.position else False
         after = await interactive_fragment_of(row["id"])
         settings = interactive_projection(after, await stage_place(after), 0, host, listing=True)
         data: dict[str, Any] = {
@@ -776,21 +761,16 @@ def _said(changes: Mapping[str, Any]) -> str:
     return "; ".join(f"{names.get(key, key.replace('_', ' '))} {value(key, item)}" for key, item in changes.items())
 
 
-async def _move(fragment_id: str, stage: Stage, position: int) -> bool:
-    """Put *fragment_id* at *position* in *stage*, keeping the stage's own priority slots; whether it moved."""
-    ordered = ordered_stage(await get_interactive_fragments(), stage)
-    ids = [row["id"] for row in ordered]
+async def _move(fragment_id: str, stage: FragmentStage, position: int) -> bool:
+    """Put *fragment_id* at *position* in *stage*; whether it moved."""
+    ids = [row["id"] for row in ordered_stage(await get_interactive_fragments(), stage)]
     if position > len(ids):
         raise ToolFailure(f"Its stage holds {len(ids)} fragments, so position is 1 to {len(ids)}. Nothing was moved.")
     if ids.index(fragment_id) == position - 1:
         return False
     ids.remove(fragment_id)
     ids.insert(position - 1, fragment_id)
-    slots = sorted(row["sort_order"] or 0 for row in ordered)
-    # Fragments that share a slot run in an order no one chose; distinct slots keep the order asked for.
-    for index in range(1, len(slots)):
-        slots[index] = max(slots[index], slots[index - 1] + 1)
-    if not await reorder_interactive_fragments(list(zip(ids, slots))):
+    if await reorder_interactive_fragments(ids) is None:
         raise ToolFailure("A fragment in that stage was removed meanwhile. Nothing was moved; read the list again.")
     return True
 
@@ -803,7 +783,7 @@ def fragment_rows(
     if kind in ("all", "mood"):
         rows.extend(mood_projection(row, cap, listing=True) for row in moods)
     if kind in ("all", "interactive"):
-        for stage in STAGES:
+        for stage in FRAGMENT_STAGES:
             for index, row in enumerate(ordered_stage(interactive, stage)):
                 rows.append(interactive_projection(row, index + 1, cap, rules, listing=True))
     return rows

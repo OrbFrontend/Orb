@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from ....core import extract_hyperparams
+from ....core import extract_hyperparams, fragment_stage
 from ....core.settings import Settings
 from ....database import (
     LIBRARY_VIEWS,
@@ -50,7 +50,6 @@ from .fragments import (
     interactive_projection,
     mood_projection,
     ordered_stage,
-    stage_of,
 )
 from .host import AssistantHost, HostRefusal
 from .targets import (
@@ -810,7 +809,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             return ToolOutput(data, f"Read the {args.field.replace('_', ' ')} of {label}.", ids)
         if args.outcome:
             raise ToolFailure("outcome goes with field outcome_meaning or outcome_guidance.")
-        stage = ordered_stage(await get_interactive_fragments(), stage_of(fragment["field_type"]))
+        stage = ordered_stage(await get_interactive_fragments(), fragment_stage(fragment["field_type"]))
         position = next((index + 1 for index, row in enumerate(stage) if row["id"] == fragment["id"]), 0)
         data = _fitted(lambda cap: interactive_projection(fragment, position, cap, host))
         return ToolOutput(data, f"Read {label}.", ids)
