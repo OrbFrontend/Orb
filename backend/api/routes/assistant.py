@@ -20,7 +20,14 @@ from ...database import (
     get_world,
     resolve_cast,
 )
-from ...features.assistant import AssistantUnavailable, RequestMark, Transcript, ViewContext, run_assistant
+from ...features.assistant import (
+    DEFAULT_INSTRUCTIONS,
+    AssistantUnavailable,
+    RequestMark,
+    Transcript,
+    ViewContext,
+    run_assistant,
+)
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
@@ -39,6 +46,7 @@ from ..assistant import (
     rewind_note,
     rewound,
     undo_proposals,
+    withheld_labels,
 )
 from ..assistant.images import get_image
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
@@ -188,7 +196,8 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 chat=chat,
                 progress=progress,
                 keep=keep,
-                reasoning=data.reasoning,
+                reasoning=bool(settings["assistant_reasoning"]),
+                withheld=withheld_labels(settings["assistant_tool_groups"]),
             ):
                 if event["type"] == "confirm":
                     proposed.append(event["proposal"]["proposal_id"])
@@ -203,6 +212,12 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     return CleanupStreamingResponse(
         sse_stream(_gen(), request, abort_token=abort_token, cid=ASSISTANT_STREAM_KEY), media_type="text/event-stream"
     )
+
+
+@router.get("/api/assistant/instructions")
+async def api_assistant_instructions():
+    """The system prompt's default opening, which the panel's options show and a request's ``instructions`` replaces."""
+    return {"default": DEFAULT_INSTRUCTIONS}
 
 
 @router.post("/api/assistant/stop")

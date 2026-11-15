@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+import re
 import uuid
 from collections import OrderedDict
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +16,7 @@ from backend.api.schemas import AssistantViewContext
 from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings, update_message_content
 from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant, session
 from backend.features.assistant.contracts import encode_result
+from backend.features.assistant.tools import CATEGORIES
 from backend.features.assistant.tools.reads import MAX_MESSAGES
 from backend.features.assistant.tools.targets import CHARACTER_FIELDS
 from backend.inference import LLMClient
@@ -200,6 +203,24 @@ async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments
     assert all(tool.description in described[tool.name] and tool.description not in system for tool in tools)
     replayed = calls[1]["messages"][-2]["tool_calls"][0]["function"]
     assert replayed["name"] == "read_messages" and json.loads(replayed["arguments"]) == {"count": 2}
+
+
+async def test_custom_instructions_replace_only_the_system_prompts_opening(client, library, monkeypatch):
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs)
+        yield _reply("Hi.")
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    default = (await client.get_json("/api/assistant/instructions"))["default"]
+    await client.put_checked("/api/settings", json={"assistant_instructions": "  Be terse.  "})
+    await client.post_checked(RUN, json=_body())
+    await client.put_checked("/api/settings", json={"assistant_instructions": " "})
+    await client.post_checked(RUN, json=_body())
+    custom, blank = (call["messages"][0]["content"] for call in calls)
+    assert custom.startswith("Be terse.\n\n") and default not in custom
+    assert blank.startswith(default) and custom.split("\n\n", 1)[1] == blank.split("\n\n", 1)[1]
 
 
 async def test_a_model_that_repeats_one_call_is_stopped_before_the_third_runs(client, library, monkeypatch):
@@ -1098,3 +1119,33 @@ async def test_an_edited_request_takes_the_conversation_back_to_it_and_keeps_wha
     # A request the server no longer holds leaves nothing to go back to: the edit starts a conversation of its own.
     continued, alone = await ask("What is said, again?", "gone", edit=True)
     assert continued is False and [message["role"] for message in alone] == ["system", "user"]
+
+
+async def test_a_request_offers_only_the_tool_groups_left_on_and_the_prompt_names_the_rest(client, library, monkeypatch):
+    monkeypatch.setattr(LLMClient, "sends_tool_schemas", lambda self, messages, model, **kwargs: False)
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs)
+        yield _step("reply", "") if len(calls) == 1 else {"type": "done", "message": {"content": "Done."}}
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    # Only the groups switched off are stored; an id the server does not know is ignored.
+    switches = {category.id: False for category in CATEGORIES if category.id != "characters"} | {"retired-group": False}
+    await client.put_checked("/api/settings", json={"assistant_tool_groups": switches})
+    events = frames(await client.post_checked(RUN, json=_body()))
+    assert events[-1][0] == "done"
+    offered = set(calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"])
+    # What is always offered, the one group left on, and nothing of a group switched off.
+    assert {"read_context", "query_library", "read_character", "edit_character", "reply"} <= offered
+    assert not offered & {"read_messages", "set_pipeline_toggle", "list_worlds", "create_mood_fragment", "read_document"}
+    prompt = calls[0]["messages"][0]["content"]
+    assert "switched these tool groups off" in prompt and "Fragments" in prompt and "Characters and personas" not in prompt
+
+    await client.put_checked("/api/settings", json={"assistant_tool_groups": {}})
+    # Every tool the table names is one that exists; the media tools need a run, and are built with one elsewhere.
+    grouped = {name for category in CATEGORIES if category.id != "media" for name in category.tools}
+    assert grouped < {tool.name for tool in await _tools_for_library()}
+    # The panel's switches name exactly the groups the server knows.
+    markup = (Path(__file__).parents[2] / "frontend" / "index.html").read_text(encoding="utf-8")
+    assert re.findall(r'data-category="([^"]+)"', markup) == [category.id for category in CATEGORIES]

@@ -85,9 +85,21 @@
 .asst-compose-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .asst-scope { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
   color: var(--text-muted); cursor: default; }
-.asst-think { display: flex; align-items: center; gap: 6px; margin: 0 4px 0 auto; text-transform: none;
-  letter-spacing: normal; color: var(--text-muted); cursor: pointer; user-select: none; }
-.asst-think:has(input:checked) { color: var(--accent); }
+/* Options and Clear are one pair of framed buttons; open reads as pressed. */
+.asst-head-btn { --ui-icon-size: 13px; height: 24px; padding: 0 9px; gap: 5px; }
+.asst-gear { margin-left: auto; }
+.asst-gear[aria-expanded="true"] { background: var(--accent-glow); border-color: var(--accent-dim); color: var(--accent); }
+/* The options the gear opens, between the head and the log: thinking, a rule, then the tool groups the model may use. */
+.asst-options { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
+  background: var(--bg-surface); font-size: 12px; }
+.asst-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0;
+  text-transform: none; letter-spacing: normal; color: var(--text-secondary); cursor: pointer; user-select: none; }
+.asst-option:has(input:checked) { color: var(--text-primary); }
+.asst-options-label { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px;
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; }
+.asst-prompt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.asst-instructions { flex: 0 0 auto; min-height: 96px; resize: vertical; font-size: 12px; line-height: 1.5; }
 .asst-send { --ui-icon-size: 16px; flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;
   margin-left: auto; padding: 0; border-radius: min(50%, calc(var(--radius) * 2)); background: var(--accent-dim);
   color: #fff; transition: background .15s, opacity .15s; }

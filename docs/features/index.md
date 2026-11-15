@@ -36,6 +36,7 @@ and revise it afterward.
 
 | Feature | Description |
 |---|---|
+| [Assistant Chat](assistant-chat.md) | Ask questions about your library and request changes in plain language. |
 | [Macros](macros.md) | Insert names, dice rolls, random choices, dates, and times. |
 | [Super-regenerate](super-regenerate.md) | Ask for a substantially different version of a reply. |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message using your instructions. |

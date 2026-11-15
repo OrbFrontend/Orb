@@ -41,7 +41,7 @@ import { begin, beginStream, finish, settle, streamEvents } from "./operations.j
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
 import { loadPersonas } from "./settings_personas.js";
-import { reloadSettingKeys } from "./settings_store.js";
+import { persistSettings, reloadSettingKeys } from "./settings_store.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import { $, toast } from "./utils.js";
@@ -49,7 +49,6 @@ import { $, toast } from "./utils.js";
 // One key per chat, by the key of the character it is about.
 const LS_CHAT = "orb-assistant-chat:";
 const LS_OPEN = "orb-assistant-open";
-const LS_THINK = "orb-assistant-think";
 // As many chats as the server keeps conversations.
 const MAX_CHATS = 32;
 const PANEL = "assistant-panel";
@@ -453,6 +452,7 @@ async function stream(chat, body, context, request) {
   paint();
   let failure = "";
   try {
+    await optionsSaved;
     for await (const { event, data } of streamEvents(record, "/assistant/run", body, "Assistant")) {
       const failed = event === "error" ? sseError(data, "The assistant failed.").message : "";
       const committed = applyStreamEvent(current, event, data, failed);
@@ -512,12 +512,77 @@ function submit(text, replaced = null) {
   items.push({ kind: "user", text, context, requestId });
   trimTranscript(items);
   following = true;
-  const reasoning = $("assistant-think").checked;
   // The changes earlier cards still hold, so this request can build on them; the server reads their texts itself.
   const pending = pendingProposalIds(items);
   // Only the request goes out: the server holds the conversation this session names, every call and result in it.
   const body = { text, context: wireContext(context), session: chat.session, request_id: requestId, edit };
-  return stream(chat, { ...body, reasoning, pending }, context, text);
+  return stream(chat, { ...body, pending }, context, text);
+}
+
+// Read from the server when the options first open; until then the box shows only a saved prompt.
+let defaultInstructions = null;
+
+// Empty when the box holds the default, which the setting stores as empty.
+function customInstructions() {
+  const text = $("assistant-instructions").value.trim();
+  return text && text !== defaultInstructions ? text : "";
+}
+
+// The options are settings, read by the server at Send: a run waits for the last change to them to be saved.
+let optionsSaved = Promise.resolve();
+
+const offGroups = (switches) =>
+  Object.entries(switches || {})
+    .flatMap(([id, on]) => (on ? [] : [id]))
+    .sort();
+
+function paintOptions() {
+  $("assistant-think").checked = Boolean(S.settings?.assistant_reasoning);
+  const off = offGroups(S.settings?.assistant_tool_groups);
+  for (const box of categoryBoxes()) box.checked = !off.includes(box.dataset.category);
+  const prompt = $("assistant-instructions");
+  if (document.activeElement !== prompt) prompt.value = S.settings?.assistant_instructions || defaultInstructions || "";
+}
+
+async function loadDefaultInstructions() {
+  if (defaultInstructions !== null) return;
+  try {
+    defaultInstructions = (await api.get("/assistant/instructions")).default.trim();
+  } catch {
+    return;
+  }
+  paintOptions();
+}
+
+function resetInstructions() {
+  $("assistant-instructions").value = defaultInstructions ?? "";
+  storeOptions();
+}
+
+const categoryBoxes = () => [...$("assistant-options").querySelectorAll("input[data-category]")];
+
+// A group missing from the setting is on, so only those switched off are stored.
+function storeOptions() {
+  const patch = {};
+  const think = $("assistant-think").checked;
+  if (think !== Boolean(S.settings?.assistant_reasoning)) patch.assistant_reasoning = think;
+  const off = categoryBoxes()
+    .flatMap((box) => (box.checked ? [] : [box.dataset.category]))
+    .sort();
+  if (off.join() !== offGroups(S.settings?.assistant_tool_groups).join()) {
+    patch.assistant_tool_groups = Object.fromEntries(off.map((id) => [id, false]));
+  }
+  const instructions = customInstructions();
+  if (instructions !== (S.settings?.assistant_instructions || "")) patch.assistant_instructions = instructions;
+  if (Object.keys(patch).length) optionsSaved = persistSettings(patch, paintOptions);
+}
+
+function toggleOptions() {
+  const hidden = $("assistant-options").classList.toggle("hidden");
+  $("assistant-gear").setAttribute("aria-expanded", String(!hidden));
+  if (hidden) return;
+  paintOptions();
+  loadDefaultInstructions();
 }
 
 function send() {
@@ -804,9 +869,10 @@ export function initAssistant() {
     askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),
     focusInput: () => $("assistant-input").focus(),
-    think: () => store(LS_THINK, $("assistant-think").checked ? "1" : "0"),
+    options: () => toggleOptions(),
+    option: () => storeOptions(),
+    resetInstructions: () => resetInstructions(),
   });
-  $("assistant-think").checked = stored(LS_THINK) === "1";
   const log = $("assistant-log");
   log.addEventListener("scroll", () => {
     if (log.clientHeight) following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;

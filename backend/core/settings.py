@@ -62,6 +62,10 @@ class _SettingsBase(ConnectionSettings):
     prevent_prompt_overrides: ReadOnly[int]
     agent_same_as_writer: ReadOnly[bool]
     agent_shared_system_prompt: ReadOnly[str]
+    assistant_instructions: ReadOnly[str]  # empty is the assistant's built-in opening
+    assistant_reasoning: ReadOnly[int]
+    # Decoded by get_settings(); assistant tool group on/off by group id, missing key => on, so a new group needs no migration.
+    assistant_tool_groups: ReadOnly[dict[str, bool]]
     director_individual_fragments: ReadOnly[int]
     workflows_globally_enabled: ReadOnly[int]
 

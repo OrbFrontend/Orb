@@ -99,6 +99,7 @@ nav:
           - Post-processing Fragments: features/post-processing-fragments.md
           - Prose Rewriter: features/prose-rewriter.md
       - Writing tools:
+          - Assistant Chat: features/assistant-chat.md
           - Macros: features/macros.md
           - Super-regenerate: features/super-regenerate.md
           - Magic Rewrite: features/magic-rewrite.md

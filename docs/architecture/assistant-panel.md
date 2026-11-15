@@ -18,6 +18,7 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/tools/` | The tools over the library's readers and writers, the proposal store, and Apply, Undo and Revise. `__init__.py` holds `build_tools`, which assembles them for one run against a host. |
 | `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
 | `backend/features/assistant/tools/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
+| `backend/features/assistant/tools/categories.py` | The groups the tools are offered in, and the filter a request's choice of groups applies |
 | `backend/features/assistant/tools/reads.py` | The sixteen read tools, their projections and paging |
 | `backend/features/assistant/tools/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
 | `backend/features/assistant/tools/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
@@ -30,7 +31,7 @@ browser stores and refreshes what changed.
 | `backend/api/deletions.py` | The chat and message deletes their routes and Apply share, and the document delete, with their fences |
 | `backend/api/fragments/` | The interactive fragment write rules the fragment routes and the assistant share: type-scoped settings, defaults and the decision check |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
-| `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, and the view check |
+| `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, `GET /api/assistant/instructions`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
 | `frontend/assistant_chat.js` (layer 5) | The panel, its run, Stop, Apply, handoffs and refreshes |
 
@@ -43,7 +44,7 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 POST /api/assistant/run?operation_id=<id>
   { text, session, request_id?, edit?,
     context: {mode, conversation_id?, character_id?, document_id?, world_id?, entry_id?},
-    reasoning?, pending? }
+    pending? }
 ```
 
 `text` is the new request, at most 8,000 characters, and nothing else of the
@@ -65,6 +66,15 @@ named without a world is found in its own world.
 already sent, whose place this text takes; see
 [An edited request](#an-edited-request).
 
+The panel's options are settings the server reads at Send, not request fields:
+`assistant_reasoning` (Think), `assistant_tool_groups` (see
+[Tool groups](#tool-groups)) and `assistant_instructions`, which replaces the
+system prompt's opening (`DEFAULT_INSTRUCTIONS` in `prompt.py`, served by
+`GET /api/assistant/instructions`); empty is the default. The protocol, rules
+and tool list after the opening are not replaceable. Like the tool groups, a
+change re-reads the conversation from its start. The browser waits for its
+last options save before it sends a run.
+
 `pending` names the proposals earlier requests made that the user's cards still
 hold. The server keeps those still held and not applied, and ignores the rest;
 see [Across requests](#across-requests).
@@ -81,7 +91,7 @@ The browser registers the run in `S.operations` with wire-style target keys
 ## The model protocol
 
 Calls go to the Agent lane, with its model and `max_tokens`. Reasoning is off
-unless the request sets `reasoning`, which the panel's Think box sends; then
+unless the `assistant_reasoning` setting, the panel's Think option, is on; then
 every call of the run thinks, its reasoning replays under the names it streamed
 (see [Reasoning can create another lane](kv-cache.md#reasoning-can-create-another-lane)), and the call asks the template to
 `preserve_thinking`, so earlier turns keep their reasoning in the rendered
@@ -270,6 +280,45 @@ throughout.
 | write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
+
+### Tool groups
+
+Each tool belongs to one group (`tools/categories.py`), and the panel's options
+switch groups on and off. A group holds the reads its writes depend on, so
+switching one off removes a whole subject:
+
+| Group (`id`) | Tools |
+|---|---|
+| Characters and personas (`characters`) | `list_characters`, `read_character`, `list_personas`, `create_character`, `create_persona`, `set_active_persona`, `edit_character`, `edit_persona`, `delete_character` |
+| Chats and messages (`chats`) | `read_messages`, `read_chat_state`, `start_chat`, `set_chat`, `checkpoint_chat`, `switch_branch`, `edit_message`, `delete_chat`, `delete_message`, and the five handoffs |
+| Worlds and lore (`lore`) | `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `create_world`, `create_lore_entry`, `set_world`, `set_lore_entry`, `set_chat_world`, `edit_lore_entry`, `delete_world`, `delete_lore_entry` |
+| Fragments (`fragments`) | The fragment reads, creates, setters and edits |
+| Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
+| Documents (`documents`) | `list_documents`, `read_document` |
+| Images and speech (`media`) | `create_image`, `illustrate_reply`, `generate_speech` |
+
+`read_context` and `query_library` are in no group and always offered. A tool
+declared without a group fails `build_tools`, so none can stay offered past the
+switches by omission.
+
+The `assistant_tool_groups` setting maps a group id to whether it is on; a
+group it does not name is on, so a new group needs no migration, and an id the
+server does not know is ignored. Tools of a group
+left out are not built into the run: they appear in no schema, step enum or
+prompt list. The system prompt then names the groups switched off, so the model
+answers a request that needs one by saying where to switch it on. A
+description or a refusal may still name a tool of a group that is off (a chat
+tool's persona "from list_personas"); the prompt says such a tool is not
+available and that `query_library`, whose views reach every id, finds it
+instead. The choice
+changes the system prompt and the schemas, so the first request after a change
+re-reads the conversation from its start; calls earlier requests made to a tool
+since switched off stay in the conversation as they were. Apply, Undo and
+Revise act on proposals, not tools, and work whatever is switched off.
+
+A new group (web browsing, say) is one `ToolCategory`, its tools' builder in
+`build_tools`, and one switch in the panel's markup; a test holds the markup's
+ids to the server's.
 
 ### Results
 
@@ -684,8 +733,7 @@ Each chat lives in `localStorage` under `orb-assistant-chat:<character>`: its
 session id and its transcript of at most 100 entries; the 32 most recently
 stored are kept, and an empty chat is not stored. Whether the panel is open is
 under `orb-assistant-open`, which is
-restored at load on the wide layout only, and the Think box under
-`orb-assistant-think`. Loading validates every entry from its
+restored at load on the wide layout only. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
 leaves the assistant working from memory. What is stored is user text, answers,
 tool summaries and ids, and each proposed edit's labels, lengths and state,
@@ -728,8 +776,12 @@ or Cancel puts the request back. See [An edited request](#an-edited-request).
 
 The composer is one box: the input grows with its text, the view label the
 next request is about (with the lorebook drawer's world or entry after it, while
-the drawer is open) sits under it beside the Think box, and the corner
-button sends, or stops while a run goes. Think applies from the next request. An empty transcript offers a few requests suited to the view;
+the drawer is open) sits under it, and the corner
+button sends, or stops while a run goes. The gear in the panel's head opens the
+options between the head and the log: Think, then a rule, then one switch for
+each [tool group](#tool-groups), then the system prompt's opening with Reset, saved to the
+`assistant_instructions` setting when the box loses focus. The gear is marked while Think is on or a
+group is off, and an option applies from the next request. An empty transcript offers a few requests suited to the view;
 picking one fills the input and sends nothing. Each request captures its view at Send; changing
 view affects the next request, not a running one. The transcript shows a separator where the view changes,
 and where the model's memory begins when the server no longer held the conversation above. Clear is disabled while work runs.

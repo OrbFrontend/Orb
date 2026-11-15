@@ -45,6 +45,7 @@ async def get_settings() -> Settings:
             or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"negated_narration":false}'
         )
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
+        s["assistant_tool_groups"] = json.loads(s.get("assistant_tool_groups") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
         # Card-site session tokens stay out of the settings payload; get_card_source_auth() is their only reader.
@@ -270,6 +271,9 @@ async def update_settings(data: dict) -> Settings:
             "agent_same_as_writer",
             "agent_endpoint_id",
             "agent_shared_system_prompt",
+            "assistant_instructions",
+            "assistant_reasoning",
+            "assistant_tool_groups",
             "director_individual_fragments",
             "inspector_open_states",
             "workflows_globally_enabled",
@@ -288,6 +292,7 @@ async def update_settings(data: dict) -> Settings:
                 "inspector_open_states",
                 "editor_audit_toggles",
                 "document_audit_toggles",
+                "assistant_tool_groups",
             },
         )
         if sets:
