@@ -378,19 +378,20 @@ reads it whole, in pages.
 
 ### The web
 
-`search_web(query, offset?)` asks the SearXNG server named by the `searxng_url` setting (`GET /search?format=json`) and
-returns eight results a page as `title`, `url` and a clipped `excerpt`. The setting is the panel's SearXNG URL field; it is
+`search_web(query)` asks the SearXNG server named by the `searxng_url` setting (`GET /search?format=json`) and
+returns its first eight results as `title`, `url` and a clipped `excerpt`; a better query, not a next page, finds more. The setting is the panel's SearXNG URL field; it is
 machine-local, so an imported preset never replaces it. Both tools are offered without it, and `search_web` then says where
 to set it. A server that answers 403 has JSON output off, and the failure names `search.formats` in its `settings.yml`.
 
 `read_web_page(url, find?, offset?)` fetches one page with a browser's User-Agent, since many sites refuse a script's, and
-reduces it to text with the standard library's parser: scripts, styles, navigation, headers, footers and forms dropped, a
+reduces it to text with the standard library's parser: scripts, styles, navigation, footers and asides dropped, a
 line per block, a heading marked `#`, table cells joined by `|`. It reads 4,000 characters a page; `find` starts at the first
 place a text appears at or after `offset`, which is how a long article is entered at a section. The last eight pages read are
 held in memory by URL, so a next page or a `find` reads what the first call fetched. A page is cut at 3 MB before parsing.
 
 Only public http(s) hosts are read. Each request, and each redirect, resolves its host first and is refused when any address
-is not global: loopback, private, link-local. A site that answers anything but 200, or a page with no text without its
+is not global: loopback, private, link-local. The connection resolves the host again, so a name that answers a
+public address to the check and a private one to the connection (DNS rebinding) is not caught. A site that answers anything but 200, or a page with no text without its
 scripts, is a tool failure that tells the model to read another result; nothing renders JavaScript or works around a block.
 
 Web text is another party's words in a conversation where write tools commit at once. Both descriptions say it is not from
