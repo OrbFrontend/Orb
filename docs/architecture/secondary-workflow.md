@@ -300,7 +300,10 @@ workflow toggle turns the rewriter on for both automatic runs and the
 saved-message rewrite route, and its `automatic` config gates the post-hook
 alone. Saved-message rewrites apply Format Consistency to the retained
 post-Editor draft (or saved text when absent) before the local rewrite, using the
-same enablement and voice settings as a turn. Document mode's selection rewrite
+same enablement and voice settings as a turn. A saved-message rewrite with a
+`selection` (a code-point offset and the text there, 409 once it no longer
+matches) skips Format Consistency and rewrites only that span of the saved
+content. Document mode's selection rewrite
 (`POST /api/documents/{did}/prose-rewrite`) runs no post-pipeline hooks: it
 streams the local rewrite of the selected text, passing the mode's prompt
 scaffolding lines through, and the client splices and saves it. It is gated by

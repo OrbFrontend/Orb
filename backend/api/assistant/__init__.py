@@ -12,6 +12,7 @@ from ...core.settings import Settings
 from ...features.assistant import (
     AssistantTool,
     ViewContext,
+    chat_moved,
     flush_transcripts,
     forget_transcript,
     held_transcript,
@@ -29,6 +30,7 @@ __all__ = [
     "Proposal",
     "apply_proposals",
     "build_tools",
+    "chat_moved",
     "flush_transcripts",
     "forget_transcript",
     "held_transcript",

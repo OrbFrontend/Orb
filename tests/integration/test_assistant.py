@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from backend.api.assistant import apply_proposals, build_tools, pending_note
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
-from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings
+from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings, update_message_content
 from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant, session
 from backend.features.assistant.contracts import encode_result
 from backend.features.assistant.tools.reads import MAX_MESSAGES
@@ -1024,6 +1024,38 @@ async def test_a_request_is_told_when_what_the_model_proposed_no_longer_waits(cl
     assert gone not in await ask([proposal])
     assert gone in await ask([])
     assert gone not in await ask([])
+
+
+async def test_a_request_is_told_once_when_the_chat_in_view_moved_on(client, library, monkeypatch):
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield _reply("Noted.")
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    body = _body("And now?", mode="chat", conversation_id=library["chat"])
+
+    async def ask():
+        calls.clear()
+        await client.post_checked(RUN, json=body)
+        return calls[0][-1]["content"]
+
+    plain = await ask()
+    assert await ask() == plain
+    last, _ = await add_message(
+        library["chat"], "user", "a new line", MAX_MESSAGES + 6, parent_id=library["kept"], advance_leaf=True
+    )
+    appended = await ask()
+    assert appended.startswith(plain) and appended != plain
+    assert await ask() == plain
+    await update_message_content(library["kept"], "rewritten")
+    changed = await ask()
+    assert changed.startswith(plain) and changed not in (plain, appended)
+    assert await ask() == plain
+    # The note places the change: a later message changing reads differently from an earlier one.
+    await update_message_content(last, "rewritten too")
+    assert await ask() not in (plain, changed)
 
 
 async def test_an_edited_request_takes_the_conversation_back_to_it_and_keeps_what_was_changed_since(

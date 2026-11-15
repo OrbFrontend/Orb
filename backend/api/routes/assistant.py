@@ -28,6 +28,7 @@ from ..assistant import (
     MediaRun,
     apply_proposals,
     build_tools,
+    chat_moved,
     flush_transcripts,
     forget_transcript,
     held_transcript,
@@ -170,6 +171,7 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 transcript, removed = rewound(transcript, data.request_id or "")
                 hold_transcript(data.session, transcript)
             yield {"event": "start", "data": {"continued": bool(transcript and transcript.messages)}}
+            chat, moved = await chat_moved(transcript, view.conversation_id) if view.conversation_id else (None, "")
             gone = transcript is not None and not set(transcript.awaiting) <= {proposal.id for proposal in held}
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
@@ -181,8 +183,9 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 transcript=transcript,
                 request=data.text.strip(),
                 view=view,
-                note="\n\n".join(filter(None, (rewind_note(removed), pending_note(held, gone=gone)))),
+                note="\n\n".join(filter(None, (rewind_note(removed), moved, pending_note(held, gone=gone)))),
                 request_id=data.request_id or "",
+                chat=chat,
                 progress=progress,
                 keep=keep,
                 reasoning=data.reasoning,

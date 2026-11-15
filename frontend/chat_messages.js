@@ -20,6 +20,7 @@ import { refreshConversationMessages, replayAttachmentInvalidations } from "./ch
 import { responseError, sseError } from "./errors.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
+import { selectionInSource } from "./message_selection.js";
 import { confirmDelete } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { conversationState, isViewing, S } from "./state.js";
@@ -144,10 +145,35 @@ async function deleteMessage(msgId) {
 
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
+const liveRange = () => {
+  const sel = window.getSelection();
+  return sel?.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+};
+// Taken on press, before a tap can collapse a touch selection; a keyboard press reads the live one.
+let pressedRange = null;
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (e.target.closest?.(".msg-btn-prose-rewrite")) pressedRange = liveRange();
+  },
+  true,
+);
+
+function takeRewriteSelection(msgId, source) {
+  const range = pressedRange ?? liveRange();
+  pressedRange = null;
+  return selectionInSource(messageBody(msgId), range, source);
+}
+
 async function rewriteMessageProse(msgId) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
-  if (!requestSendPermission()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
+  const selection = takeRewriteSelection(msgId, source);
+  if (selection === false) {
+    toast("Couldn't match the selection to this message's text", true);
+    return;
+  }
+  if (!requestSendPermission()) return;
   const op = beginStreamOperation(S.activeConvId);
   const state = op.state;
   const sendBtn = $("send-btn");
@@ -164,7 +190,7 @@ async function rewriteMessageProse(msgId) {
   try {
     const response = await streamPost(
       `${convUrl(op.convId, "messages", msgId, "prose-rewrite")}?operation_id=${op.record.id}`,
-      {},
+      selection ? { selection } : {},
       op.signal,
     );
     if (!response.ok) throw await responseError(response);
@@ -179,7 +205,7 @@ async function rewriteMessageProse(msgId) {
         result = JSON.parse(data);
         if (result.aborted) toast("Prose rewrite stopped");
         else if (result.warning) toast(`Prose rewriter didn't run: ${result.warning}`, true);
-        else toast(result.changed ? "Message rewritten" : "No prose changes needed");
+        else toast(result.changed ? "Rewritten" : "No prose changes needed");
       } else if (event === "error") {
         throw sseError(data, "Prose rewrite failed");
       }

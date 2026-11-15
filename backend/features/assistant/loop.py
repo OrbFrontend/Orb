@@ -40,6 +40,7 @@ from .contracts import (
     AssistantEvent,
     AssistantTool,
     AssistantUnavailable,
+    ChatSeen,
     RequestMark,
     ToolArguments,
     ToolFailure,
@@ -343,6 +344,7 @@ async def run_assistant(
     reasoning: bool = False,
     note: str = "",
     request_id: str = "",
+    chat: ChatSeen | None = None,
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
@@ -369,7 +371,8 @@ async def run_assistant(
 
     *note* is the caller's word about state the request should know of, such as changes earlier requests proposed that still
     wait for the user; it follows the view note. *request_id* is the browser's name for this request, kept with what its
-    writes committed, so a later edit of the request can find where it began.
+    writes committed, so a later edit of the request can find where it began. *chat* is the chat in view as it stood at
+    Send, kept with the request so a later one can be told the chat moved on.
 
     *reasoning* turns thinking on for every call of the run. Its reasoning replays under the names it streamed, and the template
     is asked to keep it on earlier turns, so a later request renders what this run read. A run with thinking off sends no
@@ -668,7 +671,7 @@ async def run_assistant(
             # A Stop can also end the run by cancelling it, where no ``_Stopped`` is raised.
             note = _STOPPED if ending == _FAILED and client.is_aborted else ending
             messages = tuple(_closed([*history, latest, *run], note))
-            marks = (*(transcript.requests if transcript else ()), RequestMark(request_id, tuple(committed)))
+            marks = (*(transcript.requests if transcript else ()), RequestMark(request_id, tuple(committed), chat))
             # Requests the budget dropped take their marks with them.
             held = sum(is_request_message(message) for message in messages)
             keep(Transcript(messages, model, endpoint, marks[-held:]))

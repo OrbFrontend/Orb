@@ -166,6 +166,17 @@ the server's prefix cache holds through the whole conversation (see
 A result shows what was true when it ran; the prompt says the user may have
 changed things since, and the model reads again when a request depends on it.
 
+A request from a chat view keeps that chat's kept branch as it stood at Send:
+its length, and digests of its messages' ids and text up to that length and to
+shorter ones, 1, 2, 4, 8… messages back. When the next request from the same
+chat finds it moved on, the request's note says so, once: how many messages are
+new and their `#N`; or that the branch was cut back and where it now ends; or,
+when messages it held changed (an edit, a delete, a regenerated reply, another
+branch kept), the last `#N` still as it was, to the nearest kept digest, and
+where the branch now ends. The change is reported whoever made it: an applied
+proposal, a handoff's new reply and a branch the assistant showed are all text
+the model has not read. A chat no request still held has seen gets no note.
+
 The server holds each conversation under the `session` id the browser made for
 it (`session.py`): the 32 most recently held, in memory and in the
 `assistant_chats` table, so a restart continues them. Writes are queued in the
@@ -217,8 +228,8 @@ the panel. The edit box says so before Send.
 
 The chat may have moved on since the request was first sent: new turns, a
 regenerated reply, another branch. An edit handles that as any later request
-does, and adds nothing for it. It is about the view open now, not the one the
-first wording was sent from; its tools read the chat's kept branch as it now
+does: its note measures the chat against the last request it keeps. It is about
+the view open now, not the one the first wording was sent from; its tools read the chat's kept branch as it now
 stands; a `#N` it names is the one the chat window shows now; and results still
 in the conversation are covered by the standing rule that a result shows what
 was true when it ran. The assistant's conversation has no branches of its own:

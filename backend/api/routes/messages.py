@@ -56,7 +56,16 @@ from ..deps import (
     rows_response,
     stream_idle_lock,
 )
-from ..schemas import AutocompleteInput, EditMessage, MagicRewriteMsg, RegenerateMsg, SendMessage, SpeakRequest
+from ..schemas import (
+    AutocompleteInput,
+    EditMessage,
+    MagicRewriteMsg,
+    ProseRewriteMsg,
+    ProseRewriteSelection,
+    RegenerateMsg,
+    SendMessage,
+    SpeakRequest,
+)
 
 router = APIRouter()
 
@@ -221,10 +230,19 @@ async def api_magic_rewrite_msg(
     return pipeline_sse_response(lambda tok: handle_magic_rewrite(cid, msg_id, data.direction, abort_token=tok), request, cid)
 
 
+def _selected(content: str, selection: ProseRewriteSelection) -> bool:
+    return content.startswith(selection.text, selection.start)
+
+
 async def _stream_prose_rewrite_message(
-    cid: str, msg_id: int, config: ProseRewriteConfig, abort_token: AbortToken, settings: Settings | None = None
+    cid: str,
+    msg_id: int,
+    config: ProseRewriteConfig,
+    abort_token: AbortToken,
+    settings: Settings | None = None,
+    selection: ProseRewriteSelection | None = None,
 ) -> AsyncIterator[PublicEvent]:
-    """Apply Format Consistency, then stream a local rewrite of the source.
+    """Apply Format Consistency, then stream a local rewrite of the source; a *selection* skips Format Consistency.
 
     Load after acquiring the conversation lock to avoid stale edits. Persist only
     after the final rewritten event; failures and disconnects leave the row unchanged.
@@ -233,12 +251,20 @@ async def _stream_prose_rewrite_message(
     if not message or message["conversation_id"] != cid or message["role"] != "assistant":
         yield {"event": "error", "data": "Message changed or was deleted before the prose rewrite started"}
         return
-    source = prose_rewrite_source(message)
+    current_content = message["content"] or ""
+    lead = trail = ""
+    if selection is None:
+        source = prose_rewrite_source(message)
+    elif _selected(current_content, selection):
+        source = selection.text
+        lead, trail = current_content[: selection.start], current_content[selection.start + len(source) :]
+    else:
+        yield {"event": "error", "data": "Message changed before the prose rewrite started"}
+        return
     if source is None:
         yield {"event": "error", "data": "This message has no text to rewrite"}
         return
     settings = settings or await get_settings()
-    current_content = message["content"] or ""
     aborted: PublicEvent = {
         "event": "prose_rewrite_done",
         "data": {"message_id": msg_id, "content": current_content, "changed": False, "warning": "", "aborted": True},
@@ -246,18 +272,20 @@ async def _stream_prose_rewrite_message(
     if abort_token.is_aborted:
         yield aborted
         return
-    source = await prepare_prose_rewrite(cid, message, source, settings, abort_token)
-    if abort_token.is_aborted:
-        yield aborted
-        return
-    rewritten = source
+    if selection is None:
+        source = await prepare_prose_rewrite(cid, message, source, settings, abort_token)
+        if abort_token.is_aborted:
+            yield aborted
+            return
+    rewritten = lead + source + trail
     warning = ""
     async with contextlib.aclosing(until_aborted(rewrite_events(source, config), abort_token)) as events:
         async for event in events:
             if event["type"] == "draft_update":
-                yield {"event": "prose_rewrite_update", "data": {"message_id": msg_id, "draft": event["draft"]}}
+                draft = lead + event["draft"] + trail
+                yield {"event": "prose_rewrite_update", "data": {"message_id": msg_id, "draft": draft}}
             elif event["type"] == "rewritten":
-                rewritten = event["draft"]
+                rewritten = lead + event["draft"] + trail
             elif event["type"] == "warning":
                 warning = event["reason"]
     if abort_token.is_aborted:
@@ -294,15 +322,19 @@ async def api_prose_rewrite_message(
     cid: str,
     msg_id: int,
     request: Request,
+    data: ProseRewriteMsg | None = None,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Stream a prose rewrite for one saved assistant message."""
+    """Stream a prose rewrite for one saved assistant message, or for the selected span of it."""
     message = await get_message_by_id(msg_id)
     if not message or message["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found")
     if message["role"] != "assistant":
         raise HTTPException(status_code=400, detail="Only assistant messages can be rewritten")
-    if prose_rewrite_source(message) is None:
+    selection = data.selection if data else None
+    if selection is not None and not _selected(message["content"] or "", selection):
+        raise HTTPException(status_code=409, detail="The selection no longer matches this message")
+    if selection is None and prose_rewrite_source(message) is None:
         raise HTTPException(status_code=409, detail="This message has no text to rewrite")
 
     settings = await get_settings()
@@ -311,7 +343,9 @@ async def api_prose_rewrite_message(
         raise HTTPException(
             status_code=503, detail="Prose rewriter unavailable: turn it on and download a model in Workflow → Secondary"
         )
-    return pipeline_sse_response(lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings), request, cid)
+    return pipeline_sse_response(
+        lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings, selection), request, cid
+    )
 
 
 @router.post("/api/conversations/{cid}/send")

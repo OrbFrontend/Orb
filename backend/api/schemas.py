@@ -764,6 +764,16 @@ class MagicRewriteMsg(BaseModel):
     direction: str
 
 
+class ProseRewriteSelection(BaseModel):
+    # A code-point offset into the saved content and the text found there; a stale selection no longer matches.
+    start: int = Field(ge=0)
+    text: str = Field(min_length=1)
+
+
+class ProseRewriteMsg(BaseModel):
+    selection: ProseRewriteSelection | None = None
+
+
 class AutocompleteInput(BaseModel):
     draft: str
 

@@ -139,6 +139,27 @@ async def test_format_consistency_prepares_the_rewrite_source_unless_disabled(cl
     assert await _content(db, message_id) == rewritten
 
 
+async def test_a_selection_rewrites_only_that_span_of_the_saved_text(client, db, monkeypatch):
+    cid = "message-prose-selection"
+    message_id = await _three_turns(cid)
+    content = '*She steps closer.* 😀 "Are you sure?" she asks, watching him.'
+    await dbmod.update_message_content(message_id, content)
+    sources: list[str] = []
+    _rewriter(monkeypatch, sources=sources, transform=lambda source: source.upper())
+    url = f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite"
+    selected = '"Are you sure?" she asks'
+    selection = {"start": content.index(selected), "text": selected}
+
+    response = await client.post_checked(url, json={"selection": selection})
+
+    # Format Consistency would rewrite the selection's markup; a selection skips it and keeps the retained draft.
+    assert sources == [selected]
+    expected = content.replace(selected, selected.upper())
+    assert _done_event(response)["content"] == expected
+    assert await _content(db, message_id) == expected
+    await client.post_checked(url, json={"selection": selection}, expected_status=409)
+
+
 async def test_streams_a_snapshot_before_persisting_the_rewrite(streaming_client, db, monkeypatch):
     cid = "message-prose-live"
     message_id = await _assistant_message(cid, "Original reply.")

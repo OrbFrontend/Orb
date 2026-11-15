@@ -192,11 +192,23 @@ class ViewContext:
 
 
 @dataclass(frozen=True)
+class ChatSeen:
+    """A chat's kept branch at a request's Send: its length, and digests of its messages, ids and text, up to that length and
+    to shorter ones, closer together toward the end, longest first."""
+
+    conversation_id: str
+    length: int
+    prefixes: tuple[tuple[int, str], ...]
+
+
+@dataclass(frozen=True)
 class RequestMark:
-    """One request of the conversation: the id the browser gave it, and what its writes committed, one line each."""
+    """One request of the conversation: the id the browser gave it, what its writes committed, one line each, and the chat in
+    view as it stood at Send."""
 
     id: str
     committed: tuple[str, ...] = ()
+    chat: ChatSeen | None = None
 
 
 @dataclass(frozen=True)

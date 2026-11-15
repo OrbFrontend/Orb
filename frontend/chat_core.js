@@ -166,7 +166,7 @@ export function buildMsgToolbar(m) {
     (m.content || "").trim() &&
     effectiveWorkflowEnabled("prose_rewriter") &&
     localMlReady("prose_rewriter");
-  const proseRewriteTitle = m.has_writer_draft ? "Rewrite saved pre-rewriter draft" : "Rewrite this message";
+  const proseRewriteTitle = `Rewrite ${m.has_writer_draft ? "saved pre-rewriter draft" : "this message"} or the selected text`;
   const proseRewriteBtn = canProseRewrite
     ? `<button class="msg-btn-prose-rewrite" data-wf-action="messages:proseRewrite" data-msg-id="${m.id}" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
     : "";

@@ -38,6 +38,11 @@ automatically** off, so you can rewrite only the replies you pick. Orb uses the
 retained post-Editor draft when it is available; otherwise it uses the saved
 reply.
 
+To rewrite only part of a reply, select that text first, then press the rewrite
+button. Only the selection changes, widened to whole words, and Format
+Consistency does not run. A selection that crosses an image or code block may
+not match the saved text; Orb then asks you to select again.
+
 - A rewrite from the retained draft preserves Editor patches while replacing the
   previous secondary text-workflow changes.
 - Before the local rewrite, Format Consistency runs on the source just as it does

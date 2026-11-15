@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections import OrderedDict
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, replace
 from typing import Any
 
-from ...database import delete_assistant_chat, get_assistant_chat, put_assistant_chat
-from .contracts import RequestMark, Transcript, is_request_message
+from ...database import delete_assistant_chat, get_active_path, get_assistant_chat, put_assistant_chat
+from .contracts import ChatSeen, RequestMark, Transcript, is_request_message
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +28,14 @@ def _encoded(transcript: Transcript) -> dict[str, Any]:
     return asdict(transcript)
 
 
+def _chat(raw: dict[str, Any] | None) -> ChatSeen | None:
+    if not raw:
+        return None
+    return ChatSeen(raw["conversation_id"], raw["length"], tuple((length, digest) for length, digest in raw["prefixes"]))
+
+
 def _decoded(raw: dict[str, Any]) -> Transcript:
-    marks = tuple(RequestMark(mark["id"], tuple(mark["committed"])) for mark in raw["requests"])
+    marks = tuple(RequestMark(mark["id"], tuple(mark["committed"]), _chat(mark.get("chat"))) for mark in raw["requests"])
     return Transcript(tuple(raw["messages"]), raw["model"], raw["endpoint"], marks, tuple(raw.get("awaiting", ())))
 
 
@@ -114,4 +122,57 @@ def rewind_note(removed: tuple[RequestMark, ...]) -> str:
         "conversation, but what they changed was not undone and still stands:\n"
         + "\n".join(f"- {line}" for line in committed)
         + "]"
+    )
+
+
+def _checkpoints(length: int) -> list[int]:
+    back = [0, *(1 << power for power in range(length.bit_length()))]
+    return [length - step for step in back if step < length]
+
+
+def _digests(path: Sequence[Mapping[str, Any]], lengths: Collection[int]) -> dict[int, str]:
+    hashed = hashlib.blake2b(digest_size=12)
+    found: dict[int, str] = {}
+    for count, message in enumerate(path, 1):
+        hashed.update(f"{message['id']}\x00{message['content'] or ''}\x00".encode())
+        if count in lengths:
+            found[count] = hashed.hexdigest()
+    return found
+
+
+async def chat_moved(transcript: Transcript | None, conversation_id: str) -> tuple[ChatSeen, str]:
+    """The chat in view as it stands at Send, to keep with the request, and what the request is told of how it moved on
+    since the last request sent from it: new messages, or where its kept branch stopped being what the model may have
+    read. The note is empty when nothing did, or no earlier request still held saw the chat."""
+    path = await get_active_path(conversation_id)
+    lengths = _checkpoints(len(path))
+    digests = _digests(path, lengths)
+    now = ChatSeen(conversation_id, len(path), tuple((length, digests[length]) for length in lengths))
+    marks = transcript.requests if transcript else ()
+    before = next((mark.chat for mark in reversed(marks) if mark.chat and mark.chat.conversation_id == conversation_id), None)
+    if before is None or before == now:
+        return now, ""
+    digests = _digests(path, {length for length, _ in before.prefixes})
+    same = next((length for length, digest in before.prefixes if digests.get(length) == digest), 0)
+    since = "since the last request sent from this chat"
+    if same == before.length:
+        first = same + 1
+        added = (
+            f"1 new message, #{first}"
+            if first == now.length
+            else f"{now.length - same} new messages, #{first} to #{now.length}"
+        )
+        return now, (
+            f"[The chat in view moved on {since}: {added} on its kept branch. Read them before answering about the chat.]"
+        )
+    if same == now.length:
+        ends = f"now ends at #{same}" if same else "is now empty"
+        return now, (
+            f"[The chat in view was cut back {since}: its kept branch {ends}. Later messages you read are no longer on it.]"
+        )
+    kept = {0: "", 1: "#1 is as it was. "}.get(same, f"Messages #1 to #{same} are as they were. ")
+    return now, (
+        f"[The chat in view changed {since}: a message was edited, deleted or regenerated, or another branch was kept. "
+        f"{kept}From #{same + 1} on, what you read may be out of date; its kept branch now ends at #{now.length}. Read "
+        "those again before answering about the chat.]"
     )
