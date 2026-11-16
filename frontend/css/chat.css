@@ -226,10 +226,11 @@
 
 #chat-input-area { padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-primary);
   position: relative; }
-#chat-input-wrap { display: flex; gap: 8px; align-items: flex-end; }
-#burger-btn { width: 42px; height: 42px; padding: 0; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border);
-  color: var(--text-secondary); flex-shrink: 0; transition: all .15s; }
+#chat-input-wrap { --composer-line: max(42px, calc((var(--font-prose-size) - 1px) * 1.5 + 22px)); display: flex;
+  gap: 8px; align-items: flex-end; }
+#burger-btn { width: var(--composer-line); height: var(--composer-line); padding: 0; display: flex;
+  align-items: center; justify-content: center; border-radius: var(--radius); background: var(--bg-elevated);
+  border: 1px solid var(--border); color: var(--text-secondary); flex-shrink: 0; transition: all .15s; }
 #burger-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 #burger-dropdown { position: absolute; bottom: calc(100% - 8px); left: 20px; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: var(--radius); min-width: 160px;
@@ -275,7 +276,8 @@
   line-height: 1; }
 .burger-menu-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 #chat-input-field { position: relative; flex: 1; display: flex; }
-#chat-input { flex: 1; width: 100%; box-sizing: border-box; min-height: 42px; max-height: 150px; padding: 10px 14px;
+#chat-input { flex: 1; width: 100%; box-sizing: border-box; min-height: var(--composer-line); max-height: 150px;
+  padding: 10px 14px;
   font-family: var(--font-prose); font-size: calc(var(--font-prose-size) - 1px); line-height: 1.5; resize: none;
   background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); }
 #chat-input:focus { border-color: var(--accent-dim); }
@@ -295,8 +297,8 @@
 }
 
 #send-btn, #stop-btn {
-  width: 42px; height: 42px; padding: 0; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius); transition: background .15s; flex-shrink: 0;
+  width: var(--composer-line); height: var(--composer-line); padding: 0; display: flex; align-items: center;
+  justify-content: center; border-radius: var(--radius); transition: background .15s; flex-shrink: 0;
 }
 #send-btn { background: var(--accent-dim); color: #fff; }
 #send-btn:hover { background: var(--accent); }
