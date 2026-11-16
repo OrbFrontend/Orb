@@ -124,11 +124,8 @@ async def test_a_character_delete_keeps_its_chats_unless_asked_and_a_chat_delete
     proposal = await _propose(tools, "delete_chat")
     from backend.api import deps
 
-    deps._active_streams[chat] = object()
-    try:
+    async with deps.conversation_stream_lock(chat):
         busy = (await _apply(client, proposal["proposal_id"]))[0]
-    finally:
-        deps._active_streams.pop(chat, None)
     assert busy["verdict"] == "busy"
     assert (await _apply(client, proposal["proposal_id"]))[0]["verdict"] == "applied"
     assert (await db.one("SELECT COUNT(*) FROM conversations WHERE id = ?", (chat,)))[0] == 0

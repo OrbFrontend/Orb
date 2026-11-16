@@ -13,8 +13,7 @@ import os
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -27,6 +26,7 @@ from ..inference import AbortToken
 from ..pipeline.events import PublicTurnEvent
 from ..workflows import PublicEvent, WorkflowEventStream, public_event_error
 from .errors import API_PASSTHROUGH_ERRORS, failure_event
+from .work_registry import ActiveStream, ChatUnavailable, work_registry
 
 logger = logging.getLogger(__name__)
 
@@ -67,147 +67,94 @@ def workflow_group_in_flight(root_id: int) -> bool:
     return lock is not None and lock.locked()
 
 
-# Workflow renders Stop can cancel, by conversation. Regenerate and reroll-gen deliberately outlive a dropped connection, so
-# closing it cannot stop them; they run as tasks here instead, each under the job id its client named (or None), so the button
-# that started one can stop that render alone.
-_workflow_jobs: dict[str, dict[asyncio.Task[Any], str | None]] = {}
-_workflow_sources: dict[asyncio.Task[Any], int | None] = {}
-_deleting_resources: set[str] = set()
-_deleting_messages: set[int] = set()
-
-
 def workflow_message_busy(cid: str, message_id: int) -> bool:
-    """Whether a workflow render on *message_id* is still running: a dropped request's saves may still land."""
-    return any(_workflow_sources.get(task) == message_id for task in _workflow_jobs.get(cid, {}))
+    """Whether a workflow render can still save on *message_id*."""
+    return work_registry.message_busy(cid, message_id)
 
 
 def resource_deleting(key: str) -> bool:
-    return key in _deleting_resources
+    return work_registry.resource_deleting(key)
 
 
 def message_deleting(message_id: int) -> bool:
-    """Whether a message delete has stopped, or is stopping, the media rendering for this message."""
-    return message_id in _deleting_messages
+    return work_registry.message_deleting(message_id)
 
 
 @contextmanager
 def idle_chats_guard(rows: Sequence[Mapping[str, Any]]):
-    """Refuse busy chats and fence their admission through a destructive write."""
-    for row in rows:
-        cid = str(row["id"])
-        lane = _conversation_stream_locks.get(cid)
-        if cid in _active_streams or _workflow_jobs.get(cid) or (lane is not None and lane.locked()):
-            raise HTTPException(status_code=409, detail=f"Stop running work in {row.get('title') or cid} first")
-    added = {str(row["id"]) for row in rows} - _deleting_resources
-    _deleting_resources.update(added)
-    try:
+    """Refuse all busy phases and fence admission through a destructive write."""
+    titles = {str(row["id"]): row.get("title") or str(row["id"]) for row in rows}
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(work_registry.deletion_fence(list(titles), require_idle=True))
+        except ChatUnavailable as exc:
+            raise HTTPException(status_code=409, detail=f"Stop running work in {titles[exc.key]} first") from None
         yield
-    finally:
-        _deleting_resources.difference_update(added)
 
 
 @asynccontextmanager
 async def deleting_message_sources(cid: str, message_ids: set[int]):
-    _deleting_messages.update(message_ids)
-    try:
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(work_registry.message_deletion_fence(cid, message_ids))
+        except ChatUnavailable:
+            raise HTTPException(status_code=409, detail="Message deletion already in progress") from None
         result = await stop_workflow_jobs(cid, message_ids=message_ids)
         if not result["settled"]:
             raise HTTPException(status_code=409, detail="Media did not settle; nothing was deleted")
         yield
-    finally:
-        _deleting_messages.difference_update(message_ids)
 
 
 def active_work() -> list[str]:
-    return [f"Generation in {key}" for key in _active_streams] + [
-        f"Media in {cid}" for cid, jobs in _workflow_jobs.items() if jobs
-    ]
+    return work_registry.active_work()
 
 
 @asynccontextmanager
 async def deleting_resources(keys: Sequence[str]):
     """Close admission, settle work, then take lanes for the final delete."""
-    if any(key in _deleting_resources for key in keys):
-        raise HTTPException(status_code=409, detail="Deletion already in progress")
-    _deleting_resources.update(keys)
-    try:
+    with contextlib.ExitStack() as fence:
+        try:
+            fence.enter_context(work_registry.deletion_fence(keys))
+        except ChatUnavailable:
+            raise HTTPException(status_code=409, detail="Deletion already in progress") from None
         for key in keys:
             stream = await stop_active_stream(key)
             jobs = await stop_workflow_jobs(key)
             if not stream["settled"] or not jobs["settled"]:
                 raise HTTPException(status_code=409, detail="Running work did not settle; nothing was deleted")
-        async with contextlib.AsyncExitStack() as stack:
+        async with contextlib.AsyncExitStack() as lanes:
             for key in sorted(set(keys)):
-                await stack.enter_async_context(conversation_stream_lock(key))
+                await lanes.enter_async_context(conversation_stream_lock(key))
             yield
-    finally:
-        _deleting_resources.difference_update(keys)
 
 
-# Jobs inside their final write. Stop waits for these rather than cancelling:
-# a cancelled await does not stop SQLite's worker thread from committing.
-_committing_jobs: set[asyncio.Task[Any]] = set()
-
-# How long a workflow Stop waits for its jobs to wind down; long enough for a render to withdraw its queued remote job.
+# Long enough for a render to withdraw its queued remote job.
 WORKFLOW_STOP_SECS = 10.0
 
 
 def start_workflow_job(
     cid: str, coro: Coroutine[Any, Any, _T], *, job: str | None = None, message_id: int | None = None
 ) -> asyncio.Task[_T]:
-    """Run *coro* as a job that `stop_workflow_jobs(cid)` can cancel, filed under *job*."""
-    if cid in _deleting_resources or message_id in _deleting_messages:
-        coro.close()
-        what = "resource" if cid in _deleting_resources else "message"
-        raise HTTPException(status_code=409, detail=f"This {what} is being deleted")
-    task = asyncio.create_task(coro)
-    jobs = _workflow_jobs.setdefault(cid, {})
-    jobs[task] = job
-    _workflow_sources[task] = message_id
-
-    def forget(done: asyncio.Task[Any]) -> None:
-        jobs.pop(done, None)
-        _workflow_sources.pop(done, None)
-        if not jobs and _workflow_jobs.get(cid) is jobs:
-            del _workflow_jobs[cid]
-
-    task.add_done_callback(forget)
-    return task
+    """Run *coro* as a job Stop can cancel, unless its resource/source is deleting."""
+    try:
+        return work_registry.start_job(cid, coro, job=job, message_id=message_id)
+    except ChatUnavailable:
+        what = "resource" if resource_deleting(cid) else "message"
+        raise HTTPException(status_code=409, detail=f"This {what} is being deleted") from None
 
 
 @contextmanager
 def committing_workflow_job() -> Iterator[None]:
-    """Mark the current job as writing its result, which Stop lets finish."""
-    task = asyncio.current_task()
-    if task is None:
+    """Stop waits for the current job's final write rather than cancelling it."""
+    with work_registry.committing_job():
         yield
-        return
-    _committing_jobs.add(task)
-    try:
-        yield
-    finally:
-        _committing_jobs.discard(task)
 
 
 async def stop_workflow_jobs(
     cid: str, *, job: str | None = None, message_ids: set[int] | None = None, timeout: float = WORKFLOW_STOP_SECS
 ) -> dict[str, Any]:
-    """Cancel the conversation's workflow jobs, or only those filed under *job*, and wait, bounded, for them to end.
-
-    A job already writing its result is waited for, not cancelled: its sibling lands, and the client's refetch shows it.
-    """
-    jobs = [
-        task
-        for task, name in _workflow_jobs.get(cid, {}).items()
-        if (job is None or name == job) and (message_ids is None or _workflow_sources.get(task) in message_ids)
-    ]
-    if not jobs:
-        return {"stopped": 0, "settled": True}
-    for task in jobs:
-        if task not in _committing_jobs:
-            task.cancel()
-    _, pending = await asyncio.wait(jobs, timeout=timeout)
-    return {"stopped": len(jobs), "settled": not pending}
+    """Cancel matching renders and await their cleanup; let final writes finish."""
+    return await work_registry.stop_jobs(cid, job=job, message_ids=message_ids, timeout=timeout)
 
 
 @asynccontextmanager
@@ -231,104 +178,53 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
             return
 
 
-# Serialize streams and mutations per conversation. Streaming routes reject a second stream via SSE; edit, delete and
-# branch-switch wait for settlement to avoid changing the history or active leaf while a turn writes.
-_conversation_stream_locks: dict[str, asyncio.Lock] = {}
-
-
 @asynccontextmanager
 async def conversation_stream_lock(cid: str):
-    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
-    async with lock:
+    """Queue a history mutation behind the current stream and its settlement."""
+    async with work_registry.hold_lane(cid):
         yield
 
 
 def conversation_busy(cid: str) -> bool:
-    """Whether a stream runs in this chat or a mutation holds its lane right now; a snapshot, not a reservation."""
-    lane = _conversation_stream_locks.get(cid)
-    return cid in _active_streams or (lane is not None and lane.locked())
+    """Whether a stream or mutation owns the lane; media may run alongside it."""
+    return work_registry.snapshot(cid).lane_busy
 
 
 @asynccontextmanager
 async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
-    """Hold the stream lock until request cleanup."""
-    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
-    if lock.locked():
-        yield False
-        return
-    await lock.acquire()
-    try:
+    """Try to reserve an idle, non-deleting resource's mutation lane."""
+    async with contextlib.AsyncExitStack() as stack:
+        try:
+            await stack.enter_async_context(work_registry.idle_lane(cid))
+        except ChatUnavailable:
+            yield False
+            return
         yield True
-    finally:
-        lock.release()
-
-
-class ChatUnavailable(Exception):
-    """A short chat mutation was not admitted: the chat is being deleted, or a stream or another mutation holds its lane."""
-
-    def __init__(self, reason: Literal["deleting", "busy"]):
-        self.reason = reason
-        super().__init__(reason)
 
 
 @asynccontextmanager
 async def idle_chat_admission(cid: str) -> AsyncGenerator[None, None]:
-    """Admit one short mutation of chat *cid* and hold its lane through the body, or raise :class:`ChatUnavailable`.
-
-    For a caller outside the chat routes, which the deletion fence on those paths does not cover. The deletion check and taking
-    the lane have no await between them, so a delete that starts later waits for this mutation, and one already under way is
-    never raced. Refused rather than queued: the caller says so and its user may try again. The lane is never held across a
-    model call.
-    """
-    if cid in _deleting_resources:
-        raise ChatUnavailable("deleting")
-    async with stream_idle_lock(cid) as idle:
-        if not idle:
-            raise ChatUnavailable("busy")
+    """Reserve a short mutation's lane, or raise ChatUnavailable without queuing."""
+    async with work_registry.idle_lane(cid):
         yield
 
 
-@dataclass(slots=True)
-class _ActiveStream:
-    """The stream that currently owns a conversation's lock.
-
-    One token covers every client in the turn (writer + optional agent), so /stop signals them all at once. ``settled`` is set
-    only after the generator has finished, including its persistence, and the lock has been released.
-    """
-
-    abort_token: AbortToken
-    settled: asyncio.Event = field(default_factory=asyncio.Event)
-    operation_id: str | None = None
-
-
-# Keyed like the stream lock. Set when streaming starts; removed when the stream has settled.
-_active_streams: dict[str, _ActiveStream] = {}
-
-# How long a stopped stream whose client has gone away may take to wind down on its own before it is cancelled. Every stage
-# checks the abort token, so this is a bound for a misbehaving one, not the expected wait.
+# Drain a disconnected turn before falling back to cancellation.
 _STOP_DRAIN_SECS = 10.0
 
-# How long POST /stop waits for the stopped stream to settle. Longer than the drain, so a disconnected stream settles inside it.
+# Longer than the drain so a disconnected stream can settle inside this wait.
 STOP_SETTLE_SECS = 15.0
 
 
 async def stop_active_stream(
     key: str, *, operation_id: str | None = None, timeout: float = STOP_SETTLE_SECS
 ) -> dict[str, bool]:
-    """Abort the currently registered stream and wait boundedly for settlement.
+    """Abort this registration and wait for generator cleanup and lane release.
 
-    ``active`` records initial registration; ``settled`` confirms save and lock release. Later registrations are not awaited.
-    Inactive does not rule out a request still in flight, so the client may need to disconnect.
+    Later registrations are not awaited. Inactive does not rule out a request
+    still in flight, so the client may need to disconnect.
     """
-    active = _active_streams.get(key)
-    if active is None or (operation_id is not None and active.operation_id != operation_id):
-        return {"active": False, "settled": True}
-    active.abort_token.abort()
-    try:
-        await asyncio.wait_for(active.settled.wait(), timeout)
-    except TimeoutError:
-        return {"active": True, "settled": False}
-    return {"active": True, "settled": True}
+    return await work_registry.stop_stream(key, operation_id=operation_id, timeout=timeout)
 
 
 async def _safe_aclose(gen: AsyncIterator[Any]) -> None:
@@ -404,8 +300,7 @@ async def _settle_stream(
     finished: bool,
     abort_token: AbortToken | None,
     cid: str | None,
-    active: _ActiveStream | None,
-    lock: asyncio.Lock | None,
+    active: ActiveStream | None,
 ) -> None:
     """Finish a stream's generator, then give up its registration and lock.
 
@@ -426,12 +321,8 @@ async def _settle_stream(
     except Exception:
         logger.exception("Stream cleanup failed")
     finally:
-        if cid is not None and active is not None and _active_streams.get(cid) is active:
-            del _active_streams[cid]
-        if lock is not None:
-            lock.release()
-        if active is not None:
-            active.settled.set()
+        if cid is not None and active is not None:
+            work_registry.finish_stream(cid, active)
 
 
 # Strong references to settle tasks outliving a cancelled request.
@@ -464,8 +355,7 @@ async def sse_stream(
         except asyncio.CancelledError:
             pass
 
-    lock: asyncio.Lock | None = None
-    active: _ActiveStream | None = None
+    active: ActiveStream | None = None
     watcher: asyncio.Task | None = None
     gen_iter: AsyncIterator[Any] | None = None
     # The step in flight when the request ended, which the settle task takes over.
@@ -473,22 +363,16 @@ async def sse_stream(
     finished = False
     try:
         if cid is not None:
-            if cid in _deleting_resources:
-                yield "event: error\ndata: This resource is being deleted\n\n"
+            try:
+                active = await work_registry.begin_stream(
+                    cid, abort_token, getattr(request, "query_params", {}).get("operation_id")
+                )
+            except ChatUnavailable as exc:
+                detail = (
+                    "This resource is being deleted" if exc.reason == "deleting" else "Another generation is already running"
+                )
+                yield f"event: error\ndata: {detail}\n\n"
                 return
-            # locked()/acquire() are atomic across coroutines (no await between) so a held-lock loser deterministically takes
-            # the error branch and does not queue, while an open-lock winner acquires without ever suspending. Lock is set only
-            # after acquire() returns so the finally's release guard skips both the error branch and any acquire-cancelled path.
-            candidate = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
-            if candidate.locked():
-                yield "event: error\ndata: Another generation is already running\n\n"
-                return
-            await candidate.acquire()
-            lock = candidate
-            # Register only after winning the lock, so a rejected loser never clobbers the winner's entry.
-            if abort_token is not None:
-                active = _ActiveStream(abort_token, operation_id=getattr(request, "query_params", {}).get("operation_id"))
-                _active_streams[cid] = active
         # A Stop that raced the request to the server shows up as a client that
         # has already gone: the turn must not start generating.
         if abort_token is not None and await request.is_disconnected():
@@ -527,10 +411,10 @@ async def sse_stream(
     finally:
         if watcher is not None:
             watcher.cancel()
+        if active is not None:
+            work_registry.settling_stream(active)
         settle = asyncio.ensure_future(
-            _settle_stream(
-                gen, gen_iter, pending, finished=finished, abort_token=abort_token, cid=cid, active=active, lock=lock
-            )
+            _settle_stream(gen, gen_iter, pending, finished=finished, abort_token=abort_token, cid=cid, active=active)
         )
         _SETTLING.add(settle)
         settle.add_done_callback(_SETTLING.discard)
@@ -602,9 +486,11 @@ def workflow_event_stream_response(
             while (frame := await queue.get()) is not None:
                 yield frame
         finally:
-            task.cancel()
+            work_registry.cancel_job(task)
             with contextlib.suppress(asyncio.CancelledError):
-                await task
+                # Request cancellation must not interrupt remote cleanup again;
+                # the registry retains the job until it actually finishes.
+                await asyncio.shield(task)
 
     return CleanupStreamingResponse(tracked(), media_type="text/event-stream")
 

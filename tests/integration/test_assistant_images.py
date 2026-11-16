@@ -35,7 +35,7 @@ async def test_picture_without_a_chat_is_retrievable_and_leaves_cards_and_messag
     async def render(ctx):
         seen.append(ctx)
         ctx.phase("Rendering portrait…")
-        assert not deps._workflow_jobs, "standalone renders have no conversation-keyed job"
+        assert not deps.work_registry.jobs(), "standalone renders have no conversation-keyed job"
         return StandaloneResult(b"picture", "image/png")
 
     with register_for_test(_workflow(render)):
@@ -203,11 +203,12 @@ async def test_disconnect_cancels_standalone_render_and_releases_assistant_lane(
             async for line in response.aiter_lines():
                 if line == "event: start":
                     await asyncio.wait_for(started.wait(), 5)
-                    active = deps._active_streams[ASSISTANT_STREAM_KEY]
+                    active = deps.work_registry.stream(ASSISTANT_STREAM_KEY)
+                    assert active is not None
                     break
         await asyncio.wait_for(cleaned.wait(), 5)
         await asyncio.wait_for(active.settled.wait(), 5)
-        assert not images._images and ASSISTANT_STREAM_KEY not in deps._active_streams
+        assert not images._images and deps.work_registry.stream(ASSISTANT_STREAM_KEY) is None
         _script(monkeypatch, _reply("The assistant is ready."))
         events = frames(await streaming_client.post_checked(RUN, json=_request()))
         assert events[-1] == ("done", {"reason": "reply", "message": ""})

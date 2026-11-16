@@ -110,12 +110,9 @@ async def test_a_chat_action_refuses_a_busy_or_deleting_chat_and_changes_nothing
     async with deps.conversation_stream_lock(chat):
         with pytest.raises(ToolFailure, match="generating"):
             await tool.run(tool.arguments(**arguments(library)))
-    deps._deleting_resources.add(chat)
-    try:
+    with deps.work_registry.deletion_fence([chat]):
         with pytest.raises(ToolFailure, match="being deleted"):
             await tool.run(tool.arguments(**arguments(library)))
-    finally:
-        deps._deleting_resources.discard(chat)
     assert await db.one("SELECT COUNT(*) FROM conversations") == before
     assert library["world"] not in (await client.get_json(f"/api/conversations/{chat}/worlds"))["world_ids"]
 
@@ -190,12 +187,9 @@ async def test_a_handoff_names_a_reply_on_the_kept_branch_and_ends_the_run_witho
         with pytest.raises(ToolFailure, match="generating"):
             await regenerate.run(regenerate.arguments(message_id=library["kept"]))
     # A chat still on screen while its delete runs is named as such, never as one that does not exist.
-    deps._deleting_resources.add(chat)
-    try:
+    with deps.work_registry.deletion_fence([chat]):
         with pytest.raises(ToolFailure, match="being deleted, so nothing was done"):
             await regenerate.run(regenerate.arguments(message_id=library["kept"]))
-    finally:
-        deps._deleting_resources.discard(chat)
     with pytest.raises(ToolFailure, match="No chat has the id"):
         await regenerate.run(regenerate.arguments(conversation_id="no-such-chat", message_id=library["kept"]))
     # A group chat's own reply can be handed off by id alone: no speaker is inferred, and the chat keeps its speaker rules.

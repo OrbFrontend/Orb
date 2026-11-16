@@ -920,11 +920,8 @@ async def test_an_apply_during_a_chat_delete_is_retryable_and_a_rerolling_greeti
 
     tools = await _tools(mode="chat", conversation_id=library["chat"])
     preview = await _propose(tools, "edit_message", message_id=library["kept"], mode="replace_all", text="Kept.")
-    deps._deleting_resources.add(library["chat"])
-    try:
+    with deps.work_registry.deletion_fence([library["chat"]]):
         [deleting] = await _apply(client, preview["proposal_id"])
-    finally:
-        deps._deleting_resources.discard(library["chat"])
     assert deleting["verdict"] == "busy"
     # The delete failed and the chat lives on: nothing was recorded, so the same proposal still applies.
     assert (await _apply(client, preview["proposal_id"]))[0]["verdict"] == "applied"

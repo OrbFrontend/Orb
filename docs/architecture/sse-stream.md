@@ -362,3 +362,24 @@ waits for it to settle and holds the turn lanes through the delete; a timeout
 answers 409 and deletes nothing. Message deletion settles the media of the
 subtrees it removes. Card deletion and duplicate resolution refuse busy chats and
 fence them until commit. These in-memory fences assume one uvicorn process.
+
+`backend/api/work_registry.py` owns one process-local work record per resource
+(chat id, `doc:<id>`, or the assistant run key). Its snapshots expose overlapping
+phases: streaming, mutating, rendering, committing, deleting, and settling; an
+empty snapshot is idle. A stream or queued/active history mutation reserves the
+lane, while media jobs can run beside it. Stop moves work into settlement and
+retains ownership until cleanup and persistence finish; repeated media Stop calls
+and disconnects wait for the same cleanup without cancelling it again. A cancelled
+request cannot cancel that cleanup await's job a second time; its registration
+remains until it finishes. Final media writes are marked committing and are never
+cancelled by Stop.
+
+The API's busy checks deliberately project this same record for different uses:
+`conversation_busy` checks lane ownership, `idle_chats_guard` refuses every busy
+phase, and `active_work` reports every phase for dataset maintenance. A bulk guard
+checks all chats before installing its deletion fences. An existing fence is a
+conflict, including the interval before a deletion acquires the lane; a refused
+bulk write neither claims other chats nor releases the existing owner's fence.
+Queued mutations remain visible during lane handoff. Idle admissions and stream
+admissions refuse both owned and queued lanes instead of silently queuing. Resource
+records are removed once all work, deletion fences and queued lane claims end.
