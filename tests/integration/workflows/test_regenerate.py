@@ -246,7 +246,7 @@ async def test_streamed_regenerate_lands_the_sibling_after_the_client_drops(clie
         assert "Rendering..." in await anext(frames)
         await frames.aclose()  # the browser went away mid-render
         release.set()
-        await asyncio.gather(*deps._workflow_jobs.get(cid, ()))
+        await asyncio.gather(*deps.work_registry.jobs(cid))
     assert len(await get_workflow_attachments_for_message(mid)) == 2
 
 

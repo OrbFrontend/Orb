@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYRIGHT_PYTHON_IGNORE_WARNINGS: "1"
+
 jobs:
   detect-changes:
     name: Detect Changes
@@ -35,6 +39,7 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - 'tests/frontend/**'
               - 'biome.json'
               - 'package.json'
               - 'package-lock.json'
@@ -171,6 +176,9 @@ jobs:
 
       - name: Frontend layer check
         run: python3 scripts/check_frontend_layers.py
+
+      - name: Frontend tests
+        run: node --test tests/frontend/*.test.js
 
   tests:
     name: Tests (Python ${{ matrix.python-version }})

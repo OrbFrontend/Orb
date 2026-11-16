@@ -41,6 +41,8 @@ LAYERS = {
     # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
     "message_fit.js": 0,
     "generation_status.js": 0,
+    # A chat turn's record and its phase moves. A leaf so the lifecycle stays pure logic over a plain object.
+    "chat_turn.js": 0,
     # A generation request's stop handshake and the rule for which saved reply
     # is its own. A leaf so the settlement rules can be tested without a DOM.
     "stream_settle.js": 0,
@@ -237,7 +239,6 @@ SHARED_STATE = {
     "directorState": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
     "editingMsgId": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
     "editingPendingUserMsg": {"chat_messages.js", "chat_stream.js"},
-    "expressionBuffering": {"chat_stream.js", "expression_playback.js"},
     "groupCast": {"chat_conversations.js", "group_setup.js"},
     "inspectedDirectorData": {"chat_conversations.js", "chat_inspector.js", "chat_stream.js"},
     "inspectedMsgId": {"chat_conversations.js", "chat_inspector.js", "chat_stream.js"},
@@ -248,7 +249,6 @@ SHARED_STATE = {
     "magicInputMsgId": {"chat_conversations.js", "chat_stream.js"},
     "messages": {"chat_conversations.js", "chat_core.js", "chat_messages.js", "chat_stream.js"},
     "pendingRefineDiff": {"chat_inspector.js", "chat_stream.js"},
-    "pendingUserMsg": {"chat_messages.js", "chat_stream.js"},
     "pendingUserMsgEdit": {"chat_messages.js", "chat_stream.js"},
     "pinnedSpeakerId": {"chat_conversations.js", "group_setup.js"},
     "queuedEdits": {"chat_messages.js", "chat_stream.js"},
@@ -261,7 +261,6 @@ SHARED_STATE = {
     "reasoningWriter": {"chat_conversations.js", "chat_stream.js"},
     "rejectedWorkflowAtts": {"chat_core.js", "chat_workflow.js"},
     "renderWindowStart": {"chat_core.js", "chat_messages.js"},
-    "streamCutoffIndex": {"chat_messages.js", "chat_stream.js"},
     "turnError": {"chat_error.js", "chat_stream.js"},
 }
 

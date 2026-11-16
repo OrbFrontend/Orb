@@ -168,6 +168,6 @@ export function messageDisplaySource(message) {
     resolvePlaceholders(message.content || ""),
     card,
     message.role,
-    message.id ? S.messages?.find((row) => row.id === message.id) : S.streamingBodyEl,
+    message.id ? S.messages?.find((row) => row.id === message.id) : S.turn.bodyEl,
   );
 }

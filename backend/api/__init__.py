@@ -84,7 +84,13 @@ async def lifespan(app: FastAPI):
 
 def build_app() -> FastAPI:
     """Construct and return the configured FastAPI application."""
-    app = FastAPI(title="Orb", lifespan=lifespan)
+    app = FastAPI(
+        title="Orb",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        telemetry={"tracing": False, "metrics": False, "logs": False, "operation_spans": False, "auto_configure": False},
+    )
 
     # Level 6 rather than Starlette's 9: on a 900 KB conversation list, 9 costs ~20% more CPU for a body about 1% smaller.
     app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)

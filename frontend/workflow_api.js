@@ -31,7 +31,7 @@ import { pressedSelection } from "./message_selection.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showModal } from "./modal.js";
 import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
-import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
+import { effectiveWorkflowEnabled, localMlReady, S, subscribe, turnActive } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
 import { convUrl, esc, escAttr, notifyError, toast, workflowAttachmentUrl } from "./utils.js";
 import { startWorkflowJob, stopButtonState, stopWorkflowJob } from "./workflow_jobs.js";
@@ -171,11 +171,11 @@ export function registerRegenerateSettled(wid, fn) {
 let _repaintQueued = false;
 
 export function requestRepaint() {
-  if (S.isStreaming || _repaintQueued) return;
+  if (turnActive() || _repaintQueued) return;
   _repaintQueued = true;
   requestAnimationFrame(() => {
     _repaintQueued = false;
-    if (!S.isStreaming) renderMessages();
+    if (!turnActive()) renderMessages();
   });
 }
 

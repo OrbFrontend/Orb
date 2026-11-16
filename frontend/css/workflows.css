@@ -5,7 +5,8 @@
   background: var(--bg-surface); color: var(--text-muted); cursor: pointer; position: relative;
   transition: border-color .15s, color .15s, background .15s; }
 .tab-button:hover { color: var(--text-primary); background: var(--bg-elevated); }
-.tab-button-active { margin-bottom: -1px; color: var(--text-primary); background: var(--accent-glow);
+/* It overlaps the row's rule by 1px; the extra bottom padding keeps its label level with the other tab's. */
+.tab-button-active { margin-bottom: -1px; padding-bottom: 10px; color: var(--text-primary); background: var(--accent-glow);
   border-color: var(--accent-dim); border-bottom-color: var(--bg-primary); box-shadow: inset 0 2px 0 var(--accent); }
 .workflow-card { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 12px;
   background: var(--bg-surface); }

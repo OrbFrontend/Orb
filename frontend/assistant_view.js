@@ -17,7 +17,17 @@ const DIFF_CONTEXT = 120;
 const MODES = new Set(["chat", "document", "library"]);
 // `opened` is a chat the assistant opened, drawn as the view change it is; `reset` is where the server's copy of the
 // conversation starts, when it no longer holds the entries above.
-const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff", "opened", "reset"]);
+const OUTCOMES = new Set([
+  "stopped",
+  "limit",
+  "error",
+  "interrupted",
+  "applied",
+  "handoff",
+  "opened",
+  "reset",
+  "proposal",
+]);
 const SEPARATORS = new Set(["opened", "reset"]);
 const RESET = "The assistant no longer remembers the messages above.";
 const NO_RESULT = "No result was received; check before asking again.";
@@ -392,6 +402,7 @@ export function settleRun(run, { stopped = false, failure = "" } = {}) {
   }
   if (run.proposals?.length) {
     run.card = { kind: "proposals", proposals: run.proposals, request: text(run.request, MAX_ITEM_CHARS) };
+    if (run.terminal === "proposal") run.card.context = run.context;
     run.items.push(run.card);
   }
   run.status = "";
@@ -537,7 +548,7 @@ const button = (action, label, attrs, { accent = false, disabled = false } = {})
 
 // The controls of one live entry: a pending change applies, is discarded or, for text, edited by hand first; an applied edit
 // can be undone. A delete has no text to edit and no undo.
-function entryControls(entry, busy) {
+function entryControls(entry, busy, checkpoint) {
   if (!entry.proposalId) return "";
   const attrs = ` data-proposal="${escAttr(entry.proposalId)}"`;
   const textEdit = entry.action !== "delete" && !entry.list;
@@ -548,9 +559,20 @@ function entryControls(entry, busy) {
       button("reviseCancel", "Back", attrs);
   } else if (entry.status === "pending") {
     controls =
-      button("apply", entry.action === "delete" ? "Delete" : "Apply", attrs, { accent: true, disabled: busy }) +
+      button(
+        "apply",
+        checkpoint
+          ? entry.action === "delete"
+            ? "Delete & continue"
+            : "Apply & continue"
+          : entry.action === "delete"
+            ? "Delete"
+            : "Apply",
+        attrs,
+        { accent: true, disabled: busy },
+      ) +
       (textEdit ? button("revise", "Edit", attrs, { disabled: busy }) : "") +
-      button("cancel", "Discard", attrs, { disabled: busy });
+      button("cancel", checkpoint ? "Skip & continue" : "Discard", attrs, { disabled: busy });
   } else if (entry.status === "applied" && entry.action !== "delete") {
     controls = button("undo", "Undo", attrs, { disabled: busy });
   }
@@ -564,7 +586,7 @@ function editorHtml(entry) {
   );
 }
 
-function entryHtml(entry, busy) {
+function entryHtml(entry, busy, checkpoint) {
   const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
   const noteHtml = note ? `<div class="asst-proposal-note">${esc(note)}</div>` : "";
   if (entry.action === "delete") {
@@ -573,7 +595,7 @@ function entryHtml(entry, busy) {
       `<div class="asst-diff-label">Delete <span class="asst-diff-size">cannot be undone</span></div>` +
       (entry.detail ? `<div class="asst-delete-detail">${esc(entry.detail)}</div>` : "") +
       noteHtml +
-      entryControls(entry, busy) +
+      entryControls(entry, busy, checkpoint) +
       "</div>"
     );
   }
@@ -584,7 +606,7 @@ function entryHtml(entry, busy) {
     `<div class="asst-edit asst-edit-${entry.status}">` +
     `<div class="asst-diff-label">${esc(entry.field || "Text")} <span class="asst-diff-size">${size}</span></div>${body}` +
     noteHtml +
-    entryControls(entry, busy) +
+    entryControls(entry, busy, checkpoint) +
     "</div>"
   );
 }
@@ -600,7 +622,7 @@ function cardHtml(card, index, { busy }) {
   const body = [...groups.values()]
     .map(
       (entries) =>
-        `<div class="asst-proposal-target">${esc(entries[0].label || "an item")}</div>${entries.map((entry) => entryHtml(entry, busy)).join("")}`,
+        `<div class="asst-proposal-target">${esc(entries[0].label || "an item")}</div>${entries.map((entry) => entryHtml(entry, busy, !!card.context)).join("")}`,
     )
     .join("");
   const live = card.proposals.filter((entry) => entry.proposalId && entry.status === "pending");
@@ -614,6 +636,7 @@ function cardHtml(card, index, { busy }) {
   } else if (!live.length && card.request && card.proposals.some((entry) => ASK_AGAIN.has(entry.status))) {
     controls = button("askAgain", "Ask again", attrs);
   }
+  if (live.length && card.context) controls += button("endRequest", "End request", attrs, { disabled: busy });
   const deletes = card.proposals.filter((entry) => entry.action === "delete").length;
   const noun = deletes === total ? "delete" : deletes ? "change" : "edit";
   return (

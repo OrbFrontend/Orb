@@ -86,8 +86,12 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
 
         async def events():
             # Consumed lazily, after the dispatch has returned: still inside one job filed under the run and the message.
-            jobs = deps._workflow_jobs.get(chat, {})
-            seen.append(sorted((name, deps._workflow_sources[task]) for task, name in jobs.items()))
+            seen.append(
+                (
+                    len(deps.work_registry.jobs(chat, job="assistant:op-1", message_ids={kept})),
+                    len(deps.work_registry.jobs(chat)),
+                )
+            )
             yield {"event": "phase_status", "data": {"label": "Rendering in ComfyUI..."}}
             first = await _save(body["message_id"])
             yield {"event": "image_gen_render", "data": {"attachment_id": first}}
@@ -120,7 +124,7 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
 
     # The user's direction rides in the hook's own body, beside the reply it is made of.
     assert seen[0] == ({"action": "generate", "message_id": kept, "direction": "From behind, at dusk."}, library["card"])
-    assert seen[1] == [("assistant:op-1", kept)]
+    assert seen[1] == (1, 1)
     assert "speech" not in seen, "the switched-off workflow never reached its hook"
     saved = await message_workflow_attachment_ids(kept, "image_gen")
     assert len(saved) == 2
@@ -138,7 +142,7 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
     assert mutations[-1] == [{**media, "attachment_ids": saved}]
     assert names.index("mutation") < names.index("tool_result")
     assert events[-1] == ("done", {"reason": "reply", "message": ""})
-    assert not deps._workflow_jobs.get(chat), "the job settled with the stream"
+    assert not deps.work_registry.jobs(chat), "the job settled with the stream"
     assert await message_workflow_attachment_ids(kept, "tts") == []
 
 

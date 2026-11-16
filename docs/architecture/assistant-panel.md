@@ -482,16 +482,24 @@ text as a text field's, and `remove_items` removes it, keeping the others in
 place. Apply compares the stored list as decoded JSON. An item carrying a
 read's clip marker is refused, as text is.
 
-A run holds one proposal per target and field. A second edit to a field already
-proposed in the run is made on that proposal's pending text, not the stored
-text, and updates it in place: `before` stays the stored text, `after`
-accumulates, and the id is unchanged. Its result says the edit stacked, and that
-reads still show the stored text until the user applies. An edit that would
-return the field to its stored text is refused, and so is an edit identical to
-one the run already proposed: a replacement that contains its own `find` would
-otherwise apply twice, and a small model would repeat it until the run's budget
-ran out. The prompt tells the model never
-to run a step that depends on an edit it proposed; the loop does not enforce it.
+A successful proposal is a review checkpoint: the loop emits `confirm`, then
+`done` with reason `proposal`, and makes no further model call. The tool call
+and result stay in the conversation, followed by a note that it paused for a
+decision. Nothing is applied by proposing.
+
+The card offers Apply & continue (Delete & continue for a deletion), Skip &
+continue, and End request. Apply uses the existing endpoint and resumes only
+after a conclusive verdict; busy or uncertain responses leave the card open
+to retry. The browser immediately sends the actual verdict or Skip decision as
+an ordinary visible request in the same session and captured view. End request
+sends the skip decision with an instruction to acknowledge and stop. No stream
+is held open while the user reviews, and no separate continuation store is
+needed. A new typed request takes over the checkpoint; pending proposals still
+travel with it, so feedback can revise the proposed text.
+
+The proposal store still supports composing edits to a field: its original
+`before` stays fixed while its `after` accumulates. Identical guarded calls
+cannot apply twice, and an edit back to the stored text is refused.
 
 ### Across requests
 
@@ -743,7 +751,7 @@ render.
 | `tool_result` | `{call_id, tool, ok, summary, ids}` | Its outcome, paired by `call_id`. |
 | `confirm` | `{call_id, tool, proposal}` | A proposal's preview (`action` is `edit` or `delete`); a later one with the same `proposal_id` replaces it, and one naming an earlier request's proposal in `replaces` supersedes that one. |
 | `handoff` | `{call_id, tool, handoff}` | The checked chat target to start. |
-| `done` | `{reason, message}` | Terminal: `reply`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. |
+| `done` | `{reason, message}` | Terminal: `reply`, `proposal`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. |
 | `error` | Failure | Terminal: an unusable model reply, a request that cannot fit, or a provider failure. |
 
 EOF without `done` or `error` is a lost connection, never an answer.
@@ -793,7 +801,7 @@ rewritten in place shows each one's diff; otherwise it shows the items it
 removes and adds and how many it keeps.
 
 Each change has its own controls while this page holds its proposal id: a
-pending one has Apply (Delete, for a delete) and Discard, and a text edit has
+pending checkpoint has Apply & continue (Delete & continue, for a delete) and Skip & continue, and a text edit has
 Edit, which opens the proposed text in a box; Save sends it to `/revise` and the
 diff then shows the user's own text. An applied edit has Undo, which makes it
 pending again. A card with more than one pending change also has Apply all and
@@ -838,7 +846,7 @@ drawer closes when it is the one open, and an entry deleted while selected in th
 drawer leaves its editor. A chat repaints only while it is the one in view and its view token
 unchanged; nothing opens a chat or moves focus. A lore entry open in the drawer
 takes a change made elsewhere field by field. When a run ends any way other than
-`reply` or `handoff`, or any tool result in it came back failed, the browser
+`reply`, `proposal` or `handoff`, or any tool result in it came back failed, the browser
 reads again everything cheap once the run has settled: worlds, characters,
 personas, both fragment lists, the chat list, the open chat's messages, and every switch key a toggle
 can write. Nothing is sent again.

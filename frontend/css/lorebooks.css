@@ -82,7 +82,7 @@
 .lb-field-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted);
   margin-bottom: 6px; }
 .lb-editor-keywords { padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.lb-chip-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 32px; padding: 4px 8px;
+.lb-chip-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 32px; padding: 6px;
   background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); cursor: text;
   transition: border-color .15s; }
 .lb-chip-wrap:focus-within { border-color: var(--accent-dim); }

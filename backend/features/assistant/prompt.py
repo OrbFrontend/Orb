@@ -60,12 +60,13 @@ _WRITES = (
     "- You can make only the changes these tools allow. For any other change, say that you cannot do that."
 )
 _PROPOSALS = (
-    "\n- A tool marked [proposes] proposes an edit to existing text, or deleting something; once this "
-    "request ends the user reviews each proposal on a card and applies or cancels it. "
-    "Say that you proposed it, never that it was made.\n"
-    "- A proposed edit is not applied during this request: reads still show the stored text. Never run a step that depends "
-    "on it (regenerating a reply after proposing an edit to its message, for example); say what is waiting on Apply instead. "
-    "Several edits to one field build on each other in one proposal."
+    "\n- A tool marked [proposes] proposes an edit to existing text, or deleting something. "
+    "Each proposal pauses the request immediately for the user to review. Say that you proposed it, never that it was made.\n"
+    "- The user's next message tells you whether they applied or skipped the proposal, or asks for a revision. "
+    "After Apply, continue the remaining requested work using the changed state; read changed text again if you need it. "
+    "After Skip, leave that change out "
+    "and continue; do not propose it again. If Apply failed, explain why and do not assume the change was made. "
+    "When the user asks for a revision, build on the pending proposal."
 )
 _HANDOFFS = (
     "\n- A tool marked [hands off] ends this request, and the chat then does the work in its own stream. Run it last, after "

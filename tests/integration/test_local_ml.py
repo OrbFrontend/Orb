@@ -7,11 +7,17 @@ file loads a model or starts a child process.
 """
 
 import contextlib
+import os
+import re
+import sys
+import types
+from pathlib import Path
 
 import pytest
 
+import backend
 from backend.inference import local_ml
-from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models import assets, dependencies, onnx_runtime
 from backend.inference.local_models.catalog import MODELS
 from backend.inference.local_models.llama_server import binary as llama_binary
 from backend.inference.local_models.prose_rewriter import catalog
@@ -378,3 +384,30 @@ async def test_switching_a_classifier_off_frees_its_children(client, monkeypatch
     await client.post_json("/api/local-ml/markup_classifier/enabled", json={"enabled": False})
     await client.post_json("/api/local-ml/markup_classifier/enabled", json={"enabled": True})
     assert released == ["markup_classifier"]
+
+
+@pytest.mark.parametrize("inherited", [None, "0"])
+def test_onnxruntime_only_loads_with_its_telemetry_off(monkeypatch, inherited):
+    """onnxruntime uploads usage events unless ``ORT_DISABLE_TELEMETRY`` is set before it loads, and its upload thread can abort
+    the process at exit. One helper owns the import and sets the switch; no other backend module imports the library."""
+    if inherited is None:
+        monkeypatch.delenv("ORT_DISABLE_TELEMETRY", raising=False)
+    else:
+        monkeypatch.setenv("ORT_DISABLE_TELEMETRY", inherited)
+    stub = types.ModuleType("onnxruntime")
+    disabled = []
+    stub.disable_telemetry_events = lambda: disabled.append(True)
+    monkeypatch.setitem(sys.modules, "onnxruntime", stub)
+    assert onnx_runtime.import_runtime() is stub
+    assert os.environ["ORT_DISABLE_TELEMETRY"] == "1"
+    assert disabled == [True]
+
+    root = Path(backend.__file__).parent
+    importers = {
+        path.relative_to(root).as_posix()
+        for package in root.iterdir()
+        if package.is_dir() and package.name != "data"
+        for path in package.rglob("*.py")
+        if re.search(r"^[ \t]*(import|from) onnxruntime\b", path.read_text(encoding="utf-8"), re.M)
+    }
+    assert importers == {"inference/local_models/onnx_runtime/session.py"}

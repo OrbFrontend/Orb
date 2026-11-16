@@ -8,7 +8,8 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator
-from typing import Generic, Protocol, TypeVar
+from enum import StrEnum
+from typing import Generic, Literal, Protocol, TypeVar
 
 from . import binary, manager
 from .client import LaunchProfile, LlamaServerClient
@@ -37,20 +38,33 @@ P = TypeVar("P")
 S = TypeVar("S", bound=Server)
 
 
+class _Phase(StrEnum):
+    IDLE = "idle"
+    LOADING = "loading"
+    READY = "ready"
+    STALE = "stale"
+    FAILED = "failed"
+
+
 class ManagedServerHost(Generic[P, S]):
-    """One resident server, loaded lazily and swapped by launch profile *P*; a subclass says how *P* becomes a server."""
+    """One resident server, loaded lazily and swapped by launch profile *P*.
+
+    Lifecycle: idle/ready/stale/failed -> loading -> ready or failed. Cancellation and selection changes invalidate the
+    resident child without stopping its users; release, shutdown and idle eviction return to idle. STALE may retain a live
+    child, shown as ready to status consumers, but it cannot be reused. In-flight leases only govern when a child may stop.
+    """
 
     def __init__(self, *, name: str, idle_timeout: float) -> None:
         self.name = name
-        self.state = "idle"  # idle | loading | ready | failed
-        self.error = ""
+        self._phase = _Phase.IDLE
+        self._error = ""
         self.profile: P | None = None
         self.server: S | None = None
         self._idle_timeout = idle_timeout
         self._lock = asyncio.Lock()
         self._inflight = 0
         self._idle = asyncio.Condition()
-        self._stale = False
+        self._selection_version = 0
         self._idle_task: asyncio.Task | None = None
         self._last_used = time.monotonic()
         manager.register(self)
@@ -64,11 +78,35 @@ class ManagedServerHost(Generic[P, S]):
         """
         if self.profile is not None and profile is not None and self.profile == profile:
             return
-        self.profile, self._stale = profile, True
+        self.profile = profile
+        self._selection_version += 1
+        # A selection can change while a load awaits readiness. Keep reporting loading until that operation settles, but
+        # its version check must not publish the old selection as reusable.
+        if self._phase is not _Phase.LOADING:
+            self._transition(_Phase.STALE)
+
+    def _transition(self, phase: _Phase, *, error: str = "") -> None:
+        """Own lifecycle writes; an error belongs only to the failed phase."""
+        self._phase, self._error = phase, error if phase is _Phase.FAILED else ""
+
+    @property
+    def error(self) -> str:
+        return self._error
+
+    @property
+    def _live_server(self) -> bool:
+        return self.server is not None and self.server.alive and self.server.ready
+
+    @property
+    def state(self) -> Literal["idle", "loading", "ready", "failed"]:
+        """The four-state panel contract, reconciled with actual child liveness."""
+        if self._phase in (_Phase.READY, _Phase.STALE):
+            return "ready" if self._live_server else "idle"
+        return self._phase.value
 
     @property
     def healthy(self) -> bool:
-        return not self._stale and self.server is not None and self.server.alive and self.server.ready
+        return self._phase is _Phase.READY and self._live_server
 
     def _new_server(self, profile: P) -> S:
         """An unstarted server for *profile*; raises when it cannot be built."""
@@ -83,11 +121,14 @@ class ManagedServerHost(Generic[P, S]):
         """``ensure`` with the swap lock already held."""
         if self.profile == profile and self.healthy and self.server is not None:
             return self.server
-        server = self._new_server(profile)
         # The flag goes up BEFORE the drain, not after it: new work has to stop arriving for the drain to end, and `state` is
         # what callers read to turn themselves away with a message.
-        self.profile, self.state, self.error, self._stale = profile, "loading", "", False
+        self.profile = profile
+        selection_version = self._selection_version
+        self._transition(_Phase.LOADING)
+        server: S | None = None
         try:
+            server = self._new_server(profile)
             await self._drain()
             if self.server is not None:
                 await self.server.stop()
@@ -97,19 +138,19 @@ class ManagedServerHost(Generic[P, S]):
         except asyncio.CancelledError:
             # An abandoned load (an aborted turn, the feature switched off) is not a failure, but nothing else holds its child:
             # without the stop it keeps its VRAM for good and the panel reads "loading" forever.
-            previous = self.server
-            live = previous is not None and previous.alive and previous.ready
-            self.state, self._stale = ("ready" if live else "idle"), True
-            with contextlib.suppress(Exception):
-                await server.stop()
+            self._transition(_Phase.STALE)
+            if server is not None:
+                with contextlib.suppress(Exception):
+                    await server.stop()
             raise
         except Exception as exc:
-            self.state, self.error = "failed", str(exc)
-            with contextlib.suppress(Exception):
-                await server.stop()
+            self._transition(_Phase.FAILED, error=str(exc) or type(exc).__name__)
+            if server is not None:
+                with contextlib.suppress(Exception):
+                    await server.stop()
             raise
         self.server = server
-        self.state = "ready"
+        self._transition(_Phase.READY if selection_version == self._selection_version else _Phase.STALE)
         self._last_used = time.monotonic()
         self._start_idle_watch()
         logger.info("%s ready in %.1fs on 127.0.0.1:%d", self.name, time.monotonic() - server.started_at, server.port)
@@ -148,8 +189,7 @@ class ManagedServerHost(Generic[P, S]):
         if self.server is not None:
             await self.server.stop()
             self.server = None
-            self.state = "idle"
-        self._stale = True
+        self._transition(_Phase.IDLE)
 
     @contextlib.asynccontextmanager
     async def exclusive_release(self) -> AsyncIterator[None]:
@@ -171,15 +211,13 @@ class ManagedServerHost(Generic[P, S]):
 
     async def shutdown(self) -> None:
         """Stop the child and the idle watcher. Reached from the app lifespan through :func:`manager.shutdown_all`."""
-        if self._idle_task is not None:
-            self._idle_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._idle_task
-            self._idle_task = None
-        if self.server is not None:
-            await self.server.stop()
-            self.server = None
-        self.state = "idle"
+        async with self._lock:
+            if self._idle_task is not None:
+                self._idle_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._idle_task
+                self._idle_task = None
+            await self._release_locked()
 
     def _start_idle_watch(self) -> None:
         if self._idle_task is None or self._idle_task.done():
@@ -199,9 +237,7 @@ class ManagedServerHost(Generic[P, S]):
                 if time.monotonic() - self._last_used < self._idle_timeout:
                     continue
                 logger.info("%s idle for %.0fs; stopping its server", self.name, self._idle_timeout)
-                await self.server.stop()
-                self.server = None
-                self.state = "idle"
+                await self._release_locked()
                 self._idle_task = None
                 return
 

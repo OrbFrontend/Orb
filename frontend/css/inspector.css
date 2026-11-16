@@ -1,8 +1,9 @@
-.inspector-inner { padding: 16px; overflow-y: auto; height: 100%; width: var(--inspector-width); }
+.inspector-inner { padding: 16px; overflow-y: auto; height: 100%; width: calc(var(--inspector-width) - 1px); }
 .inspector-inner::-webkit-scrollbar { width: 4px; }
 .inspector-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-.inspector-title { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px;
-  color: var(--text-muted); margin-bottom: 8px; }
+/* One 24px row for every panel's title, the height of the Assistant's head buttons, so the titles share a line. */
+.inspector-title { display: flex; align-items: center; min-height: 24px; font-size: 11px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); margin-bottom: 8px; }
 
 /* Shared Inspector sections: separate content with space; reserve frames for controls. */
 

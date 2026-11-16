@@ -149,8 +149,7 @@ async def test_disconnect_releases_lock(streaming_client, llm_mock):
     from backend.api import deps
 
     async def _lock_released() -> bool:
-        lock = deps._conversation_stream_locks.get(cid)
-        return lock is None or not lock.locked()
+        return not deps.conversation_busy(cid)
 
     for _ in range(200):  # up to ~2s, far longer than cleanup needs
         if await _lock_released():
@@ -193,7 +192,7 @@ async def test_stop_during_the_save_waits_for_it_and_keeps_one_reply(streaming_c
         stop = asyncio.create_task(streaming_client.post(f"/api/conversations/{cid}/stop"))
         await asyncio.sleep(0.05)
         assert not stop.done(), "/stop answered before the reply was saved"
-        assert deps._conversation_stream_locks[cid].locked()
+        assert deps.conversation_busy(cid)
         release.set()
         async for line in lines:
             if line.startswith("event:"):

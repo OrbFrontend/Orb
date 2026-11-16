@@ -1,4 +1,5 @@
-.tools-inner { padding: 16px; overflow-y: auto; height: 100%; width: var(--inspector-width); scrollbar-width: none; }
+.tools-inner { padding: 16px; overflow-y: auto; height: 100%; width: calc(var(--inspector-width) - 1px);
+  scrollbar-width: none; }
 .tools-inner::-webkit-scrollbar { width: 0; }
 input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
   background: var(--bg-elevated); border-radius: var(--radius); outline: none; padding: 8px 0; margin: 8px 0; }

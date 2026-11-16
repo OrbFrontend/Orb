@@ -49,7 +49,23 @@ class ClaudeCodeError(RuntimeError):
 
 
 def _child_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if key in _ENV_KEEP or key.startswith("LC_")}
+    env = {key: value for key, value in os.environ.items() if key in _ENV_KEEP or key.startswith("LC_")}
+    # The allowlist intentionally excludes arbitrary CLI configuration. Apply
+    # privacy policy after filtering so it reaches both auth and generation.
+    env.update(
+        {
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            "DISABLE_TELEMETRY": "1",
+            "DISABLE_ERROR_REPORTING": "1",
+            "DISABLE_AUTOUPDATER": "1",
+            "DISABLE_FEEDBACK_COMMAND": "1",
+            "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+            "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1",
+            "OTEL_SDK_DISABLED": "true",
+            "DO_NOT_TRACK": "1",
+        }
+    )
+    return env
 
 
 async def cli_status() -> dict[str, bool | str]:

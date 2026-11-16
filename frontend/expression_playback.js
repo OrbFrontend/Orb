@@ -49,18 +49,15 @@ function replyCharId(msg) {
 export function beginExpressionPrewarm() {
   endExpressionPrewarm();
   _classified = new Map();
-  S.expressionBuffering = false;
 }
 
 /**
- * Hold this speaker's reply for playback when its character has expressions.
- * Once held, every later reply in the turn is too, so replies reveal in order.
- * True only when this call started the hold.
+ * Start holding the turn's replies for playback at this speaker, when its character has expressions: true when it
+ * starts. The turn records the hold (`turn.expressionBuffering`) and keeps it for every later reply.
  */
 export function bufferExpressionReply(speakerMemberId = null) {
-  if (S.expressionBuffering || !expressionPlaybackEnabled()) return false;
+  if (!expressionPlaybackEnabled()) return false;
   if (!hasExpressions(replyCharId({ speaker_member_id: speakerMemberId }))) return false;
-  S.expressionBuffering = true;
   _warm = { msg: null, timer: 0, running: false };
   return true;
 }

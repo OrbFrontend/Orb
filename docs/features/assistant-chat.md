@@ -4,7 +4,12 @@ Open **Assistant** beside a chat, document, or lorebook to ask questions about
 your library or request changes in plain language. It uses the **Agent** model
 and keeps its conversation separate from the story chat.
 
-Text edits and deletions appear as proposals for you to review and apply.
+Text edits and deletions pause the assistant immediately for your review.
+Choose **Apply & continue** (or **Delete & continue**) to commit the change and
+resume, or **Skip & continue** to leave it out. The assistant receives your
+decision immediately and continues the remaining work. **End request** skips
+the proposal and ends the remaining work. You can also edit the proposed text
+before applying, or type feedback to ask for a revised proposal.
 Settings changes, newly created items, and other actions can take effect
 immediately.
 

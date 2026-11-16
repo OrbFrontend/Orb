@@ -54,8 +54,7 @@ async def test_a_pending_edit_from_an_earlier_request_stacks_and_one_out_of_date
     second = next(data["proposal"] for event, data in events if event == "confirm")
     assert second["replaces"] == first["proposal_id"]
     assert (second["fields"][0]["before"], second["fields"][0]["after"]) == ("A harbour fence.", "A dockside fixer.")
-    stacked = json.loads(calls[1][-1]["content"])
-    assert "on top of the edit" in stacked["note"]
+    assert len(calls) == 1, "the revised proposal is another review checkpoint"
     assert (await _apply(client, first["proposal_id"]))[0]["verdict"] == "expired", "the replaced one is forgotten"
 
     # The stored text moves under the pending one: the next edit starts from what is stored, and says why.
@@ -70,7 +69,7 @@ async def test_a_pending_edit_from_an_earlier_request_stacks_and_one_out_of_date
         "A harbour fence, retired.",
         "A river fence, retired.",
     )
-    assert "has changed since" in json.loads(calls[1][-1]["content"])["note"]
+    assert len(calls) == 1, "no model call runs after proposing the replacement"
     assert (await _apply(client, third["proposal_id"]))[0]["verdict"] == "applied"
     assert (await db.one("SELECT description FROM character_cards WHERE id = ?", (card,)))[0] == "A river fence, retired."
 
@@ -124,11 +123,8 @@ async def test_a_character_delete_keeps_its_chats_unless_asked_and_a_chat_delete
     proposal = await _propose(tools, "delete_chat")
     from backend.api import deps
 
-    deps._active_streams[chat] = object()
-    try:
+    async with deps.conversation_stream_lock(chat):
         busy = (await _apply(client, proposal["proposal_id"]))[0]
-    finally:
-        deps._active_streams.pop(chat, None)
     assert busy["verdict"] == "busy"
     assert (await _apply(client, proposal["proposal_id"]))[0]["verdict"] == "applied"
     assert (await db.one("SELECT COUNT(*) FROM conversations WHERE id = ?", (chat,)))[0] == 0

@@ -26,15 +26,22 @@ else
 fi
 
 source .venv/bin/activate
-echo "Installing dependencies..."
-# Allow offline startup after an install failure if runtime dependencies remain usable.
-if ! pip install -q -r requirements.txt; then
-    if python scripts/check_runtime.py; then
-        echo "Warning: could not install dependencies (offline?)."
-        echo "Starting with the versions already in .venv."
+# Only contact the package index when requirements change or an import breaks.
+# Copy the successfully installed requirements so Unix and Windows use the same stamp.
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+if ! cmp -s requirements.txt .venv/runtime-requirements.txt || ! python scripts/check_runtime.py; then
+    echo "Installing dependencies..."
+    if pip install -q -r requirements.txt; then
+        cp requirements.txt .venv/runtime-requirements.txt
     else
-        echo "Error: failed to install dependencies from requirements.txt."
-        exit 1
+        # Allow offline startup if the installed runtime remains usable.
+        if python scripts/check_runtime.py; then
+            echo "Warning: could not install dependencies (offline?)."
+            echo "Starting with the versions already in .venv."
+        else
+            echo "Error: failed to install dependencies from requirements.txt."
+            exit 1
+        fi
     fi
 fi
 

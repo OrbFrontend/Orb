@@ -3,7 +3,7 @@ import { apiFetch } from "./api.js";
 import { sendMessage } from "./chat_stream.js";
 import { refreshCastRailIntent } from "./group_setup.js";
 import { CLOSE_ICON } from "./icons.js";
-import { conversationState, S } from "./state.js";
+import { conversationState, S, turnActive } from "./state.js";
 import { $, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -167,7 +167,7 @@ async function _requestGhost() {
   const inp = $("chat-input");
   const draft = inp.value;
   const cid = S.activeConvId;
-  if (!cid || !draft.trim() || S.isStreaming || inp.selectionStart !== draft.length) return;
+  if (!cid || !draft.trim() || turnActive() || inp.selectionStart !== draft.length) return;
   if (S.settings?.local_ml_enabled?.autocomplete === false) return;
   if (_ghostAbort) _ghostAbort.abort();
   _ghostAbort = new AbortController();

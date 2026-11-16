@@ -1,5 +1,7 @@
 // Shared client state; keep new keys initialized here.
 
+import { idleTurn } from "./chat_turn.js";
+
 export const S = {
   operations: new Map(),
   docOperation: null,
@@ -51,33 +53,19 @@ export const S = {
   queuedEdits: {}, // edits saved after the current stream ends
   renderWindowStart: 0, // first rendered message index
 
-  liveGroupReplies: 0, // group replies shown live before an expressive speaker began buffering
-  isStreaming: false,
+  turn: idleTurn(), // the chat turn's phase and everything it holds until it settles (chat_turn.js)
   proseRewriteMsgId: null,
-  streamingBodyEl: null,
-  streamCutoffIndex: null,
   streamOp: null, // the stoppable stream this tab is running (stream_settle.js)
-  streamingContent: null,
-  expressionBuffering: false, // this turn holds replies for playback, from the first speaker with expressions on
   expressionPlayback: null, // saved reply parts and the reader's current position
-  pendingUserMsg: null,
   attachments: [],
-  generationStep: null, // empty while waiting; null when idle
-  pendingGenerationStep: null,
-  hideStreamingBox: false,
   contextSize: null,
   pendingRefineDiff: null, // writer/editor diff for the current stream
   editorDraftBaseline: null, // writer text before the editor pass
-  turnError: null, // current turn error
-  worldProposalArrived: false,
+  turnError: null, // the last turn's failure; outlives the turn until dismissed or superseded
 
   groupCast: null,
   pinnedSpeakerId: null,
   consumedSpeakerId: null,
-  speakingPlan: null,
-  currentSpeaker: null,
-  currentExchangeId: null,
-  completedExchangeMessageIds: [],
   castSetupBusy: false,
 
   directorState: null,
@@ -199,11 +187,9 @@ for (const [key, view] of Object.entries(settingViews)) {
 // UI reads the selected conversation; asynchronous operations retain this object.
 const conversationKeys = `
   conversationLoading workflowPhases castSetupBusy messages queuedEdits editingMsgId forkEditMsgId
-  magicInputMsgId editingPendingUserMsg pendingUserMsgEdit renderWindowStart liveGroupReplies isStreaming
-  proseRewriteMsgId streamingBodyEl streamCutoffIndex streamOp streamingContent expressionBuffering
-  expressionPlayback pendingUserMsg attachments generationStep pendingGenerationStep hideStreamingBox
-  contextSize pendingRefineDiff editorDraftBaseline turnError worldProposalArrived groupCast pinnedSpeakerId
-  consumedSpeakerId speakingPlan currentSpeaker currentExchangeId completedExchangeMessageIds directorState
+  magicInputMsgId editingPendingUserMsg pendingUserMsgEdit renderWindowStart turn proseRewriteMsgId streamOp
+  expressionPlayback attachments contextSize pendingRefineDiff editorDraftBaseline turnError groupCast
+  pinnedSpeakerId consumedSpeakerId directorState
   lastDirectorData reasoningDirector reasoningWriter reasoningEditor lastFeedback lastState lastDecisions
   reasoningPassActive reasoningPassSelected reasoningUserOverride inspectedMsgId inspectedDirectorData
   inspectedReasoning inspectedReasoningSelected reasoningByPass sceneIntro cardMoodFragments
@@ -234,6 +220,27 @@ export function conversationState(cid) {
   return state;
 }
 
+/** Is a chat turn running in *state*'s conversation, from its request until its reply has settled? */
+export function turnActive(state = S) {
+  return state.turn.phase !== "idle";
+}
+
+/** A turn or a prose rewrite holds the conversation's stream; Stop shows in place of Send. */
+export function streamBusy(state = S) {
+  return turnActive(state) || !!state.proseRewriteMsgId;
+}
+
+/**
+ * Why *state*'s conversation cannot send now, or "" when it can: it is still loading, it has edits waiting to save, or
+ * its stream is busy.
+ */
+export function sendBlocker(state = S) {
+  if (state.conversationLoading) return "loading";
+  if (Object.keys(state.queuedEdits).length) return "edits";
+  if (streamBusy(state)) return "busy";
+  return "";
+}
+
 /**
  * Discard cached server data once reload can rebuild it; retain active work,
  * drafts, unsaved edits and speaker pins.
@@ -242,8 +249,7 @@ export function releaseConversationState(cid) {
   const state = S.conversationStates.get(cid);
   if (!state || cid === S.activeConvId) return;
   const holds =
-    state.isStreaming ||
-    state.proseRewriteMsgId ||
+    streamBusy(state) ||
     state.castSetupBusy ||
     state.draft ||
     state.pinnedSpeakerId != null ||
@@ -280,7 +286,7 @@ export function effectiveWorkflowEnabled(wid) {
 
 /** The live reply stays out of the DOM until it is saved. */
 export function streamingHidden() {
-  return S.hideUntilBaked || S.expressionBuffering;
+  return S.hideUntilBaked || S.turn.expressionBuffering;
 }
 
 export function charactersView() {
@@ -344,6 +350,7 @@ const TOPICS = new Set([
   "cast",
   "lorebook",
   "expression-playback",
+  "avatars",
 ]);
 
 const _subscribers = new Map(); // topic -> listeners

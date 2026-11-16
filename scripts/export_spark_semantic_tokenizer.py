@@ -60,6 +60,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Set before upstream imports: they can initialize Hugging Face or ONNX too.
+    os.environ.update(
+        {"ORT_DISABLE_TELEMETRY": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "HF_XET_TELEMETRY_ENABLED": "0", "DO_NOT_TRACK": "1"}
+    )
     sys.path.insert(0, args.spark_tts)
     import numpy as np
     import torch
@@ -146,6 +150,7 @@ def main() -> int:
 
     import onnxruntime as ort
 
+    ort.disable_telemetry_events()
     session = ort.InferenceSession(args.out, providers=["CPUExecutionProvider"])
 
     def run(wav: np.ndarray) -> list[int]:

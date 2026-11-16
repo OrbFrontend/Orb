@@ -1,0 +1,70 @@
+{
+  "purpose": "Self-hosted API documentation assets; no runtime CDN requests.",
+  "assets": [
+    {
+      "file": "swagger-ui-bundle.js",
+      "package": "swagger-ui-dist",
+      "version": "5.35.0",
+      "source": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.35.0/swagger-ui-bundle.js",
+      "sha256": "4376d6478b1e205f8937a790ef25eba3fb0b34c52f14cc231dd3191194d431d4",
+      "upstream_sha256": "e6a898692f2d768e807c3ba4626068a69a2c5dd960dd6c76f3e4d3a3de180af2",
+      "replacements": {
+        "linkify option is removed. Use linkify plugin instead:\\n\\nimport Remarkable from 'remarkable';\\nimport linkify from 'remarkable/linkify';\\nnew Remarkable().use(linkify)\\n": "linkify option is removed. Use the linkify plugin instead."
+      },
+      "patch_reason": "Omit import examples in a diagnostic string; the repository import scanner mistakes them for runtime imports. Remarkable and linkify are already bundled."
+    },
+    {
+      "file": "swagger-ui.css",
+      "package": "swagger-ui-dist",
+      "version": "5.35.0",
+      "source": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.35.0/swagger-ui.css",
+      "sha256": "5ed08757e53da3e026d6cbecc61fe5d43585c9560b302d534ad56692519a273d"
+    },
+    {
+      "file": "swagger-LICENSE",
+      "package": "swagger-ui-dist",
+      "version": "5.35.0",
+      "source": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.35.0/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "file": "redoc.standalone.js",
+      "package": "redoc",
+      "version": "2.5.4",
+      "source": "https://cdn.jsdelivr.net/npm/redoc@2.5.4/bundles/redoc.standalone.js",
+      "sha256": "058933accbd38ea91bc4363d3f28879844ab3b2f8a757ab4e19184f4861e8d43",
+      "upstream_sha256": "dcaf76612bc4a3fbcc923a8966dee2f6146a5f32e5ce1b6f02dd60cbbf89500b",
+      "replacements": {
+        "https://cdn.redoc.ly/redoc/logo-mini.svg": "/static/vendor/api-docs/redoc-logo.svg"
+      }
+    },
+    {
+      "file": "redoc-LICENSE",
+      "package": "redoc",
+      "version": "2.5.4",
+      "source": "https://cdn.jsdelivr.net/npm/redoc@2.5.4/LICENSE",
+      "sha256": "d3026d549cf68ab7355bcfa85877bf8f845b3334a7efbfdc63936432fb34ff0e"
+    },
+    {
+      "file": "redoc-logo.svg",
+      "package": "redoc",
+      "version": "2.5.4",
+      "source": "https://cdn.redoc.ly/redoc/logo-mini.svg",
+      "sha256": "1dab4315f8de2177b2b2726b29e84a26314c69cd27d692228947c0058793d5a7"
+    },
+    {
+      "file": "swagger-ui-bundle.js.LICENSE.txt",
+      "package": "swagger-ui-dist",
+      "version": "5.35.0",
+      "source": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.35.0/swagger-ui-bundle.js.LICENSE.txt",
+      "sha256": "37eb6e7e59aed57b2c1acf076574b818ea07b74265717e0bd67b59e0baf9abbb"
+    },
+    {
+      "file": "redoc.standalone.js.LICENSE.txt",
+      "package": "redoc",
+      "version": "2.5.4",
+      "source": "https://cdn.jsdelivr.net/npm/redoc@2.5.4/bundles/redoc.standalone.js.LICENSE.txt",
+      "sha256": "eed602ec32e00b2b9df1984fbcc26a687b1b3193ec01961389c4b8439e6edf73"
+    }
+  ]
+}

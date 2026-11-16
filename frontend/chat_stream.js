@@ -26,6 +26,16 @@ import {
   renderInspector,
   syncGenerationStatus,
 } from "./chat_inspector.js";
+import {
+  awaitStep,
+  beginTurn,
+  idleTurn,
+  runStep,
+  settleTurn,
+  stepOutput,
+  turnLabel,
+  workflowStep,
+} from "./chat_turn.js";
 import { mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
@@ -38,7 +48,7 @@ import {
   prewarmExpressionLabels,
   startExpressionPlayback,
 } from "./expression_playback.js";
-import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
+import { generationStepLabel } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, speakerLabel, unansweredHint } from "./group_cast.js";
 import {
   consumeSpeakerOverride,
@@ -59,7 +69,10 @@ import {
   isViewing,
   releaseConversationState,
   S,
+  sendBlocker,
+  streamBusy,
   streamingHidden,
+  turnActive,
 } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { settledReply, streamAnchor } from "./stream_settle.js";
@@ -97,14 +110,13 @@ function previewFrozen() {
 }
 
 // Use the visible step when an error has no explicit stage.
-function phaseStage() {
-  return (S.generationStep || "").replace(/(…|\.\.\.)$/, "");
+function phaseStage(state) {
+  return (turnLabel(state.turn) || "").replace(/(…|\.\.\.)$/, "");
 }
 
-// Empty means waiting; null means no active turn.
-function setGenerationStep(label) {
-  S.generationStep = label;
-  syncGenerationStatus();
+// Repaint the status line after a phase move, when the turn's conversation is on screen.
+function showPhase(state, moved) {
+  if (moved && isViewing(state)) syncGenerationStatus();
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -122,11 +134,11 @@ function streamingScope(body) {
 }
 
 function streamingDisplaySource(content) {
-  return messageDisplaySource({ role: "assistant", content, speaker_member_id: S.currentSpeaker?.member_id });
+  return messageDisplaySource({ role: "assistant", content, speaker_member_id: S.turn.speaker?.member_id });
 }
 
 function paintStreamingBody(text) {
-  if (previewFrozen() || S.expressionBuffering) return;
+  if (previewFrozen() || S.turn.expressionBuffering) return;
   _paintSource = text;
   const cid = S.activeConvId;
   const token = S.conversationViewToken;
@@ -140,7 +152,7 @@ function paintStreamingBody(text) {
     }
     const pending = _paintPending;
     _paintPending = null;
-    const body = S.streamingBodyEl;
+    const body = S.turn.bodyEl;
     if (!body || pending === null) return;
     const html = renderMessageHtml(streamingDisplaySource(pending), { streaming: true, scope: streamingScope(body) });
     if (html !== _paintedHtml) {
@@ -174,15 +186,16 @@ export function cancelStreamingPaint() {
 }
 
 setCardScriptRepaint(() => {
-  if (S.isStreaming && _paintSource !== null && S.pendingRefineDiff && S.editorDraftBaseline != null) {
+  const active = turnActive();
+  if (active && _paintSource !== null && S.pendingRefineDiff && S.editorDraftBaseline != null) {
     S.pendingRefineDiff = streamingRefineDiff(S.editorDraftBaseline, _paintSource);
     if (S.pendingRefineDiff && S.showEditorDiff && !previewFrozen())
-      smoothUpdateBody(S.streamingBodyEl, renderMessageDiffHtml(S.pendingRefineDiff.ops));
-  } else if (!S.isStreaming && S.pendingRefineDiff?.msgId) {
+      smoothUpdateBody(S.turn.bodyEl, renderMessageDiffHtml(S.pendingRefineDiff.ops));
+  } else if (!active && S.pendingRefineDiff?.msgId) {
     settleRefineDiff(S.messages.find((message) => message.id === S.pendingRefineDiff.msgId));
   }
   renderMessages();
-  if (S.isStreaming && _paintSource !== null && !(S.pendingRefineDiff && S.showEditorDiff))
+  if (turnActive() && _paintSource !== null && !(S.pendingRefineDiff && S.showEditorDiff))
     paintStreamingBody(_paintSource);
 });
 
@@ -216,11 +229,12 @@ function smoothUpdateBody(el, newHtml, onComplete) {
   }
 }
 
-function finalizeStreamingDiv(lastMsg) {
+// *turn* is the live one for a group speaker, or the record of the turn that just ended.
+function finalizeStreamingDiv(lastMsg, turn) {
   cancelStreamingPaint();
   followStreamingMessage(null);
-  if (S.expressionBuffering) return false;
-  const body = S.streamingBodyEl;
+  if (turn.expressionBuffering) return false;
+  const body = turn.bodyEl;
   if (!body) return false;
   const div = body.closest(".message");
   if (!div?.isConnected || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
@@ -240,7 +254,7 @@ function finalizeStreamingDiv(lastMsg) {
       : renderMessageHtml(
           messageDisplaySource({
             ...lastMsg,
-            speaker_member_id: lastMsg.speaker_member_id ?? S.currentSpeaker?.member_id,
+            speaker_member_id: lastMsg.speaker_member_id ?? turn.speaker?.member_id,
           }),
         );
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
@@ -262,16 +276,13 @@ function finalizeStreamingDiv(lastMsg) {
 
 /** Send waits for this conversation's running work, its load and its unsaved edits. */
 export function syncSendButton(state = S) {
-  $("send-btn").disabled =
-    state.isStreaming ||
-    !!state.proseRewriteMsgId ||
-    state.conversationLoading ||
-    Object.keys(state.queuedEdits).length > 0;
+  $("send-btn").disabled = !!sendBlocker(state);
 }
 
-export function setStreaming(active) {
-  S.isStreaming = active;
-  const stoppable = active || !!S.proseRewriteMsgId;
+/** Show the selected conversation's turn on the composer and the cast: Stop in place of Send while it runs. */
+export function syncStreamControls() {
+  const active = turnActive();
+  const stoppable = streamBusy();
   syncSendButton();
   $("send-btn").style.display = stoppable ? "none" : "flex";
   $("stop-btn").style.display = stoppable ? "flex" : "none";
@@ -291,7 +302,7 @@ function createStreamingDiv(name = null, memberId = null) {
   div.className = "message assistant";
   const avatar = S.showChatAvatars ? speakerAvatarCell({ role: "assistant", speaker_member_id: memberId }) : "";
   // It lands after every turn above the cut, plus the group speakers who already finished this exchange.
-  const num = (S.streamCutoffIndex ?? S.messages.length) + S.completedExchangeMessageIds.length + 1;
+  const num = (S.turn.cutoffIndex ?? S.messages.length) + S.turn.completedIds.length + 1;
   div.innerHTML = `${avatar}<div class="msg-role">${esc(name || getCharName())} ${msgNumHtml(num)}</div>
     <div class="msg-inspect-live"></div>
     <div class="msg-body" id="streaming-body">
@@ -302,7 +313,7 @@ function createStreamingDiv(name = null, memberId = null) {
       <button disabled>${ICON_REGEN}</button>
       <button disabled class="msg-btn-del">${ICON_DEL}</button>
     </div>`;
-  S.streamingBodyEl = div.querySelector(".msg-body");
+  S.turn.bodyEl = div.querySelector(".msg-body");
   followStreamingMessage(div);
   return div;
 }
@@ -310,20 +321,20 @@ function createStreamingDiv(name = null, memberId = null) {
 /** Rebuild the selected view from the retained turn, including a background speaker. */
 export function restoreStreamingView() {
   syncGenerationStatus();
-  if (!S.isStreaming || !S.streamOp) return;
-  if (S.groupCast && !S.currentSpeaker) return;
-  const div =
-    S.streamingBodyEl?.closest(".message") || createStreamingDiv(S.currentSpeaker?.name, S.currentSpeaker?.member_id);
+  const turn = S.turn;
+  if (!turnActive() || !S.streamOp) return;
+  if (S.groupCast && !turn.speaker) return;
+  const div = turn.bodyEl?.closest(".message") || createStreamingDiv(turn.speaker?.name, turn.speaker?.member_id);
   if (S.streamOp.holder) S.streamOp.holder.el = div;
-  if (S.streamingContent != null) {
-    _paintSource = S.streamingContent;
+  if (turn.content != null) {
+    _paintSource = turn.content;
     if (S.pendingRefineDiff && S.editorDraftBaseline != null) {
-      S.pendingRefineDiff = streamingRefineDiff(S.editorDraftBaseline, S.streamingContent);
+      S.pendingRefineDiff = streamingRefineDiff(S.editorDraftBaseline, turn.content);
     }
-    S.streamingBodyEl.innerHTML =
+    turn.bodyEl.innerHTML =
       S.pendingRefineDiff && S.showEditorDiff
         ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
-        : renderMessageHtml(streamingDisplaySource(S.streamingContent));
+        : renderMessageHtml(streamingDisplaySource(turn.content));
   }
 }
 
@@ -397,22 +408,18 @@ async function afterStream(op, { settled = true } = {}) {
     cancelStreamingPaint();
     followStreamingMessage(null);
   }
-  const wasGroupExchange = state.currentExchangeId != null;
-  const groupExchangeId = state.currentExchangeId;
-  const inFlightSpeaker = state.currentSpeaker;
+  const turn = state.turn;
+  const wasGroupExchange = turn.exchangeId != null;
+  const groupExchangeId = turn.exchangeId;
+  const inFlightSpeaker = turn.speaker;
   // The text the turn last made authoritative (Writer tokens or an announced rewrite), never a cosmetic preview.
-  const preservedContent = state.streamingContent;
-  const pendingUserMsg = state.pendingUserMsg || null;
-  const lastCompletedId = state.completedExchangeMessageIds.at(-1) ?? null;
-  const buffered = state.expressionBuffering;
+  const preservedContent = turn.content;
+  const pendingUserMsg = turn.pendingUserMsg || null;
+  const lastCompletedId = turn.completedIds.at(-1) ?? null;
+  const buffered = turn.expressionBuffering;
   if (isViewing(state)) endExpressionPrewarm();
-  state.streamCutoffIndex = null;
-  state.streamingContent = null;
-  state.pendingUserMsg = null;
-  state.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
-  state.generationStep = null;
-  state.pendingGenerationStep = null;
-  if (isViewing(state)) setGenerationStep(null);
+  settleTurn(turn);
+  if (isViewing(state)) syncGenerationStatus();
 
   let synced = true;
   try {
@@ -473,20 +480,17 @@ async function afterStream(op, { settled = true } = {}) {
     );
   }
 
-  state.isStreaming = false;
+  // The turn ends here, as a unit. The rest reads its settled record: the bubble it finalizes may be one a return to
+  // this chat drew while it settled.
+  state.turn = idleTurn();
   endStreamOperation(op);
+  const spoke = wasGroupExchange && turn.completedIds.length > 0;
   if (!isViewing(state)) {
-    state.streamingBodyEl = null;
-    state.currentExchangeId = null;
-    state.currentSpeaker = null;
-    state.speakingPlan = null;
-    state.expressionBuffering = false;
-    if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride(state);
-    state.completedExchangeMessageIds = [];
+    if (spoke) consumeSpeakerOverride(state);
     releaseConversationState(op.convId);
     return;
   }
-  setStreaming(false);
+  syncStreamControls();
 
   settleRefineDiff(
     wasGroupExchange && !inFlightSpeaker ? state.messages.find((m) => m.id != null && m.id === lastCompletedId) : saved,
@@ -494,7 +498,7 @@ async function afterStream(op, { settled = true } = {}) {
 
   // Install the buffer before any saved-message repaint can reveal its text.
   if (buffered && synced && settled) {
-    const streamedLive = new Set(state.completedExchangeMessageIds.slice(0, state.liveGroupReplies));
+    const streamedLive = new Set(turn.completedIds.slice(0, turn.liveGroupReplies));
     const replies = state.messages.filter(
       (msg) =>
         msg.role === "assistant" &&
@@ -506,10 +510,7 @@ async function afterStream(op, { settled = true } = {}) {
     void startExpressionPlayback(replies);
   }
 
-  const finalized = !wasGroupExchange && !state.worldProposalArrived && !!saved && finalizeStreamingDiv(saved);
-  state.expressionBuffering = false;
-  state.worldProposalArrived = false;
-  state.streamingBodyEl = null;
+  const finalized = !wasGroupExchange && !turn.worldProposalArrived && !!saved && finalizeStreamingDiv(saved, turn);
 
   if (finalized) {
     if (pendingUserMsg) patchPendingUserMessage(pendingUserMsg);
@@ -523,11 +524,7 @@ async function afterStream(op, { settled = true } = {}) {
   } else {
     renderMessages();
   }
-  state.currentExchangeId = null;
-  state.currentSpeaker = null;
-  state.speakingPlan = null;
-  if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride(state);
-  state.completedExchangeMessageIds = [];
+  if (spoke) consumeSpeakerOverride(state);
   renderGroupCast();
   if (wasGroupExchange && state.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
   state.lastDirectorData = null;
@@ -549,14 +546,15 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
     firstToken = true,
     dispatchErrorToasted = false;
   let terminalReceived = false;
+  // The record runStreamRequest began; it stays this conversation's turn until the stream ends.
+  const turn = state.turn;
 
   const resetSpeakerTurnState = () => {
-    state.pendingGenerationStep = null;
     fullResponse = "";
     rewrittenResponse = null;
     previewResponse = null;
     firstToken = true;
-    state.streamingContent = null;
+    turn.content = null;
     state.pendingRefineDiff = null;
     state.editorDraftBaseline = null;
     state.reasoningDirector = "";
@@ -579,9 +577,9 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
     if (event === "speaking_plan") {
       try {
         const parsed = JSON.parse(data);
-        state.currentExchangeId = parsed.exchange_id;
-        state.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
-        if (!state.speakingPlan.length) toast(restNotice());
+        turn.exchangeId = parsed.exchange_id;
+        turn.plan = Array.isArray(parsed.plan) ? parsed.plan : [];
+        if (!turn.plan.length) toast(restNotice());
         if (isViewing(state)) renderGroupCast();
       } catch (_) {}
       continue;
@@ -589,15 +587,14 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
     if (event === "speaker_start") {
       try {
         const parsed = JSON.parse(data);
-        state.currentExchangeId = parsed.exchange_id;
-        state.currentSpeaker = parsed;
+        turn.exchangeId = parsed.exchange_id;
+        turn.speaker = parsed;
         const viewing = isViewing(state);
-        if (viewing && bufferExpressionReply(parsed.member_id))
-          state.liveGroupReplies = state.completedExchangeMessageIds.length;
+        if (viewing && holdRepliesForPlayback(turn, parsed.member_id)) turn.liveGroupReplies = turn.completedIds.length;
         resetSpeakerTurnState();
-        state.generationStep = WAITING_LABEL;
+        awaitStep(turn);
         if (viewing) {
-          setGenerationStep(state.generationStep);
+          syncGenerationStatus();
           holder.el = createStreamingDiv(parsed.name, parsed.member_id);
           if (!streamingHidden()) container.appendChild(holder.el);
           onTurnStart();
@@ -605,7 +602,7 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
           scrollToBottom();
         } else {
           holder.el = null;
-          state.streamingBodyEl = null;
+          turn.bodyEl = null;
         }
       } catch (_) {}
       continue;
@@ -613,12 +610,12 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
     if (event === "speaker_done") {
       try {
         const parsed = JSON.parse(data);
-        if (parsed.message_id) state.completedExchangeMessageIds.push(parsed.message_id);
+        if (parsed.message_id) turn.completedIds.push(parsed.message_id);
         const viewing = isViewing(state);
-        if (viewing) finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
-        state.streamingBodyEl = null;
+        if (viewing) finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" }, turn);
+        turn.bodyEl = null;
         holder.el = null;
-        state.currentSpeaker = null;
+        turn.speaker = null;
         if (viewing) renderGroupCast();
       } catch (_) {}
       continue;
@@ -628,13 +625,13 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
         firstToken = false;
         if (isViewing(state) && holder.el && !holder.el.isConnected && !streamingHidden())
           container.appendChild(holder.el);
-        if (state.streamingBodyEl) state.streamingBodyEl.innerHTML = "";
+        if (turn.bodyEl) turn.bodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
-      state.streamingContent = rewrittenResponse || fullResponse;
+      turn.content = rewrittenResponse || fullResponse;
       if (isViewing(state)) {
-        prewarmExpressionLabels(state.streamingContent, state.currentSpeaker?.member_id);
-        if (state.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
+        prewarmExpressionLabels(turn.content, turn.speaker?.member_id);
+        if (turn.bodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
         else scrollToBottom();
       }
     };
@@ -644,18 +641,18 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
       } else {
         rewrittenResponse = text;
         previewResponse = null;
-        state.streamingContent = text;
-        if (isViewing(state)) prewarmExpressionLabels(text, state.currentSpeaker?.member_id);
+        turn.content = text;
+        if (isViewing(state)) prewarmExpressionLabels(text, turn.speaker?.member_id);
       }
-      if (!isViewing(state) || previewFrozen() || state.expressionBuffering) return;
+      if (!isViewing(state) || previewFrozen() || turn.expressionBuffering) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
       _paintSource = text;
-      if (state.streamingBodyEl) {
+      if (turn.bodyEl) {
         const html =
           state.pendingRefineDiff && state.showEditorDiff
             ? renderMessageDiffHtml(state.pendingRefineDiff.ops)
             : renderMessageHtml(streamingDisplaySource(text));
-        smoothUpdateBody(state.streamingBodyEl, html, scrollToBottom);
+        smoothUpdateBody(turn.bodyEl, html, scrollToBottom);
       } else {
         if (isViewing(state)) scrollToBottom();
       }
@@ -675,22 +672,16 @@ async function processSSEStream(resp, container, holder, signal, state = S, seed
 }
 
 function swapStreamingDraft(text, onRewrite, options, state = S) {
-  if (state.editorDraftBaseline === null) state.editorDraftBaseline = state.streamingContent || "";
+  if (state.editorDraftBaseline === null) state.editorDraftBaseline = state.turn.content || "";
   state.pendingRefineDiff = streamingRefineDiff(state.editorDraftBaseline, text);
   onRewrite(text, options);
 }
 
 function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
-  if ((event === "token" || event === "reasoning") && state.pendingGenerationStep) {
-    state.generationStep = state.pendingGenerationStep;
-    state.pendingGenerationStep = null;
-    if (isViewing(state)) setGenerationStep(state.generationStep);
-  }
+  if (event === "token" || event === "reasoning") showPhase(state, stepOutput(state.turn));
   switch (event) {
     case "director_start":
-      state.pendingGenerationStep = generationStepLabel("director");
-      state.generationStep = WAITING_LABEL;
-      if (isViewing(state)) setGenerationStep(state.generationStep);
+      showPhase(state, awaitStep(state.turn, generationStepLabel("director")));
       state.lastDirectorData = null;
       state.inspectedMsgId = null;
       state.inspectedDirectorData = null;
@@ -710,11 +701,8 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       try {
         const step = JSON.parse(data).step;
         const label = generationStepLabel(step);
-        if (label) {
-          state.pendingGenerationStep = step === "writer" ? label : null;
-          state.generationStep = step === "writer" ? WAITING_LABEL : label;
-          if (isViewing(state)) setGenerationStep(state.generationStep);
-        }
+        // The Writer shows from its first token; the other steps show as they start.
+        if (label) showPhase(state, step === "writer" ? awaitStep(state.turn, label) : runStep(state.turn, label));
       } catch (_) {}
       break;
     }
@@ -724,7 +712,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
     case "draft_update":
       try {
         const draft = JSON.parse(data).draft;
-        if (draft !== state.streamingContent) swapStreamingDraft(draft, onRewrite, { preview: true }, state);
+        if (draft !== state.turn.content) swapStreamingDraft(draft, onRewrite, { preview: true }, state);
       } catch (_) {}
       break;
     case "writer_rewrite":
@@ -796,10 +784,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         const d = JSON.parse(data);
         // Turn workflow steps use the primary status line.
         const label = typeof d.label === "string" ? d.label.trim() : "";
-        if (label && d.state !== "done") {
-          state.generationStep = label;
-          if (isViewing(state)) setGenerationStep(label);
-        }
+        if (label && d.state !== "done") showPhase(state, workflowStep(state.turn, label));
       } catch (_) {}
       break;
     }
@@ -831,12 +816,13 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         const prevContent = pendingIdx >= 0 ? state.messages[pendingIdx].content : null;
         const persona = { persona_id: d.persona_id ?? null, persona_name: d.persona_name ?? null };
         if (pendingIdx >= 0) Object.assign(state.messages[pendingIdx], { id: realId }, persona);
-        if (state.pendingUserMsg) Object.assign(state.pendingUserMsg, { id: realId }, persona);
+        const pendingUserMsg = state.turn.pendingUserMsg;
+        if (pendingUserMsg) Object.assign(pendingUserMsg, { id: realId }, persona);
         const editing = state.editingPendingUserMsg || state.pendingUserMsgEdit != null;
         const resolved = typeof d.content === "string" && !editing ? d.content : null;
         if (resolved !== null) {
           if (pendingIdx >= 0) state.messages[pendingIdx].content = resolved;
-          if (state.pendingUserMsg) state.pendingUserMsg.content = resolved;
+          if (pendingUserMsg) pendingUserMsg.content = resolved;
         }
         if (state.editingPendingUserMsg) {
           state.editingPendingUserMsg = false;
@@ -863,7 +849,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
           ...f,
           headline: f.headline || "Generation failed.",
           convId: state.activeConvId,
-          stage: f.stage || phaseStage(),
+          stage: f.stage || phaseStage(state),
           at: Date.now(),
         };
       }
@@ -875,7 +861,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       }
       break;
     case "world_change_proposed": {
-      state.worldProposalArrived = true;
+      state.turn.worldProposalArrived = true;
       break;
     }
     case "workflow_attachments_rejected": {
@@ -922,27 +908,57 @@ export function turnPayload() {
   return { ...agentPayload(), speaker_member_id: S.pinnedSpeakerId || null };
 }
 
+// From the first speaker whose character has expressions, the turn holds its replies for playback so they reveal in order.
+function holdRepliesForPlayback(turn, speakerMemberId = null) {
+  if (turn.expressionBuffering || !bufferExpressionReply(speakerMemberId)) return false;
+  turn.expressionBuffering = true;
+  return true;
+}
+
+/**
+ * Run one chat turn in the open conversation. *pendingUser* is the optimistic user row the request sends: appended, or
+ * inserted at index *at* with the reply streaming right after it.
+ */
 export async function runStreamRequest(
   path,
   body,
-  { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null, continueFrom = null } = {},
+  {
+    cutoffMsgId = null,
+    pendingUser = null,
+    beforeRender = null,
+    anchorStream = false,
+    afterDone = null,
+    continueFrom = null,
+  } = {},
 ) {
   const state = conversationState(S.activeConvId);
+  state.turn = beginTurn();
+  const turn = state.turn;
   cancelExpressionPlayback();
   beginExpressionPrewarm();
-  state.liveGroupReplies = 0;
-  if (!state.groupCast) bufferExpressionReply();
+  if (!state.groupCast) holdRepliesForPlayback(turn);
   state.consumedSpeakerId = body?.speaker_member_id || null;
-  setStreaming(true);
-  setGenerationStep(WAITING_LABEL);
+  syncStreamControls();
+  syncGenerationStatus();
   state.turnError = null; // this attempt supersedes the last failure
   // Before the optimistic rows go in: what this request adds is what is new.
   const anchor = streamAnchor(state.messages);
 
   if (cutoffMsgId != null) {
     const idx = state.messages.findIndex((m) => m.id === cutoffMsgId);
-    state.streamCutoffIndex = idx >= 0 ? idx : state.messages.length;
+    turn.cutoffIndex = idx >= 0 ? idx : state.messages.length;
     setChatFollowing(true);
+  }
+
+  if (pendingUser) {
+    const { msg, at = null } = pendingUser;
+    if (at == null) {
+      state.messages.push(msg);
+    } else {
+      state.messages.splice(at, 0, msg);
+      turn.cutoffIndex = at + 1;
+    }
+    turn.pendingUserMsg = msg;
   }
 
   if (beforeRender) beforeRender();
@@ -959,8 +975,7 @@ export async function runStreamRequest(
   op.continued = !!continueFrom;
   const seed = continueFrom?.content || "";
   if (state.groupCast && !continueFrom) {
-    state.currentExchangeId = "pending";
-    state.completedExchangeMessageIds = [];
+    turn.exchangeId = "pending";
   } else {
     holder.el = continueFrom?.speaker_member_id
       ? createStreamingDiv(speakerLabel(continueFrom), continueFrom.speaker_member_id)
@@ -982,7 +997,7 @@ export async function runStreamRequest(
         ...f,
         status: resp.status,
         convId: state.activeConvId,
-        stage: f.stage || phaseStage(),
+        stage: f.stage || phaseStage(state),
         at: Date.now(),
       };
       if (!state.turnError.headline) state.turnError.headline = `Orb returned HTTP ${resp.status}.`;
@@ -999,7 +1014,7 @@ export async function runStreamRequest(
         sentence: e.message,
         kind: "transport",
         convId: op.convId,
-        stage: phaseStage(),
+        stage: phaseStage(state),
         at: Date.now(),
       };
     }
@@ -1092,13 +1107,7 @@ function postUserMessage(text, attachments) {
   return runStreamRequest(
     convUrl(S.activeConvId, "send"),
     { content, attachments, ...turnPayload() },
-    {
-      beforeRender() {
-        S.messages.push(userMsg);
-        S.pendingUserMsg = userMsg;
-      },
-      afterDone: ensurePersonaPinned,
-    },
+    { pendingUser: { msg: userMsg }, afterDone: ensurePersonaPinned },
   );
 }
 

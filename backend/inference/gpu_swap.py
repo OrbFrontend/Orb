@@ -524,6 +524,9 @@ async def _comfy_free(url: str, api_key: str = "", *, queue_cap: float = 180.0) 
 class _Arbiter:
     """Who holds the GPU, and how many calls on each side are using it.
 
+    ``owner`` is the last confirmed side, or None when residency needs reconciling. A ComfyUI handoff invalidates it before
+    any I/O: unloading or starting ComfyUI can change residency even if the handoff fails or is cancelled.
+
     Counters change synchronously, so a lease released by a cancelled task still lands. Waiters watch ``_changed``, which is
     swapped for a fresh event on every change.
     """
@@ -716,6 +719,7 @@ async def comfy_lease(notify: Notify | None = None) -> AsyncIterator[None]:
     await arb.wait_until(ready, plan.wait_cap, "the LLM")
     if arb.comfy_inflight == 0:
         arb.switching = True
+        arb.owner = None
         try:
             await _unload_all(plan, notify)
             arb.owner = "comfy"

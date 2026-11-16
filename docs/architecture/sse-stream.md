@@ -249,6 +249,18 @@ When the stream completes normally, the browser cancels any pending `/stop`
 request and reconciles immediately: the completed stream already confirms
 persistence, so its HTTP response must not hold Send disabled until the deadline.
 
+`frontend/stream_settle.js` models the operation as `open`, `stopping`,
+`disconnected`, `stopping-and-disconnected`, or terminal `finished`. Stop and
+disconnect can arrive in either order. Settlement first enters `finished`,
+then cancels the pending `/stop`, then sends a fresh `/stop` only if the stream
+disconnected. This order prevents cancellation callbacks, late replies, and
+close-grace timers from changing the completed stream. The terminal state
+retains its last live phase so callers can still report whether it was stopped.
+Repeated settlement calls share the same confirmation promise; they cannot
+cancel or replace a cleanup request already in progress. The shared stream
+reader treats every exit before a terminal event as a disconnect, including
+EOF after Stop and a consumer leaving the event loop early.
+
 When the client goes away, the request is cancelled but the turn is not. The
 turn still finishes stopping: the stream runs its generator to the end with
 the token aborted, discards the events, and saves normally, for up to 10 s.
@@ -362,3 +374,24 @@ waits for it to settle and holds the turn lanes through the delete; a timeout
 answers 409 and deletes nothing. Message deletion settles the media of the
 subtrees it removes. Card deletion and duplicate resolution refuse busy chats and
 fence them until commit. These in-memory fences assume one uvicorn process.
+
+`backend/api/work_registry.py` owns one process-local work record per resource
+(chat id, `doc:<id>`, or the assistant run key). Its snapshots expose overlapping
+phases: streaming, mutating, rendering, committing, deleting, and settling; an
+empty snapshot is idle. A stream or queued/active history mutation reserves the
+lane, while media jobs can run beside it. Stop moves work into settlement and
+retains ownership until cleanup and persistence finish; repeated media Stop calls
+and disconnects wait for the same cleanup without cancelling it again. A cancelled
+request cannot cancel that cleanup await's job a second time; its registration
+remains until it finishes. Final media writes are marked committing and are never
+cancelled by Stop.
+
+The API's busy checks deliberately project this same record for different uses:
+`conversation_busy` checks lane ownership, `idle_chats_guard` refuses every busy
+phase, and `active_work` reports every phase for dataset maintenance. A bulk guard
+checks all chats before installing its deletion fences. An existing fence is a
+conflict, including the interval before a deletion acquires the lane; a refused
+bulk write neither claims other chats nor releases the existing owner's fence.
+Queued mutations remain visible during lane handoff. Idle admissions and stream
+admissions refuse both owned and queued lanes instead of silently queuing. Resource
+records are removed once all work, deletion fences and queued lane claims end.

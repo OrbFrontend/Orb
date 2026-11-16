@@ -27,7 +27,7 @@ button { font-family: var(--font-ui); cursor: pointer; border: none; outline: no
 .btn-block { width: 100%; justify-content: center; }
 .btn-row { display: flex; gap: 4px; }
 .tog { position: relative; display: inline-block; width: 32px; height: 18px; margin: 0; flex-shrink: 0; }
-.tog input { opacity: 0; width: 0; height: 0; }
+.tog input[type="checkbox"] { opacity: 0; width: 0; height: 0; }
 .tog-slider { position: absolute; cursor: pointer; inset: 0; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: 9px; transition: .2s; }
 .tog-slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px;
@@ -41,8 +41,24 @@ input, textarea, select {
   border-radius: var(--radius); padding: 7px 10px; font-size: 13px; outline: none; width: 100%;
   transition: border-color .15s, box-shadow .15s;
 }
+/* Pinned: each engine draws a native box at its own size (WebKit 12px, Chromium 13px). */
 input[type="checkbox"], input[type="radio"] {
-  width: auto; padding: 0; border: none; background: none; box-shadow: none; accent-color: var(--accent);
+  width: 13px; height: 13px; flex-shrink: 0; padding: 0; border: none; background: none; box-shadow: none; accent-color: var(--accent);
+}
+/* Drawn rather than native: WebKit ignores a native select's vertical padding (a 25px control renders 18px tall) and
+   every engine insets the value by its own amount, so a native select never lines up with the inputs beside it.
+   Laid out like an input, it takes the same height and text inset in every browser. Card HTML keeps its own. */
+/* The caret matches the model pickers' chevron (.cb-arrow): about 10px wide with its stroke, 9px in from the edge. */
+:root {
+  --select-caret: linear-gradient(45deg, transparent 37%, var(--text-secondary) 37% 63%, transparent 63%),
+    linear-gradient(135deg, transparent 37%, var(--text-secondary) 37% 63%, transparent 63%);
+  --select-caret-position: right 14px center, right 9px center;
+  --select-caret-size: 5px 5px, 5px 5px;
+}
+select:not([multiple]):not([size]):not(.msg-css-scope *) {
+  -webkit-appearance: none; appearance: none; padding-right: 28px; background-image: var(--select-caret);
+  background-position: var(--select-caret-position); background-size: var(--select-caret-size);
+  background-repeat: no-repeat;
 }
 input:not([type="checkbox"]):not([type="radio"]):hover, textarea:hover, select:hover {
   border-color: var(--border-light); box-shadow: 0 0 0 3px var(--accent-glow);
@@ -50,7 +66,8 @@ input:not([type="checkbox"]):not([type="radio"]):hover, textarea:hover, select:h
 input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus {
   border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow), 0 0 14px var(--accent-glow);
 }
-textarea { resize: vertical; min-height: 60px; unicode-bidi: plaintext; }
+/* Top-aligned, so an inline textarea leaves no descender gap below it and fields stack at their margins. */
+textarea { resize: vertical; min-height: 60px; unicode-bidi: plaintext; vertical-align: top; }
 textarea[data-key="system_prompt"] { min-height: 30px; height: 30px; }
 label { display: block; font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px;
   text-transform: uppercase; letter-spacing: .5px; }
