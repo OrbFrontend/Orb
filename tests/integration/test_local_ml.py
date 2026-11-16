@@ -386,14 +386,21 @@ async def test_switching_a_classifier_off_frees_its_children(client, monkeypatch
     assert released == ["markup_classifier"]
 
 
-def test_onnxruntime_only_loads_with_its_telemetry_off(monkeypatch):
+@pytest.mark.parametrize("inherited", [None, "0"])
+def test_onnxruntime_only_loads_with_its_telemetry_off(monkeypatch, inherited):
     """onnxruntime uploads usage events unless ``ORT_DISABLE_TELEMETRY`` is set before it loads, and its upload thread can abort
     the process at exit. One helper owns the import and sets the switch; no other backend module imports the library."""
-    monkeypatch.delenv("ORT_DISABLE_TELEMETRY", raising=False)
+    if inherited is None:
+        monkeypatch.delenv("ORT_DISABLE_TELEMETRY", raising=False)
+    else:
+        monkeypatch.setenv("ORT_DISABLE_TELEMETRY", inherited)
     stub = types.ModuleType("onnxruntime")
+    disabled = []
+    stub.disable_telemetry_events = lambda: disabled.append(True)
     monkeypatch.setitem(sys.modules, "onnxruntime", stub)
     assert onnx_runtime.import_runtime() is stub
     assert os.environ["ORT_DISABLE_TELEMETRY"] == "1"
+    assert disabled == [True]
 
     root = Path(backend.__file__).parent
     importers = {

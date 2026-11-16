@@ -7,6 +7,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  font: false
+  custom_dir: docs/overrides
   # logo: assets/Orb.png
   # favicon: assets/Orb.png
   features:
@@ -63,6 +65,7 @@ markdown_extensions:
 # Internal working docs: tracked in-repo, not published to the site.
 exclude_docs: |
   plans/
+  overrides/
 
 plugins:
   - search

@@ -30,6 +30,10 @@ def main() -> int:
     parser.add_argument("--out", default=_default_out(), help=f"output path (default: data/models/{DEFAULT_LOCAL_NAME})")
     args = parser.parse_args()
 
+    # Set before upstream imports: they can initialize Hugging Face or ONNX too.
+    os.environ.update(
+        {"ORT_DISABLE_TELEMETRY": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "HF_XET_TELEMETRY_ENABLED": "0", "DO_NOT_TRACK": "1"}
+    )
     import torch
     from torchaudio.models import _hdemucs
     from torchaudio.pipelines import HDEMUCS_HIGH_MUSDB_PLUS
@@ -127,10 +131,9 @@ def main() -> int:
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.0f} MB); spec {tuple(mag.shape)} freq {tuple(f_ref.shape)}")
 
     import numpy as np
-
-    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")  # read as onnxruntime loads; left unset, it uploads usage events
     import onnxruntime as ort
 
+    ort.disable_telemetry_events()
     session = ort.InferenceSession(args.out, providers=["CPUExecutionProvider"])
     t_onnx, f_onnx = session.run(None, {"wave": wave.numpy(), "spec": mag.numpy()})
     err = max(float(np.abs(t_onnx - t_ref.numpy()).max()), float(np.abs(f_onnx - f_ref.numpy()).max()))

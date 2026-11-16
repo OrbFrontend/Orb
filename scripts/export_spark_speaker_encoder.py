@@ -27,6 +27,10 @@ def main() -> int:
     parser.add_argument("--reference", default="", help="a 16 kHz wav to verify against; default: the repo's example clip")
     args = parser.parse_args()
 
+    # Set before upstream imports: they can initialize Hugging Face or ONNX too.
+    os.environ.update(
+        {"ORT_DISABLE_TELEMETRY": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "HF_XET_TELEMETRY_ENABLED": "0", "DO_NOT_TRACK": "1"}
+    )
     sys.path.insert(0, args.spark_tts)
     import numpy as np
     import torch
@@ -72,9 +76,9 @@ def main() -> int:
     )
     print(f"exported in {time.perf_counter() - started:.1f}s -> {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
-    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")  # read as onnxruntime loads; left unset, it uploads usage events
     import onnxruntime as ort
 
+    ort.disable_telemetry_events()
     session = ort.InferenceSession(args.out, providers=["CPUExecutionProvider"])
     got = session.run(["speaker_tokens"], {"mel": mel.numpy()})[0].flatten().tolist()
     if got != want:

@@ -22,12 +22,13 @@ def import_runtime() -> Any:
 
     Left on, onnxruntime (seen on 1.30, macOS) connects to Microsoft's event collector a few seconds after import, and its
     upload thread aborts the process when the reply lands while the interpreter is exiting. Only this switch, which the
-    library reads as it loads, stops that: ``disable_telemetry_events()`` after the import does not. An explicit value in the
-    environment is left alone.
+    library reads as it loads, stops that: ``disable_telemetry_events()`` after the import does not prevent initialization
+    telemetry. Also disable events through the API, which covers Windows ETW and a runtime imported before Orb.
     """
-    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+    os.environ["ORT_DISABLE_TELEMETRY"] = "1"
     import onnxruntime  # noqa: PLC0415 -- deferred; base Orb has no ML extras
 
+    onnxruntime.disable_telemetry_events()
     return onnxruntime
 
 

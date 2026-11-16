@@ -19,6 +19,9 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
   build:
     name: Build site

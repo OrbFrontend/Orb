@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYRIGHT_PYTHON_IGNORE_WARNINGS: "1"
+
 jobs:
   detect-changes:
     name: Detect Changes

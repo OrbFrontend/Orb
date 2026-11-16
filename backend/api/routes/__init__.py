@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from . import (
     access,
+    api_docs,
     assistant,
     characters,
     conversations,
@@ -31,6 +32,7 @@ from . import (
 # matching against the trailing StaticFiles catch-all is unaffected.
 ROUTERS = [
     misc.router,
+    api_docs.router,
     settings.router,
     endpoints.router,
     fragments.router,

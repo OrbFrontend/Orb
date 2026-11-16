@@ -25,11 +25,21 @@ if errorlevel 1 goto stale_venv
 :venv_ready
 
 call .venv\Scripts\activate.bat
+set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+REM Skip the index when the successfully installed requirements are unchanged.
+fc /b requirements.txt .venv\runtime-requirements.txt >nul 2>&1
+if errorlevel 1 goto install_deps
+python scripts\check_runtime.py
+if errorlevel 1 goto install_deps
+goto deps_ready
+
+:install_deps
 echo Installing dependencies...
 REM An offline launch requires usable mandatory dependencies, without loading
 REM the application, database or optional models.
 pip install -q -r requirements.txt
 if errorlevel 1 goto pip_degraded
+copy /y requirements.txt .venv\runtime-requirements.txt >nul
 goto deps_ready
 
 :pip_degraded

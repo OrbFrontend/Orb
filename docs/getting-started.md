@@ -31,6 +31,8 @@
 The launcher creates `.venv`, installs `requirements.txt`, starts the server,
 and opens Orb in your browser once it is ready.
 You do not need to activate the environment for normal use.
+Later starts reuse the installed dependencies while `requirements.txt` is
+unchanged and the runtime imports remain usable.
 
 ## Update Orb
 
@@ -44,6 +46,18 @@ download turns the folder into a git copy of the `main` branch. Your chats and
 settings in `backend/data` are kept.
 
 ## Network access
+
+Orb disables ONNX Runtime and Hugging Face telemetry before importing those
+libraries, and disables FastAPI tracing, metrics, and telemetry logs. Its Claude
+Code subprocesses disable usage telemetry, error reporting, automatic updates,
+surveys, and marketplace auto-installation. These opt-outs override inherited
+environment values that would enable reporting.
+
+Model downloads and authentication remain available. Cloud generation and
+Edge TTS send their inputs to the selected service; searches, card imports,
+and remote media contact their sources. Use local providers for content that
+should stay on your computer. The API documentation at `/docs` and `/redoc`
+serves its scripts, styles, and images locally.
 
 Orb listens on port 8899 on every network interface, so a phone or another
 computer on the same network can open `http://<this computer's IP>:8899`.
