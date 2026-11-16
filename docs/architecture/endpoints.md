@@ -148,6 +148,11 @@ text-generation-webui's model info gives the model, loader, and LoRAs. The next
 call on that server, after ComfyUI is freed, loads it again and waits for the
 load to finish. A failed reload stays pending and is retried on the next call.
 
+The arbiter clears its confirmed owner before a ComfyUI handoff changes
+residency. If unloading or starting hosted ComfyUI fails or is cancelled, the
+next LLM call checks residency and reclaims the GPU. Saved slots and pending
+reloads survive the failed handoff.
+
 With **Keep the chat cache across swaps** on, a router target saves each slot
 before its unload: `GET /slots?model=M&autoload=false` lists them, and
 `POST /slots/{id}?action=save` with `{"model", "filename"}` writes one. The
