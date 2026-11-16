@@ -478,10 +478,10 @@ export async function showCharEditModal(idOrData) {
         ${!isNew ? `<button type="button" class="btn btn-sm avatar-focus-btn" data-wf-action="library:avatarFocus" data-char-id="${escAttr(c.id)}" title="Choose the focus for avatars">${FOCUS_ICON}Focus</button>` : ""}
       </div>
       <div style="flex:1">
-        <div class="field" style="margin-bottom:4px">
+        <div class="field" style="margin-bottom:6px">
           <input id="ce-name" value="${esc(c.name)}" style="font-size:18px;font-weight:600;width:100%">
         </div>
-        ${c.creator ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">by ${esc(c.creator)}</div>` : ""}
+        ${c.creator ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">by ${esc(c.creator)}</div>` : ""}
         <div class="char-tags" id="ce-header-tags"${c.tags?.length ? "" : " hidden"}>${_charTagsHtml(c.tags)}</div>
       </div>
     </div>

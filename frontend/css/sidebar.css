@@ -1,9 +1,14 @@
-.sidebar-header { padding: 16px 16px 10px; border-bottom: 1px solid var(--border); }
+/* Boxes (the theme select here, buttons, inputs, rows and lanes below) keep an 8px gutter, the same as the gap
+   between stacked items. Text and glyphs sit on a 16px line: the title, section names, the collapse and section
+   chevrons, and the content 8px inside each row. The title's capitals are 16px from the top; the buttons beside the
+   title take no height of their own so the row is exactly the cap height. */
+.sidebar-header { padding: 16px 8px 16px 16px; border-bottom: 1px solid var(--border); }
 .sidebar-header-top { margin-bottom: 8px; }
 .sidebar-header-top .title-row { display: flex; align-items: center; gap: 6px; }
+.sidebar-header-top .title-row > button { margin-block: -4px; }
 .sidebar-header h1 { font-family: var(--font-prose); font-size: 18px; font-weight: 600; color: var(--accent);
-  letter-spacing: .5px; }
-.sidebar-header .subtitle { font-size: 11px; color: var(--text-muted); margin-top: 2px; letter-spacing: .3px;
+  letter-spacing: .5px; text-box: trim-both cap alphabetic; }
+.sidebar-header .subtitle { font-size: 11px; color: var(--text-muted); margin-top: 6px; letter-spacing: .3px;
   text-transform: uppercase; }
 .sidebar-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; }
 .sidebar-scroll::-webkit-scrollbar { width: 0; }
@@ -26,7 +31,9 @@
 .sidebar-section-header .arrow { --ui-icon-size: 11px; --ui-icon-stroke: 3; transition: transform .2s;
   display: inline-flex; align-items: center; }
 .sidebar-section-header .arrow.collapsed { transform: rotate(-90deg); }
-.sidebar-section-body { padding: 0 12px 12px; overflow: hidden; }
+.sidebar-section-body { padding: 0 8px 12px; overflow: hidden; }
+/* A lane's rows reach its edges, so their content lines up with rows outside lanes. */
+.frag-lane > .fragment-item { margin-inline: -8px; }
 #endpoints-section { padding-top: 6px; }
 .claude-code-setup { margin: 10px 0 12px; }
 .claude-code-setup-action { display: flex; flex-direction: column; gap: 8px; }
@@ -37,14 +44,14 @@
 .ep-group > summary { cursor: pointer; padding: 8px 0; font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
   color: var(--text-secondary); -webkit-user-select: none; user-select: none; }
 .ep-group > summary:hover { color: var(--text-primary); }
-.group-chat-item { display: flex; align-items: stretch; border-radius: var(--radius); margin-bottom: 2px;
-  transition: background .1s; }
+.group-chat-item { display: flex; align-items: stretch; border: 1px solid transparent; border-radius: var(--radius);
+  margin-bottom: 2px; transition: background .1s; }
 .group-chat-item:hover { background: var(--bg-hover); }
 .group-chat-item.active { background: var(--accent-glow); border: 1px solid var(--accent-dim); }
-.group-chat-select { display: flex; width: 100%; min-width: 0; flex: 1; align-items: center; gap: 9px; padding: 7px 8px;
+.group-chat-select { display: flex; width: 100%; min-width: 0; flex: 1; align-items: center; gap: 10px; padding: 6px 7px;
   border-radius: var(--radius); font-size: 12px; line-height: 1.2; text-align: left; }
-.group-chat-avatar-stack { display: flex; flex: 0 0 auto; isolation: isolate; padding-left: 5px; }
-.group-chat-avatar { width: 30px; height: 30px; margin-left: -12px; border: 2px solid var(--bg-elevated);
+.group-chat-avatar-stack { display: flex; flex: 0 0 auto; isolation: isolate; }
+.group-chat-avatar { width: 32px; height: 32px; margin-left: -12px; border: 2px solid var(--bg-elevated);
   border-radius: 50%; background: var(--bg-elevated); color: var(--text-muted); display: inline-flex;
   align-items: center; justify-content: center; overflow: hidden; font-size: 13px; }
 .group-chat-avatar:first-child { margin-left: 0; }
@@ -62,7 +69,8 @@
   transition: opacity .15s, color .15s; }
 .group-chat-item:hover .group-chat-delete, .group-chat-delete:focus-visible { opacity: 1; }
 .group-chat-delete:hover { color: var(--red); }
-.char-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--radius);
+.char-item { display: flex; align-items: center; gap: 10px; padding: 6px 7px; border: 1px solid transparent;
+  border-radius: var(--radius);
   cursor: pointer; font-size: 12px; margin-bottom: 2px; transition: background .1s; }
 .char-item:hover { background: var(--bg-hover); }
 .char-item.active { background: var(--accent-glow); border: 1px solid var(--accent-dim); }
@@ -118,35 +126,39 @@
 .avatar-popup-close { --ui-icon-size: 13px; position: absolute; top: 8px; right: 8px; width: 24px; height: 24px;
   border-radius: 50%; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary);
   display: flex; align-items: center; justify-content: center; font-size: 12px; cursor: pointer; z-index: 101; }
-.fragment-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px;
+.fragment-item { display: flex; align-items: center; justify-content: space-between; padding: 8px;
   border-radius: var(--radius); font-size: 12px; margin-bottom: 2px; cursor: pointer;
   transition: background-color .15s ease; position: relative; }
 .fragment-item:hover { background: var(--bg-hover); }
 .frag-lane {
-  border-radius: var(--radius); padding: 8px 0 2px; margin-bottom: 8px;
+  border-radius: var(--radius); padding: 8px 8px 2px; margin-bottom: 8px;
   background: oklch(
     from var(--accent) 0.6 0.1 calc(h + var(--frag-lane-offset, 40) + var(--frag-lane-turn)) /
       var(--frag-lane-alpha, 0.2)
   );
 }
+/* The add button brings its own 6px; the last lane leaves 2px, so it sits 8px below, the same as between lanes. */
+.frag-lane:has(+ .btn) { margin-bottom: 2px; }
 .frag-lane-judge { --frag-lane-turn: 0; }
-.frag-lane-director { --frag-lane-turn: 120; }
-.frag-lane-editor { --frag-lane-turn: 240; }
+.frag-lane-director { --frag-lane-turn: 90; }
+.frag-lane-state { --frag-lane-turn: 180; }
+.frag-lane-editor { --frag-lane-turn: 270; }
 
 /* The band does the separating, so the heading only has to name the lane: no
    flanking rules. It sits on a tint, so it takes the section header's color at
    full strength rather than a muted one. */
 .frag-lane-heading { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
-  line-height: 1; color: var(--text-secondary); padding: 0 10px 7px; }
-#interactive-frag-list .fragment-item { padding-left: 0; }
+  line-height: 1; color: var(--text-secondary); padding: 0 0 7px; }
+/* The grip's own padding is its hit area; pull it back so the glyph sits on the gutter. */
+#interactive-frag-list .fragment-item { padding-left: 2px; }
 .fragment-item.dragging { opacity: 0.5; border: 1px dashed var(--accent); }
 .fragment-item.frag-feature-disabled .frag-label, .fragment-item.frag-feature-disabled .frag-type-badge,
 .frag-card-list .frag-feature-disabled {
   opacity: 0.4;
 }
-.frag-card-list { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 2px 10px; font-size: 12px; font-weight: 500; }
+.frag-card-list { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 2px 0; font-size: 12px; font-weight: 500; }
 .frag-divider { display: flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-muted); margin: 10px 0 4px; padding: 0 10px; }
+  letter-spacing: 0.06em; color: var(--text-muted); margin: 10px 0 4px; }
 .frag-divider::before, .frag-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .frag-drag-handle {
   --ui-icon-size: 16px; cursor: grab; -webkit-user-select: none; user-select: none; display: flex; align-items: center;
@@ -156,7 +168,8 @@
   touch-action: pan-y;
 }
 
-@media (pointer: coarse) { .frag-drag-handle { margin-left: -8px; padding: 0 14px; } }
+/* Wider to touch, but its box still starts at the row's edge (the row pads it by 2px). */
+@media (pointer: coarse) { .frag-drag-handle { margin-left: -2px; padding: 0 14px; } }
 .frag-drag-handle:hover { color: var(--text-secondary); background: var(--bg-hover); }
 .frag-drag-handle:active { cursor: grabbing; }
 .fragment-item .frag-label { flex: 1; font-weight: 500; padding-right: 8px; }
@@ -167,7 +180,7 @@
 #sidebar-collapse-btn, .sidebar-expand-btn { --ui-icon-size: 14px; display: none; padding: 4px; background: none;
   border: none; border-radius: var(--radius); color: var(--text-muted); cursor: pointer; transition: color .15s; }
 :is(#sidebar-collapse-btn, .sidebar-expand-btn):hover { color: var(--text-primary); }
-#sidebar-collapse-btn { margin-left: auto; }
+#sidebar-collapse-btn { margin-right: 4px; margin-left: auto; }
 @media (min-width: 901px) {
   #sidebar-collapse-btn { display: inline-flex; }
   #sidebar > * { min-width: calc(var(--sidebar-width) - 1px); }

@@ -95,7 +95,7 @@ body {
   color: var(--ink) !important; }
 input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
 textarea, select, #chat-input {
-  background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 12px !important;
+  background-color: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 12px !important;
   color: var(--ink) !important;
 }
 input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus, #chat-input:focus {

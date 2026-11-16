@@ -130,6 +130,9 @@ html { height: 100%; }
 @media (max-width: 480px) {
   #chat-header { padding: 10px 12px; }
   #chat-input-area { padding: 12px; }
+  /* Bubbles share the header's and composer's 12px gutter; avatars already sit on it, so they no longer shift. */
+  #chat-messages { padding-inline: 12px; }
+  #chat-messages[data-avatars="on"] { --msg-avatar-shift: 0px; }
   #chat-header .chat-actions { gap: 4px; }
   #chat-header .chat-actions .btn { padding-left: 7px; padding-right: 7px; }
   .modal h2 { font-size: 16px; }
@@ -140,7 +143,7 @@ html { height: 100%; }
   .char-browser-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 10px; }
   .char-browser-card { gap: 6px; padding: 10px 6px; }
   .char-browser-avatar { width: 52px; height: 52px; font-size: 20px; }
-  .char-browser-list-item { padding: 8px 10px; gap: 10px; }
+  .char-browser-list-item { gap: 10px; }
   .char-browser-list-avatar { width: 36px; height: 36px; font-size: 14px; }
   .msg-toolbar { flex-wrap: wrap; }
   .magic-input-wrap { order: 1; flex-basis: 100%; max-width: none; }

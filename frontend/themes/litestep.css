@@ -54,7 +54,7 @@ body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%
   border-color: #606060 #f4f2ee #f4f2ee #606060 !important; color: #1a1a1a !important; }
 .asst-compose { background: #ffffff !important; border: 1px solid !important;
   border-color: #606060 #f4f2ee #f4f2ee #606060 !important; }
-input[type="text"], input[type="number"], input[type="password"], textarea, select { background: #ffffff !important;
+input[type="text"], input[type="number"], input[type="password"], textarea, select { background-color: #ffffff !important;
   border: 1px solid !important; border-color: #606060 #f4f2ee #f4f2ee #606060 !important; color: #1a1a1a !important; }
 .image-gen-edit[readonly] { background: transparent !important; border-color: transparent !important;
   color: inherit !important; }

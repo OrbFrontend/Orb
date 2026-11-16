@@ -179,7 +179,8 @@
 /* The toolbar stays in the tab order at opacity 0, so tabbing into a message
    would otherwise move focus to a control nobody can see. */
 .msg-toolbar:focus-within { opacity: 1; }
-.msg-toolbar button { padding: 5px; background: none; border: none; color: var(--text-muted); border-radius: 4px;
+.msg-toolbar button { min-width: 25px; min-height: 25px; padding: 5px; background: none; border: none;
+  color: var(--text-muted); border-radius: 4px;
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
   transition: color .1s, background .1s; }
 .msg-toolbar button:hover { color: var(--text-primary); background: var(--bg-hover); }
@@ -226,7 +227,7 @@
 #chat-input-area { padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-primary);
   position: relative; }
 #chat-input-wrap { display: flex; gap: 8px; align-items: flex-end; }
-#burger-btn { width: 36px; height: 42px; padding: 0; display: flex; align-items: center; justify-content: center;
+#burger-btn { width: 42px; height: 42px; padding: 0; display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border);
   color: var(--text-secondary); flex-shrink: 0; transition: all .15s; }
 #burger-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
@@ -321,14 +322,17 @@
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;
   color: var(--text-muted); font-family: var(--font-prose); font-size: var(--font-prose-size); gap: 8px; }
 .empty-state .icon { font-size: 32px; opacity: .3; }
+/* The list pads 24px above and 16px below; take the difference back so the state centres in the visible area. */
+#chat-messages > .empty-state { height: calc(100% + 8px); margin-top: -8px; }
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; max-width: 520px;
   width: 100%; margin-top: 24px; }
+.stats-grid:first-child { margin-top: 0; }
 .stat-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 14px; text-align: center; }
 .stat-card-value { font-size: 22px; font-weight: 600; color: var(--accent); }
 .stat-card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
   margin-top: 4px; }
-.stat-card-favorite { grid-column: 1 / -1; text-align: left; padding: 16px 18px;
+.stat-card-favorite { grid-column: 1 / -1; text-align: left; padding: 16px;
   background: linear-gradient(135deg, var(--bg-elevated), color-mix(in srgb, var(--accent) 12%, var(--bg-elevated)));
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .stat-card-clickable { cursor: pointer; transition: border-color .15s, transform .15s; }

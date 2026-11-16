@@ -6,7 +6,7 @@
   border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none;
   transition: border-color .15s; cursor: pointer; }
 .char-browser-sort:focus { border-color: var(--accent-dim); }
-.char-browser-search input { width: 100%; padding: 8px 12px 8px 36px; font-size: 13px; background: var(--bg-deep);
+.char-browser-search input { width: 100%; height: 100%; padding: 8px 12px 8px 36px; font-size: 13px; background: var(--bg-deep);
   border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none;
   transition: border-color .15s; }
 .char-browser-search input:focus { border-color: var(--accent-dim); }
@@ -22,8 +22,7 @@
 .view-toggle-btn:hover { background: var(--bg-hover); }
 .view-toggle-btn.active { background: var(--accent-dim); color: #fff; }
 .view-toggle-btn + .view-toggle-btn { border-left: 1px solid var(--border); }
-.char-browser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 12px;
-  padding-right: 4px; }
+.char-browser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 12px; }
 .char-browser-card { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 8px;
   border-radius: var(--radius); cursor: pointer; transition: background .15s; content-visibility: auto;
   contain-intrinsic-size: auto 107px; }
@@ -35,8 +34,9 @@
 .char-browser-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .char-browser-card-name { font-size: 12px; font-weight: 500; text-align: center; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; width: 100%; }
-.char-browser-list { display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
-.char-browser-list-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+/* Rows span the search box's width; avatars sit 8px from every side of a row's hover fill. */
+.char-browser-list { display: flex; flex-direction: column; gap: 4px; }
+.char-browser-list-item { display: flex; align-items: center; gap: 12px; padding: 8px;
   border-radius: var(--radius); cursor: pointer; transition: background .15s; content-visibility: auto;
   contain-intrinsic-size: auto 56px; }
 .char-browser-list-item:hover { background: var(--bg-hover); }
