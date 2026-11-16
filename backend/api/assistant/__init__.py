@@ -10,14 +10,15 @@ from typing import Any
 
 from ...core.settings import Settings
 from ...features.assistant import (
+    REWIND_NOTE,
     AssistantTool,
     ViewContext,
+    admitted,
     chat_moved,
     flush_transcripts,
     forget_transcript,
     held_transcript,
     hold_transcript,
-    rewind_note,
     rewound,
     tools,
 )
@@ -27,7 +28,9 @@ from .host import HOST
 __all__ = [
     "HOST",
     "MediaRun",
+    "REWIND_NOTE",
     "Proposal",
+    "admitted",
     "apply_proposals",
     "build_tools",
     "chat_moved",
@@ -38,7 +41,6 @@ __all__ = [
     "open_proposals",
     "pending_note",
     "revise_proposal",
-    "rewind_note",
     "rewound",
     "undo_proposals",
     "withheld_labels",

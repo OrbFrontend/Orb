@@ -10,6 +10,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, replace
 from typing import Any
 
+from ...core import WireMessage
 from ...database import delete_assistant_chat, get_active_path, get_assistant_chat, put_assistant_chat
 from .contracts import ChatSeen, RequestMark, Transcript, is_request_message
 
@@ -35,8 +36,8 @@ def _chat(raw: dict[str, Any] | None) -> ChatSeen | None:
 
 
 def _decoded(raw: dict[str, Any]) -> Transcript:
-    marks = tuple(RequestMark(mark["id"], tuple(mark["committed"]), _chat(mark.get("chat"))) for mark in raw["requests"])
-    return Transcript(tuple(raw["messages"]), raw["model"], raw["endpoint"], marks, tuple(raw.get("awaiting", ())))
+    marks = tuple(RequestMark(mark["id"], _chat(mark.get("chat")), tuple(mark.get("awaiting", ()))) for mark in raw["requests"])
+    return Transcript(tuple(raw["messages"]), raw["model"], raw["endpoint"], marks)
 
 
 def _remember(session: str, transcript: Transcript) -> None:
@@ -95,8 +96,8 @@ def hold_transcript(session: str, transcript: Transcript) -> None:
     task.add_done_callback(_writes.discard)
 
 
-def rewound(transcript: Transcript, request_id: str) -> tuple[Transcript, tuple[RequestMark, ...]]:
-    """*transcript* as it stood before the request *request_id*, and the marks of that request and every one after it.
+def rewound(transcript: Transcript, request_id: str) -> tuple[Transcript, bool]:
+    """*transcript* as it stood before the request *request_id*, proposals awaited included, and whether it held that request.
 
     This is how an edited request is taken: the conversation goes back to where the request began and the new wording
     extends it from there. Nothing else goes back: what the removed requests changed stays changed. A request the
@@ -106,23 +107,28 @@ def rewound(transcript: Transcript, request_id: str) -> tuple[Transcript, tuple[
     marks = transcript.requests
     from_end = next((len(marks) - at for at, mark in enumerate(marks) if mark.id == request_id), 0)
     if not 0 < from_end <= len(starts):
-        return replace(transcript, messages=(), requests=(), awaiting=()), ()
+        return replace(transcript, messages=(), requests=()), False
     kept = len(marks) - from_end
-    return replace(transcript, messages=transcript.messages[: starts[-from_end]], requests=marks[:kept]), marks[kept:]
+    return replace(transcript, messages=transcript.messages[: starts[-from_end]], requests=marks[:kept]), True
 
 
-def rewind_note(removed: tuple[RequestMark, ...]) -> str:
-    """What an edited request is told of the requests it replaced: only the changes they committed, which the model can no
-    longer see being made. Empty when they changed nothing."""
-    committed = [line for mark in removed for line in mark.committed]
-    if not committed:
-        return ""
-    return (
-        "[The user rewrote this request. The requests that followed its earlier wording were removed from this "
-        "conversation, but what they changed was not undone and still stands:\n"
-        + "\n".join(f"- {line}" for line in committed)
-        + "]"
-    )
+# What an edited request is told: that time passed, never what happened in it. The model finds that out by reading.
+REWIND_NOTE = (
+    "[The user rewrote this request, and the conversation was taken back to it. Time has passed since the results above: "
+    "the library and chats may have changed, by the user or by requests no longer in this conversation, and nothing was "
+    "undone. Read the current state before relying on an earlier result or changing anything.]"
+)
+
+_UNANSWERED = "This request ended before it was answered."
+
+
+def admitted(transcript: Transcript | None, request_id: str, text: str) -> Transcript:
+    """*transcript* with the request *request_id* in it, unanswered: what the conversation keeps of a run that ends before
+    its loop keeps more, so the request can still be found and edited."""
+    base = transcript or Transcript((), "", "")
+    request: tuple[WireMessage, ...] = ({"role": "user", "content": text}, {"role": "assistant", "content": _UNANSWERED})
+    mark = RequestMark(request_id, awaiting=base.awaiting)
+    return replace(base, messages=(*base.messages, *request), requests=(*base.requests, mark))
 
 
 def _checkpoints(length: int) -> list[int]:

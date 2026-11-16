@@ -203,12 +203,12 @@ class ChatSeen:
 
 @dataclass(frozen=True)
 class RequestMark:
-    """One request of the conversation: the id the browser gave it, what its writes committed, one line each, and the chat in
-    view as it stood at Send."""
+    """One request of the conversation: the id the browser gave it, the chat in view as it stood at Send, and the proposals
+    the model was left believing wait for the user's Apply when it ended."""
 
     id: str
-    committed: tuple[str, ...] = ()
     chat: ChatSeen | None = None
+    awaiting: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -217,15 +217,18 @@ class Transcript:
 
     *model* and *endpoint* made it. Reasoning one provider signed is not valid on another, so a different pair replays it
     without its reasoning. *requests* marks the requests in it, oldest first; the last mark is the last request, so a
-    conversation that lost its oldest requests keeps its marks in step from the end. *awaiting* names the proposals the
-    model was last left believing wait for the user's Apply, so a later request can be told when they no longer do.
+    conversation that lost its oldest requests keeps its marks in step from the end. *awaiting* is the last request's, so
+    a later request can be told when those proposals no longer wait.
     """
 
     messages: tuple[WireMessage, ...]
     model: str
     endpoint: str
     requests: tuple[RequestMark, ...] = ()
-    awaiting: tuple[str, ...] = ()
+
+    @property
+    def awaiting(self) -> tuple[str, ...]:
+        return self.requests[-1].awaiting if self.requests else ()
 
 
 # One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.

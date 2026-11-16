@@ -222,20 +222,31 @@ made rarely. A request that cannot fit even alone ends with `limit`.
 The reader can reword any request of the log: Edit opens its text in a box, and
 Send there sends it again with `edit` and the `request_id` it was first sent
 with. The conversation goes back to where that request began, in the log and on
-the server, and the new wording extends it from there. The server holds the
-shorter conversation as soon as the run is admitted, so it stays the one the
-log shows even if the run never reaches the model. The earlier requests are
+the server, and the new wording extends it from there. The earlier requests are
 sent byte for byte as before, so the prefix cache holds up to the edit.
+
+Every request, edited or new, is held as soon as its run is admitted: the
+conversation up to it, the request, and a line saying it ended unanswered. The
+run replaces that with what it did. A run that fails before its loop begins
+therefore still leaves a request the server can find, and the conversation
+stays the one the log shows. The browser cuts its log when the edit is sent
+and puts it back, with the edit box open on the new wording, when the stream
+ends before `start`: the server then never went back either.
 
 Only the conversation goes back. What the removed requests did is not undone:
 a write stays committed, an applied edit stays applied, a reply the chat
-generated stays in the chat. The server keeps, with each request's id, the one
-line each of its writes committed, and the edited request carries a note
-listing the lines of the requests it removed; those are the only changes the
-model can no longer see being made. An edit that removed no write carries no
-note. The removed cards go with their entries: a change still waiting there is
+generated stays in the chat. The model is told none of it. The edited request
+carries one fixed note, in its own message after the cached prefix: the
+conversation was taken back, things may have changed, nothing was undone, and
+the current state is to be read before an earlier result is relied on. What
+changed, the model learns by reading. The removed cards go with their entries: a change still waiting there is
 discarded, as Discard does, and an applied one can no longer be undone from
 the panel. The edit box says so before Send.
+
+Each request keeps the proposals the model was left believing wait when it
+ended, and an edit goes back to those of the last request it keeps. A proposal
+made only in a removed request is never mentioned; one a kept request made
+that was settled since is reported gone, as to any later request.
 
 The chat may have moved on since the request was first sent: new turns, a
 regenerated reply, another branch. An edit handles that as any later request
@@ -507,8 +518,8 @@ A card stays open to Apply after its run, and the next request names its
 pending proposals (`pending`). Their texts are the server's own: the request
 carries a note listing each, with its pending text clipped like a read, so the
 model can build on it, and the note says that anything not listed was applied,
-cancelled or expired. The held conversation names what the model was last left
-believing waits (`awaiting`): what that request listed and what its run
+cancelled or expired. Each held request names what the model was left
+believing waits when it ended (`awaiting`): what the request listed and what its run
 proposed. When none of it is listed any more (a reload, a restart, an expiry or
 an Apply), the next request is told once that nothing earlier waits. A further edit to a field one of them holds is made on its
 pending text into a new proposal that `replaces` it; the server forgets the

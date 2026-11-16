@@ -23,7 +23,6 @@ from ...database import (
 from ...features.assistant import (
     DEFAULT_INSTRUCTIONS,
     AssistantUnavailable,
-    RequestMark,
     Transcript,
     ViewContext,
     run_assistant,
@@ -32,7 +31,9 @@ from ...inference import AbortToken, agent_lane_from_settings, client_from_setti
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
 from ..assistant import (
+    REWIND_NOTE,
     MediaRun,
+    admitted,
     apply_proposals,
     build_tools,
     chat_moved,
@@ -43,7 +44,6 @@ from ..assistant import (
     open_proposals,
     pending_note,
     revise_proposal,
-    rewind_note,
     rewound,
     undo_proposals,
     withheld_labels,
@@ -165,19 +165,20 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
 
     def keep(kept: Transcript) -> None:
         awaiting = tuple(dict.fromkeys([*(proposal.id for proposal in held), *proposed]))
-        hold_transcript(data.session, replace(kept, awaiting=awaiting))
+        *earlier, last = kept.requests
+        hold_transcript(data.session, replace(kept, requests=(*earlier, replace(last, awaiting=awaiting))))
 
     async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         try:
             # Read once the run is admitted. The browser is told whether the conversation it shows is the one the model reads:
             # after a restart, or a request from another browser, it is not.
             transcript = await held_transcript(data.session)
-            removed: tuple[RequestMark, ...] = ()
+            rewrote = False
             if data.edit and transcript is not None:
-                # The request replaces one already sent, and everything after it. Held at once, so the conversation is
-                # the one the browser now shows even if this run never reaches the model.
-                transcript, removed = rewound(transcript, data.request_id or "")
-                hold_transcript(data.session, transcript)
+                # The request replaces one already sent, and everything after it.
+                transcript, rewrote = rewound(transcript, data.request_id or "")
+            # Held at once, so the conversation is the one the browser now shows even if this run never reaches the model.
+            hold_transcript(data.session, admitted(transcript, data.request_id or "", data.text.strip()))
             yield {"event": "start", "data": {"continued": bool(transcript and transcript.messages)}}
             chat, moved = await chat_moved(transcript, view.conversation_id) if view.conversation_id else (None, "")
             gone = transcript is not None and not set(transcript.awaiting) <= {proposal.id for proposal in held}
@@ -191,7 +192,7 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 transcript=transcript,
                 request=data.text.strip(),
                 view=view,
-                note="\n\n".join(filter(None, (rewind_note(removed), moved, pending_note(held, gone=gone)))),
+                note="\n\n".join(filter(None, (REWIND_NOTE if rewrote else "", moved, pending_note(held, gone=gone)))),
                 request_id=data.request_id or "",
                 chat=chat,
                 progress=progress,

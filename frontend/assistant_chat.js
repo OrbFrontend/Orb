@@ -441,10 +441,11 @@ function togglePanel() {
 
 /**
  * Stream one run over *body* and settle it. *context* is the view it is about and *request* the user's words, which a
- * card of proposed edits remembers for Ask again.
+ * card of proposed edits remembers for Ask again. *removed* is what an edit cut from the log, its old wording first.
  */
-async function stream(chat, body, context, request) {
+async function stream(chat, body, context, request, removed = []) {
   const items = chat.items;
+  let started = false;
   const current = { items, context, request, note: "", status: "", terminal: null };
   run = current;
   const record = beginStream("assistant", wireContext(context), "/assistant/stop");
@@ -454,6 +455,7 @@ async function stream(chat, body, context, request) {
   try {
     await optionsSaved;
     for await (const { event, data } of streamEvents(record, "/assistant/run", body, "Assistant")) {
+      started ||= event === "start";
       const failed = event === "error" ? sseError(data, "The assistant failed.").message : "";
       const committed = applyStreamEvent(current, event, data, failed);
       // Committed now, so shown now; the stream carries on meanwhile.
@@ -466,6 +468,16 @@ async function stream(chat, body, context, request) {
     failure = error?.message || "The assistant failed.";
   } finally {
     settleRun(current, { stopped: record.stream.stopping, failure });
+    if (removed.length && !started) {
+      // The server never took the conversation back, so the log does not either: the edit is open again as typed.
+      items.splice(
+        items.findLastIndex((item) => item.kind === "user"),
+        items.length,
+        ...removed,
+      );
+      Object.assign(removed[0], { editing: true, draft: request });
+      if (failure) toast(failure, true);
+    }
     persist(chat);
     paint();
     await settle(record);
@@ -511,7 +523,7 @@ function submit(text, replaced = null) {
   // Gone when the view turned to another character's chat: the text is then a request of its own.
   const at = replaced ? items.indexOf(replaced) : -1;
   const edit = at >= 0;
-  if (edit) items.length = at;
+  const removed = edit ? items.splice(at) : [];
   // A new message takes over any earlier checkpoint, including feedback requesting a revision.
   for (const item of items) if (item.kind === "proposals") delete item.context;
   const requestId = (edit && replaced.requestId) || newId();
@@ -522,7 +534,7 @@ function submit(text, replaced = null) {
   const pending = pendingProposalIds(items);
   // Only the request goes out: the server holds the conversation this session names, every call and result in it.
   const body = { text, context: wireContext(context), session: chat.session, request_id: requestId, edit };
-  return stream(chat, { ...body, pending }, context, text);
+  return stream(chat, { ...body, pending }, context, text, removed);
 }
 
 // Read from the server when the options first open; until then the box shows only a saved prompt.

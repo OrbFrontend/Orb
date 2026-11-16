@@ -21,11 +21,12 @@ from .contracts import (
 from .loop import run_assistant, settled
 from .prompt import DEFAULT_INSTRUCTIONS
 from .session import (
+    REWIND_NOTE,
+    admitted,
     chat_moved,
     flush_transcripts,
     forget_transcript,
     held_transcript,
     hold_transcript,
-    rewind_note,
     rewound,
 )

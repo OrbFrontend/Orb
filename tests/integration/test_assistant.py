@@ -6,15 +6,17 @@ import re
 import uuid
 from collections import OrderedDict
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
 
-from backend.api.assistant import apply_proposals, build_tools, pending_note
+from backend.api.assistant import REWIND_NOTE, apply_proposals, build_tools, pending_note
+from backend.api.routes import assistant as assistant_route
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
 from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings, update_message_content
-from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant, session
+from backend.features.assistant import MAX_RESULT_CHARS, AssistantUnavailable, ToolFailure, run_assistant, session
 from backend.features.assistant.contracts import encode_result
 from backend.features.assistant.tools import CATEGORIES
 from backend.features.assistant.tools.reads import MAX_MESSAGES
@@ -1021,17 +1023,24 @@ async def test_a_request_is_told_when_what_the_model_proposed_no_longer_waits(cl
     events = frames(await client.post_checked(RUN, json=body))
     [proposal] = [data["proposal"]["proposal_id"] for event, data in events if event == "confirm"]
 
-    async def ask(pending):
+    async def ask(pending, **more):
         script[:] = [_reply("Noted.")]
         calls.clear()
-        await client.post_checked(RUN, json={**body, "text": "And now?", "pending": pending})
+        await client.post_checked(RUN, json={**body, "text": "And now?", "pending": pending, **more})
         return calls[0][-1]["content"]
 
     gone = pending_note((), gone=True)
     # Still on the card: listed, not gone. Then the card is gone (a reload, a restart or its expiry): told once.
     assert gone not in await ask([proposal])
-    assert gone in await ask([])
+    assert gone in await ask([], request_id="told")
     assert gone not in await ask([])
+    # An edit goes back to what the model believed then: told again where it was first told, and told nothing of a
+    # proposal made only in the requests the edit removed.
+    assert gone in await ask([], request_id="told", edit=True)
+    await ask([], session="another")
+    script[:] = [_call("edit_character", edit), _reply("Proposed.")]
+    await client.post_checked(RUN, json={**body, "session": "another", "request_id": "proposed"})
+    assert gone not in await ask([], session="another", request_id="proposed", edit=True)
 
 
 async def test_a_request_is_told_once_when_the_chat_in_view_moved_on(client, library, monkeypatch):
@@ -1090,18 +1099,25 @@ async def test_an_edited_request_takes_the_conversation_back_to_it_and_keeps_wha
     await ask("Add a ferry.", "r2", _call("create_lore_entry", lore))
     await ask("And then?", "r3")
 
-    # The second request, reworded: the model reads the first request whole and nothing of the second or third, and is
-    # told what they changed, since the entry they added is still there.
+    # The second request, reworded: the model reads the first request whole and nothing of the second or third. It is told
+    # only that things may have changed, never what did, though the entry they added is still there.
     continued, edited = await ask("Add a ferry at dusk.", "r2", edit=True)
     assert continued is True
     assert [message["role"] for message in edited] == ["system", "user", "assistant", "tool", "assistant", "tool", "user"]
     assert edited[: len(first)] == first and edited[-1]["content"].startswith("Add a ferry at dusk.")
-    assert "still stands" in edited[-1]["content"] and "Ferry" in edited[-1]["content"]
+    assert REWIND_NOTE in edited[-1]["content"] and "Ferry" not in edited[-1]["content"]
     assert [entry["name"] for entry in await get_lorebook_entries(library["world"])][-1] == "Ferry"
 
-    # The conversation goes on from the new wording, and an edit that changed nothing since carries no note.
+    # The conversation goes on from the new wording.
     continued, again = await ask("Add a ferry at noon.", "r2", edit=True)
-    assert continued is True and len(again) == len(edited) and "still stands" not in again[-1]["content"]
+    assert continued is True and len(again) == len(edited)
+
+    # A request whose run failed before its loop began is still one the conversation holds, so its edit goes back to it.
+    with monkeypatch.context() as patch:
+        patch.setattr(assistant_route, "agent_lane_from_settings", Mock(side_effect=AssistantUnavailable("No lane.")))
+        await client.post_checked(RUN, json={**body, "text": "And then?", "request_id": "r3"})
+    continued, retried = await ask("And then what?", "r3", edit=True)
+    assert continued is True and retried[: len(again)] == again and len(retried) > len(again)
 
     # A request the server no longer holds leaves nothing to go back to: the edit starts a conversation of its own.
     continued, alone = await ask("What is said, again?", "gone", edit=True)
