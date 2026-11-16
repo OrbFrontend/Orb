@@ -35,8 +35,8 @@ export function beginStream(kind, target, stopPath) {
 
 /**
  * POST *path* for *record* and yield its SSE events. A stream that ends without
- * `done` or `error` is a failure unless stopped; any failure before one drops
- * the connection, so settlement asks the server whether it is still writing.
+ * `done` or `error` is a failure unless stopped. Every exit before a terminal
+ * event drops the connection so settlement waits for the server's cleanup.
  */
 export async function* streamEvents(record, path, body, what) {
   const op = record.stream;
@@ -49,9 +49,8 @@ export async function* streamEvents(record, path, body, what) {
       yield event;
     }
     if (!terminal && !op.stopping) throw new Error(`${what} stream ended before completion`);
-  } catch (error) {
+  } finally {
     if (!terminal) op.disconnect();
-    throw error;
   }
 }
 

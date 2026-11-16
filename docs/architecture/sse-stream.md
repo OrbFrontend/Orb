@@ -249,6 +249,18 @@ When the stream completes normally, the browser cancels any pending `/stop`
 request and reconciles immediately: the completed stream already confirms
 persistence, so its HTTP response must not hold Send disabled until the deadline.
 
+`frontend/stream_settle.js` models the operation as `open`, `stopping`,
+`disconnected`, `stopping-and-disconnected`, or terminal `finished`. Stop and
+disconnect can arrive in either order. Settlement first enters `finished`,
+then cancels the pending `/stop`, then sends a fresh `/stop` only if the stream
+disconnected. This order prevents cancellation callbacks, late replies, and
+close-grace timers from changing the completed stream. The terminal state
+retains its last live phase so callers can still report whether it was stopped.
+Repeated settlement calls share the same confirmation promise; they cannot
+cancel or replace a cleanup request already in progress. The shared stream
+reader treats every exit before a terminal event as a disconnect, including
+EOF after Stop and a consumer leaving the event loop early.
+
 When the client goes away, the request is cancelled but the turn is not. The
 turn still finishes stopping: the stream runs its generator to the end with
 the token aborted, discards the events, and saves normally, for up to 10 s.

@@ -36,6 +36,9 @@ case "$SUITE" in
         ;;
     all)
         echo ""
+        echo "=== Frontend tests ==="
+        node --test tests/frontend/*.test.js
+        echo ""
         echo "=== Integration tests ==="
         python -m pytest tests/integration/ "${PARALLEL[@]}" "$@"
         ;;
