@@ -4,7 +4,7 @@ import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
 import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
 import { clearInspectedMessage, renderInspector } from "./chat_inspector.js";
 import { inspectMessage } from "./chat_messages.js";
-import { cancelStreamingPaint, restoreStreamingView, setStreaming, syncSendButton } from "./chat_stream.js";
+import { cancelStreamingPaint, restoreStreamingView, syncSendButton, syncStreamControls } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { sseError } from "./errors.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
@@ -22,6 +22,7 @@ import {
   notify,
   releaseConversationState,
   S,
+  turnActive,
   upgradeLegacyFragment,
 } from "./state.js";
 import { refreshState } from "./state_panel.js";
@@ -54,7 +55,7 @@ document.addEventListener("group-delete-request", (event) => _deleteGroupFamily(
 document.addEventListener("group-cast-updated", () => refreshSceneCardFragments());
 document.addEventListener("chat-view-resumed", () => {
   restoreStreamingView();
-  setStreaming(S.isStreaming);
+  syncStreamControls();
   renderMessages();
   renderInspector();
 });
@@ -217,7 +218,7 @@ export async function selectConversation(id) {
   if (previousId !== id) releaseConversationState(previousId);
   S.conversationLoading = true;
   try {
-    if (!S.isStreaming) {
+    if (!turnActive()) {
       S.lastDirectorData = null;
       S.lastFeedback = null;
       S.lastState = null;
@@ -230,7 +231,7 @@ export async function selectConversation(id) {
       S.reasoningPassSelected = 0;
     }
     $("chat-input").value = conversationState(id).draft || localStorage.getItem(`orb-chat-draft:${id}`) || "";
-    setStreaming(S.isStreaming);
+    syncStreamControls();
     const conv = S.conversations.find((c) => c.id === id);
     await loadGroupCast(conv);
     if (!ownsView(token, id)) return;
@@ -284,7 +285,7 @@ export async function selectConversation(id) {
     scrollToBottom();
     if (conv?.kind === "group" && !S.messages.length) $("chat-input").focus();
     const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
-    if (S.isStreaming) {
+    if (turnActive()) {
       renderInspector();
     } else if (lastAsst) {
       inspectMessage(lastAsst.id);
@@ -447,7 +448,7 @@ async function createCheckpoint() {
     toast("No active conversation", true);
     return;
   }
-  if (S.isStreaming) {
+  if (turnActive()) {
     toast("Stop generation before creating a checkpoint", true);
     return;
   }
@@ -477,7 +478,7 @@ function showCompressModal() {
     toast("Not enough messages to compress", true);
     return;
   }
-  if (S.isStreaming) {
+  if (turnActive()) {
     toast("Wait for the reply before compressing", true);
     return;
   }

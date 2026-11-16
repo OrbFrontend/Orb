@@ -15,7 +15,15 @@ import {
   setInlineInspectorRepaint,
 } from "./message_inspector.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, localMlReady, S, streamingHidden, subscribe } from "./state.js";
+import {
+  effectiveWorkflowEnabled,
+  localMlReady,
+  S,
+  sendBlocker,
+  streamingHidden,
+  subscribe,
+  turnActive,
+} from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
   $,
@@ -45,16 +53,10 @@ export function setWorkflowMessagePresentation({ renderArtifacts, renderRejectio
 }
 
 export function canStartGeneration() {
-  if (S.conversationLoading) {
-    toast("Conversation is still loading", true);
-    return false;
-  }
-  if (Object.keys(S.queuedEdits).length) {
-    toast("Save or discard pending edits first", true);
-    return false;
-  }
-  if (S.isStreaming || S.proseRewriteMsgId) return false;
-  return requestSendPermission();
+  const blocker = sendBlocker();
+  if (blocker === "loading") toast("Conversation is still loading", true);
+  else if (blocker === "edits") toast("Save or discard pending edits first", true);
+  return !blocker && requestSendPermission();
 }
 
 // Settings the message list paints from.
@@ -73,7 +75,7 @@ const MESSAGE_SETTINGS = [
 subscribe("cast", () => renderMessages());
 subscribe("expression-playback", () => renderMessages(true));
 subscribe("settings", (patch) => MESSAGE_SETTINGS.some((key) => key in patch) && renderMessages());
-subscribe("local-ml", () => S.isStreaming || renderMessages()); // the prose rewrite button gates on it
+subscribe("local-ml", () => turnActive() || renderMessages()); // the prose rewrite button gates on it
 subscribe("personas", () => renderMessages());
 subscribe("attachments", () => renderMessages());
 
@@ -101,7 +103,7 @@ function normalizeMessages(msgs) {
 
 export function setMessages(serverMsgs, state = S) {
   const normalized = normalizeMessages(serverMsgs);
-  if (state.isStreaming) {
+  if (turnActive(state)) {
     const pending = state.messages.filter((m) => !m.id);
     state.messages = pending.length ? [...normalized, ...pending] : normalized;
   } else {
@@ -392,7 +394,7 @@ function _messageHtml(m, num, avatars, playback) {
     (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
   const branchHtml = swipeNavHtml(m);
   const pendingEdit =
-    m.id in S.queuedEdits && !S.isStreaming
+    m.id in S.queuedEdits && !turnActive()
       ? `<div class="msg-edit-unsaved">Edit not saved <button data-wf-action="queued-edit:retry">Retry</button> <button data-wf-action="queued-edit:discard" data-msg-id="${m.id}">Discard</button></div>`
       : "";
   const toolbar = isEditing ? pendingEdit : `${pendingEdit}<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
@@ -437,7 +439,7 @@ function _messageHtml(m, num, avatars, playback) {
 function syncStreamingAvatar(el, avatars) {
   const cell = el.querySelector(":scope > .msg-avatar");
   if (avatars && !cell) {
-    const msg = { role: "assistant", speaker_member_id: S.currentSpeaker?.member_id ?? null };
+    const msg = { role: "assistant", speaker_member_id: S.turn.speaker?.member_id ?? null };
     el.insertAdjacentHTML("afterbegin", speakerAvatarCell(msg));
   } else if (!avatars && cell) {
     cell.remove();
@@ -477,8 +479,8 @@ export function renderMessages(forceBottom = false) {
     () => {
       let streamingEl = null;
       let badgeEl = null;
-      if (S.isStreaming) {
-        streamingEl = S.streamingBodyEl?.closest(".message") ?? null;
+      if (turnActive()) {
+        streamingEl = S.turn.bodyEl?.closest(".message") ?? null;
         badgeEl = document.getElementById("active-director-badge");
       }
       if (!S.activeConvId) {
@@ -491,8 +493,8 @@ export function renderMessages(forceBottom = false) {
           : '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
       } else {
         let msgs = S.messages;
-        if (S.isStreaming && S.streamCutoffIndex != null) {
-          msgs = S.messages.slice(0, S.streamCutoffIndex);
+        if (turnActive() && S.turn.cutoffIndex != null) {
+          msgs = S.messages.slice(0, S.turn.cutoffIndex);
         }
         const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
         if (start > 0) msgs = msgs.slice(start);
@@ -525,7 +527,7 @@ export function renderMessages(forceBottom = false) {
         for (const el of fresh) restoreBoxScrolls(el);
       }
       if (badgeEl) ct.appendChild(badgeEl);
-      if (streamingEl && !S.hideStreamingBox && !streamingHidden()) {
+      if (streamingEl && !streamingHidden()) {
         syncStreamingAvatar(streamingEl, avatars);
         ct.appendChild(streamingEl);
       }
@@ -533,7 +535,7 @@ export function renderMessages(forceBottom = false) {
     },
     { forceBottom, anchor: _topVisibleRow },
   );
-  if (!S.isStreaming) updateContextCounter();
+  if (!turnActive()) updateContextCounter();
   _refreshWorkflowViewportObserver();
   _segmentRenderedMessages(renderedMsgs);
   ensureInspections(renderedMsgs);

@@ -72,6 +72,7 @@ def main() -> int:
     )
     print(f"exported in {time.perf_counter() - started:.1f}s -> {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
+    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")  # read as onnxruntime loads; left unset, it uploads usage events
     import onnxruntime as ort
 
     session = ort.InferenceSession(args.out, providers=["CPUExecutionProvider"])

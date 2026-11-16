@@ -21,7 +21,7 @@ import {
 import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
 import { syncActivity } from "./operations.js";
-import { charactersView, notify, S, subscribe } from "./state.js";
+import { charactersView, notify, S, subscribe, turnActive } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
 // Both group setup views use this shared context explanation.
@@ -674,7 +674,7 @@ function showGroupConfig(initialTab = "cast") {
   $("group-config-cancel")?.addEventListener("click", closeModal);
   $("group-config-save")?.addEventListener("click", async () => {
     if (S.castSetupBusy) return;
-    if (S.isStreaming) {
+    if (turnActive()) {
       toast("Stop generation before changing the scene", true);
       return;
     }
@@ -898,7 +898,7 @@ export async function loadGroupCast(conv) {
 
 async function convertToGroup() {
   if (!S.activeConvId || S.groupCast || S.castSetupBusy) return;
-  if (S.isStreaming) {
+  if (turnActive()) {
     toast("Stop generation before converting to a group", true);
     return;
   }

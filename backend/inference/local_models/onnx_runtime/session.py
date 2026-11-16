@@ -17,11 +17,25 @@ _RELEASING = False
 _LOCK = threading.Condition()  # sessions load off the event loop, from worker threads
 
 
+def import_runtime() -> Any:
+    """Import ``onnxruntime`` with its usage telemetry off; every import of it goes through here.
+
+    Left on, onnxruntime (seen on 1.30, macOS) connects to Microsoft's event collector a few seconds after import, and its
+    upload thread aborts the process when the reply lands while the interpreter is exiting. Only this switch, which the
+    library reads as it loads, stops that: ``disable_telemetry_events()`` after the import does not. An explicit value in the
+    environment is left alone.
+    """
+    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+    import onnxruntime  # noqa: PLC0415 -- deferred; base Orb has no ML extras
+
+    return onnxruntime
+
+
 def runtime_ok() -> bool:
     """Is ``onnxruntime`` importable? The ``onnx`` package is NOT needed --
     that one only *builds* graphs and belongs in requirements-dev.txt."""
     try:
-        import onnxruntime  # noqa: F401, PLC0415 -- deferred; base Orb has no ML extras
+        import_runtime()
     except Exception:
         return False
     return True
@@ -33,8 +47,7 @@ def load(path: str) -> ort.InferenceSession:
     *path* is a trusted absolute path resolved by the caller's closed catalog,
     the same contract ``LaunchProfile.model_path`` carries.
     """
-    import onnxruntime as ort  # noqa: PLC0415 -- deferred; see runtime_ok
-
+    ort = import_runtime()
     key = os.path.normpath(path)
     if not os.path.exists(key):
         raise FileNotFoundError(f"ONNX model not found: {key}")
@@ -101,4 +114,4 @@ def release(path: str | None = None) -> None:
         _SESSIONS.pop(os.path.normpath(path), None)
 
 
-__all__ = ["exclusive_release", "load", "release", "runtime_ok", "using"]
+__all__ = ["exclusive_release", "import_runtime", "load", "release", "runtime_ok", "using"]

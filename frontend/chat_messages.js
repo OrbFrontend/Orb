@@ -23,7 +23,7 @@ import { renderMessageHtml } from "./message_html.js";
 import { pressedSelection } from "./message_selection.js";
 import { confirmDelete } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
-import { conversationState, isViewing, S } from "./state.js";
+import { conversationState, isViewing, S, streamBusy, turnActive } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { requestSendPermission } from "./tabLock.js";
 import { localPx } from "./ui_sizing.js";
@@ -106,7 +106,7 @@ function focusEditTextarea(ta, onEscape) {
 }
 
 async function deleteMessage(msgId) {
-  if (S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
+  if (streamBusy() || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const cid = S.activeConvId;
   const token = S.conversationViewToken;
@@ -121,7 +121,7 @@ async function deleteMessage(msgId) {
   }
   confirmDelete("message", detail, async () => {
     try {
-      if (state.isStreaming || state.proseRewriteMsgId) return;
+      if (streamBusy(state)) return;
       const msgs = await api.del(convUrl(cid, "messages", msgId));
       setMessages(msgs, state);
       if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
@@ -146,7 +146,7 @@ async function deleteMessage(msgId) {
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
 async function rewriteMessageProse(msgId, button) {
-  if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
+  if (!S.activeConvId || streamBusy()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
   const selection = pressedSelection(button, msgId);
   if (selection === false) {
@@ -242,7 +242,7 @@ function applyProseRewriteSnapshot(msgId, content) {
 let _branchSwitchSeq = 0;
 
 async function switchBranch(msgId) {
-  if (!msgId || S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
+  if (!msgId || streamBusy() || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const seq = ++_branchSwitchSeq;
   const cid = S.activeConvId;
@@ -332,7 +332,7 @@ function isChatNavBlocked(target) {
 }
 
 function navigateLastBranch(dir) {
-  if (S.isStreaming) return false;
+  if (turnActive()) return false;
   const msgs = S.messages || [];
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
@@ -460,7 +460,7 @@ async function saveEdit(msgId, _role) {
   replayAttachmentInvalidations();
   S.editingPendingUserMsg = false;
 
-  if (S.isStreaming) {
+  if (turnActive()) {
     const idx = S.messages.findIndex((m) => m.id === msgId);
     if (idx >= 0) S.messages[idx].content = content;
     S.queuedEdits[msgId] = content;
@@ -504,17 +504,8 @@ async function saveForkEdit(msgId) {
     convUrl(S.activeConvId, "messages", msgId, "fork-edit"),
     { content: resolved, ...turnPayload() },
     {
-      beforeRender() {
-        if (idx >= 0) {
-          S.messages.splice(idx, 0, userMsg);
-          S.streamCutoffIndex = idx + 1;
-        } else {
-          S.messages.push(userMsg);
-          S.streamCutoffIndex = S.messages.length;
-        }
-        S.pendingUserMsg = userMsg;
-        setChatFollowing(true);
-      },
+      pendingUser: { msg: userMsg, at: idx >= 0 ? idx : S.messages.length },
+      beforeRender: () => setChatFollowing(true),
       anchorStream: true,
       afterDone: renderMessages,
     },

@@ -1,4 +1,4 @@
-import { S } from "./state.js";
+import { S, turnActive } from "./state.js";
 import {
   avatarCell,
   avatarUrl,
@@ -218,7 +218,7 @@ export function memberAvatar(member) {
 }
 
 export function castClickSpeaksNow(hasDraft = false) {
-  return !S.isStreaming && !hasDraft;
+  return !turnActive() && !hasDraft;
 }
 
 export function castRailHtml({ hasDraft = false } = {}) {
@@ -227,7 +227,7 @@ export function castRailHtml({ hasDraft = false } = {}) {
   const chips = S.groupCast.members
     .map((member) => {
       const isNext = member.id === S.pinnedSpeakerId;
-      const speaking = member.id === S.currentSpeaker?.member_id ? " speaking" : "";
+      const speaking = member.id === S.turn.speaker?.member_id ? " speaking" : "";
       const title = member.muted
         ? `${member.display_name} — not replying in this scene`
         : speaksNow
@@ -247,11 +247,12 @@ export function castRailHtml({ hasDraft = false } = {}) {
 }
 
 export function speakingPlanHtml() {
-  if (!S.groupCast || !S.speakingPlan || S.speakingPlan.length < 2) return "";
-  return S.speakingPlan
+  const { plan, speaker } = S.turn;
+  if (!S.groupCast || !plan || plan.length < 2) return "";
+  return plan
     .map(
       (item, index) =>
-        `<span class="plan-pill${index < (S.currentSpeaker?.index ?? -1) ? " done" : ""}${item.member_id === S.currentSpeaker?.member_id ? " active" : ""}">${esc(item.name)}${item.cue ? ` · ${esc(item.cue)}` : ""}</span>`,
+        `<span class="plan-pill${index < (speaker?.index ?? -1) ? " done" : ""}${item.member_id === speaker?.member_id ? " active" : ""}">${esc(item.name)}${item.cue ? ` · ${esc(item.cue)}` : ""}</span>`,
     )
     .join("");
 }

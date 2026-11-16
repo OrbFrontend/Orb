@@ -127,6 +127,8 @@ def main() -> int:
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.0f} MB); spec {tuple(mag.shape)} freq {tuple(f_ref.shape)}")
 
     import numpy as np
+
+    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")  # read as onnxruntime loads; left unset, it uploads usage events
     import onnxruntime as ort
 
     session = ort.InferenceSession(args.out, providers=["CPUExecutionProvider"])

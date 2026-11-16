@@ -6,6 +6,7 @@ import os
 import sys
 
 from .catalog import MODELS, RuntimeKind
+from .onnx_runtime import import_runtime
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -44,7 +45,7 @@ def deps_ok(feature: str | None = None) -> tuple[bool, str]:
     """
     try:
         if _runtime(feature) == "onnx":
-            import onnxruntime  # noqa: F401, PLC0415 -- deferred; base Orb has no ML extras
+            import_runtime()
         import huggingface_hub  # noqa: F401, PLC0415 -- deferred; only needed for downloads
     except Exception as e:  # ModuleNotFoundError or a broken build
         return False, f"ML extras not installed ({e}); {install_cmd(feature)}"

@@ -2,8 +2,9 @@ import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
+import { turnLabel } from "./chat_turn.js";
 import { expressionLabels, expressionPlaybackCue } from "./expression_playback.js";
-import { syncGenerationStatusMarquee, WAITING_LABEL } from "./generation_status.js";
+import { syncGenerationStatusMarquee } from "./generation_status.js";
 import { sectionHtml } from "./inspector_section.js";
 import {
   buildFeedbackHtml,
@@ -30,6 +31,7 @@ import {
   restingCooldowns,
   S,
   subscribe,
+  turnActive,
 } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
 import { $, avatarUrl, convUrl, esc, escAttr, sentenceTail } from "./utils.js";
@@ -339,15 +341,14 @@ function _renderWorkflowPhasesPill() {
 export function syncGenerationStatus() {
   const el = $("generation-status");
   if (!el) return;
-  // Empty means waiting; null means no active turn.
-  const label = S.generationStep === null ? null : S.generationStep || WAITING_LABEL;
+  const label = turnLabel(S.turn);
   const text = el.querySelector(".gen-text");
   // Keep the last label while the strip collapses.
   if (text && label !== null) text.textContent = label;
-  const turnActive = label !== null;
+  const stepShown = label !== null;
   const pillActive = Object.keys(S.workflowPhases).length > 0;
-  el.classList.toggle("hidden", !(turnActive || pillActive));
-  el.classList.toggle("pill-only", !turnActive && pillActive);
+  el.classList.toggle("hidden", !(stepShown || pillActive));
+  el.classList.toggle("pill-only", !stepShown && pillActive);
   syncGenerationStatusMarquee(el);
 }
 
@@ -417,15 +418,15 @@ export function renderInspector() {
 
 function currentMoodsHtml() {
   const inspecting = S.inspectedMsgId != null;
-  if (!inspecting && !S.isStreaming && !S.messages.some((message) => message.role === "assistant")) return "";
+  if (!inspecting && !turnActive() && !S.messages.some((message) => message.role === "assistant")) return "";
   const data = inspecting ? S.inspectedDirectorData : S.lastDirectorData;
-  const history = S.isStreaming ? S.messages.slice(0, S.streamCutoffIndex ?? S.messages.length) : S.messages;
+  const history = turnActive() ? S.messages.slice(0, S.turn.cutoffIndex ?? S.messages.length) : S.messages;
   const lastAssistant = history.findLast((message) => message.role === "assistant");
   // A saved reply stores cooldowns for the following turn. Read the baseline
   // before this reply, including before the whole exchange in group chats.
   const resting = inspecting
     ? restingCooldowns(S.inspectedMsgId)
-    : S.isStreaming
+    : turnActive()
       ? lastAssistant?.fragment_cooldowns || {}
       : restingCooldowns(lastAssistant?.id);
   return moodsHtml(moodsOf(data, resting), { showNone: true });
@@ -459,7 +460,7 @@ function _renderInspectorMain() {
     return;
   }
 
-  if (S.inspectedMsgId == null && S.isStreaming && S.lastDirectorData === null) {
+  if (S.inspectedMsgId == null && turnActive() && S.lastDirectorData === null) {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
@@ -531,7 +532,7 @@ function expressionCharId() {
   const cue = expressionPlaybackCue();
   if (cue?.charId) return cue.charId;
   if (!S.groupCast) return S.activeCharId;
-  if (S.currentSpeaker?.card_id) return S.currentSpeaker.card_id;
+  if (S.turn.speaker?.card_id) return S.turn.speaker.card_id;
   const lastSpoken = [...S.messages].reverse().find((m) => m.role === "assistant" && m.speaker_member_id);
   const member = lastSpoken && S.groupCast.members.find((item) => item.id === lastSpoken.speaker_member_id);
   return (
@@ -555,7 +556,8 @@ async function _bindExpressionChar(img, charId) {
 
 async function _expressionTick() {
   const img = document.getElementById("avatar-popup-image");
-  if (!img || S.expressionBuffering || document.getElementById("avatar-popup")?.classList.contains("hidden")) return;
+  if (!img || S.turn.expressionBuffering || document.getElementById("avatar-popup")?.classList.contains("hidden"))
+    return;
   const charId = expressionCharId();
   if (!charId) return;
   if (charId !== img._exprCharId) {
@@ -573,16 +575,17 @@ async function _expressionTick() {
     return;
   }
   if (!img._exprLabels?.length) return;
-  const full = S.isStreaming
-    ? S.streamingContent
+  const streaming = turnActive();
+  const full = streaming
+    ? S.turn.content
     : [...S.messages].reverse().find((m) => m.role === "assistant" && m.id)?.content;
   if (!full) return;
   const now = Date.now();
   if (now - _exprLastCallAt < _EXPR_MIN_INTERVAL_MS) return; // fast models: rate floor
-  let text = sentenceTail(full, _EXPR_TAIL_SENTENCES, S.isStreaming);
+  let text = sentenceTail(full, _EXPR_TAIL_SENTENCES, streaming);
   if (
     (!text || img._exprText === text) &&
-    S.isStreaming &&
+    streaming &&
     now - _exprLastCallAt >= _EXPR_STALE_MS &&
     full.length - (img._exprFullLen || 0) >= _EXPR_MIN_GROWTH_CHARS
   ) {
@@ -601,7 +604,7 @@ async function _expressionTick() {
     _exprTimer = null;
     return;
   }
-  if (convId !== S.activeConvId || img._exprCharId !== charId || expressionPlaybackCue() || S.expressionBuffering)
+  if (convId !== S.activeConvId || img._exprCharId !== charId || expressionPlaybackCue() || S.turn.expressionBuffering)
     return;
   const labels = img._exprLabels || [];
   const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;

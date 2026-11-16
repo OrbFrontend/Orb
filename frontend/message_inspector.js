@@ -6,7 +6,7 @@ import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { sectionHtml } from "./inspector_section.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { saveSettings } from "./settings_store.js";
-import { interactiveFragmentsView, moodFragmentsView, restingCooldowns, S, subscribe } from "./state.js";
+import { interactiveFragmentsView, moodFragmentsView, restingCooldowns, S, subscribe, turnActive } from "./state.js";
 import { localPx } from "./ui_sizing.js";
 import { convUrl, esc, escAttr } from "./utils.js";
 
@@ -123,7 +123,7 @@ function turnViewFromLog(msgId, data) {
 
 function liveTurnView() {
   // The reply before this turn carries the cooldowns the Director read.
-  const history = S.messages.slice(0, S.streamCutoffIndex ?? S.messages.length);
+  const history = S.messages.slice(0, S.turn.cutoffIndex ?? S.messages.length);
   const resting = history.findLast((message) => message.role === "assistant")?.fragment_cooldowns || {};
   return turnView(null, S.lastDirectorData, resting, {
     reasoning: { director: S.reasoningDirector, writer: S.reasoningWriter, editor: S.reasoningEditor },
@@ -309,7 +309,7 @@ function reasoningBlockHtml(view) {
   // The streaming reply also lists the running pass, so its box is there for the first delta.
   const shown = REASONING_PASSES.flatMap(({ key }, i) =>
     view.reasoning[key] ||
-    (view.live && S.isStreaming && i === S.reasoningPassActive && S.reasoningEnabled[key] !== false)
+    (view.live && turnActive() && i === S.reasoningPassActive && S.reasoningEnabled[key] !== false)
       ? [i]
       : [],
   );
@@ -502,7 +502,7 @@ export function refreshInlineInspector(msgId) {
 
 /** Repaint the streaming bubble's blocks. Returns whether its Reasoning block rendered. */
 export function renderLiveInspector() {
-  const slot = S.streamingBodyEl?.closest(".message")?.querySelector(".msg-inspect-live");
+  const slot = S.turn.bodyEl?.closest(".message")?.querySelector(".msg-inspect-live");
   if (!slot) return false;
   const view = S.inspectorInline ? liveTurnView() : null;
   const reasoning = view ? reasoningBlockHtml(view) : "";

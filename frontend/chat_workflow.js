@@ -15,7 +15,7 @@ import { patchHtml } from "./dom_reconcile.js";
 import { responseError, sseError } from "./errors.js";
 import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
-import { conversationState, effectiveWorkflowEnabled, S } from "./state.js";
+import { conversationState, effectiveWorkflowEnabled, S, turnActive } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
 import { localPx } from "./ui_sizing.js";
 import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
@@ -886,7 +886,7 @@ function _applyWorkflowMessages(msgs, convId = S.activeConvId, token = S.convers
     S.attachmentInvalidations.set(convId, new Set(msgs.map((msg) => msg.id)));
     return;
   }
-  if (!S.isStreaming) {
+  if (!turnActive()) {
     setMessages(msgs);
     _reapplyInFlightSwipes();
     renderMessages();
