@@ -480,7 +480,11 @@ async function stream(chat, body, context, request) {
     paint();
     // Only once the server has settled, so whatever it committed is final: a write whose result never came, or a media job
     // that failed after saving.
-    if ((current.terminal !== "reply" && current.terminal !== "handoff") || current.failed) await refreshEverything();
+    if (
+      (current.terminal !== "reply" && current.terminal !== "handoff" && current.terminal !== "proposal") ||
+      current.failed
+    )
+      await refreshEverything();
   }
 }
 
@@ -508,6 +512,8 @@ function submit(text, replaced = null) {
   const at = replaced ? items.indexOf(replaced) : -1;
   const edit = at >= 0;
   if (edit) items.length = at;
+  // A new message takes over any earlier checkpoint, including feedback requesting a revision.
+  for (const item of items) if (item.kind === "proposals") delete item.context;
   const requestId = (edit && replaced.requestId) || newId();
   items.push({ kind: "user", text, context, requestId });
   trimTranscript(items);
@@ -690,6 +696,32 @@ async function settled(chat, outcome, fallback) {
   await refreshResources(outcome ? outcome.resources : fallback);
 }
 
+/** Resume the same chat and captured view, with the user's decision as an ordinary, visible request. */
+function continueProposal(chat, card, decision, end = false) {
+  if (!card || activeOperation()) return;
+  if (!requestSendPermission()) return;
+  const continuing = !!card.context && !end;
+  const context = card.context || captureContext();
+  delete card.context;
+  const text = `${decision}\n\n${continuing ? "Continue the remaining work." : "Acknowledge this decision and end the request here."}`;
+  const requestId = newId();
+  chat.items.push({ kind: "user", text, context, requestId });
+  trimTranscript(chat.items);
+  following = true;
+  return stream(
+    chat,
+    {
+      text,
+      context: wireContext(context),
+      session: chat.session,
+      request_id: requestId,
+      pending: pendingProposalIds(chat.items),
+    },
+    context,
+    card.request,
+  );
+}
+
 /**
  * Apply pending changes by their ids alone, each answered with its own verdict. A busy chat leaves its change pending to try
  * again, as does an Apply that ends without verdicts, which also reads their targets again.
@@ -699,6 +731,7 @@ async function apply(el) {
   const entries = pendingOf(el);
   const card = entries[0]?.card;
   let applied = null;
+  let decision = "";
   await changing(chat, entries, async () => {
     delete card.note;
     try {
@@ -706,6 +739,10 @@ async function apply(el) {
         await api.post("/assistant/apply", { proposal_ids: entries.map(({ entry }) => entry.proposalId) })
       )?.results;
       applied = applyVerdicts(card, results);
+      if (Array.isArray(results) && results.length && !card.proposals.some((entry) => entry.status === "pending"))
+        decision =
+          "I chose Apply. Result: " +
+          results.map((result) => `${result.verdict}: ${result.summary || result.message || ""}`).join("; ");
     } catch {
       card.note = "Apply did not finish. Try again.";
     }
@@ -716,6 +753,21 @@ async function apply(el) {
       applied,
       entries.flatMap(({ entry }) => (entry.target ? [entry.target] : [])),
     );
+  if (decision) {
+    // A deleted target may have been the captured view itself; resume from a view the server can still resolve.
+    if (
+      card.context &&
+      applied.resources.some(
+        (resource) =>
+          resource.deleted &&
+          ["conversation_id", "character_id", "document_id", "world_id", "entry_id"].some(
+            (key) => resource[key] && resource[key] === card.context[key],
+          ),
+      )
+    )
+      card.context = { mode: "library", label: "Library" };
+    await continueProposal(chat, card, decision);
+  }
 }
 
 /** Put back the text an applied edit replaced; it is pending again afterwards, to apply or discard. */
@@ -737,16 +789,25 @@ async function undo(el) {
   await settled(chat, undone, found.entry.target ? [found.entry.target] : []);
 }
 
-/** Discard pending changes, all of a card's or the one *el* names; nothing was written, so nothing is sent. */
-function cancel(el) {
+/** Skip a proposal and report the decision immediately, or end the remaining request. */
+function cancel(el, end = false) {
   if (activeOperation()) return;
-  for (const { entry } of pendingOf(el)) {
+  const chat = shown;
+  const entries = pendingOf(el);
+  const card = entries[0]?.card;
+  for (const { entry } of entries) {
     entry.status = "cancelled";
     delete entry.editing;
     delete entry.proposalId;
   }
-  persist(shown);
+  persist(chat);
   paint();
+  return continueProposal(
+    chat,
+    card,
+    `I chose to skip the proposal for ${entries.map(({ entry }) => entry.label + (entry.field ? ` (${entry.field})` : "")).join(", ")}. Nothing was applied.`,
+    end,
+  );
 }
 
 /** Open, keep or close the reader's own text for a pending edit, which Save then makes what Apply writes. */
@@ -856,6 +917,7 @@ export function initAssistant() {
     applyAll: (el) => apply(el),
     cancel: (el) => cancel(el),
     cancelAll: (el) => cancel(el),
+    endRequest: (el) => cancel(el, true),
     undo: (el) => undo(el),
     revise: (el) => reviseOpen(el),
     reviseDraft: (el) => reviseDraft(el),

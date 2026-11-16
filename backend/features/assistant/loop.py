@@ -367,9 +367,9 @@ async def run_assistant(
 
     A write never runs on a retried or refused reply. Once it starts it settles whole, a ``mutation`` follows its commit, the
     same change is not made twice in one request, nor the same edit proposed twice, and an early ``done`` names the changes
-    already committed. A confirm tool's proposal becomes a ``confirm`` event and the run carries on. *progress* is where a
-    tool that reports progress puts its labels; each one becomes a ``progress`` event while that tool runs, and each resource
-    it puts there (a render saved before the tool ends) a ``mutation`` event.
+    already committed. A confirm tool's proposal becomes a ``confirm`` event and pauses the run for the user's decision.
+    *progress* is where a tool that reports progress puts its labels; each one becomes a ``progress`` event while that tool
+    runs, and each resource it puts there (a render saved before the tool ends) a ``mutation`` event.
 
     *single_call* makes each step one call over every tool's schema plus ``reply``, in place of a step call followed by an
     argument call. Left ``None``, the run takes it wherever the endpoint sends native tool schemas and honours forced tool
@@ -648,8 +648,11 @@ async def run_assistant(
                     run.append(tool_pictures(name, call_id, output.images))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
-                    # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.
+                    # Review is a checkpoint: no more model calls until the user decides in a new request.
                     yield {"type": "confirm", "call_id": call_id, "tool": name, "proposal": dict(output.proposal)}
+                    ending = "Paused for the user's decision on the proposal. Nothing has been applied."
+                    yield done("proposal")
+                    return
                 if tool.behavior == "handoff" and output.handoff is not None:
                     # Nothing ran here. The browser starts the work in the chat's own stream, once this one has settled, and
                     # never after a Stop.

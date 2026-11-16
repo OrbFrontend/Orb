@@ -479,7 +479,7 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     assert len(await get_lorebook_entries(library["world"])) == 2
 
 
-async def test_a_change_runs_once_and_an_edit_is_proposed_once_per_request(client, library, db, monkeypatch):
+async def test_a_change_runs_once_and_a_proposal_pauses_the_request(client, library, db, monkeypatch):
     lore = {"world_id": library["world"], "name": "Ferry", "content": "Runs at dawn."}
     edit = {"message_id": library["kept"], "mode": "find_replace", "find": "kept", "text": "well kept"}
     _script(
@@ -493,13 +493,13 @@ async def test_a_change_runs_once_and_an_edit_is_proposed_once_per_request(clien
     body = _body("Add the ferry lore and fix the line.", mode="chat", conversation_id=library["chat"])
     events = frames(await client.post_checked(RUN, json=body))
     results = [data for event, data in events if event == "tool_result"]
-    assert [result["ok"] for result in results] == [True, False, True, False]
+    assert [result["ok"] for result in results] == [True, False, True]
     assert "already made exactly this change once" in results[1]["summary"]
-    assert "already proposed exactly this edit" in results[3]["summary"]
     assert [entry["name"] for entry in await get_lorebook_entries(library["world"])].count("Ferry") == 1
     [confirm] = [data["proposal"] for event, data in events if event == "confirm"]
     assert confirm["fields"][0]["after"] == "final well kept line", "applied once, not stacked onto itself"
-    assert events[-1] == ("done", {"reason": "reply", "message": ""})
+    assert events[-1][1]["reason"] == "proposal"
+    assert "Already done: Created lore entry" in events[-1][1]["message"]
 
 
 async def test_stop_during_a_lore_commit_waits_for_it_and_still_reports_its_id(client, library, monkeypatch):
@@ -610,9 +610,9 @@ async def test_a_proposal_writes_nothing_and_apply_commits_the_macro_resolved_pr
     arguments = {"message_id": kept, "mode": "find_replace", "find": "final", "text": "rolled {{roll::1d1000000}}"}
     _script(monkeypatch, _call("edit_message", arguments), _reply("x"))
     events = frames(await client.post_checked(RUN, json=_body("Fix that line.", mode="chat", conversation_id=library["chat"])))
-    # The run carries on past a proposal, to its own reply.
-    assert [event for event, _ in events][-4:] == ["confirm", "progress", "assistant_message", "done"]
-    assert events[-1][1]["reason"] == "reply" and "mutation" not in dict(events)
+    # Review pauses the run immediately: no further model call, including a repeated edit, can run.
+    assert [event for event, _ in events][-2:] == ["confirm", "done"]
+    assert events[-1][1]["reason"] == "proposal" and "mutation" not in dict(events)
     preview = dict(events)["confirm"]["proposal"]
     after = preview["fields"][0]["after"]
     # The macro rolled once, for the preview; nothing was written yet.
@@ -934,36 +934,20 @@ async def test_an_apply_during_a_chat_delete_is_retryable_and_a_rerolling_greeti
         await tools["edit_message"].run(tools["edit_message"].arguments(message_id=greeting, mode="replace_all", text="x"))
 
 
-async def test_edits_to_one_field_stack_into_one_proposal_and_a_batch_apply_skips_only_the_stale_one(
-    client, library, db, monkeypatch
-):
+async def test_edits_to_one_field_stack_into_one_proposal_and_a_batch_apply_skips_only_the_stale_one(client, library, db):
     await client.put_checked(f"/api/characters/{library['card']}", json={"description": "A harbour fence, a theif and a lier."})
     persona = await client.create("/api/user-personas", json={"name": "Wren", "description": "A ferry pilot."})
     edit = {"field": "description", "mode": "find_replace"}
-    script = [
-        _call("edit_character", {**edit, "find": "theif", "text": "thief"}),
-        _call("edit_character", {**edit, "find": "lier", "text": "liar"}),
-        _call("edit_persona", {"persona_id": persona, "field": "description", "mode": "replace_all", "text": "A pilot."}),
-        _reply("Proposed three fixes."),
+    # Exercise the proposal store directly; the model loop now pauses after each proposal.
+    tools = await _tools(mode="library", character_id=library["card"])
+    confirms = [
+        await _propose(tools, "edit_character", **edit, find="theif", text="thief"),
+        await _propose(tools, "edit_character", **edit, find="lier", text="liar"),
+        await _propose(tools, "edit_persona", persona_id=persona, field="description", mode="replace_all", text="A pilot."),
     ]
-    calls = []
-
-    async def complete(self, **kwargs):
-        calls.append(kwargs)
-        yield script.pop(0)
-
-    monkeypatch.setattr(LLMClient, "complete", complete)
-    body = _body("Fix both typos in Mara's description and shorten Wren's.", character_id=library["card"])
-    events = frames(await client.post_checked(RUN, json=body))
-    confirms = [data["proposal"] for event, data in events if event == "confirm"]
-    # The second typo fix stacks on the first: one proposal, the stored text before and both fixes after.
-    assert len(confirms) == 3 and confirms[0]["proposal_id"] == confirms[1]["proposal_id"] != confirms[2]["proposal_id"]
+    assert confirms[0]["proposal_id"] == confirms[1]["proposal_id"] != confirms[2]["proposal_id"]
     assert confirms[1]["fields"][0]["before"] == "A harbour fence, a theif and a lier."
     assert confirms[1]["fields"][0]["after"] == "A harbour fence, a thief and a liar."
-    stacked = json.loads(calls[2]["messages"][-1]["content"])
-    assert stacked["before_chars"] == stacked["after_chars"] == 36 and "on top of the edit" in stacked["note"]
-    assert "(14 → 8 characters)" in [data for event, data in events if event == "tool_result"][-1]["summary"]
-    assert events[-1] == ("done", {"reason": "reply", "message": ""})
     assert (await db.one("SELECT description FROM character_cards WHERE id = ?", (library["card"],)))[0].endswith("lier.")
 
     # The persona changes elsewhere before Apply: the card's edit applies, the persona's is reported stale.
@@ -1152,3 +1136,35 @@ async def test_a_request_offers_only_the_tool_groups_left_on_and_the_prompt_name
     # The panel's switches name exactly the groups the server knows.
     markup = (Path(__file__).parents[2] / "frontend" / "index.html").read_text(encoding="utf-8")
     assert re.findall(r'data-category="([^"]+)"', markup) == [category.id for category in CATEGORIES]
+
+
+@pytest.mark.parametrize("decision", ["applied", "skipped", "stale"])
+async def test_review_decision_resumes_the_same_conversation_with_the_actual_state(client, library, monkeypatch, decision):
+    calls, script = [], []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield script.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    body = _body("Shorten her description, then help me with her scenario.", character_id=library["card"])
+    script[:] = [_call("edit_character", {"field": "description", "mode": "replace_all", "text": "A fence."})]
+    events = frames(await client.post_checked(RUN, json=body))
+    assert len(calls) == 1 and events[-1][1]["reason"] == "proposal"
+    proposal = dict(events)["confirm"]["proposal"]
+    if decision == "stale":
+        await client.put_checked(f"/api/characters/{library['card']}", json={"description": "Changed elsewhere."})
+    if decision != "skipped":
+        [result] = await _apply(client, proposal["proposal_id"])
+        assert result["verdict"] == decision
+    text = f"I chose {decision}. Continue the remaining work; do not repeat skipped edits or assume a failed Apply succeeded."
+    script[:] = [_call("read_character", {"fields": ["description"]}), _reply("Ready for the scenario.")]
+    events = frames(await client.post_checked(RUN, json={**body, "text": text, "pending": []}))
+    assert dict(events)["start"]["continued"] is True
+    assert text in calls[1][-1]["content"]
+    assert "Nothing proposed in earlier requests is waiting" in calls[1][-1]["content"]
+    assert any("Paused for the user's decision" in str(message.get("content")) for message in calls[1])
+    actual = json.loads(calls[-1][-1]["content"])
+    expected = {"applied": "A fence.", "skipped": "A harbour fence.", "stale": "Changed elsewhere."}[decision]
+    assert expected in json.dumps(actual)
+    assert events[-1][1]["reason"] == "reply"
