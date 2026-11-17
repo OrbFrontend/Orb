@@ -60,29 +60,29 @@
 .message.scene-intro { margin-bottom: 29px; }
 .message .msg-body p { margin-bottom: .6em; }
 .message .msg-body p:last-child { margin-bottom: 0; }
-.message .msg-body .pbreak { display: block; height: .825em; }
+:is(.message, .asst-reply) .msg-body .pbreak { display: block; height: .825em; }
 .message .msg-body em { font-style: italic; color: var(--text-secondary); }
 .message .msg-body strong { font-weight: 600; }
 .message .msg-body .quoted { color: var(--accent); }
-.message .msg-body .code-block { position: relative; margin: .5em 0; }
-.message .msg-body pre { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px;
+:is(.message, .asst-reply) .msg-body .code-block { position: relative; margin: .5em 0; }
+:is(.message, .asst-reply) .msg-body pre { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px;
   padding: .75em 1em; margin: .5em 0; overflow-x: auto; }
-.message .msg-body .code-block pre { margin: 0; }
-.message .msg-body pre code { font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace; font-size: .875em;
+:is(.message, .asst-reply) .msg-body .code-block pre { margin: 0; }
+:is(.message, .asst-reply) .msg-body pre code { font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace; font-size: .875em;
   white-space: pre; color: var(--text-primary); }
-.message .msg-body .code-block.wrap pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
-.message .msg-body .code-block-bar { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0;
+:is(.message, .asst-reply) .msg-body .code-block.wrap pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+:is(.message, .asst-reply) .msg-body .code-block-bar { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0;
   transition: opacity .12s ease; z-index: 1; }
-.message .msg-body .code-block:hover .code-block-bar, .message .msg-body .code-block:focus-within .code-block-bar { opacity: 1; }
-@media (hover: none) { .message .msg-body .code-block-bar { opacity: .65; } }
-.message .msg-body .code-block-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px;
+:is(.message, .asst-reply) .msg-body .code-block:hover .code-block-bar, :is(.message, .asst-reply) .msg-body .code-block:focus-within .code-block-bar { opacity: 1; }
+@media (hover: none) { :is(.message, .asst-reply) .msg-body .code-block-bar { opacity: .65; } }
+:is(.message, .asst-reply) .msg-body .code-block-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px;
   height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-surface);
   color: var(--text-secondary); cursor: pointer; transition: color .12s ease, border-color .12s ease; }
-.message .msg-body .code-block-btn:hover { color: var(--text-primary); border-color: var(--accent-dim); }
-.message .msg-body .code-block-btn.copied, .message .msg-body .code-block-btn[aria-pressed="true"] {
+:is(.message, .asst-reply) .msg-body .code-block-btn:hover { color: var(--text-primary); border-color: var(--accent-dim); }
+:is(.message, .asst-reply) .msg-body .code-block-btn.copied, :is(.message, .asst-reply) .msg-body .code-block-btn[aria-pressed="true"] {
   color: var(--accent); border-color: var(--accent-dim);
 }
-.message .msg-body code.inline-code { font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+:is(.message, .asst-reply) .msg-body code.inline-code { font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
   font-size: .85em; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px;
   padding: .1em .4em; }
 
@@ -100,7 +100,7 @@
 .message .msg-body ul, .message .msg-body ol { margin: .5em 0; padding-left: 1.6em; }
 .message .msg-body li { margin: .2em 0; }
 .message .msg-body li > ul, .message .msg-body li > ol { margin: .2em 0; }
-.message .msg-body blockquote { margin: .6em 0; padding: .1em 0 .1em .9em; border-left: 3px solid var(--accent-dim);
+:is(.message, .asst-reply) .msg-body blockquote { margin: .6em 0; padding: .1em 0 .1em .9em; border-left: 3px solid var(--accent-dim);
   color: var(--text-secondary); }
 .message .msg-body hr { border: 0; border-top: 1px solid var(--border); margin: .9em 0; }
 
@@ -127,7 +127,7 @@
 
 /* .msg-image keeps its own viewport-aware sizing further down this file. */
 .message .msg-body img:not(.msg-image) { max-width: 100%; height: auto; }
-.message .msg-body a { color: var(--accent); }
+:is(.message, .asst-reply) .msg-body a { color: var(--accent); }
 .message .msg-body .seg.seg-clickable { cursor: pointer; }
 .message .msg-body .seg.seg-multi { text-decoration: underline dotted var(--accent-dim); text-underline-offset: 3px; }
 .message .msg-body .seg.fx-highlight { background: var(--accent-glow); border-radius: 2px;

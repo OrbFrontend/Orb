@@ -852,6 +852,13 @@ Each request has Edit beside its bubble, disabled while work runs. It opens the
 request's text in place, one request at a time; Enter or Send sends it, Escape
 or Cancel puts the request back. See [An edited request](#an-edited-request).
 
+A run that ended stopped, failed or cut off shows Retry on that line while its request is the log's last. Retry sends
+the request again as an edit of itself, so the conversation goes back to where it began. A request whose stream ended
+before `start` is marked `unsent` in the log: the server never held it, so a retry or an edit of it is sent as a new
+request, never as an `edit` that would find nothing to go back to.
+
+The log follows its newest entry until the reader scrolls away from it; a button over the log's foot then jumps back.
+
 The composer is one box: the input grows with its text, the view label the
 next request is about (with the lorebook drawer's world or entry after it, while
 the drawer is open) sits under it, and the corner
@@ -871,7 +878,7 @@ picking one fills the input and sends nothing. Each request captures its view at
 view affects the next request, not a running one. The transcript shows a separator where the view changes,
 and where the model's memory begins when the server no longer held the conversation above. Clear is disabled while work runs.
 Send uses `tabLock.js`'s send permission. Assistant prose renders through the
-message renderer inside `.msg-body`, where no element can name an action;
+message renderer inside `.msg-body`, with the chat's code block, inline code, quote and link styles, where no element can name an action;
 proposal diffs, user text and tool lines are escaped.
 
 Committed resources are read again by id through the loaders that own them,

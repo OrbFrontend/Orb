@@ -38,6 +38,7 @@ const OUTCOMES = new Set([
   "proposal",
 ]);
 const SEPARATORS = new Set(["opened", "reset"]);
+const RETRY = new Set(["stopped", "error", "interrupted"]);
 const RESET = "The assistant no longer remembers the messages above.";
 const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
@@ -141,6 +142,7 @@ function storedItem(value) {
       context,
       ...(id(value.requestId) ? { requestId: id(value.requestId) } : {}),
       ...(selection ? { selection } : {}),
+      ...(value.unsent === true ? { unsent: true } : {}),
     };
   }
   if (value.kind === "assistant") return body.trim() ? { kind: "assistant", text: body } : null;
@@ -827,6 +829,7 @@ export function transcriptEntries(items, renderProse, { busy = false, suggestFor
   if (!items.length) return emptyEntries(suggestFor);
   let view = null;
   const rows = [];
+  const lastRequest = items.findLastIndex((item) => item.kind === "user");
   items.forEach((item, index) => {
     const key = rowKey(item);
     const add = (html) => rows.push({ key, html });
@@ -857,7 +860,11 @@ export function transcriptEntries(items, renderProse, { busy = false, suggestFor
     } else if (item.kind === "outcome" && SEPARATORS.has(item.reason)) {
       add(`<div class="asst-sep" role="separator">${esc(item.text)}</div>`);
     } else if (item.kind === "outcome" && OUTCOMES.has(item.reason)) {
-      add(`<div class="asst-outcome asst-outcome-${item.reason}">${esc(item.text)}</div>`);
+      const retry =
+        RETRY.has(item.reason) && index > lastRequest && lastRequest >= 0
+          ? button("retry", "Retry", ` data-index="${lastRequest}"`, { disabled: busy })
+          : "";
+      add(`<div class="asst-outcome asst-outcome-${item.reason}"><span>${esc(item.text)}</span>${retry}</div>`);
     }
   });
   return rows;

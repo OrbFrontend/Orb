@@ -284,6 +284,12 @@ function shownView() {
 function toEnd() {
   const log = $("assistant-log");
   if (log && following) log.scrollTop = log.scrollHeight;
+  $("assistant-jump")?.classList.toggle("hidden", following);
+}
+
+function jumpToEnd() {
+  following = true;
+  toEnd();
 }
 
 function paintLog() {
@@ -551,6 +557,10 @@ async function stream(chat, body, context, request, removed = []) {
       );
       Object.assign(removed[0], { editing: true, draft: request });
       if (failure) toast(failure, true);
+    } else if (!started) {
+      // The server never held this request, so a retry or an edit of it sends it as new.
+      const unsent = items.findLast((item) => item.kind === "user");
+      if (unsent) unsent.unsent = true;
     }
     persist(chat);
     paint();
@@ -596,8 +606,8 @@ function submit(text, replaced = null) {
   const items = chat.items;
   // Gone when the view turned to another character's chat: the text is then a request of its own.
   const at = replaced ? items.indexOf(replaced) : -1;
-  const edit = at >= 0;
-  const removed = edit ? items.splice(at) : [];
+  const removed = at >= 0 ? items.splice(at) : [];
+  const edit = at >= 0 && !replaced.unsent;
   // A new message takes over any earlier checkpoint, including feedback requesting a revision.
   for (const item of items) if (item.kind === "proposals") delete item.context;
   const requestId = (edit && replaced.requestId) || newId();
@@ -1044,6 +1054,11 @@ export function initAssistant() {
     // A card's request goes back in the input, to send again for a fresh preview.
     askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),
+    retry: (el) => {
+      const item = requestOf(el);
+      if (item) submit(item.text, item);
+    },
+    jump: () => jumpToEnd(),
     focusInput: () => $("assistant-input").focus(),
     options: () => toggleOptions(),
     option: () => storeOptions(),
@@ -1051,7 +1066,9 @@ export function initAssistant() {
   });
   const log = $("assistant-log");
   log.addEventListener("scroll", () => {
-    if (log.clientHeight) following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;
+    if (!log.clientHeight) return;
+    following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;
+    $("assistant-jump").classList.toggle("hidden", following);
   });
   document.addEventListener("selectionchange", trackSelection);
   const input = $("assistant-input");

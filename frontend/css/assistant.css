@@ -19,7 +19,9 @@
 #app[data-asst-pending] .asst-launch-mark::after { content: counter(asst-pending); }
 #app[data-asst-running] .asst-launch-mark { animation: asst-pulse 1.2s ease-in-out infinite; }
 @keyframes asst-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { #app[data-asst-running] .asst-launch-mark { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  #app[data-asst-running] .asst-launch-mark, .asst-tool-running .asst-tool-name, .asst-status::before { animation: none; }
+}
 .asst-empty { font-size: 12px; color: var(--text-muted); }
 .asst-suggestions { display: flex; flex-direction: column; gap: 6px; }
 .asst-suggestion { padding: 8px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
@@ -65,24 +67,39 @@
 .asst-reply .msg-body > :last-child { margin-bottom: 0; }
 .asst-reply .msg-body :is(ul, ol) { padding-left: 18px; }
 .asst-tool { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* A run's calls read as one block: consecutive lines sit closer than the log's other rows. */
+.asst-tool + .asst-tool { margin-top: -6px; }
 .asst-tool-note { color: var(--text-muted); font-style: italic; }
 .asst-tool-line { display: flex; gap: 6px; align-items: baseline; }
 .asst-tool-name { flex-shrink: 0; font-family: var(--font-mono); color: var(--accent); }
 .asst-tool-text { min-width: 0; }
 .asst-tool-running .asst-tool-text { color: var(--text-muted); }
+.asst-tool-running .asst-tool-name { animation: asst-pulse 1.2s ease-in-out infinite; }
 /* A call's arguments fold under its line; the line itself is the control, so the log reads as it did while closed. */
 .asst-tool-call > summary { list-style: none; cursor: pointer; }
 .asst-tool-call > summary::-webkit-details-marker { display: none; }
 .asst-tool-call > summary:hover .asst-tool-text { color: var(--text-primary); }
+.asst-tool-call > summary::after { content: "›"; flex-shrink: 0; color: var(--text-muted); transition: rotate .15s; }
+.asst-tool-call[open] > summary::after { rotate: 90deg; }
 .asst-tool-args { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; margin: 4px 0 2px;
   padding-left: 8px; border-left: 1px solid var(--border); max-height: 12lh; overflow-y: auto; }
 .asst-tool-args dt { color: var(--text-muted); font-family: var(--font-mono); }
 .asst-tool-args dd { margin: 0; white-space: pre-wrap; font-family: var(--font-mono); }
 .asst-tool-failed :is(.asst-tool-name, .asst-tool-text) { color: var(--red); }
-.asst-outcome { font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; }
+.asst-outcome { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--text-muted);
+  overflow-wrap: anywhere; }
+.asst-outcome .btn { flex-shrink: 0; }
 .asst-outcome-error { color: var(--red); }
 .asst-status { flex: 0 0 auto; min-height: 14px; margin-bottom: -4px; padding: 0 4px; font-size: 11px;
   color: var(--accent); }
+.asst-status:not(:empty)::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px;
+  border-radius: 50%; background: currentColor; vertical-align: 1px; animation: asst-pulse 1.2s ease-in-out infinite; }
+/* Over the log's foot while the reader has scrolled away from it; its margin gives back the height it takes. */
+.asst-jump { --ui-icon-size: 14px; flex: 0 0 auto; position: relative; top: -8px; align-self: center; display: grid;
+  place-items: center; width: 28px; height: 28px; margin-top: -36px; padding: 0; border: 1px solid var(--border);
+  border-radius: 50%; background: var(--bg-elevated); color: var(--text-secondary); cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / .25); transition: color .15s, border-color .15s; }
+.asst-jump:hover, .asst-jump:focus-visible { color: var(--text-primary); border-color: var(--accent-dim); }
 /* One framed box for the text and its controls: the input grows with its text, Send sits in the corner and turns
    into Stop while a run goes. The box is the field, so a theme frames it, never the bare input inside. */
 .asst-compose { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 8px 12px;
@@ -125,8 +142,8 @@
 .asst-send.asst-stop .asst-send-icon { display: none; }
 .asst-send.asst-stop .asst-stop-icon { display: block; }
 /* A proposed edit: escaped before/after text, with Apply and Cancel outside any model-rendered markup. */
-.asst-proposal { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--accent-dim);
-  border-radius: var(--radius); background: var(--bg-surface); font-size: 12px; overflow-wrap: anywhere; }
+.asst-proposal { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--accent-dim); border-radius: calc(var(--radius) * 2); background: var(--bg-surface); font-size: 12px; overflow-wrap: anywhere; }
 .asst-proposal-head { font-weight: 500; color: var(--text-primary); }
 .asst-diff-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; }
 /* A diff is shown whole, already shortened to the context around each change; the full new text scrolls. */
@@ -140,7 +157,8 @@
   .asst-diff-inline { display: none; }
 }
 .asst-diff ins { text-decoration: none; background: var(--accent-glow); color: var(--text-primary); }
-.asst-diff del { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--red); }
+.asst-diff del { color: var(--text-muted); text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--red) 55%, transparent); }
 .asst-gap { color: var(--text-muted); }
 .asst-diff-full summary { cursor: pointer; font-size: 11px; color: var(--text-muted); }
 .asst-proposal-target { font-size: 12px; color: var(--text-secondary); }
