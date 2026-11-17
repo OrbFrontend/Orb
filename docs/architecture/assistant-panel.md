@@ -808,8 +808,8 @@ from attributes on `#app`, so a control rendered later shows them too.
 
 Each chat lives in `localStorage` under `orb-assistant-chat:<character>`: its
 session id and its transcript of at most 100 entries; the 32 most recently
-stored are kept, and an empty chat is not stored. Whether the panel is open is
-under `orb-assistant-open`, which is
+stored are kept, and an empty chat is not stored. Which right panel is open is
+under `orb-open-panel`, kept by `panels.js` for all three, and is
 restored at load on the wide layout only. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
 leaves the assistant working from memory. What is stored is user text and the first 200 characters of what a request was sent with selected, answers,

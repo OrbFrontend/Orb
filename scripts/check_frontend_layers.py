@@ -94,6 +94,8 @@ LAYERS = {
     # L3 ui + audio engine.
     "modal.js": 3,
     "panels.js": 3,
+    # The left sidebar sections' open states, kept in this browser.
+    "sidebar_sections.js": 3,
     "chips.js": 3,
     # The Inspector's section shell, shared by the panel, the in-chat blocks and the Decisions section beneath both.
     "inspector_section.js": 3,

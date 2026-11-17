@@ -15,6 +15,7 @@ import {
 } from "./chat.js";
 import { initComposer } from "./chat_composer.js";
 import { initDocumentMode, loadDocuments } from "./document.js";
+import { renderDocAuditPane } from "./document_audit.js";
 import { handleExpressionPlaybackKey } from "./expression_playback.js";
 import { initGroupSetup } from "./group_setup.js";
 import { loadInteractiveFragments, loadMoodFragments } from "./library.js";
@@ -24,9 +25,11 @@ import { loadCharacters } from "./library_sidebar.js";
 import { initWorldProposalActions, loadWorlds, setWorldProposalRefresh } from "./lorebooks.js";
 import { initMessageHtmlActions } from "./message_html.js";
 import { initMobileUi } from "./mobile.js";
+import { isUtilityPanelOpen, restoreUtilityPanel } from "./panels.js";
 // Imported for the actions it registers.
 import "./presets.js";
 import { initTheme, initThemeList, loadSettings, renderToolsPanel } from "./settings.js";
+import { restoreSections, toggleSection } from "./sidebar_sections.js";
 // Imported for the actions it registers.
 import "./slop_score.js";
 import { S } from "./state.js";
@@ -53,11 +56,7 @@ function initSidebarSections() {
   scroller.addEventListener("scroll", markStuck, { passive: true });
   registerActions("sidebar", {
     toggleSection: (header) => {
-      header.querySelector(".arrow").classList.toggle("collapsed");
-      const body = header.nextElementSibling;
-      const collapsed = body.classList.toggle("collapsed");
-      header.setAttribute("aria-expanded", String(!collapsed));
-      if (collapsed) {
+      if (toggleSection(header)) {
         const overshoot = localPx(scroller, scroller.getBoundingClientRect().top - header.getBoundingClientRect().top);
         if (overshoot > 0) scroller.scrollTop -= overshoot;
       }
@@ -69,6 +68,7 @@ function initSidebarSections() {
       setSidebarCollapsed(!app.classList.contains("sidebar-collapsed"));
     },
   });
+  restoreSections(scroller);
   setSidebarCollapsed(localStorage.getItem(LS_SIDEBAR_COLLAPSED) === "1");
 }
 
@@ -156,10 +156,14 @@ async function initAll() {
   setWorldProposalRefresh(refreshConversationMessages);
   initWorldProposalActions();
   initDocumentMode();
+  // Each panel's owner fills it as its data loads; the document pane waits for settings below.
+  restoreUtilityPanel("tools-panel");
+  restoreUtilityPanel("inspector");
 
   // Load independent lanes concurrently, preserving order within each lane.
   const manifest = startupStep("load workflow manifest", loadWorkflowManifest).then(preloadWorkflowModules);
   const settings = startupStep("load settings", loadSettings);
+  settings.then(() => S.documentMode && isUtilityPanelOpen("tools-panel") && renderDocAuditPane());
   await Promise.all([
     // Conversations first: loadCharacters fetches the (large) conversation list
     // itself when S.conversations is not set yet.

@@ -41,7 +41,13 @@ import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld
 import { renderMessageHtml } from "./message_html.js";
 import { rangeInMessage } from "./message_selection.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
-import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
+import {
+  closeUtilityPanel,
+  isUtilityPanelOpen,
+  openUtilityPanel,
+  restoreUtilityPanel,
+  watchUtilityPanel,
+} from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
 import { loadPersonas } from "./settings_personas.js";
 import { persistSettings, reloadSettingKeys } from "./settings_store.js";
@@ -51,7 +57,6 @@ import { $, toast } from "./utils.js";
 
 // One key per chat, by the key of the character it is about.
 const LS_CHAT = "orb-assistant-chat:";
-const LS_OPEN = "orb-assistant-open";
 // As many chats as the server keeps conversations.
 const MAX_CHATS = 32;
 const PANEL = "assistant-panel";
@@ -1090,9 +1095,7 @@ export function initAssistant() {
   // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.
   watchUtilityPanel(PANEL, (open) => {
     S.assistant.open = open;
-    store(LS_OPEN, open ? "1" : "0");
   });
   paint();
-  // A slide-over restored at load would cover the page the reader came back to.
-  if (stored(LS_OPEN) === "1" && !narrow()) openUtilityPanel(PANEL, revealPanel);
+  restoreUtilityPanel(PANEL, revealPanel);
 }

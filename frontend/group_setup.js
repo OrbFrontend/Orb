@@ -21,6 +21,7 @@ import {
 import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
 import { syncActivity } from "./operations.js";
+import { sectionRemembered, setSectionCollapsed, toggleSection } from "./sidebar_sections.js";
 import { charactersView, notify, S, subscribe, turnActive } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
@@ -762,16 +763,8 @@ export function consumeSpeakerOverride(state = S) {
 
 let _groupSearch = "";
 let _groupsExpanded = false;
-// The Groups section ships collapsed; it opens itself once for anyone who has groups.
-let _groupsSectionSettled = false;
-
-function setGroupsSectionCollapsed(collapsed) {
-  const header = $("groups-section-toggle");
-  if (!header) return;
-  header.setAttribute("aria-expanded", String(!collapsed));
-  header.querySelector(".arrow")?.classList.toggle("collapsed", collapsed);
-  header.nextElementSibling?.classList.toggle("collapsed", collapsed);
-}
+// The Groups section ships collapsed; it opens itself once for anyone who has groups, unless the reader set it.
+let _groupsSectionSettled = sectionRemembered("groups-section");
 
 function _groupItemHtml({ rootId, root, shown, open, members }) {
   const names = (shown.group_member_names || []).filter(Boolean);
@@ -811,7 +804,8 @@ export function renderGroupList() {
 
   if (!_groupsSectionSettled && families.length) {
     _groupsSectionSettled = true;
-    setGroupsSectionCollapsed(false);
+    const header = $("groups-section-toggle");
+    if (header) setSectionCollapsed(header, false);
   }
 
   const searchWrap = $("group-search-wrap");
@@ -935,7 +929,7 @@ export function initGroupSetup() {
   registerActions("groups", {
     toggleSection: (header) => {
       _groupsSectionSettled = true;
-      setGroupsSectionCollapsed(!header.nextElementSibling.classList.contains("collapsed"));
+      toggleSection(header);
     },
   });
   $("new-group-btn")?.addEventListener("click", showGroupCreate);

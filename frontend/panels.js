@@ -7,11 +7,31 @@ const UTILITY_PANELS = {
   "assistant-panel": ["assistant-btn", "doc-assistant-btn"],
 };
 
+// The panel left open, kept in this browser so a reload reopens it.
+const LS_OPEN_PANEL = "orb-open-panel";
+const NARROW = "(max-width: 900px)";
+
 const watchers = new Map();
+
+function storedOpenPanel() {
+  try {
+    return localStorage.getItem(LS_OPEN_PANEL);
+  } catch {
+    return null;
+  }
+}
+
+function rememberOpen(panelId, open) {
+  if (!open && storedOpenPanel() !== panelId) return;
+  try {
+    localStorage.setItem(LS_OPEN_PANEL, open ? panelId : "");
+  } catch {}
+}
 
 function setOpen(panelId, open) {
   $(panelId).classList.toggle("open", open);
   for (const btnId of UTILITY_PANELS[panelId]) $(btnId)?.classList.toggle("btn-active", open);
+  rememberOpen(panelId, open);
   for (const fn of watchers.get(panelId) || []) fn(open);
 }
 
@@ -44,4 +64,9 @@ export function closeUtilityPanel(panelId) {
 
 export function isUtilityPanelOpen(panelId) {
   return $(panelId).classList.contains("open");
+}
+
+/** Reopen *panelId* if it was open when the page was left. A slide-over on the narrow layout stays shut: it would cover the page. */
+export function restoreUtilityPanel(panelId, render) {
+  if (storedOpenPanel() === panelId && !window.matchMedia?.(NARROW).matches) openUtilityPanel(panelId, render);
 }
