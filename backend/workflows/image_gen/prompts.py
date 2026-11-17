@@ -17,6 +17,7 @@ _FORMAT_INSTRUCTIONS = {
         "Use common, concrete tags. Do not use character names or full sentences. "
         "Keep each character's pose, visible traits, and clothing together before moving to the next one. "
         "Format example only; do not copy its details: '1girl, solo, short black hair, blue jacket, smiling'. "
+        "Do not write negations such as 'not', 'no longer', or 'without': the image model draws the thing they name. "
     ),
     "hybrid": (
         "After the count tags, write a hybrid image prompt. Use booru-style tags for visible attributes. "
@@ -24,6 +25,7 @@ _FORMAT_INSTRUCTIONS = {
         "more clearly than tags can. Separate tags and clauses with commas. If more than one person is visible, use each "
         "character's short name in every natural-language clause about that character. "
         "Format example only; do not copy its details: '1girl, 1boy, Mara stands left of Ren, Ren reaches toward Mara'. "
+        "Do not write negations such as 'not', 'no longer', or 'without': the image model draws the thing they name. "
     ),
     "prose": (
         "Write short, concrete prose sentences in present tense. "
@@ -35,7 +37,7 @@ _FORMAT_INSTRUCTIONS = {
 }
 
 
-_SHOT_NO_CAMERA_WORD = "Never use the words 'user' or 'first-person' or 'third-person'. "
+_SHOT_NO_CAMERA_WORD = "Never use the words 'user', 'first-person', or 'third-person', or the tag 'pov' on its own. "
 
 
 _SHOT_SUBJECT_VISIBILITY = "There may or may not be any characters in the frame - just scenery is fine. "
@@ -48,7 +50,11 @@ _SHOT_COUNTED_FIRST = (
     "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact, "
     "and its position at the frame's edge, such as lower foreground or a side corner, "
     'always as "pov hand ..." or "pov arm ...", with the hand or arm as the verb\'s subject. '
-    "Never mention the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
+    "Never mention the user's face, body, or clothing. "
+    "The image model knows the user only as the viewer. Name the viewer only for a direction or a gaze, such as "
+    "'looking at viewer', 'looking back at viewer', or 'from behind'. Write contact with the user as the subject's side "
+    "of it, as a tag such as 'incoming kiss', 'incoming hug', 'reaching towards viewer', 'straddling', or "
+    "'aiming at viewer', and add 'foreshortening'. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
 )
 
 

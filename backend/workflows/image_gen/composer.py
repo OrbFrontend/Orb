@@ -290,7 +290,7 @@ async def compose_scene(
     )
     args = result["args"]
 
-    scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format, pov=pov)
+    scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format)
     if not scene:
         raise ValueError("couldn't compose an image prompt for this message")
     names = visible_subjects if visible_subjects is not None else args.get("visible_subjects")
@@ -372,7 +372,7 @@ async def refine_scene(
     critique = bounded(args.get("critique"))
     if args["done"]:
         return Revision(critique, True)
-    scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format, pov=pov)
+    scene = clean_scene(bounded(args.get("scene")), prompt_format=prompt_format)
     if not scene:
         logger.info("[image_gen] review of render %d asked for changes but wrote no prompt; keeping it", render)
         return Revision(critique, False)

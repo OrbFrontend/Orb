@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from typing import Any, NamedTuple
 
 from .config import DEFAULT_PROMPT_FORMAT, PROMPT_FORMATS
-from .pov import FIRST
 
 
 def normalize_prompt_format(value: str) -> str:
@@ -41,76 +40,8 @@ _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORE
 _PROSE_COUNT_PREFIX_RE = re.compile(rf"^(?:(?:{_COUNT_TOKEN})\b\s*[,.;:]?\s*)+", re.IGNORECASE)
 
 
-# CLIP has no negation: a "no longer wearing X" chunk drawn through to the image
-# prompt draws X. The phrase can sit anywhere in the chunk, so this searches.
+# CLIP has no negation: a saved sheet's "no longer wearing X" chunk draws X.
 _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", re.IGNORECASE)
-
-
-_POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
-
-
-# The composer writes the literal contact ("arm gripping viewer's shirt collar") because that is what happened. The encoder has
-# never seen it -- booru tagged the reach *toward* the lens, never the viewer's body -- so the literal phrase draws an
-# improvised limb. The model states the fact; this table owns the vocabulary.
-_VIEWER_RE = re.compile(r"\b(?:viewer|user|your)'?s?\b", re.IGNORECASE)
-
-
-# Mentioning the viewer is not touching them: giving "standing close to the viewer" the reach tags invents an arm nobody wrote,
-# which is worse than losing the chunk. "pin" and "cup" are real words on their own, unlike the other stems here, so their
-# non-contact tails are excluded rather than the stems dropped.
-_VIEWER_CONTACT_VERB_RE = re.compile(
-    r"\b(?:grab|grip|grasp|clutch|clasp|pull|tug|yank|hold|shov|push|press|pin(?!-?up)|touch|caress|"
-    r"cup(?!cake|board)|stroke|squeez|reach|kiss|hug|embrac|bit|lick|slap|punch|strik|hit|chok|strangl|throttl)",
-    re.IGNORECASE,
-)
-
-
-# Gaze is the other thing said about the viewer, and booru has one tag for it.
-_VIEWER_GAZE_RE = re.compile(r"\b(?:look|gaz|star|glanc|watch|eyes?)\w*\b[^,]*\b(?:viewer|user|your)", re.IGNORECASE)
-
-
-_LOOKING_AT_VIEWER = "looking at viewer"
-
-
-# Only the noun after the possessive says which side of the contact the viewer is on. A viewer's *limb* is the user acting (the
-# shot rules ask for "pov hand"); anything else the possessive owns -- throat, collar, chest -- is the viewer being acted upon,
-# and their body must not be drawn. Keep and retag the first, collapse the second.
-_VIEWER_LIMB_RE = re.compile(
-    r"\b(?:viewer|user|your)'?s?\s+(?:hands?|arms?|fingers?|palms?|fists?|wrists?|thumbs?)\b", re.IGNORECASE
-)
-
-
-_VIEWER_POSSESSIVE_RE = re.compile(r"\b(?:the\s+)?(?:viewer|user|your)'?s?\s+", re.IGNORECASE)
-
-
-# What booru calls the user's own hand entering frame. Survives the bare-"pov"
-# strip above, which fullmatches the chunk rather than searching it.
-_POV_HANDS = "pov hands"
-
-
-_VIEWER_CONTACT_TAGS = (
-    (re.compile(r"\bkiss", re.IGNORECASE), "incoming kiss, close-up, foreshortening"),
-    (re.compile(r"\b(?:hug|embrac)", re.IGNORECASE), "incoming hug, outstretched arms, foreshortening"),
-    # Approximate by design: a gentle hand on the neck lands here too, and the
-    # arm-toward-lens shape is close enough to be right.
-    (
-        re.compile(r"\b(?:strangl|chok|throttl|throat|neck)", re.IGNORECASE),
-        "strangling, reaching towards viewer, foreshortening",
-    ),
-    (re.compile(r"\b(?:punch|slap|strik|attack|swing)", re.IGNORECASE), "incoming attack, outstretched arm, foreshortening"),
-    # Contact without a reach: the fallback's outstretched arm would be flatly wrong.
-    (re.compile(r"\b(?:straddl|lap|sitting on|riding|on top of)", re.IGNORECASE), "on top, straddling, foreshortening"),
-    # A levelled weapon touches nothing, so the contact gate below would drop it.
-    (re.compile(r"\b(?:aim|point|knife|gun|blade|sword|weapon|barrel)", re.IGNORECASE), "aiming at viewer, foreshortening"),
-    # Body against body: fills the frame rather than extending toward it. Last row,
-    # so a lean that is really a kiss or a straddle matches those first.
-    (re.compile(r"\b(?:lean|nuzzl|snuggl|nestl|against|resting on)", re.IGNORECASE), "close-up, foreshortening"),
-)
-
-
-# Everything else that touches the viewer collapses to the one composition booru
-# has in volume: arm out, hand toward the lens, the rest cropped past the wrist.
-_VIEWER_FALLBACK = "reaching beyond edge of screen, foreshortening"
 
 
 # A saved appearance sheet is frontal, so on a back shot it must not carry
@@ -127,39 +58,6 @@ def strip_chunks(text: str, pattern: re.Pattern, *, whole: bool = True) -> str:
     pattern (count blocks); otherwise the pattern need only appear inside it."""
     hit = pattern.fullmatch if whole else pattern.search
     return ", ".join(c for c in (c.strip() for c in text.split(",")) if c and not hit(c))
-
-
-def rewrite_viewer_contact(text: str) -> str:
-    """Swap chunks that name contact with the viewer for tags the encoder knows.
-
-    Contact collapses to a tag, the viewer's own limb keeps its action, gaze normalizes, and a chunk that merely mentions the
-    viewer is dropped. Nothing naming the viewer survives verbatim: kept, it draws the viewer's own body into frame, the one
-    thing a first-person shot must not contain.
-    """
-    out: list[str] = []
-    for chunk in (c.strip() for c in text.split(",")):
-        if not chunk:
-            continue
-        if not _VIEWER_RE.search(chunk):
-            out.append(chunk)
-            continue
-        if _VIEWER_LIMB_RE.search(chunk):
-            # The viewer's own limb, acting: keep what it does (the subject of the
-            # shot), drop only the possessive the encoder cannot place.
-            if _POV_HANDS not in out:
-                out.append(_POV_HANDS)
-            out.append(_VIEWER_POSSESSIVE_RE.sub("", chunk).strip())
-            continue
-        tag = next((t for pat, t in _VIEWER_CONTACT_TAGS if pat.search(chunk)), None)
-        if tag is None and _VIEWER_CONTACT_VERB_RE.search(chunk):
-            tag = _VIEWER_FALLBACK
-        if tag is None:
-            # No contact. Gaze is the only other thing worth keeping; naming the viewer any other way draws them.
-            tag = _LOOKING_AT_VIEWER if _VIEWER_GAZE_RE.search(chunk) else ""
-        # Two chunks describing one grab land on the same tag; emit it once.
-        if tag and tag not in out:
-            out.append(tag)
-    return ", ".join(out)
 
 
 def split_lead_count(scene: str) -> tuple[str, str]:
@@ -224,28 +122,8 @@ def strip_count_tags(text: str) -> str:
     return strip_chunks(text, _COUNT_CHUNK_RE)
 
 
-def clean_scene(scene: str, *, prompt_format: str, pov: str) -> str:
-    """Every scrub the raw composer output goes through, in one pass.
-
-    Gathered here rather than spelled out at the call site so `compose_scene` states *that* the scene is cleaned without owning
-    a list of regexes -- and so the whole pass can be asserted against a literal string with no model in the loop.
-    """
+def clean_scene(scene: str, *, prompt_format: str) -> str:
+    """Normalize the composer's count tags without changing what the scene says; the review reads it as sent."""
     if normalize_prompt_format(prompt_format) == "prose":
-        # Prose goes to a natural-language encoder, and every rewrite below answers a booru/CLIP failure that encoder does not
-        # have: it reads negation and parses grammar.
-        # Scrubbing it there only costs the model its wording -- and because a comma bounds nothing in prose, the comma-chunk
-        # cut took whole sentences back to the previous comma, or the entire scene when it had no commas. So prose keeps what
-        # the composer wrote, the call `rewrite_viewer_contact` already makes. Leaked booru count tags still go: those are the
-        # tail's own format rule broken, not a choice of words.
         return strip_prose_count_prefix(scene)
-    # A count block ended with a period ("1boy, 1girl. Gon eats...") would hide
-    # the tags from the comma-based peeling and pinning below.
-    scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
-    # Tags and hybrid are comma-delimited by contract, so a chunk is one tag or one bound clause and dropping it stays surgical.
-    # Their encoders draw "no longer wearing X" as X, and a booru-trained composer writes "pov" unprompted.
-    scene = strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
-    scene = strip_chunks(scene, _POV_CHUNK_RE)
-    # Only first-person has a viewer to touch.
-    if pov == FIRST:
-        scene = rewrite_viewer_contact(scene)
-    return scene
+    return re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
