@@ -125,7 +125,7 @@ function query(action, extra) {
   return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
 }
 
-let cardReadiness = { text: "", ready: true, styleId: "", failure: null };
+let cardReadiness = { ready: true, styleId: "", failure: null };
 let cardPov = { classifier: true, fallback: "third" };
 let cardStyles = [];
 
@@ -150,17 +150,14 @@ function failureStrip() {
   return `<div class="image-gen-card-alert">
     <div class="image-gen-card-alert-head">${esc(`This style cannot render${on}`)}</div>
     <div class="image-gen-card-alert-detail">${esc(failure.detail)}</div>
-    ${settingsButton("Fix", failure.style_id, "image-gen-card-btn")}
+    ${settingsButton("Fix", failure.style_id)}
   </div>`;
 }
 
 function configPanelBody() {
   if (!cardReadiness.ready) {
-    return `<div class="image-gen-card-setup">
-        <span class="image-gen-card-status image-gen-card-unready">Setup required</span>
-        ${settingsButton("Finish setup", cardReadiness.styleId, "btn-accent image-gen-card-btn")}
-      </div>
-      <div class="image-gen-card-alert-detail">${esc(cardReadiness.text || "Not configured")}</div>`;
+    return `<div class="image-gen-card-status image-gen-card-unready image-gen-card-setup">Setup required</div>
+      ${settingsButton("Finish setup", cardReadiness.styleId, "tool-card-btn")}`;
   }
 
   const stylePicker = cardStyles.length
@@ -217,9 +214,6 @@ export async function refreshCardReadiness() {
       ready: !!status?.ready,
       styleId: status?.default_style || "",
       failure: status?.failure || null,
-      text: status?.ready
-        ? `Ready — ${status.style_count} style${status.style_count === 1 ? "" : "s"}`
-        : status?.detail || "Not configured",
     };
     cardPov = { classifier: !!status?.classifier_ready, fallback: status?.fallback_mode || cardPov.fallback };
     backends = {
@@ -231,7 +225,6 @@ export async function refreshCardReadiness() {
       ready: false,
       styleId: "",
       failure: null,
-      text: "Orb could not read the image settings. Check that the app is still running, then reload.",
     };
   }
   refreshCard();
