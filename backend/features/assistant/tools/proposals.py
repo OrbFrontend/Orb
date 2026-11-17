@@ -10,6 +10,7 @@ process only; Orb runs one server process, and a restart leaves every proposal e
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import time
 from collections import OrderedDict
@@ -20,11 +21,13 @@ from typing import Any, Literal
 from ....core import OUTCOME_COLUMNS, outcome_text, with_outcome_text
 from ....core.macros import resolve_inline
 from ....database import (
+    DocumentConflict,
     StaleWrite,
     delete_phrase_group,
     delete_world,
     get_character_card,
     get_conversation,
+    get_document,
     get_interactive_fragment,
     get_lorebook_entry,
     get_message_by_id,
@@ -32,6 +35,7 @@ from ....database import (
     save_message_edit,
     sync_conversations_for_card,
     update_character_card,
+    update_document,
     update_interactive_fragment,
     update_lorebook_entry,
     update_mood_fragment,
@@ -43,6 +47,8 @@ from .host import AppReads, AssistantHost, ChatGuards, ChatUnavailable, HostRefu
 from .targets import clip
 
 MAX_PROPOSALS = 32
+# As long as the editor's own rename allows.
+DOCUMENT_TITLE_CHARS = 200
 PROPOSAL_TTL_SECS = 15 * 60
 # How much of each pending text a later request is shown, and of all of them together.
 _PENDING_TEXT_CHARS = 1500
@@ -58,6 +64,7 @@ ProposalKind = Literal[
     "phrase_group",
     "mood_fragment",
     "interactive_fragment",
+    "document",
 ]
 ProposalAction = Literal["edit", "delete"]
 FIELD_LABELS = {
@@ -68,6 +75,7 @@ FIELD_LABELS = {
     "mes_example": "Example messages",
     "creator_notes": "Creator notes",
     "name": "Name",
+    "title": "Title",
     "content": "Content",
     "tags": "Tags",
     "alternate_greetings": "Alternate greetings",
@@ -252,6 +260,7 @@ def pending_note(held: Sequence[Proposal], *, gone: bool = False) -> str:
 _MISSING = "What this proposal changes no longer exists."
 _STALE = "That text changed after the preview, so nothing was applied. Ask again for a fresh preview."
 _BUSY = "That chat is generating right now. Apply again once it has finished."
+_DOCUMENT_BUSY = "That document is generating right now. Try again once it has finished."
 
 
 class _Refused(Exception):
@@ -280,6 +289,61 @@ async def _write_message(proposal: Proposal, expected: str, text: str, guards: C
         raise _Refused("busy", _BUSY) from None
 
 
+def _utf16(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def spliced_spans(spans: Sequence[Mapping[str, Any]], before: str, after: str, *, generated: bool) -> list[dict[str, int]]:
+    """A document's generated spans once its content changed from *before* to *after*, as the editor splices them.
+
+    The change is taken as one stretch, from the first character that differs to the last: spans before it stay, spans after
+    it move with the text, and a span reaching into it is cut back to what is left outside. *generated* marks the new
+    stretch as generated text. Offsets are the editor's, in UTF-16 units.
+    """
+    head = len(os.path.commonprefix((before, after)))
+    tail = len(os.path.commonprefix((before[head:][::-1], after[head:][::-1])))
+    start, old_end = _utf16(before[:head]), _utf16(before[: len(before) - tail])
+    new_end = _utf16(after[: len(after) - tail])
+    delta = new_end - old_end
+    out: list[dict[str, int]] = []
+    for span in spans:
+        if span["end"] <= start:
+            out.append({"start": span["start"], "end": span["end"]})
+        elif span["start"] >= old_end:
+            out.append({"start": span["start"] + delta, "end": span["end"] + delta})
+        else:
+            if span["start"] < start:
+                out.append({"start": span["start"], "end": start})
+            if span["end"] > old_end:
+                out.append({"start": new_end, "end": span["end"] + delta})
+    if generated and new_end > start:
+        out.append({"start": start, "end": new_end})
+    return sorted(out, key=lambda span: span["start"])
+
+
+async def _write_document(proposal: Proposal, expected: str, value: str, guards: ChatGuards, *, generated: bool) -> None:
+    """A document's title or content, compared as read and written under the revision read, as the editor's own save is.
+
+    Its content carries the generated spans with it, moved to where the text now is.
+    """
+    document_id = proposal.target["document_id"]
+    if guards.document_busy(document_id):
+        raise _Refused("busy", _DOCUMENT_BUSY)
+    document = await get_document(document_id)
+    if document is None:
+        raise _Refused("missing", _MISSING)
+    if (document[proposal.name] or "") != expected:
+        raise StaleWrite([proposal.name])
+    data: dict[str, Any] = {proposal.name: value, "expected_revision": document["revision"]}
+    if proposal.name == "content":
+        data["generated_spans"] = spliced_spans(document["generated_spans"], expected, value, generated=generated)
+    try:
+        await update_document(document_id, data)
+    except DocumentConflict:
+        # Saved again between the read and the write: the editor's text is newer than the preview's.
+        raise StaleWrite([proposal.name]) from None
+
+
 async def _write_interactive(proposal: Proposal, expected: str, value: str) -> object:
     """An interactive fragment's text, compared and written in one transaction; an outcome's text inside its decision column."""
     fid, part = proposal.target["fragment_id"], OUTCOME_PARTS.get(proposal.name)
@@ -298,11 +362,20 @@ async def _write_interactive(proposal: Proposal, expected: str, value: str) -> o
     return await update_interactive_fragment(fid, with_outcome_text(row, part, key, value), expected=held)
 
 
-async def _write(proposal: Proposal, expected: str | list[str], value: str | list[str], guards: ChatGuards) -> None:
-    """Compare *expected* and write *value* in one transaction, through each target's own write path."""
+async def _write(
+    proposal: Proposal, expected: str | list[str], value: str | list[str], guards: ChatGuards, *, undo: bool = False
+) -> None:
+    """Compare *expected* and write *value* in one transaction, through each target's own write path.
+
+    *undo* is the write that puts an applied edit's stored text back.
+    """
     if proposal.kind == "message":
         assert isinstance(expected, str) and isinstance(value, str)
         return await _write_message(proposal, expected, value, guards)
+    if proposal.kind == "document":
+        assert isinstance(expected, str) and isinstance(value, str)
+        # The text an undo puts back was there before the assistant wrote anything.
+        return await _write_document(proposal, expected, value, guards, generated=not undo)
     target, before, after = proposal.target, {proposal.name: expected}, {proposal.name: value}
     if proposal.kind == "interactive_fragment":
         assert isinstance(expected, str) and isinstance(value, str)
@@ -442,7 +515,7 @@ async def _undo(proposal: Proposal, guards: ChatGuards) -> dict[str, Any]:
     if proposal.result is None:
         raise _Refused("refused", "That edit has not been applied, so there is nothing to undo.")
     try:
-        await _write(proposal, proposal.after, proposal.before, guards)
+        await _write(proposal, proposal.after, proposal.before, guards, undo=True)
     except StaleWrite:
         raise _Refused("stale", "The text changed after the edit was applied, so it was left as it is.") from None
     # Pending again: the card offers Apply once more, and a further edit may build on it.
@@ -509,10 +582,12 @@ async def revise_proposal(proposal_id: str, text: str, rules: AppReads) -> dict[
         # A message's macros resolve here, as when it was proposed, so Apply commits the text this preview shows.
         after = resolve_inline(text) if proposal.kind == "message" else text
         fragment_required = proposal.kind in _FRAGMENT_KINDS and proposal.name in REQUIRED_TEXT
-        required = proposal.name == "name" or proposal.kind == "message" or fragment_required
+        required = proposal.name in ("name", "title") or proposal.kind == "message" or fragment_required
         if required and not after.strip():
             return {"proposal_id": proposal_id, "verdict": "refused", "message": "That cannot be left empty."}
         problem = await _fragment_problem(proposal, after, rules)
+        if proposal.kind == "document" and proposal.name == "title" and len(after) > DOCUMENT_TITLE_CHARS:
+            problem = f"A document's title may be at most {DOCUMENT_TITLE_CHARS} characters."
         if problem:
             return {"proposal_id": proposal_id, "verdict": "refused", "message": problem}
         if after == proposal.before:

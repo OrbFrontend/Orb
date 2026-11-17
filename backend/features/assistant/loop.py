@@ -77,6 +77,9 @@ _FAILED = "This request ended early and was not answered."
 
 _T = TypeVar("_T")
 _PROGRESS_LABEL_CHARS = 200
+# How much of a call's arguments the browser is sent to show under its tool line: of one value, and of them all.
+_SHOWN_VALUE_CHARS = 300
+_SHOWN_CHARS = 1200
 
 
 class _Limit(Exception):
@@ -245,6 +248,25 @@ def _encode(data: Mapping[str, Any], summary: str = "") -> str:
             "summary": summary[:500],
         }
     )
+
+
+def _shown(arguments: Mapping[str, Any]) -> dict[str, str]:
+    """A call's arguments as the browser shows them: each value as text, a long one clipped, an empty one left out.
+
+    The whole is bounded too, so a call that writes several long texts cannot flood the log or the browser's store.
+    """
+    shown: dict[str, str] = {}
+    room = _SHOWN_CHARS
+    for key, value in arguments.items():
+        if value is None or value == "" or value == []:
+            continue
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        cap = min(_SHOWN_VALUE_CHARS, room)
+        if cap <= 0:
+            break
+        shown[str(key)[:64]] = f"{text[:cap]}…[+{len(text) - cap} chars]" if len(text) > cap else text
+        room -= min(len(text), cap)
+    return shown
 
 
 def _several_calls(response: Mapping[str, Any]) -> bool:
@@ -429,13 +451,25 @@ async def run_assistant(
     committed: list[str] = []
     made: dict[str, ToolOutput] = {}
     last_call, same_calls = "", 0
+    # Set when the budget drops the oldest requests, until the browser has been told where the conversation now begins.
+    trimmed = False
 
     def fit() -> bool:
         """Whether the conversation fits its budget, once its oldest requests have gone if it did not. This request stays."""
+        nonlocal trimmed
         request_chars = _chars([latest, *run])
         if _chars(history) + request_chars > CONTEXT_BUDGET_CHARS:
-            history[:] = _newest_requests(history, CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS - request_chars)
+            kept = _newest_requests(history, CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS - request_chars)
+            trimmed = trimmed or len(kept) < len(history)
+            history[:] = kept
         return _chars(history) + request_chars <= CONTEXT_BUDGET_CHARS
+
+    def oldest_held() -> AssistantEvent:
+        """That the budget dropped the oldest requests, naming the oldest one the model still reads."""
+        marks = transcript.requests if transcript else ()
+        held = sum(is_request_message(message) for message in history)
+        oldest = marks[-held].id if 0 < held <= len(marks) else "" if held else request_id
+        return {"type": "trimmed", "request_id": oldest}
 
     def done(reason: str, message: str = "") -> AssistantEvent:
         """The terminal event; an early end names the confirmed changes, so it still reports the work already committed."""
@@ -545,6 +579,9 @@ async def run_assistant(
     fit()
     try:
         for step_number in _step_numbers(history):
+            if trimmed:
+                trimmed = False
+                yield oldest_held()
             yield {"type": "progress", "label": "Thinking…"}
             if single_call:
                 response, name, arguments = await ask(None)
@@ -597,7 +634,7 @@ async def run_assistant(
             # A Stop that arrived since the arguments came back admits no write.
             if admitted and client.is_aborted:
                 raise _Stopped
-            yield {"type": "tool_start", "call_id": call_id, "tool": name}
+            yield {"type": "tool_start", "call_id": call_id, "tool": name, "arguments": _shown(arguments)}
             # The stream sent ``tool_start`` while this generator waited, and a Stop or a disconnect may have landed then. Check
             # again with no await between the check and the write's start, so a write can only start before the Stop.
             if admitted and client.is_aborted:
@@ -669,6 +706,8 @@ async def run_assistant(
                     yield done("reply")
                     return
             if not fit():
+                if trimmed:
+                    yield oldest_held()
                 ending = "This request gathered more than the assistant can hold at once. Ask for less at a time."
                 yield done("limit", ending)
                 return

@@ -236,3 +236,37 @@ async def test_a_request_after_a_handoff_extends_it_and_reads_again_to_see_what_
     assert any(m["role"] == "tool" and "final kept line" in m["content"] for m in held), "the earlier read is still whole"
     assert held[-1]["role"] == "tool" and "the tide answers" not in json.dumps(calls[0])
     assert "the tide answers" in calls[1][-1]["content"]
+
+
+async def test_a_document_edit_applies_as_a_save_and_carries_the_generated_spans_with_the_text(client, library):
+    document = library["document"]
+    path = f"/api/documents/{document}"
+    saved = await client.get_json(path)
+    text = "The tide came in. It was cold. The end."
+    spans = [{"start": 18, "end": 30}]
+    await client.put_checked(path, json={"content": text, "generated_spans": spans, "expected_revision": saved["revision"]})
+    tools = await _tools(mode="document", document_id=document)
+
+    edit = {"field": "content", "mode": "find_replace", "find": "came in", "text": "rolled in slowly"}
+    first = await _propose(tools, "edit_document", **edit)
+    assert (await client.get_json(path))["content"] == text, "proposing writes nothing"
+    [verdict] = await _apply(client, first["proposal_id"])
+    assert (verdict["verdict"], verdict["resources"]) == ("applied", [{"kind": "document", "document_id": document}])
+    saved = await client.get_json(path)
+    # The new stretch is generated text, and the span after it moved with its sentence.
+    assert saved["content"] == "The tide rolled in slowly. It was cold. The end."
+    assert saved["generated_spans"] == [{"start": 9, "end": 25}, {"start": 27, "end": 39}]
+
+    # Undo puts the stored text back unmarked: it was there before the assistant wrote anything.
+    undone = (await client.post_json("/api/assistant/undo", json={"proposal_ids": [first["proposal_id"]]}))["results"]
+    saved = await client.get_json(path)
+    assert undone[0]["verdict"] == "undone" and (saved["content"], saved["generated_spans"]) == (text, spans)
+
+    # The editor saves again after a preview: that preview no longer applies, and the editor's text stands.
+    await client.put_checked(path, json={"content": f"{text} More.", "expected_revision": saved["revision"]})
+    assert (await _apply(client, first["proposal_id"]))[0]["verdict"] == "stale"
+    assert (await client.get_json(path))["content"] == f"{text} More."
+
+    created, _ = await _use(tools, "create_document", title="Plan", content="One.")
+    made = await client.get_json(f"/api/documents/{created['document_id']}")
+    assert (made["title"], made["content"], made["generated_spans"]) == ("Plan", "One.", [])

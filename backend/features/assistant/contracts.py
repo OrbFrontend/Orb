@@ -27,6 +27,9 @@ CONTEXT_BUDGET_CHARS = 80_000
 # model already read and re-reads everything after, so it is done rarely and in bulk.
 CONTEXT_SLACK_CHARS = CONTEXT_BUDGET_CHARS // 4
 MAX_RESULT_CHARS = 6000
+# The longest selection the browser may send with a request, and how much of it the view note shows.
+MAX_SELECTION_CHARS = 20_000
+SELECTION_NOTE_CHARS = 2000
 # Charge vision inputs by a fixed allowance rather than the size of their base64 encoding.
 IMAGE_CONTEXT_CHARS = 8192
 
@@ -189,6 +192,11 @@ class ViewContext:
     world_name: str = ""
     entry_id: int | None = None
     entry_name: str = ""
+    # The text the user had selected at Send: in the document, or in one message of the chat's kept branch, named by its id
+    # and the #N the chat window shows.
+    selection: str = ""
+    selection_message_id: int | None = None
+    selection_number: int | None = None
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,7 @@ from ....database import (
     get_active_path,
     get_character_card,
     get_conversation,
+    get_document,
     get_interactive_fragment,
     get_lorebook_entry,
     get_message_by_id,
@@ -24,6 +25,7 @@ from ....database import (
 from ....database.models import (
     CharacterCardRow,
     ConversationRow,
+    DocumentRow,
     InteractiveFragmentRow,
     LorebookEntryRow,
     MessageRow,
@@ -52,6 +54,10 @@ def chat_field() -> Any:
 
 def character_field() -> Any:
     return Field(default="", max_length=ID_CHARS, description="Empty: the character in view.")
+
+
+def document_field() -> Any:
+    return Field(default="", max_length=ID_CHARS, description="Empty: the document in view; else from list_documents.")
 
 
 def world_field() -> Any:
@@ -139,6 +145,17 @@ async def message_of(cid: str, message_id: int) -> MessageRow:
         )
         raise ToolFailure(f"That chat has no message {message_id}. read_messages or query_library shows the ids.{numbered}")
     return message
+
+
+async def document_of(document_id: str, view: ViewContext) -> DocumentRow:
+    """The document a tool names, else the one in view, as it is saved."""
+    document_id = document_id or view.document_id or ""
+    if not document_id:
+        raise ToolFailure("No document is in view. Name a document_id; list_documents shows the ids.")
+    document = await get_document(document_id)
+    if document is None:
+        raise ToolFailure(f"No document has the id {document_id}. list_documents shows the ids.")
+    return document
 
 
 async def world_of(world_id: str, view: ViewContext) -> WorldRow:

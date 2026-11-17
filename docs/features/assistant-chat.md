@@ -13,6 +13,14 @@ before applying, or type feedback to ask for a revised proposal.
 Settings changes, newly created items, and other actions can take effect
 immediately.
 
+**Select text** in a chat message or a document before you ask, and the request is about that passage: "tighten
+this", "what does she mean here?". The start of the selection shows under the input while it is attached.
+
+In Document mode the assistant can create documents and propose edits to the one you have open. An applied edit lands
+in the editor as one undo step.
+
+Click a tool line in the log to see what the assistant called it with, such as the query it ran or the page it read.
+
 In the panel's gear menu, **turn off tool groups you don't use** to reduce the
 prompt size and save cache space. Keep that selection stable across requests
 for better cache reuse: changing it makes the next request process the

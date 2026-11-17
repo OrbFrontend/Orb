@@ -1,4 +1,4 @@
-"""The assistant's reviewed edits: six tools that propose a change to existing text and write nothing.
+"""The assistant's reviewed edits: seven tools that propose a change to existing text and write nothing.
 
 A field an earlier request already proposed an edit to, and the user has not applied, is edited on from that pending text: the
 new proposal replaces the earlier one on the user's card.
@@ -18,7 +18,7 @@ from ....database import get_active_path, greeting_rerolls
 from ..contracts import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from .fragments import MOOD_TEXT_FIELDS, TEXT_CAPS, check_field_applies, fragment_text, fragment_text_problem
 from .host import AssistantHost
-from .proposals import Proposal, change_label, is_open, preview, revise, store
+from .proposals import DOCUMENT_TITLE_CHARS, Proposal, change_label, is_open, preview, revise, store
 from .targets import (
     CHARACTER_LIST_FIELDS,
     CharacterField,
@@ -27,6 +27,8 @@ from .targets import (
     character_of,
     chat_field,
     chat_in_view,
+    document_field,
+    document_of,
     entry_field,
     entry_of,
     fragment_field,
@@ -228,6 +230,8 @@ _MessageEdit = _edit_args(
     "_MessageEdit", conversation_id=_CHAT, message_id=(int, Field(ge=1, description="The message, from read_messages."))
 )
 
+_DocumentEdit = _edit_args("_DocumentEdit", document_id=(str, document_field()), field=(Literal["title", "content"], ...))
+
 _MoodFragmentEdit = _edit_args("_MoodFragmentEdit", fragment_id=(str, fragment_field()), field=(Literal[MOOD_TEXT_FIELDS], ...))
 
 _InteractiveFragmentEdit = _edit_args(
@@ -340,7 +344,7 @@ def proposal_key(target: Mapping[str, Any], name: str) -> str:
 
 
 def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Proposal] = ()) -> list[AssistantTool]:
-    """The four edit tools, bound to the request's view and to *held*, the pending edits earlier requests proposed.
+    """The edit tools, bound to the request's view and to *held*, the pending edits earlier requests proposed.
 
     The run holds one proposal per target and field: a later edit to a field it already proposed an edit to is made on that
     proposal's pending text and updates the same proposal, so its preview always compares the stored text with the result of
@@ -482,6 +486,28 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
         target = {"kind": "message", "conversation_id": cid, "message_id": message["id"]}
         label = f"{message_label(await get_active_path(cid), message['id'])} in {quoted(conv['title'])}"
         return propose(target, label, "content", message["content"] or "", args, reread, required="A message")
+
+    @tools.add(
+        "confirm",
+        _DocumentEdit,
+        "Propose an edit to a document's title or its saved content. A document is long: change its content with "
+        "find_replace, one passage at a time.",
+    )
+    async def edit_document(args: Any) -> ToolOutput:
+        document = await document_of(args.document_id, view)
+        reread = "read_document reads the saved content, one page per offset."
+        target = {"kind": "document", "document_id": document["id"]}
+        label = f"document {quoted(document['title'])}"
+        if args.field == "content":
+            return propose(target, label, "content", document["content"] or "", args, reread)
+
+        def check(text: str) -> str:
+            cap = DOCUMENT_TITLE_CHARS
+            return f"A document's title may be at most {cap} characters." if len(text) > cap else ""
+
+        return propose(
+            target, label, "title", document["title"] or "", args, reread, required="A document's title", check=check
+        )
 
     @tools.add(
         "confirm", _MoodFragmentEdit, "Propose an edit to a mood fragment's label, description, prompt text or negative prompt."

@@ -310,6 +310,47 @@ export async function loadDocuments() {
   }
 }
 
+/**
+ * Save the open document's unsaved text, so whoever reads or changes the saved copy next meets what the editor shows.
+ * False when it could not be saved, or a generation is still writing into the page.
+ */
+export function saveOpenDocument() {
+  if (!S.activeDocId) return true;
+  return S.docStreaming ? false : flushSave();
+}
+
+/**
+ * Read document *id* again after a change made outside the editor: its row in the list, and the page while it is the one
+ * open. The new text becomes one undo step. Unsaved typing is never replaced: it meets the save-conflict choice instead.
+ */
+export async function refreshDocument(id) {
+  let doc;
+  try {
+    doc = await api.get(`/documents/${id}`);
+  } catch {
+    return;
+  }
+  updateDocInList(doc);
+  const session = S.documentSessions.get(id);
+  if (S.activeDocId !== id || S.docStreaming || session?.row.revision === doc.revision) return;
+  $("doc-title-text").textContent = doc.title;
+  if (S.docDirty) {
+    if (session) showSaveConflict(id, session, doc);
+    return;
+  }
+  if (session) session.discard(doc);
+  else S.documentSessions.set(id, createSession(doc));
+  docCheckpoint();
+  renderEditor($("doc-page"), doc.content, doc.generated_spans || []);
+  syncContent(id, doc.content);
+  syncDocAudit(doc.content);
+  docCheckpoint();
+  keepDraft(id, null);
+  setSaveState("Saved");
+  updateTokenCount();
+  syncRewriteButton();
+}
+
 async function createDocument() {
   try {
     const doc = await api.post("/documents", {});

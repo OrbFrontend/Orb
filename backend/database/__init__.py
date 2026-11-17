@@ -72,7 +72,14 @@ from .queries.conversations import (
     update_conversation,
 )
 from .queries.director_state import get_director_state, update_director_state
-from .queries.documents import create_document, delete_document, get_document, get_documents, update_document
+from .queries.documents import (
+    DocumentConflict,
+    create_document,
+    delete_document,
+    get_document,
+    get_documents,
+    update_document,
+)
 from .queries.endpoints import (
     create_endpoint,
     create_model_config,

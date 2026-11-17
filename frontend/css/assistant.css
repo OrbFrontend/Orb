@@ -35,6 +35,9 @@
   white-space: pre-wrap; background: var(--bg-elevated); color: var(--text-primary); unicode-bidi: plaintext; }
 /* A request's Edit sits in the margin left of its bubble, so it costs the log no height. */
 .asst-request { position: relative; align-self: flex-end; max-width: 85%; }
+/* The text a request was sent with selected: one quoted line above the reader's own words. */
+.asst-selection { margin-bottom: 4px; padding-left: 6px; border-left: 2px solid var(--accent-dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
 .asst-request .asst-user { max-width: none; }
 .asst-request-edit { position: absolute; right: 100%; top: 50%; translate: 0 -50%; margin-right: 6px; padding: 2px;
   display: flex; border: 0; background: none; --ui-icon-size: 15px; color: var(--text-muted); cursor: pointer; opacity: 0;
@@ -67,6 +70,14 @@
 .asst-tool-name { flex-shrink: 0; font-family: var(--font-mono); color: var(--accent); }
 .asst-tool-text { min-width: 0; }
 .asst-tool-running .asst-tool-text { color: var(--text-muted); }
+/* A call's arguments fold under its line; the line itself is the control, so the log reads as it did while closed. */
+.asst-tool-call > summary { list-style: none; cursor: pointer; }
+.asst-tool-call > summary::-webkit-details-marker { display: none; }
+.asst-tool-call > summary:hover .asst-tool-text { color: var(--text-primary); }
+.asst-tool-args { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; margin: 4px 0 2px;
+  padding-left: 8px; border-left: 1px solid var(--border); max-height: 12lh; overflow-y: auto; }
+.asst-tool-args dt { color: var(--text-muted); font-family: var(--font-mono); }
+.asst-tool-args dd { margin: 0; white-space: pre-wrap; font-family: var(--font-mono); }
 .asst-tool-failed :is(.asst-tool-name, .asst-tool-text) { color: var(--red); }
 .asst-outcome { font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; }
 .asst-outcome-error { color: var(--red); }

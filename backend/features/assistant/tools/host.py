@@ -25,13 +25,17 @@ class ChatUnavailable(Exception):
 
 
 class ChatGuards(Protocol):
-    """A chat's lane and deletion fence, as the chat routes keep them."""
+    """A chat's lane and deletion fence, as the chat routes keep them, and whether a document is being generated into."""
 
     def chat_busy(self, cid: str) -> bool:
         """Whether a stream runs in chat *cid* or a mutation holds its lane right now; a snapshot, not a reservation."""
         ...
 
     def chat_deleting(self, cid: str) -> bool: ...
+
+    def document_busy(self, document_id: str) -> bool:
+        """Whether a generation is writing into document *document_id* right now; a snapshot, as :meth:`chat_busy` is."""
+        ...
 
     def admitted(self, cid: str) -> AbstractAsyncContextManager[None]:
         """Hold chat *cid*'s lane through one short mutation, or raise :class:`ChatUnavailable`."""

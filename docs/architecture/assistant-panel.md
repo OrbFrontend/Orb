@@ -16,14 +16,14 @@ browser stores and refreshes what changed.
 |---|---|
 | `backend/features/assistant/` | The facade, contracts, the model loop and its prompt, and the conversations the server keeps and how an edited request takes it back (`session.py`). It imports no API, pipeline, workflow or peer feature code. |
 | `backend/features/assistant/tools/` | The tools over the library's readers and writers, the proposal store, and Apply, Undo and Revise. `__init__.py` holds `build_tools`, which assembles them for one run against a host. |
-| `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
+| `backend/features/assistant/tools/host.py` | What the tools take from the app above them, as protocols the API side implements: `ChatGuards` (a chat's lane and deletion fence, and whether a document is being generated into), `Writes` (route schemas, the phrase group check, the fragment write rules, chat starts and checkpoints), `Deletes` (Apply's fenced deletes), `AppReads` (context size, scene state, the Judge's readiness, a decision's problems), `WorkflowSwitches` (installed workflows and their switches) and `MediaJobs` (a media workflow's on-demand render as one job of the run). A host refusal reaches a tool as `HostRefusal`, a refused chat admission as `ChatUnavailable`. |
 | `backend/features/assistant/tools/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
 | `backend/features/assistant/tools/categories.py` | The groups the tools are offered in, and the filter a request's choice of groups applies |
 | `backend/features/assistant/tools/reads.py` | The sixteen read tools, their projections and paging |
 | `backend/features/assistant/tools/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
 | `backend/features/assistant/tools/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
 | `backend/features/assistant/tools/fragments.py` | The fragment creates and setters, the stage each fragment type runs in and where Required applies, and the names, projections and checks the fragment reads, edits and deletes share |
-| `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The six edit tools; the six delete tools; the proposal store, Apply, Undo and Revise |
+| `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The seven edit tools; the six delete tools; the proposal store, Apply, Undo and Revise |
 | `backend/features/assistant/tools/web.py` | The web search through the user's SearXNG server, and the page reader with its text extraction and private-address refusal |
 | `backend/features/assistant/tools/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools and what counts as a saved render |
 | `backend/api/assistant/` | The binding: `host.py` implements the host over the API, pipeline, workflow and peer-feature code; `__init__.py` binds `build_tools`, Apply, Undo and Revise to it |
@@ -45,6 +45,7 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 POST /api/assistant/run?operation_id=<id>
   { text, session, request_id?, edit?,
     context: {mode, conversation_id?, character_id?, document_id?, world_id?, entry_id?},
+    selection?: {text, message_id?},
     pending? }
 ```
 
@@ -62,6 +63,13 @@ saved entry selected on its Entries tab ride with whichever view is behind it
 note names both, and every tool that takes a
 `world_id` or an `entry_id` uses them when the argument is left empty. An entry
 named without a world is found in its own world.
+
+`selection` is the text the reader had selected in the view at Send, at most 20,000 characters: in the document, as its
+editor holds it, or in one chat message, as that message is saved, with the message's id. The view note gives it, quoted as
+data and clipped at 2,000 characters the way a read clips, with the message's `#N` and id when the message is on the chat's
+kept branch; a message the server cannot place there leaves the text alone. The prompt says selected text is what the user
+means by "this", and since it is the stored text it can be copied into an edit's `find`. It is not part of `context`: two
+requests from one view with different selections are still from the same view.
 
 `request_id` is the browser's name for the request. With `edit` it names one
 already sent, whose place this text takes; see
@@ -215,7 +223,8 @@ The conversation, excluding the system prompt and tool schemas, is held to
 context window. Text results are bounded independently; pictures each consume
 an 8,192-character allowance. Only past the budget does anything go: the oldest requests, whole, until
 the conversation is a quarter under it, so the cut that rewrites the prefix is
-made rarely. A request that cannot fit even alone ends with `limit`.
+made rarely. The stream then says so (`trimmed`), naming the oldest request the model still reads, and the log marks
+where the model's memory now begins. A request that cannot fit even alone ends with `limit`.
 
 ### An edited request
 
@@ -289,8 +298,8 @@ throughout.
 | Class | Tools | Behaviour |
 |---|---|---|
 | read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_image_styles`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
-| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
+| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `create_document`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
+| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_document`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
 ### Tool groups
@@ -306,7 +315,7 @@ switching one off removes a whole subject:
 | Worlds and lore (`lore`) | `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `create_world`, `create_lore_entry`, `set_world`, `set_lore_entry`, `set_chat_world`, `edit_lore_entry`, `delete_world`, `delete_lore_entry` |
 | Fragments (`fragments`) | The fragment reads, creates, setters and edits |
 | Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
-| Documents (`documents`) | `list_documents`, `read_document` |
+| Documents (`documents`) | `list_documents`, `read_document`, `create_document`, `edit_document` |
 | Images and speech (`media`) | `list_image_styles`, `create_image`, `illustrate_reply`, `generate_speech` |
 | Web (`web`) | `search_web`, `read_web_page` |
 
@@ -423,7 +432,8 @@ stored, and a write that changes nothing commits nothing.
 
 Creates go through each resource's own schema and writer with server-generated
 ids, and a narrow text-only schema: no image, URL, extension or embedded book.
-A create that matches an existing name still adds a new one. `start_chat` uses
+A create that matches an existing name still adds a new one. `create_document` takes a title and up to 8,000
+characters of text, none of it marked as generated, and opens nothing. `start_chat` uses
 the conversation route's own solo-chat writer, greeting and alternate greetings
 included, and opens nothing. A setter's flag is `on`, `off` or `unchanged`, so
 it can never flip a state it did not read. `set_length_guard` keeps the Length
@@ -484,6 +494,15 @@ with that one outcome changed, in one transaction with a comparison of the colum
 and the decision's type as Apply read them: another outcome edited since the
 preview is kept, and this outcome edited since is `stale`. A decision text that would add a problem to
 the definition is refused when it is proposed and when the user revises it.
+
+A document's `title` and `content` are edited the same way; its content is usually longer than a whole-field rewrite
+may replace, so it changes through `find_replace`, a passage at a time. Apply writes it as the editor's own save does:
+it reads the document, compares the field with the preview's, and writes under the revision it read, so a save that
+lands in between is `stale`. The content carries the document's generated spans with it. The change is taken as one
+stretch, from the first character that differs to the last: spans before it stay, spans after it move with the text, a
+span reaching into it is cut back to what is left outside, and the new stretch is marked generated. Undo marks nothing,
+since it puts back text that was there before. A document a generation is writing into answers `busy`. No delete tool
+exists for a document.
 
 A card's `tags` and `alternate_greetings` are list fields: an edit adds
 `items` (`add_items`), removes them (`remove_items`) or makes them the whole new
@@ -757,7 +776,8 @@ render.
 | `start` | `{continued}` | The run was admitted. `continued` is false when the server held no conversation under the request's `session`. |
 | `progress` | `{label}` | What the run is doing now, or a media job's phase. Not stored. |
 | `assistant_message` | `{text, final}` | A step's note (`final: false`) or the answer. |
-| `tool_start` | `{call_id, tool}` | A tool is about to run. |
+| `trimmed` | `{request_id}` | The conversation passed its budget and lost its oldest requests; `request_id` is the oldest one still held, empty when the browser gave it none. |
+| `tool_start` | `{call_id, tool, arguments}` | A tool is about to run. `arguments` is what the model called it with, each value as text: one clipped at 300 characters, all of them at 1,200, empty ones left out. |
 | `mutation` | `{call_id, tool, resources}` | A write committed these resources; a media tool also sends one per render while it runs. |
 | `tool_result` | `{call_id, tool, ok, summary, ids}` | Its outcome, paired by `call_id`. |
 | `confirm` | `{call_id, tool, proposal}` | A proposal's preview (`action` is `edit` or `delete`); a later one with the same `proposal_id` replaces it, and one naming an earlier request's proposal in `replaces` supersedes that one. |
@@ -792,9 +812,9 @@ stored are kept, and an empty chat is not stored. Whether the panel is open is
 under `orb-assistant-open`, which is
 restored at load on the wide layout only. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
-leaves the assistant working from memory. What is stored is user text, answers,
-tool summaries and ids, and each proposed edit's labels, lengths and state,
-never raw results, progress, live operations or proposal texts and ids. The
+leaves the assistant working from memory. What is stored is user text and the first 200 characters of what a request was sent with selected, answers,
+tool summaries, ids and the clipped arguments each call was shown with, and each proposed edit's labels, lengths and
+state, never raw results, progress, live operations or proposal texts and ids. The
 stored transcript is the reader's record only; none of it is sent back. Clear
 empties the chat on screen and starts it a new session, and `POST
 /api/assistant/forget {session}` drops the old one from the server's memory and
@@ -807,7 +827,8 @@ ended: proposing wrote nothing, so showing them is safe. The card groups them by
 what they change and shows each field's diff and lengths, or for a delete what
 goes with it and that it cannot be undone. A diff is shown whole, its unchanged
 text shortened to the context around each change; in a panel wide enough it is
-two columns, the text now and the text proposed. A list field whose items were
+two columns, the text now and the text proposed. The full new text folds under the diff, and is left out past 20,000
+characters, where it would be a document's whole text. A list field whose items were
 rewritten in place shows each one's diff; otherwise it shows the items it
 removes and adds and how many it keeps.
 
@@ -834,7 +855,14 @@ or Cancel puts the request back. See [An edited request](#an-edited-request).
 The composer is one box: the input grows with its text, the view label the
 next request is about (with the lorebook drawer's world or entry after it, while
 the drawer is open) sits under it, and the corner
-button sends, or stops while a run goes. The gear in the panel's head opens the
+button sends, or stops while a run goes. The label is led by the start of the text selected in a chat message or the
+document page, which the request then carries (`selection`). The panel keeps the reader's last selection there while
+they type in the panel, since focus on the input takes the page's own selection away; a selection or a click anywhere
+else on the page replaces or drops it, and so does a repaint of the text it was in. A request sent with a selection
+shows its first line above the reader's words.
+
+A tool line is the tool's name and its result's summary. What the call was made with (a query, an address, the text of
+a find) folds under the line, closed until the reader opens it. The gear in the panel's head opens the
 options between the head and the log: Think, then a rule, then one switch for
 each [tool group](#tool-groups), the SearXNG URL, then the system prompt's opening with Reset, saved to the
 `assistant_instructions` setting when the box loses focus. The gear is marked while Think is on or a
@@ -850,7 +878,11 @@ Committed resources are read again by id through the loaders that own them,
 as each `mutation` arrives and after an Apply: worlds and entries, the settings
 keys a toggle wrote (through the settings store's queue), characters, personas,
 the chat list, a chat's worlds, a branch change, the mood and interactive fragment lists (the
-latter with the open chat's state), and a message or media job's chat. A deleted chat, world or character is let go of as the app's
+latter with the open chat's state), a document's row in the list and its page while it is the one open, and a message
+or media job's chat. A document open in the editor is saved before a run sent from it starts and before an Apply or an
+Undo of a change to it, so the tools read, and Apply compares, the text on screen; an Apply that cannot save it first
+(a generation running, a save conflict) is not sent. The applied text is loaded into the page as one step of the
+editor's own undo. Typing that landed unsaved meanwhile is never replaced: it meets the editor's save-conflict choice. A deleted chat, world or character is let go of as the app's
 own delete does, through helpers its module exports (`forgetConversation`,
 `forgetWorld`): the chat view empties or the
 drawer closes when it is the one open, and an entry deleted while selected in the

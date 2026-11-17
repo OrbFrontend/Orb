@@ -14,7 +14,6 @@ from ....database import (
     LIBRARY_VIEWS,
     get_active_lorebook_entries,
     get_active_path,
-    get_document,
     get_documents,
     get_effective_world_ids,
     get_interactive_fragments,
@@ -62,6 +61,8 @@ from .targets import (
     chat_field,
     chat_in_view,
     clip,
+    document_field,
+    document_of,
     entry_of,
     fragment_field,
     interactive_fragment_of,
@@ -199,7 +200,7 @@ class _FragmentArgs(ToolArguments):
 
 
 class _DocumentArgs(ToolArguments):
-    document_id: str = Field(default="", max_length=ID_CHARS, description="Empty: the document in view.")
+    document_id: str = document_field()
     offset: int = Field(default=0, ge=0, description="The character position to start from: the last page's next_offset.")
 
 
@@ -672,12 +673,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
 
     @tools.add("read", _DocumentArgs, "Read a document's saved text, a page at a time. Unsaved editor text is never included.")
     async def read_document(args: _DocumentArgs) -> ToolOutput:
-        document_id = args.document_id or view.document_id
-        if not document_id:
-            raise ToolFailure("No document is in view. Name a document_id; list_documents shows the ids.")
-        document = await get_document(document_id)
-        if document is None:
-            raise ToolFailure(f"No document has the id {document_id}. list_documents shows the ids.")
+        document = await document_of(args.document_id, view)
         content = document["content"] or ""
         head = {"title": clip(document["title"], _QUERY_CHARS)}
         data = text_page(content, args.offset, head, "content", length=_DOCUMENT_CHARS, offset_key="offset")

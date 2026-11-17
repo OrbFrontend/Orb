@@ -8,7 +8,7 @@ from typing import Any
 
 from ...core import ChatMessage
 from ...inference import normalize
-from .contracts import MAX_TOOL_EXECUTIONS, REPLY, STEP_TOOL_NAME, AssistantTool, ViewContext
+from .contracts import MAX_TOOL_EXECUTIONS, REPLY, SELECTION_NOTE_CHARS, STEP_TOOL_NAME, AssistantTool, ViewContext
 
 _LABEL_CHARS = 120
 
@@ -36,7 +36,8 @@ _ONE_CALL = (
 )
 _RULES = (
     "Rules:\n"
-    "- Each request ends with a view note: what the user was looking at when they sent it.\n"
+    "- Each request ends with a view note: what the user was looking at when they sent it. Text it gives as selected is "
+    'what the user means by "this" or "the selection".\n'
     "- Use ids from the view note or from tool results. Never invent an id; look it up.\n"
     "- When a result is marked truncated, read its next page or narrow the request before drawing a conclusion from it.\n"
     "- Earlier requests and their results stay in this conversation. A result shows what was true when it ran, and the "
@@ -199,6 +200,15 @@ def view_note(view: ViewContext) -> str:
         lines.append(f"open in the lorebook: world {_label(view.world_name)} (world_id {view.world_id})")
     if view.entry_id:
         lines.append(f"selected lore entry: {_label(view.entry_name)} (entry_id {view.entry_id})")
+    if view.selection:
+        if view.selection_message_id:
+            where = f" in message #{view.selection_number} (message_id {view.selection_message_id})"
+        else:
+            where = " in the document" if view.document_id else ""
+        # The text as it is stored, so it can be copied into a find; clipped as a read clips.
+        left = len(view.selection) - SELECTION_NOTE_CHARS
+        shown = f"{view.selection[:SELECTION_NOTE_CHARS]}…[+{left} chars]" if left > 0 else view.selection
+        lines.append(f"selected text{where}: {json.dumps(shown, ensure_ascii=False)}")
     return "[View when this was sent]\n" + "\n".join(lines)
 
 

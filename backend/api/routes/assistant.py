@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from ...core import scrub_log
 from ...database import (
+    get_active_path,
     get_character_card,
     get_conversation,
     get_document,
@@ -55,6 +56,7 @@ from ..schemas import (
     AssistantForgetRequest,
     AssistantReviseRequest,
     AssistantRunRequest,
+    AssistantSelection,
     AssistantViewContext,
 )
 
@@ -100,6 +102,19 @@ async def resolve_view(context: AssistantViewContext) -> ViewContext:
     if entry is None or entry["world_id"] != world["id"]:
         raise HTTPException(status_code=404, detail="Lore entry not found in that world")
     return replace(view, entry_id=entry["id"], entry_name=entry["name"])
+
+
+async def _with_selection(view: ViewContext, selection: AssistantSelection | None) -> ViewContext:
+    """*view* with the text selected in it. A message is named only while it is on the chat's kept branch, by the #N the
+    chat window shows as well as its id; a selection the server cannot place is kept as text alone."""
+    if selection is None or not selection.text.strip():
+        return view
+    if selection.message_id is not None and view.conversation_id:
+        path = await get_active_path(view.conversation_id)
+        number = next((number for number, row in enumerate(path, 1) if row["id"] == selection.message_id), None)
+        if number is not None:
+            return replace(view, selection=selection.text, selection_message_id=selection.message_id, selection_number=number)
+    return replace(view, selection=selection.text)
 
 
 async def _resolve_page(context: AssistantViewContext) -> ViewContext:
@@ -153,7 +168,7 @@ async def _resolve_page(context: AssistantViewContext) -> ViewContext:
 async def api_run_assistant(data: AssistantRunRequest, request: Request, operation_id: str = _OPERATION_ID):
     """Stream one assistant request. The run is registered under *operation_id*, which its Stop must name."""
     settings = await get_settings()
-    view = await resolve_view(data.context)
+    view = await _with_selection(await resolve_view(data.context), data.selection)
     abort_token = AbortToken()
     # A media tool's render runs as a workflow job filed under this run, which the run's Stop cancels and waits for alone.
     progress: asyncio.Queue[str | Mapping[str, Any]] = asyncio.Queue()

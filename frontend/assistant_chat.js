@@ -31,12 +31,15 @@ import {
   sendCapturedMessage,
 } from "./chat_stream.js";
 import { refreshConversationMessages } from "./chat_workflow.js";
+import { refreshDocument, saveOpenDocument } from "./document.js";
+import { offsetOfPosition, serializeEditor } from "./document_editor.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sseError } from "./errors.js";
 import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
 import { loadCharacters } from "./library_sidebar.js";
 import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
+import { rangeInMessage } from "./message_selection.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
@@ -59,6 +62,11 @@ const LABEL_TITLE_CHARS = 120;
 // The events after which the stored transcript changes in a way worth keeping; progress and notes are not among them.
 const PERSISTED_EVENTS = new Set(["tool_start", "tool_result", "handoff", "done", "error"]);
 const APPLY_KIND = "assistant-apply";
+// The longest selection a request carries; the server shows the model less and says how much it left out.
+const MAX_SELECTION_CHARS = 20000;
+// How much of the selection the label under the input shows, and a request's bubble keeps.
+const SCOPE_SELECTION_CHARS = 40;
+const SHOWN_SELECTION_CHARS = 200;
 // Every settings key a tool can write, read again after a run whose changes may not all have been reported.
 const SWITCH_KEYS = [
   "enable_agent",
@@ -84,6 +92,10 @@ const chats = new Map();
 let shown = null;
 // The view the empty log's suggestions were drawn for, null once the log holds entries.
 let suggestedFor = null;
+// The reader's last selection in a chat message or the document page. Typing in the panel keeps it, since that is how a
+// request about it gets written; a selection or a click anywhere else on the page replaces or drops it.
+let selectedRange = null;
+let scopeFrame = 0;
 
 const narrow = () => Boolean(window.matchMedia?.(NARROW).matches);
 
@@ -213,6 +225,56 @@ function capturePage() {
   return { ...none, mode: "library", label: "Library" };
 }
 
+function trackSelection() {
+  const selection = window.getSelection();
+  const node = selection?.anchorNode;
+  const el = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+  if (!el || el.closest(`#${PANEL}`)) return;
+  const held = !selection.isCollapsed && el.closest(".message .msg-body, #doc-page");
+  selectedRange = held ? selection.getRangeAt(0).cloneRange() : null;
+  // A drag reports every step; the label is drawn once a frame, and only while there is a panel to draw it in.
+  if (scopeFrame) return;
+  scopeFrame = requestAnimationFrame(() => {
+    scopeFrame = 0;
+    if (isUtilityPanelOpen(PANEL)) paintScope();
+  });
+}
+
+/** The selection still standing in the page *context* names: a range in its document or its chat, else null. */
+function selectionIn(context) {
+  const range = selectedRange;
+  const root = context.mode === "document" ? $("doc-page") : context.mode === "chat" ? $("chat-messages") : null;
+  return range && !range.collapsed && root?.contains(range.commonAncestorContainer) ? range : null;
+}
+
+const oneLine = (text, cap) => {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > cap ? `${line.slice(0, cap)}…` : line;
+};
+
+/**
+ * The text selected in the view, for the request to carry: a document's as its editor holds it, a chat message's as it is
+ * saved, with the message's id, so the model can copy it into an edit. A selection across messages is sent as it reads.
+ */
+function captureSelection(context) {
+  const range = selectionIn(context);
+  if (!range) return null;
+  let text = range.toString();
+  let messageId = null;
+  if (context.mode === "document") {
+    const page = $("doc-page");
+    const start = offsetOfPosition(page, range.startContainer, range.startOffset);
+    text = serializeEditor(page).content.slice(start, offsetOfPosition(page, range.endContainer, range.endOffset));
+  } else {
+    const node = range.commonAncestorContainer;
+    const message = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest(".message[data-msg-id]");
+    messageId = Number(message?.dataset.msgId) || null;
+    text = (messageId && rangeInMessage(range, messageId)?.text) || text;
+  }
+  if (!text.trim()) return null;
+  return { text: text.slice(0, MAX_SELECTION_CHARS), ...(messageId ? { message_id: messageId } : {}) };
+}
+
 /** The kind of view the empty log suggests requests for. */
 function shownView() {
   const context = captureContext();
@@ -271,6 +333,8 @@ const REFRESHERS = {
   // A media job's artifacts arrive with the chat's messages, read again through the chat's own loader.
   message: chatMessages,
   media: chatMessages,
+  // The list row, and the page while the document is the one open in the editor.
+  document: (r) => [`document:${r.document_id}`, () => refreshDocument(r.document_id)],
   chat_worlds: (r) => [`chat_worlds:${r.conversation_id}`, () => refreshChatWorlds(r.conversation_id)],
   branch: (r) => [`branch:${r.conversation_id}`, () => showBranchChange(r.conversation_id)],
 };
@@ -409,13 +473,22 @@ function paintControls() {
   // Clearing mid-run would drop the entries the run is still writing to.
   $("assistant-clear").disabled = busy || !S.assistant.items.length;
   $("assistant-status").textContent = applying ? "Saving the change…" : busy ? run?.status || "Working…" : "";
-  const context = busy && run ? run.context : captureContext();
-  const scope = $("assistant-scope");
-  scope.textContent = context.label;
-  scope.title = busy ? `Working on: ${context.label}` : `Your next message is about: ${context.label}`;
+  paintScope();
   // The suggestions follow the view, which can change without a notice. Only a changed view redraws them: pressing one
   // focuses it, and redrawing then would replace the button before its click lands.
   if (!S.assistant.items.length && shownView() !== suggestedFor) paintLog();
+}
+
+/** The label under the input: the view the next request is about, led by the text selected there, if any. */
+function paintScope() {
+  const scope = $("assistant-scope");
+  if (!scope) return;
+  const busy = Boolean(activeOperation());
+  const context = busy && run ? run.context : captureContext();
+  const selected = busy ? null : selectionIn(context);
+  const quote = selected ? oneLine(selected.toString(), SCOPE_SELECTION_CHARS) : "";
+  scope.textContent = quote ? `“${quote}” · ${context.label}` : context.label;
+  scope.title = busy ? `Working on: ${context.label}` : `Your next message is about: ${context.label}`;
 }
 
 function paint() {
@@ -453,7 +526,8 @@ async function stream(chat, body, context, request, removed = []) {
   paint();
   let failure = "";
   try {
-    await optionsSaved;
+    // The options are read at Send, and a document's tools read its saved text: both are as the reader left them first.
+    await Promise.all([optionsSaved, context.mode === "document" && saveOpenDocument()]);
     for await (const { event, data } of streamEvents(record, "/assistant/run", body, "Assistant")) {
       started ||= event === "start";
       const failed = event === "error" ? sseError(data, "The assistant failed.").message : "";
@@ -527,14 +601,16 @@ function submit(text, replaced = null) {
   // A new message takes over any earlier checkpoint, including feedback requesting a revision.
   for (const item of items) if (item.kind === "proposals") delete item.context;
   const requestId = (edit && replaced.requestId) || newId();
-  items.push({ kind: "user", text, context, requestId });
+  const selection = captureSelection(context);
+  const quote = selection ? { selection: oneLine(selection.text, SHOWN_SELECTION_CHARS) } : {};
+  items.push({ kind: "user", text, context, requestId, ...quote });
   trimTranscript(items);
   following = true;
   // The changes earlier cards still hold, so this request can build on them; the server reads their texts itself.
   const pending = pendingProposalIds(items);
   // Only the request goes out: the server holds the conversation this session names, every call and result in it.
   const body = { text, context: wireContext(context), session: chat.session, request_id: requestId, edit };
-  return stream(chat, { ...body, pending }, context, text, removed);
+  return stream(chat, { ...body, pending, ...(selection ? { selection } : {}) }, context, text, removed);
 }
 
 // Read from the server when the options first open; until then the box shows only a saved prompt.
@@ -685,6 +761,20 @@ async function changing(chat, entries, work) {
   paint();
 }
 
+const DOCUMENT_UNSAVED =
+  "Nothing was changed: the open document is generating, or its text could not be saved. Try again once it shows Saved.";
+
+/**
+ * Whether the stored text of *entries*' targets is the text on screen: a document open in the editor is saved first, so
+ * a change is compared with what the reader sees and the editor's next save does not meet it as a conflict.
+ */
+async function documentsSaved(entries) {
+  const open = entries.some(
+    ({ entry }) => entry.target?.kind === "document" && entry.target.document_id === S.activeDocId,
+  );
+  return !open || (await saveOpenDocument());
+}
+
 /** A card's live entries waiting for Apply, all of them or the one *el* names. */
 function pendingOf(el) {
   if (el.dataset.proposal) {
@@ -746,6 +836,10 @@ async function apply(el) {
   let decision = "";
   await changing(chat, entries, async () => {
     delete card.note;
+    if (!(await documentsSaved(entries))) {
+      card.note = DOCUMENT_UNSAVED;
+      return;
+    }
     try {
       const results = (
         await api.post("/assistant/apply", { proposal_ids: entries.map(({ entry }) => entry.proposalId) })
@@ -789,6 +883,10 @@ async function undo(el) {
   if (found?.entry.status !== "applied") return;
   let undone = null;
   await changing(chat, [found], async () => {
+    if (!(await documentsSaved([found]))) {
+      found.entry.note = DOCUMENT_UNSAVED;
+      return;
+    }
     try {
       undone = undoVerdicts(
         found.card,
@@ -955,6 +1053,7 @@ export function initAssistant() {
   log.addEventListener("scroll", () => {
     if (log.clientHeight) following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;
   });
+  document.addEventListener("selectionchange", trackSelection);
   const input = $("assistant-input");
   // On the element, so chat and mobile shortcuts on the document never see keys typed here.
   input.addEventListener("keydown", (e) => {

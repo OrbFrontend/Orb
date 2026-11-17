@@ -53,10 +53,15 @@ document.addEventListener(
   true,
 );
 
+/** *range* within message *msgId*, mapped onto its saved text as `selectionInSource` does. */
+export function rangeInMessage(range, msgId) {
+  const source = S.messages.find((m) => m.id === msgId)?.content || "";
+  return selectionInSource(messageBody(msgId), range, source);
+}
+
 /** The selection in message *msgId* as *button* was pressed, mapped onto its saved text as `selectionInSource` does. */
 export function pressedSelection(button, msgId) {
   const range = pressed?.button === button ? pressed.range : liveRange();
   pressed = null;
-  const source = S.messages.find((m) => m.id === msgId)?.content || "";
-  return selectionInSource(messageBody(msgId), range, source);
+  return rangeInMessage(range, msgId);
 }

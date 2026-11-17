@@ -5,6 +5,7 @@ from __future__ import annotations
 from .contracts import (
     MAX_ITEM_CHARS,
     MAX_RESULT_CHARS,
+    MAX_SELECTION_CHARS,
     MAX_TOOL_EXECUTIONS,
     AssistantEvent,
     AssistantTool,

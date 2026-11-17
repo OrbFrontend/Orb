@@ -16,7 +16,15 @@ from backend.api.routes import assistant as assistant_route
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
 from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings, update_message_content
-from backend.features.assistant import MAX_RESULT_CHARS, AssistantUnavailable, ToolFailure, run_assistant, session
+from backend.features.assistant import (
+    MAX_RESULT_CHARS,
+    AssistantUnavailable,
+    RequestMark,
+    ToolFailure,
+    Transcript,
+    run_assistant,
+    session,
+)
 from backend.features.assistant.contracts import encode_result
 from backend.features.assistant.tools import CATEGORIES
 from backend.features.assistant.tools.reads import MAX_MESSAGES
@@ -160,7 +168,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the three media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 61 and enum[-5:] == [
+    assert len(enum) == 63 and enum[-5:] == [
         "illustrate_reply",
         "generate_speech",
         "list_image_styles",
@@ -402,6 +410,38 @@ def _script(monkeypatch, *replies):
     monkeypatch.setattr(LLMClient, "complete", complete)
 
 
+async def test_a_request_carries_the_selection_and_is_told_when_the_budget_drops_its_oldest_requests(
+    client, library, monkeypatch
+):
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield _reply("Seen.")
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    chat, kept = library["chat"], library["kept"]
+    body = _body("Tighten this.", mode="chat", conversation_id=chat)
+    # A selection in a message of the kept branch is named by its #N and its id; one the server cannot place is text alone.
+    await client.post_checked(RUN, json={**body, "selection": {"text": 'final "kept"', "message_id": kept}})
+    assert f'selected text in message #{MAX_MESSAGES + 6} (message_id {kept}): "final \\"kept\\""' in calls[-1][-1]["content"]
+    await client.post_checked(RUN, json={**body, "selection": {"text": "elsewhere", "message_id": kept + 999}})
+    assert 'selected text: "elsewhere"' in calls[-1][-1]["content"]
+
+    # Three held requests of 30,000 characters pass the budget. The oldest go until the conversation is a quarter under
+    # it, and the stream names the oldest one kept.
+    held = [
+        message
+        for number in (1, 2, 3)
+        for message in ({"role": "user", "content": f"request {number}"}, {"role": "assistant", "content": "x" * 30_000})
+    ]
+    marks = tuple(RequestMark(f"r{number}") for number in (1, 2, 3))
+    session.hold_transcript(body["session"], Transcript(tuple(held), "model", "endpoint", marks))
+    events = frames(await client.post_checked(RUN, json={**body, "request_id": "r4"}))
+    assert ("trimmed", {"request_id": "r3"}) in events
+    assert [m["content"] for m in calls[-1] if m["role"] == "user"][0] == "request 3"
+
+
 async def test_a_failed_model_or_a_missing_endpoint_ends_the_stream_with_one_error(client, db, monkeypatch):
     unreadable = {"type": "done", "message": {"content": "I will look."}}
     _script(monkeypatch, unreadable, unreadable)
@@ -457,7 +497,9 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     # Same name as an existing entry: a second entry, never an edit of the first.
     assert [entry["name"] for entry in entries] == ["Tide tax", "Tide tax"] and created["content"] == "Doubled in storms."
     start = next(data for event, data in events if event == "tool_start" and data["tool"] == "create_lore_entry")
-    assert start == {"call_id": "call1", "tool": "create_lore_entry"}
+    # The call's arguments ride with its start, each as short text, for the log to show folded under the tool line.
+    shown = {**arguments, "keywords": '["storm"]'}
+    assert start == {"call_id": "call1", "tool": "create_lore_entry", "arguments": shown}
     names = [event for event, _ in events]
     assert names.index("mutation") + 1 == names.index("tool_result") and names[-1] == "done"
     assert dict(events)["mutation"]["resources"] == [

@@ -1,4 +1,4 @@
-"""The assistant's actions: new lore entries, characters, worlds, personas and chats, a chat's worlds, title and persona,
+"""The assistant's actions: new lore entries, characters, worlds, personas, documents and chats, a chat's worlds, title and persona,
 checkpoints, branch selection, and handoffs to the chat's own stream or to the browser.
 
 Creates are additive and go through each resource's own schema and writer, with server-generated ids. Chat mutations take the
@@ -19,6 +19,7 @@ from pydantic import Field, StringConstraints, field_validator
 
 from ....database import (
     create_character_card,
+    create_document,
     create_lorebook_entry,
     create_user_persona,
     create_world,
@@ -63,6 +64,8 @@ _TAGS = 20
 _DIRECTION_CHARS = 500
 _SEND_CHARS = 4000
 _LISTED_WORLDS = 30
+# As much as one call can carry whole; a longer document grows through edit_document.
+_DOCUMENT_CHARS = 8000
 
 
 def _text(cap: int, description: str) -> Any:
@@ -120,6 +123,13 @@ class _PersonaCreate(ToolArguments):
     description: str = _text(_LONG_TEXT_CHARS, "Who that is, as the chats should know them.")
 
     _blank = field_validator("name")(not_blank)
+
+
+class _DocumentCreate(ToolArguments):
+    title: str = Field(min_length=1, max_length=_NAME_CHARS, description="The document's title.")
+    content: str = _text(_DOCUMENT_CHARS, "The document's text.")
+
+    _blank = field_validator("title")(not_blank)
 
 
 class _ChatWorld(ToolArguments):
@@ -278,6 +288,18 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         )
         data = {"created": True, "persona_id": persona["id"]}
         return wrote(data, f"Created persona {quoted(persona['name'])}.", "persona", persona_id=persona["id"])
+
+    @tools.add(
+        "write",
+        _DocumentCreate,
+        "Create a document with a title and its text. It opens nothing: the user finds it in the document list.",
+        name="create_document",
+    )
+    async def add_document(args: _DocumentCreate) -> ToolOutput:
+        # Authored text only: the text is the user's to continue, so none of it is marked as generated.
+        document = await create_document({"title": args.title.strip(), "content": args.content})
+        data = {"created": True, "document_id": document["id"]}
+        return wrote(data, f"Created document {quoted(document['title'])}.", "document", document_id=document["id"])
 
     @tools.add(
         "write",

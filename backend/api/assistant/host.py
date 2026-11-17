@@ -80,6 +80,10 @@ class ApiHost:
     def chat_deleting(self, cid: str) -> bool:
         return deps.resource_deleting(cid)
 
+    def document_busy(self, document_id: str) -> bool:
+        # A document's streams run under the same registry as a chat's, keyed apart from every conversation id.
+        return deps.conversation_busy(f"doc:{document_id}")
+
     @asynccontextmanager
     async def admitted(self, cid: str) -> AsyncIterator[None]:
         try:

@@ -12,6 +12,15 @@ const MAX_IDS_CHARS = 2000;
 // A run proposes at most one change per tool run, so one card holds every change a run can propose.
 const MAX_PROPOSALS = 12;
 const MAX_DETAIL_CHARS = 500;
+// How much of the text a request was sent with selected is kept to show above it.
+const MAX_SELECTION_SHOWN = 200;
+// A call's arguments arrive already clipped by the server; these bound what a stored or forged entry may carry.
+const MAX_ARGS = 16;
+const MAX_ARG_CHARS = 400;
+// Past this a proposed text is shown as its diff alone: a document's whole text would only bury the change.
+const MAX_FULL_TEXT_CHARS = 20000;
+// The longest text the reader may send back as their own for a pending edit.
+const MAX_REVISE_CHARS = 200000;
 // Unchanged text shown on each side of a change; the whole new text stays one click away.
 const DIFF_CONTEXT = 120;
 const MODES = new Set(["chat", "document", "library"]);
@@ -84,6 +93,15 @@ function storedIds(value) {
   }
 }
 
+// A call's arguments as shown under its tool line: short strings by name, or null.
+function storedArgs(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const args = {};
+  for (const [name, shown] of Object.entries(value).slice(0, MAX_ARGS))
+    if (typeof shown === "string" && shown) args[name.slice(0, 64)] = shown.slice(0, MAX_ARG_CHARS);
+  return Object.keys(args).length ? args : null;
+}
+
 // One proposed edit as stored: its labels, lengths and state, never its texts or id, so it can never be applied again.
 function storedProposal(value) {
   const tool = text(value?.tool, 64);
@@ -116,7 +134,14 @@ function storedItem(value) {
     const context = storedContext(value.context);
     if (!body.trim() || !context) return null;
     // The request's name on the server, which an edit of it sends back; an open edit box is not kept.
-    return { kind: "user", text: body, context, ...(id(value.requestId) ? { requestId: id(value.requestId) } : {}) };
+    const selection = text(value.selection, MAX_SELECTION_SHOWN);
+    return {
+      kind: "user",
+      text: body,
+      context,
+      ...(id(value.requestId) ? { requestId: id(value.requestId) } : {}),
+      ...(selection ? { selection } : {}),
+    };
   }
   if (value.kind === "assistant") return body.trim() ? { kind: "assistant", text: body } : null;
   if (value.kind === "tool") {
@@ -126,8 +151,10 @@ function storedItem(value) {
     const item = { kind: "tool", tool, text: running ? NO_RESULT : body, ok: !running && value.ok === true };
     const note = text(value.note, MAX_NOTE_CHARS);
     const ids = storedIds(value.ids);
+    const args = storedArgs(value.args);
     if (note) item.note = note;
     if (ids) item.ids = ids;
+    if (args) item.args = args;
     return item;
   }
   if (value.kind === "proposals") {
@@ -324,6 +351,15 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     const request = run.items.findLastIndex((item) => item.kind === "user");
     if (d.continued === false && request > 0)
       run.items.splice(request, 0, { kind: "outcome", reason: "reset", text: RESET });
+  } else if (event === "trimmed") {
+    // The conversation passed its budget: the model now reads it from the request named, and nothing above that.
+    const kept = run.items.findIndex(
+      (item) => item.kind === "user" && item.requestId && item.requestId === d.request_id,
+    );
+    if (kept > 0) {
+      const above = run.items.slice(0, kept).filter((item) => !(item.kind === "outcome" && item.reason === "reset"));
+      run.items.splice(0, kept, ...above, { kind: "outcome", reason: "reset", text: RESET });
+    }
   } else if (event === "progress") {
     run.status = text(d.label, MAX_LABEL_CHARS);
   } else if (event === "assistant_message") {
@@ -333,6 +369,8 @@ export function applyStreamEvent(run, event, data, errorMessage) {
   } else if (event === "tool_start") {
     const item = { kind: "tool", tool: text(d.tool, 64) || "tool", text: "", ok: false, running: true };
     if (typeof d.call_id === "string") item.callId = d.call_id;
+    const args = storedArgs(d.arguments);
+    if (args) item.args = args;
     if (run.note) item.note = run.note;
     run.note = "";
     run.items.push(item);
@@ -537,7 +575,9 @@ function entryDiffHtml(entry) {
     ? listEntryHtml(entry)
     : `<div class="asst-diff asst-diff-inline">${diffHtml(entry.before, entry.after)}</div>` +
       splitHtml(entry) +
-      `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
+      (entry.after.length > MAX_FULL_TEXT_CHARS
+        ? ""
+        : `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`);
   diffCache.set(entry, { before: entry.before, after: entry.after, html });
   return html;
 }
@@ -551,7 +591,7 @@ const button = (action, label, attrs, { accent = false, disabled = false } = {})
 function entryControls(entry, busy, checkpoint) {
   if (!entry.proposalId) return "";
   const attrs = ` data-proposal="${escAttr(entry.proposalId)}"`;
-  const textEdit = entry.action !== "delete" && !entry.list;
+  const textEdit = entry.action !== "delete" && !entry.list && entry.after.length <= MAX_REVISE_CHARS;
   let controls = "";
   if (entry.status === "pending" && entry.editing) {
     controls =
@@ -655,8 +695,9 @@ function cardHtml(card, index, { busy }) {
 function requestHtml(item, index, items, busy) {
   const attrs = ` data-index="${escAttr(String(index))}"`;
   if (!item.editing) {
+    const selection = item.selection ? `<div class="asst-selection">${esc(item.selection)}</div>` : "";
     return (
-      `<div class="asst-request"><div class="asst-msg asst-user">${esc(item.text)}</div>` +
+      `<div class="asst-request"><div class="asst-msg asst-user">${selection}${esc(item.text)}</div>` +
       `<button type="button" class="asst-request-edit" data-wf-action="assistant:editRequest"${attrs}` +
       ` title="Edit" aria-label="Edit message"${busy ? " disabled" : ""}>${EDIT_ICON}</button></div>`
     );
@@ -703,8 +744,8 @@ const SUGGESTIONS = {
   ],
   document: [
     "Summarise this document.",
+    "Tighten the passage I selected.",
     "Which of my characters appear in this document?",
-    "What is switched on in the pipeline?",
   ],
   library: [
     "What can you do?",
@@ -771,6 +812,11 @@ function imageHtml(item) {
   );
 }
 
+function argsHtml(args) {
+  const rows = Object.entries(args).map(([name, shown]) => `<dt>${esc(name)}</dt><dd>${esc(shown)}</dd>`);
+  return `<dl class="asst-tool-args">${rows.join("")}</dl>`;
+}
+
 /**
  * The log's rows as `[{ key, html }]`, each one element. User text, labels, tool lines, outcomes and proposed edits are
  * escaped; only an assistant reply goes through *renderProse*, inside `.msg-body`, where no element can name an action.
@@ -799,10 +845,13 @@ export function transcriptEntries(items, renderProse, { busy = false, suggestFor
       const state = item.running ? " asst-tool-running" : item.ok ? "" : " asst-tool-failed";
       const note = item.note ? `<div class="asst-tool-note">${esc(item.note)}</div>` : "";
       const result = item.running ? "Working…" : item.text;
-      add(
-        `<div class="asst-tool${state}">${note}<div class="asst-tool-line"><span class="asst-tool-name">${esc(item.tool)}</span>` +
-          `<span class="asst-tool-text">${esc(result)}</span></div>${imageHtml(item)}</div>`,
-      );
+      const line =
+        `<span class="asst-tool-name">${esc(item.tool)}</span>` + `<span class="asst-tool-text">${esc(result)}</span>`;
+      // What the call was made with stays folded under its line: a query or an address is one click away, never in the way.
+      const call = item.args
+        ? `<details class="asst-tool-call"><summary class="asst-tool-line">${line}</summary>${argsHtml(item.args)}</details>`
+        : `<div class="asst-tool-line">${line}</div>`;
+      add(`<div class="asst-tool${state}">${note}${call}${imageHtml(item)}</div>`);
     } else if (item.kind === "proposals") {
       add(cardHtml(item, index, { busy }));
     } else if (item.kind === "outcome" && SEPARATORS.has(item.reason)) {

@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
-from ..features.assistant import MAX_ITEM_CHARS
+from ..features.assistant import MAX_ITEM_CHARS, MAX_SELECTION_CHARS
 
 
 class _PartialUpdate(BaseModel):
@@ -1001,6 +1001,15 @@ class AssistantViewContext(BaseModel):
         return self
 
 
+class AssistantSelection(BaseModel):
+    """The text selected in the view at Send: in the document, or in the chat message *message_id* names."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=MAX_SELECTION_CHARS)
+    message_id: int | None = Field(default=None, ge=1)
+
+
 class AssistantRunRequest(BaseModel):
     """One assistant request: the user's words, the conversation they extend, and the view captured at Send."""
 
@@ -1008,6 +1017,7 @@ class AssistantRunRequest(BaseModel):
 
     text: str = Field(min_length=1, max_length=MAX_ITEM_CHARS)
     context: AssistantViewContext
+    selection: AssistantSelection | None = None
     # The browser's own name for its conversation. The server holds that conversation's messages; the browser sends none.
     session: str = Field(min_length=1, max_length=64)
     # The browser's name for this request. With ``edit`` it names a request already sent: the conversation goes back to

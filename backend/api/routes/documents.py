@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ...core import scrub_log
 from ...database import (
+    DocumentConflict,
     create_document,
     get_document,
     get_documents,
@@ -17,7 +18,6 @@ from ...database import (
     get_settings,
     update_document,
 )
-from ...database.queries.documents import DocumentConflict
 from ...features.documents import DocumentContinuer, audit_document, patch_document, scaffold_keeper, split_margins
 from ...inference import AbortToken, client_from_settings, until_aborted
 from ...workflows.contracts import PublicEvent
