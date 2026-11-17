@@ -144,6 +144,8 @@ Orb stores the password, hashed, in its database at `backend/data/app.db`, in th
    more tokens.
 2. Create or import a character in **Characters**.
 3. Open the character, send a message, and continue the conversation.
+4. Click **🤖 Assistant** in the chat header to ask for changes in plain
+   language. See [Assistant Chat](features/assistant/index.md).
 
 Endpoints use a hierarchy: an endpoint can contain several models, and each model
 has its own parameters and prompts.

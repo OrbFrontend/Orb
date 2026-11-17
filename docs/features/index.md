@@ -2,7 +2,18 @@
 
 Orb's optional features fall into four areas. The **Writer** creates a reply;
 the **Director** can prepare scene direction before it; the **Editor** can check
-and revise it afterward.
+and revise it afterward. The **Assistant** works outside the reply: it carries
+out requests across the whole app.
+
+## Assistant
+
+| Feature | Description |
+|---|---|
+| [Assistant Chat](assistant/index.md) | An agent that reads and changes your characters, chats, lore, fragments, documents, and settings on request. |
+| [Reviewing Changes](assistant/reviewing-changes.md) | Apply, edit, skip, or undo the edits and deletes it proposes. |
+| [Images and Speech](assistant/images-and-speech.md) | Have it make pictures, illustrate replies, and read replies aloud. |
+| [Assistant Options](assistant/options.md) | Think, tool groups, and the system prompt. |
+| [Web Search](assistant/web-search.md) | Let it search the web through SearXNG. |
 
 ## Scenes
 
@@ -36,7 +47,6 @@ and revise it afterward.
 
 | Feature | Description |
 |---|---|
-| [Assistant Chat](assistant-chat.md) | Ask questions about your library and request changes in plain language. |
 | [Macros](macros.md) | Insert names, dice rolls, random choices, dates, and times. |
 | [Super-regenerate](super-regenerate.md) | Ask for a substantially different version of a reply. |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message using your instructions. |

@@ -41,7 +41,7 @@ characteristics are nullified. There's also no repetition from previous messages
 
 -   **[Features](features/index.md)**
 
-    Learn about direction, editing, writing tools, groups, and data management.
+    Learn about the assistant, direction, editing, writing tools, groups, and data management.
 
 -   **[Multimedia](multimedia/index.md)**
 
