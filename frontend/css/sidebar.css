@@ -102,7 +102,8 @@
 .char-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .char-item-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.char-item-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity .15s; }
+.char-item-actions { display: flex; align-items: center; gap: 2px; margin-right: -4px; opacity: 0;
+  transition: opacity .15s; }
 .char-item:hover .char-item-actions { opacity: 1; }
 .char-item-actions button, .btn-icon.group-chat-delete {
   box-sizing: border-box; width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center;
