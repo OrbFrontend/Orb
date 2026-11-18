@@ -14,6 +14,9 @@ description itself and the picture appears in the log. Click it to zoom.
   reference picture when the style uses references.
 - Ask for a change to a picture ("same, but at night") and the assistant renders
   again from it.
+- Point at an image in a chat ("like the picture on #12") and the assistant
+  renders from it. The style must take reference images; the assistant says
+  which do.
 - Name a style, or leave it to the default. "Which styles do I have?" lists them.
 
 Nothing is attached to a card or chat. To use a picture as an avatar, save it
@@ -25,19 +28,20 @@ pictures until it restarts, so save the ones you want.
 "Illustrate this reply" renders an image for a reply, as its image button does.
 Add what you want it to show ("from her side of the room, at dusk") and the
 picture follows your direction over the reply's moment, framing, and mood. The
-image is saved on the reply.
+image is saved on the reply. It can also work from an image in a chat, as
+above. A picture from the panel cannot be used for a reply: upload it to the
+chat first.
 
 ## Read a reply aloud
 
 "Read the last reply aloud" generates speech for a reply, as its speaker control
 does, in the character's voice.
 
-## Letting the assistant see its pictures
+## What the assistant sees
 
-The assistant sees the pictures it makes only when Image Generation already
-sends pictures to the Agent model: **Show the prompter the last image** is on,
-or **Review turns** is above 0. Then it can check a render and fix it on request.
-The Agent model must accept images.
+The assistant sees the pictures it makes and the chat images it looks at, so it
+can check a render and fix it on request. If the Agent model takes text only,
+the assistant carries on without the pictures.
 
 ## While it renders
 

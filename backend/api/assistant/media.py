@@ -22,7 +22,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from ...database import get_character_card, get_settings
-from ...features.assistant.tools import CreatedImage, HostRefusal, ImageStyles, MediaOutcome, MediaRun
+from ...features.assistant.tools import CreatedImage, HostRefusal, ImageStyles, MediaOutcome, MediaRun, ViewedImage
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...workflows import (
     HookType,
@@ -173,23 +173,64 @@ async def image_styles() -> ImageStyles:
     """What the image workflow's ``styles`` query reports, as the settings form lists them."""
     sub = get_subscription(_IMAGE_WORKFLOW, HookType.QUERY)
     if sub is None:
-        raise HostRefusal("Image Generation lists no styles; leave style_id empty for its default style.")
+        raise HostRefusal(
+            "Image Generation lists no styles, so style_id and reference_image cannot be checked; leave both empty."
+        )
     try:
         result = await sub.callable(QueryCtx(settings=readonly_view(await get_settings())), {"action": "styles"})
     except Exception:
         logger.exception("Assistant image style listing failed")
         raise HostRefusal("The image styles could not be read; the server log has the details.") from None
     raw, default = result.get("styles"), result.get("default_style")
-    labels = {
-        style["id"]: str(style.get("label") or style["id"])
+    styles = [
+        style
         for style in (raw if isinstance(raw, list) else ())
         if isinstance(style, Mapping) and isinstance(style.get("id"), str) and style["id"]
-    }
-    return ImageStyles(labels, default if isinstance(default, str) else "")
+    ]
+    labels = {style["id"]: str(style.get("label") or style["id"]) for style in styles}
+    references = frozenset(style["id"] for style in styles if style.get("takes_reference") is True)
+    return ImageStyles(labels, default if isinstance(default, str) else "", references)
+
+
+async def view_image(origin: str) -> ViewedImage:
+    """What the image workflow's ``describe`` query reports about the chat image at *origin*."""
+    sub = get_subscription(_IMAGE_WORKFLOW, HookType.QUERY)
+    if sub is None:
+        raise HostRefusal("Image Generation is not installed, so chat images cannot be viewed.")
+    try:
+        result = await sub.callable(
+            QueryCtx(settings=readonly_view(await get_settings())), {"action": "describe", "origin": origin}
+        )
+    except API_PASSTHROUGH_ERRORS as exc:
+        raise HostRefusal(_detail(exc)) from None
+    except Exception:
+        logger.exception("Assistant image view failed")
+        raise HostRefusal("The image could not be read; the server log has the details.") from None
+    if not isinstance(result, Mapping):
+        raise HostRefusal("Image Generation could not describe that image.")
+    error = result.get("error")
+    if isinstance(error, str) and error:
+        raise HostRefusal(error[:_ERROR_CHARS])
+    facts, preview = result.get("facts"), result.get("preview_url")
+    return ViewedImage(
+        dict(facts) if isinstance(facts, Mapping) else {},
+        preview if isinstance(preview, str) and preview.startswith("data:image/") else "",
+    )
+
+
+def _reference(origin: str) -> StandaloneReference:
+    """The picture at *origin*: a panel picture with its bytes, since only this store holds them, else a chat image by origin."""
+    kind, _, image_id = origin.partition(":")
+    if kind != "assistant":
+        return StandaloneReference(origin)
+    image = get_image(image_id)
+    if image is None:
+        raise HostRefusal("That reference picture expired or the server restarted. Ask for a new picture.")
+    return StandaloneReference(origin, image.data, image.mime)
 
 
 async def create_image(
-    description: str, character_id: str | None, reference_image_id: str, style_id: str, run: MediaRun
+    description: str, character_id: str | None, reference: str, style_id: str, run: MediaRun
 ) -> CreatedImage:
     """Render under the assistant's Stop token, without a conversation-keyed workflow job or attachment.
 
@@ -203,12 +244,7 @@ async def create_image(
         character = await get_character_card(character_id) if character_id else None
         if character_id and character is None:
             raise HostRefusal("That character no longer exists; nothing was made.")
-        reference = None
-        if reference_image_id:
-            image = get_image(reference_image_id)
-            if image is None:
-                raise HostRefusal("That reference picture expired or the server restarted. Ask for a new picture.")
-            reference = StandaloneReference(image.data, image.mime, f"assistant:{reference_image_id}")
+        picture = _reference(reference) if reference else None
         client = client_from_settings(settings, abort_token=run.abort)
         agent, model = agent_lane_from_settings(settings, writer_client=client, abort_token=run.abort)
         ctx = StandaloneCtx(
@@ -219,7 +255,7 @@ async def create_image(
             character_id=character_id,
             character=readonly_view(character),
             phase=lambda label: run.report(label[:_LABEL_CHARS]),
-            reference=reference,
+            reference=picture,
             style_id=style_id,
         )
         task = asyncio.ensure_future(sub.callable(ctx))

@@ -21,6 +21,7 @@ from .host import (
     MediaRun,
     NamedWorkflow,
     SchemaName,
+    ViewedImage,
 )
 from .media import build_media_tools
 from .proposals import Proposal, apply_proposals, open_proposals, pending_note, revise_proposal, undo_proposals
@@ -42,6 +43,7 @@ __all__ = [
     "NamedWorkflow",
     "Proposal",
     "SchemaName",
+    "ViewedImage",
     "apply_proposals",
     "build_tools",
     "open_proposals",

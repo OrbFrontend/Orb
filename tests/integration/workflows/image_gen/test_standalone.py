@@ -1,6 +1,7 @@
 """Standalone pictures compose once from a description, style and optional saved likeness."""
 
 import base64
+import hashlib
 import io
 from dataclasses import replace
 from types import SimpleNamespace
@@ -8,7 +9,13 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from backend.database import create_character_card, get_settings
+from backend.database import (
+    add_message,
+    create_character_card,
+    create_conversation,
+    get_settings,
+    insert_workflow_attachment_row,
+)
 from backend.workflows import StandaloneCtx, set_workflow_character_state, set_workflow_config
 from backend.workflows.image_gen import composer
 from backend.workflows.image_gen.engine import ImageResult
@@ -160,7 +167,7 @@ async def test_explicit_reference_enables_style_inputs_or_refuses_before_composi
         settings=await get_settings(),
         agent_client=object(),
         agent_model_name="agent",
-        reference=StandaloneReference(supplied, "image/png", "assistant:earlier"),
+        reference=StandaloneReference("assistant:earlier", supplied, "image/png"),
     )
     if not accepts_references:
         with pytest.raises(ImageGenerationError, match="no reference image inputs"):
@@ -171,5 +178,77 @@ async def test_explicit_reference_enables_style_inputs_or_refuses_before_composi
     adapter, request = rendered[0]
     assert adapter.style["reference_source"] == "previous"
     assert len(request.references) == 1 and request.references[0].origin == "assistant:earlier"
-    # Nothing in this config says the Agent model takes pictures, and one that does not would fail every call replaying it.
-    assert len(calls) == 1 and result.preview_url == ""
+    assert len(calls) == 1 and result.preview_url.startswith("data:image/")
+
+
+@pytest.mark.parametrize("capacity", [1, 2])
+async def test_a_chosen_chat_image_is_read_by_origin_and_keeps_a_likeness_beside_it_where_inputs_allow(
+    client, db, monkeypatch, capacity
+):
+    from backend.workflows import StandaloneReference
+
+    await create_character_card({"id": "iris", "name": "Iris"})
+    likeness, chosen = io.BytesIO(), io.BytesIO()
+    Image.new("RGB", (16, 16), "blue").save(likeness, "PNG")
+    Image.new("RGB", (16, 16), "red").save(chosen, "PNG")
+    await set_workflow_character_state(
+        "iris",
+        "image_gen",
+        {"reference_image_b64": base64.b64encode(likeness.getvalue()).decode(), "reference_mime": "image/png"},
+    )
+    await create_conversation("standalone-chat", "Images", "Iris", "")
+    mid, _ = await add_message("standalone-chat", "assistant", "She turns.", 0)
+    picture = await insert_workflow_attachment_row(
+        mid,
+        {"filename": "x.png", "mime": "image/png", "data": chosen.getvalue(), "workflow_id": "image_gen", "seed": "1"},
+    )
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "likeness",
+            "styles": [{"id": "likeness", "label": "Likeness", "prompt_format": "tags", "reference_source": "character"}],
+        },
+    )
+    target = RenderTarget(
+        source="cloud",
+        target_id="",
+        model="image-model",
+        supports_negative_prompt=True,
+        supports_seed=True,
+        supports_dimensions=True,
+        width=1024,
+        height=1024,
+        reference_capacity=capacity,
+        reference_template={"slot_prefix": "reference", "required": False},
+    )
+    renders = []
+
+    async def forced(**kwargs):
+        yield {"type": "result", "args": {"scene": "1girl", "unwanted": "", "visible_subjects": ["Iris"]}}
+
+    async def render(adapter, request, **kwargs):
+        renders.append(request)
+        return ImageResult(b"rendered", "image/png", {})
+
+    monkeypatch.setattr(
+        "backend.workflows.image_gen.standalone.get_adapter",
+        lambda config, style: SimpleNamespace(
+            resolve_target=lambda _: replace(target, reference_source=style["reference_source"])
+        ),
+    )
+    monkeypatch.setattr("backend.workflows.image_gen.standalone.resolve_and_generate", render)
+    monkeypatch.setattr(composer, "forced_tool_call", forced)
+    await standalone(
+        StandaloneCtx(
+            description="Iris, the same picture at night.",
+            settings=await get_settings(),
+            agent_client=object(),
+            agent_model_name="agent",
+            character_id="iris",
+            character={"name": "Iris"},
+            reference=StandaloneReference(f"attachment:{picture}"),
+        )
+    )
+    sent = renders[0].references
+    assert [reference.origin for reference in sent] == ["character:iris", f"attachment:{picture}"][2 - capacity :]
+    assert sent[-1].source_digest == hashlib.sha256(chosen.getvalue()).hexdigest()

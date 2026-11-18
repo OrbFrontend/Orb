@@ -152,7 +152,7 @@ framework-owned catalog API. The catalog itself is not part of the plug-in API.
 | `PRE_PIPELINE` | During a turn, before the main passes; all hooks in priority order | Async stream of events or pipeline instructions |
 | `POST_PIPELINE` | During a turn, after the main passes; all hooks in priority order | Async stream of events, draft changes, state, or attachments |
 | `ON_DEMAND` | Conversation-scoped trigger route | A JSON object or `WorkflowEventStream` |
-| `STANDALONE` | Host-driven render without a conversation | A `StandaloneResult` with `data`, `mime`, and a model-facing `preview_url` the workflow fills only when its settings say the Agent model takes pictures; no attachment is saved |
+| `STANDALONE` | Host-driven render without a conversation | A `StandaloneResult` with `data`, `mime`, and a model-facing `preview_url`; no attachment is saved |
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
@@ -173,6 +173,15 @@ toolkit lock for any state it rewrites, so slow processing of the file blocks
 nothing. The TTS voice clone is the worked example. The message-level
 regenerate route reruns the normal turn pipeline; `REGENERATE` is only for an
 attachment.
+
+Image Generation's on-demand `generate` body is `{action, message_id}` with an
+optional `direction`, `style_id`, `excerpt` and `reference`. `reference` is an
+origin, `attachment:<id>` or `upload:<message id>:<id>`, naming the picture the
+render works from in place of the chat's previous image; a missing, cleared or
+unsupported picture fails the stream with its cause, and a style whose backend
+has no image input fails it before composing. Its `styles` query marks each
+style `takes_reference`. Its `describe` query takes `{origin}` for one chat image
+and answers `{facts, preview_url}`.
 
 ## Enablement
 
@@ -204,7 +213,7 @@ framework.
 | `PreCtx` | Conversation, history, current user text, settings, prefix, tool map, client, cache tracker | `turn_scratch` is shared with PostCtx |
 | `PostCtx` | Conversation, final history, effective user text, Director output, merged tools, prefix, client, cache tracker, resolved Agent execution target (`agent_client`, `agent_model_name`) | May stage a draft, state, or attachment |
 | `OnDemandCtx` | Conversation, history, current user text, settings, client, character | Trigger actions |
-| `StandaloneCtx` | Description, settings, Agent client/model, optional character, optional `StandaloneReference`, `phase(label)`, optional `style_id` (empty: the workflow's default) | No conversation or history; caller owns cancellation |
+| `StandaloneCtx` | Description, settings, Agent client/model, optional character, optional `StandaloneReference` (an origin, with bytes only for a picture the workflow cannot read), `phase(label)`, optional `style_id` (empty: the workflow's default) | No conversation or history; caller owns cancellation |
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |

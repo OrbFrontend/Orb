@@ -171,10 +171,12 @@ class MediaOutcome:
 
 @dataclass(frozen=True)
 class ImageStyles:
-    """The image workflow's styles: each id's label in the workflow's order, and the id a render without one uses."""
+    """The image workflow's styles: each id's label in the workflow's order, the id a render without one uses, and the ids
+    whose backend has an image input a reference picture can fill."""
 
     labels: Mapping[str, str]
     default: str
+    references: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -182,6 +184,14 @@ class CreatedImage:
     """A temporary picture's id and model-facing preview, independent of its stored download bytes."""
 
     image_id: str
+    preview_url: str
+
+
+@dataclass(frozen=True)
+class ViewedImage:
+    """What the image workflow reports about one chat image, and its model-facing preview where the Agent model sees pictures."""
+
+    facts: Mapping[str, Any]
     preview_url: str
 
 
@@ -201,12 +211,18 @@ class MediaJobs(Protocol):
         ...
 
     async def create_image(
-        self, description: str, character_id: str | None, reference_image_id: str, style_id: str, run: MediaRun
+        self, description: str, character_id: str | None, reference: str, style_id: str, run: MediaRun
     ) -> CreatedImage:
-        """Render with an optional earlier picture and return its temporary id and preview; HostRefusal on failure or Stop.
+        """Render, from the picture at origin *reference* when one is given, and return its temporary id and preview;
+        HostRefusal on failure or Stop.
 
+        *reference* is an image workflow origin (``attachment:<id>``, ``upload:<message id>:<id>`` or ``assistant:<image id>``).
         An empty *style_id* renders in the workflow's default style.
         """
+        ...
+
+    async def view_image(self, origin: str) -> ViewedImage:
+        """The image workflow's facts about the chat image at *origin*; :class:`HostRefusal` naming why it cannot be read."""
         ...
 
     def message_deleting(self, message_id: int) -> bool: ...

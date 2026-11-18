@@ -51,6 +51,7 @@ from .fragments import (
     ordered_stage,
 )
 from .host import AssistantHost, HostRefusal
+from .images import listed_images
 from .targets import (
     CHARACTER_FIELDS,
     ID_CHARS,
@@ -456,7 +457,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         _MessagesArgs,
         f"Read messages on a chat's kept branch, at most {MAX_MESSAGES}: the latest, those before before_message_id, or "
         "those containing query. With message_id or number, read one message whole. A message's number is the #N the chat window "
-        "shows; name messages to the user by it, never by id.",
+        "shows; name messages to the user by it, never by id. A message's images give the refs view_image and reference_image "
+        "take; shown marks the one on screen.",
     )
     async def read_messages(args: _MessagesArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, host, changes=False)
@@ -483,9 +485,11 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         needle = args.query.strip().casefold()
         candidates = [row for row in window if needle in (row["content"] or "").casefold()] if needle else window
         numbers = {row["id"]: index + 1 for index, row in enumerate(path)}
+        page = candidates[-args.count :]
+        images = await listed_images([message["id"] for message in page])
         rows: list[dict[str, Any]] = []
         size = 0
-        for message in reversed(candidates[-args.count :]):
+        for message in reversed(page):
             speaker = speakers.get(message.get("speaker_member_id") or "")
             row = {
                 "id": message["id"],
@@ -493,6 +497,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
                 "role": message["role"],
                 **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
                 "content": clip(message["content"], _MESSAGE_CHARS),
+                **images.get(message["id"], {}),
             }
             size += _size(row) + 1
             if rows and size > _ROWS_BUDGET:
@@ -535,6 +540,7 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             **({"number": number} if number else {"on_kept_branch": False}),
             "role": message["role"],
             **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
+            **(await listed_images([message["id"]])).get(message["id"], {}),
         }
         data = text_page(message["content"] or "", args.text_offset, head, "content")
         ids = {"conversation_id": conv["id"], "message_ids": [message["id"]]}

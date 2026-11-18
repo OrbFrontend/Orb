@@ -12,6 +12,7 @@ from ....core.settings import Settings
 from ....database import get_active_path, get_message_by_id, get_settings, message_workflow_attachment_ids
 from ..contracts import AssistantTool, NoArguments, ToolArguments, ToolFailure, ToolOutput, ViewContext
 from .host import AssistantHost, HostRefusal, ImageStyles, MediaOutcome, MediaRun, WorkflowSwitches
+from .images import TOKEN_CHARS, reference_of
 from .targets import chat_field, message_label, quoted, reply_target
 
 
@@ -35,6 +36,10 @@ class _Medium:
 _DIRECTION_CHARS = 1000
 
 _STYLE_ID = "An image style id from list_image_styles, when the user asks for a style; empty: the default style."
+_CHAT_REFERENCE = (
+    "A chat image to work from, by its ref from read_messages images (attachment:<id> or upload:<id>); it fills the "
+    "style's image inputs in place of the chat's previous image. Needs a style list_image_styles marks takes_reference."
+)
 
 _MEDIA = (
     _Medium(
@@ -48,7 +53,8 @@ _MEDIA = (
         "Make an image of one saved reply in a chat with the Image Generation workflow and save it on that message. With "
         "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
         "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
-        "For a standalone picture or avatar rather than a saved RP reply, use create_image instead.",
+        "With reference_image, it is drawn from that chat image. For a standalone picture or avatar rather than a saved RP "
+        "reply, use create_image instead.",
         directed=True,
     ),
     _Medium(
@@ -76,7 +82,16 @@ class _ImageArgs(_MediaArgs):
         max_length=_DIRECTION_CHARS,
         description="What the user wants this image to show, in their words or a faithful paraphrase; empty: from the reply alone.",
     )
+    reference_image: str = Field(default="", max_length=TOKEN_CHARS, description=_CHAT_REFERENCE)
     style_id: str = Field(default="", max_length=64, description=_STYLE_ID)
+
+
+class _ViewImageArgs(ToolArguments):
+    reference_image: str = Field(
+        min_length=1,
+        max_length=TOKEN_CHARS,
+        description="The chat image to look at, by its ref from read_messages images (attachment:<id> or upload:<id>).",
+    )
 
 
 def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHost) -> list[AssistantTool]:
@@ -100,11 +115,22 @@ def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHo
         tools.append(
             AssistantTool(
                 "list_image_styles",
-                "List the Image Generation styles: the style_id that create_image and illustrate_reply take, and which style "
-                "renders when none is named.",
+                "List the Image Generation styles: the style_id that create_image and illustrate_reply take, which style "
+                "renders when none is named, and which styles take a reference_image.",
                 NoArguments,
                 "read",
                 partial(_list_styles, host),
+            )
+        )
+        tools.append(
+            AssistantTool(
+                "view_image",
+                "Look at one chat image: the picture, what message it is on, its size and, for an Image Generation render, the "
+                "style and prompt it was made with. To carry a picture's content into a style that takes no reference, write "
+                "what matters from it into direction or description.",
+                _ViewImageArgs,
+                "read",
+                partial(_view_image, host),
             )
         )
     if standalone:
@@ -113,8 +139,8 @@ def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHo
                 "create_image",
                 "Create a standalone picture from a description and show it in this panel; nothing is saved on a chat or a "
                 "card (illustrate_reply is the tool for a saved RP reply). For an avatar, read the card and describe its looks "
-                "here; the user downloads the picture and sets and crops the avatar themselves. To revise an earlier picture, "
-                "pass its image_id as reference_image_id with the changes.",
+                "here; the user downloads the picture and sets and crops the avatar themselves. To revise an earlier picture "
+                "or work from a chat image, pass its ref as reference_image with the changes.",
                 _CreateImageArgs,
                 "write",
                 partial(_create_image, run, host),
@@ -152,11 +178,14 @@ async def _make(view: ViewContext, run: MediaRun, host: AssistantHost, medium: _
 
     body: dict[str, Any] = {"action": medium.action, "message_id": mid}
     if isinstance(args, _ImageArgs):
-        direction, style_id = args.direction.strip(), await _checked_style(host, args.style_id)
+        direction = args.direction.strip()
+        style_id, reference = await _render_choice(host, args.style_id, args.reference_image, panel=False)
         if direction:
             body["direction"] = direction
         if style_id:
             body["style_id"] = style_id
+        if reference:
+            body["reference"] = reference
     before = set(await message_workflow_attachment_ids(mid, medium.workflow_id))
     run.report(medium.starting)
     try:
@@ -209,11 +238,6 @@ async def _result(
 
 
 class _CreateImageArgs(ToolArguments):
-    reference_image_id: str = Field(
-        default="",
-        max_length=32,
-        description="image_id of an earlier create_image result to revise; used in place of the character's reference picture.",
-    )
     description: str = Field(
         min_length=1,
         max_length=8000,
@@ -223,6 +247,14 @@ class _CreateImageArgs(ToolArguments):
         default="",
         max_length=64,
         description="Card whose saved appearance tags and reference picture apply. Empty: no character, even with one in view.",
+    )
+    reference_image: str = Field(
+        default="",
+        max_length=TOKEN_CHARS,
+        description="A picture to work from: an earlier create_image result's ref (image:<image_id>), or a chat image's ref from "
+        "read_messages images (attachment:<id> or upload:<id>). Used in place of the character's reference picture; needs "
+        "a style list_image_styles marks takes_reference. The description then states the changes the user asked for, not "
+        "what the picture already shows.",
     )
     style_id: str = Field(default="", max_length=64, description=_STYLE_ID)
 
@@ -237,14 +269,14 @@ async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageAr
         raise ToolFailure(
             f"{' and '.join(off)} switched off, so nothing was made. Tell the user; you can turn it on with set_pipeline_toggle if they ask."
         )
-    style_id = await _checked_style(host, args.style_id)
+    style_id, reference = await _render_choice(host, args.style_id, args.reference_image, panel=True)
     try:
-        created = await host.create_image(description, character_id, args.reference_image_id, style_id, run)
+        created = await host.create_image(description, character_id, reference, style_id, run)
     except HostRefusal as exc:
         raise ToolFailure(str(exc)) from None
     summary = "Created a standalone picture in the assistant panel."
     return ToolOutput(
-        {"image_id": created.image_id},
+        {"image_id": created.image_id, "ref": f"image:{created.image_id}"},
         summary,
         {"image_id": created.image_id},
         images=({"type": "image_url", "image_url": {"url": created.preview_url}},) if created.preview_url else (),
@@ -258,21 +290,68 @@ async def _styles(host: AssistantHost) -> ImageStyles:
         raise ToolFailure(str(exc)) from None
 
 
-async def _checked_style(host: AssistantHost, style_id: str) -> str:
-    """*style_id* when it names a style, empty for the default; a failure listing the styles when it names none."""
-    style_id = style_id.strip()
-    if not style_id:
-        return ""
-    labels = (await _styles(host)).labels
-    if style_id not in labels:
-        known = ", ".join(f"{sid} ({label})" for sid, label in labels.items())
+async def _render_choice(host: AssistantHost, style_id: str, token: str, *, panel: bool) -> tuple[str, str]:
+    """The style id to send (empty for the default) and the reference picture's origin (empty for none), both checked.
+
+    An unknown style fails naming the styles, and a reference fails when the style that will render takes none. Styles are read
+    at call time: the user may change the default, or a style's backend, between calls.
+    """
+    style_id, token = style_id.strip(), token.strip()
+    if not style_id and not token:
+        return "", ""
+    reference = await reference_of(token, panel=panel) if token else None
+    styles = await _styles(host)
+    if style_id and style_id not in styles.labels:
+        known = ", ".join(f"{sid} ({label})" for sid, label in styles.labels.items())
         raise ToolFailure(f"No image style has the id {style_id!r}; nothing was made. The styles are: {known}.")
-    return style_id
+    if reference is None:
+        return style_id, ""
+    rendering = style_id or styles.default
+    if rendering not in styles.references:
+        takers = ", ".join(f"{sid} ({label})" for sid, label in styles.labels.items() if sid in styles.references)
+        which = f"The {styles.labels.get(rendering, rendering)} style ({rendering})"
+        if takers:
+            raise ToolFailure(
+                f"{which} has no image input for a reference_image; nothing was made. Styles that take one: {takers}. "
+                "Pass one as style_id, or leave reference_image empty and write what matters from the picture into the request."
+            )
+        raise ToolFailure(
+            f"{which} has no image input for a reference_image, and no style has one; nothing was made. The user can choose "
+            "a backend with image inputs in the Image Generation settings. Meanwhile, view_image shows what the picture "
+            "holds, to write into the request."
+        )
+    return style_id, reference.origin
+
+
+async def _view_image(host: AssistantHost, args: _ViewImageArgs) -> ToolOutput:
+    token = args.reference_image.strip()
+    reference = await reference_of(token, panel=True)
+    if reference.panel:
+        note = "A create_image picture came with its result; there is nothing more to view."
+        return ToolOutput({"ref": token, "note": note}, "A panel picture has nothing more to view.")
+    try:
+        viewed = await host.view_image(reference.origin)
+    except HostRefusal as exc:
+        raise ToolFailure(str(exc)) from None
+    facts = {"ref": token, **viewed.facts}
+    cid, mid = facts.get("conversation_id"), facts.get("message_id")
+    ids = {"conversation_id": cid, "message_ids": [mid]} if isinstance(cid, str) and isinstance(mid, int) else {}
+    seen = "" if viewed.preview_url else ", without the picture"
+    return ToolOutput(
+        facts,
+        f"Viewed {token}{seen}.",
+        ids,
+        images=({"type": "image_url", "image_url": {"url": viewed.preview_url}},) if viewed.preview_url else (),
+    )
 
 
 async def _list_styles(host: AssistantHost, _args: NoArguments) -> ToolOutput:
     styles = await _styles(host)
     label = styles.labels.get(styles.default)
     named = f"; the default is {label} ({styles.default})" if label else ""
-    data = {"default_style": styles.default, "styles": dict(styles.labels)}
+    data = {
+        "default_style": styles.default,
+        "styles": dict(styles.labels),
+        "takes_reference": [sid for sid in styles.labels if sid in styles.references],
+    }
     return ToolOutput(data, f"Listed {len(styles.labels)} image styles{named}.")

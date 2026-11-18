@@ -114,7 +114,9 @@ CATEGORIES: tuple[ToolCategory, ...] = (
     ),
     ToolCategory("documents", "Documents", frozenset({"list_documents", "read_document", "create_document", "edit_document"})),
     ToolCategory(
-        "media", "Images and speech", frozenset({"list_image_styles", "create_image", "illustrate_reply", "generate_speech"})
+        "media",
+        "Images and speech",
+        frozenset({"list_image_styles", "view_image", "create_image", "illustrate_reply", "generate_speech"}),
     ),
     ToolCategory("web", "Web", frozenset({"search_web", "read_web_page"})),
 )

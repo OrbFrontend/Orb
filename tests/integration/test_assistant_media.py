@@ -1,15 +1,30 @@
 """The assistant's media tools against scripted workflow backends: dispatch, the enablement refusal, Stop and deletion."""
 
 import asyncio
+import base64
 import contextlib
+import hashlib
+import io
 import json
 import uuid
+from datetime import UTC, datetime
+
+from PIL import Image
 
 from backend.api import deps
-from backend.database import get_message_by_id, message_workflow_attachment_ids, set_workflow_enabled
+from backend.database import (
+    get_active_path,
+    get_message_by_id,
+    get_workflow_attachments_for_message,
+    insert_workflow_attachment_row,
+    message_workflow_attachment_ids,
+    set_workflow_enabled,
+)
+from backend.database.queries import messages as message_queries
 from backend.inference import LLMClient
-from backend.workflows import StandaloneResult, WorkflowEventStream
-from backend.workflows.attachment_cache import insert_workflow_attachment
+from backend.workflows import StandaloneResult, WorkflowEventStream, set_workflow_config
+from backend.workflows.attachment_cache import insert_workflow_attachment, set_active_sibling
+from backend.workflows.image_gen.engine import ImageResult
 from tests.integration.test_assistant import RUN, _call, _reply, _script, build_library, frames
 from tests.integration.workflows._fixtures import (  # noqa: F401
     _restore_registry,
@@ -279,8 +294,194 @@ async def test_both_image_tools_render_in_a_listed_style_and_an_unknown_one_is_r
         listed, illustrated, created, default, unknown = _results(frames(await client.post_checked(RUN, json=_body(chat))))
 
     listing = json.loads(next(message["content"] for message in calls[1] if message["role"] == "tool"))
-    assert listing == {"default_style": "realistic", "styles": {"realistic": "Realistic", "ink": "Ink"}}
+    assert listing == {
+        "default_style": "realistic",
+        "styles": {"realistic": "Realistic", "ink": "Ink"},
+        "takes_reference": [],
+    }
     assert listed["ok"] and "Realistic (realistic)" in listed["summary"]
     assert seen == [{"action": "generate", "message_id": kept, "style_id": "ink"}, "ink", ""]
     assert illustrated["ok"] and created["ok"] and default["ok"]
     assert not unknown["ok"] and "ink (Ink)" in unknown["summary"]
+
+
+def _png(color) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 16), color).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+async def _picture(message_id, data, *, parent=None):
+    return await insert_workflow_attachment_row(
+        message_id,
+        {
+            "workflow_id": "image_gen",
+            "filename": "x.png",
+            "mime": "image/png",
+            "data": data,
+            "seed": "1",
+            "parent_attachment_id": parent,
+            "generation_metadata": {"style_id": "anime", "prompt": "1girl", "negative_prompt": ""},
+        },
+    )
+
+
+async def _upload(db, message_id, data):
+    cursor = await db.execute(
+        "INSERT INTO user_attachments (message_id, mime_type, data_b64, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (message_id, "image/png", base64.b64encode(data).decode(), "up.png", len(data), datetime.now(UTC).isoformat()),
+    )
+    await db.commit()
+    return cursor.lastrowid
+
+
+def _styles(**takes):
+    async def query(ctx, body):
+        assert body == {"action": "styles"}
+        return {
+            "default_style": next(iter(takes)),
+            "styles": [{"id": sid, "label": sid.title(), "takes_reference": flag} for sid, flag in takes.items()],
+        }
+
+    return query
+
+
+async def test_a_chosen_chat_image_is_the_reply_render_reference_and_a_reroll_replays_it(client, db, monkeypatch):
+    from tests.integration.workflows.image_gen.test_hooks import CLOUD_CONFIG
+
+    library = await build_library(client, db)
+    chat, kept = library["chat"], library["kept"]
+    await set_workflow_config("image_gen", CLOUD_CONFIG)
+    path = await get_active_path(chat)
+    chosen_bytes = _png("blue")
+    chosen = await _picture(path[-6]["id"], chosen_bytes)
+    # Newer, so the chat's own previous image: the chosen one must win over it.
+    await _picture(path[-3]["id"], _png("red"))
+    renders = []
+
+    async def compose(**kwargs):
+        return "1girl, standing", "", "single_call"
+
+    async def render(adapter, request, **kwargs):
+        renders.append(request)
+        records = [reference.record() for reference in request.references]
+        return ImageResult(_png("white"), "image/png", {"source": "cloud", "references": records})
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
+    _script(
+        monkeypatch,
+        _call("list_image_styles", {}),
+        _call("illustrate_reply", {"message_id": kept, "reference_image": f"attachment:{chosen}"}),
+        _reply("Done."),
+    )
+    listed, illustrated = _results(frames(await client.post_checked(RUN, json=_body(chat))))
+
+    assert listed["ok"] and illustrated["ok"], illustrated
+    [sent] = renders[0].references
+    assert sent.origin == f"attachment:{chosen}" and sent.source_digest == hashlib.sha256(chosen_bytes).hexdigest()
+    [row] = await get_workflow_attachments_for_message(kept)
+    metadata = json.loads(row["generation_metadata"])
+    assert [entry["origin"] for entry in metadata["references"]] == [f"attachment:{chosen}"]
+    assert metadata["reference"] == f"attachment:{chosen}"
+
+    await client.post_checked(f"/api/conversations/{chat}/messages/{kept}/workflow-attachments/{row['id']}/reroll-gen", json={})
+    assert [reference.origin for reference in renders[1].references] == [f"attachment:{chosen}"]
+
+
+async def test_a_reference_for_a_style_without_image_inputs_is_refused_naming_the_styles_that_take_one(client, db, monkeypatch):
+    library = await build_library(client, db)
+    chat, kept = library["chat"], library["kept"]
+    chosen = await _picture((await get_active_path(chat))[-3]["id"], _png("blue"))
+    made = []
+
+    async def on_demand(ctx, body):
+        made.append(body)
+        return {"attachment_id": await _save(body["message_id"])}
+
+    async def standalone(ctx):
+        made.append(ctx)
+        return StandaloneResult(b"picture", "image/png")
+
+    with register_for_test(_media("image_gen", on_demand, standalone=standalone, query=_styles(plain=False, edit=True))):
+        _script(
+            monkeypatch,
+            _call("illustrate_reply", {"message_id": kept, "reference_image": f"attachment:{chosen}"}),
+            _call("create_image", {"description": "A lighthouse.", "reference_image": f"attachment:{chosen}"}),
+            _reply("Neither style works."),
+        )
+        illustrated, created = _results(frames(await client.post_checked(RUN, json=_body(chat))))
+
+    assert not made
+    for result in (illustrated, created):
+        assert not result["ok"] and "edit (Edit)" in result["summary"] and "plain (Plain)" not in result["summary"]
+
+
+async def test_create_image_takes_chat_images_and_uploads_and_a_reply_refuses_a_panel_picture(client, db, monkeypatch):
+    library = await build_library(client, db)
+    chat, kept = library["chat"], library["kept"]
+    path = await get_active_path(chat)
+    rendered, uploaded = _png("blue"), _png("green")
+    render_id = await _picture(path[-3]["id"], rendered)
+    upload_id = await _upload(db, path[-2]["id"], uploaded)
+    seen = []
+
+    async def on_demand(ctx, body):
+        seen.append(body)
+        return {"attachment_id": await _save(body["message_id"])}
+
+    async def standalone(ctx):
+        seen.append(ctx.reference)
+        return StandaloneResult(b"picture", "image/png")
+
+    with register_for_test(_media("image_gen", on_demand, standalone=standalone, query=_styles(edit=True))):
+        _script(
+            monkeypatch,
+            _call("illustrate_reply", {"message_id": kept, "reference_image": "image:" + "a" * 32}),
+            _call("create_image", {"description": "The same, at night.", "reference_image": f"attachment:{render_id}"}),
+            _call("create_image", {"description": "The same, at night.", "reference_image": f"upload:{upload_id}"}),
+            _reply("Done."),
+        )
+        refused, from_render, from_upload = _results(frames(await client.post_checked(RUN, json=_body(chat))))
+
+    assert not refused["ok"] and from_render["ok"] and from_upload["ok"]
+    # The image workflow reads a chat image's bytes itself, by origin.
+    assert [(reference.origin, reference.data) for reference in seen] == [
+        (f"attachment:{render_id}", b""),
+        (f"upload:{path[-2]['id']}:{upload_id}", b""),
+    ]
+
+
+async def test_read_messages_lists_each_message_images_with_the_one_on_screen_and_reads_no_bytes(client, db, monkeypatch):
+    library = await build_library(client, db)
+    chat, kept = library["chat"], library["kept"]
+    asked = (await get_active_path(chat))[-2]["id"]
+    root = await _picture(kept, _png("blue"))
+    redo = await _picture(kept, _png("red"), parent=root)
+    await set_active_sibling(root, root, expected_message_id=kept)
+    upload = await _upload(db, asked, _png("green"))
+    queries, calls = [], []
+    select_rows = message_queries.select_rows
+
+    async def recording(sql, *args, **kwargs):
+        queries.append(sql)
+        return await select_rows(sql, *args, **kwargs)
+
+    monkeypatch.setattr(message_queries, "select_rows", recording)
+    script = [_call("read_messages", {"count": 2}), _reply("Two images.")]
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield script.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    await client.post_checked(RUN, json=_body(chat))
+
+    result = json.loads(next(message["content"] for message in calls[1] if message["role"] == "tool"))
+    rows = {row["id"]: row for row in result["messages"]}
+    assert rows[kept]["images"] == [
+        {"ref": f"attachment:{redo}", "kind": "render", "shown": False},
+        {"ref": f"attachment:{root}", "kind": "render", "shown": True},
+    ]
+    assert rows[asked]["images"] == [{"ref": f"upload:{upload}", "kind": "upload", "shown": True}]
+    assert queries and not [sql for sql in queries if "data_b64" in sql]

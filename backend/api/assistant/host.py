@@ -23,6 +23,7 @@ from ...features.assistant.tools import (
     MediaRun,
     NamedWorkflow,
     SchemaName,
+    ViewedImage,
 )
 from ...features.fragment_state import StateWriteError, state_panel
 from ...pipeline import estimate_context_size, resolve_judge_config
@@ -169,9 +170,12 @@ class ApiHost:
         return await media.image_styles()
 
     async def create_image(
-        self, description: str, character_id: str | None, reference_image_id: str, style_id: str, run: MediaRun
+        self, description: str, character_id: str | None, reference: str, style_id: str, run: MediaRun
     ) -> CreatedImage:
-        return await media.create_image(description, character_id, reference_image_id, style_id, run)
+        return await media.create_image(description, character_id, reference, style_id, run)
+
+    async def view_image(self, origin: str) -> ViewedImage:
+        return await media.view_image(origin)
 
     def message_deleting(self, message_id: int) -> bool:
         return deps.message_deleting(message_id)

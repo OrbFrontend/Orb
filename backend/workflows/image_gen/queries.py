@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
-from ..toolkit import QueryCtx, get_workflow_config, gpu_swap_support
+import asyncio
+import base64
+import io
+import json
+from collections.abc import Mapping
+from typing import Any
+
+from PIL import Image
+
+from ..toolkit import EVICTED_MARKER, QueryCtx, get_message_by_id, get_workflow_config, gpu_swap_support
 from . import pov as pov_mod
-from .config import MAX_REFERENCE_SLOTS, WORKFLOW_ID, active_style, normalize_config, style_source
+from .config import (
+    MAX_REFERENCE_SLOTS,
+    WORKFLOW_ID,
+    active_style,
+    normalize_config,
+    style_source,
+)
 from .engine import ImageGenerationError, comfy_adapter, get_adapter, health, list_sources
 from .engine.providers import provider_catalogue
+from .hooks import review_image_url
+from .references import origin_row
 
 MAX_INSPECTED_CLASS_TYPES = 200
+# The longest recorded prompt or direction a description quotes.
+_DESCRIBED_CHARS = 1500
 
 
 async def _config_from_query(body) -> dict:
@@ -59,8 +78,84 @@ async def _styles(body) -> dict:
         "default_style": config["default_style"],
         # Where the next on-demand render runs: the host's GPU swap check asks, since only ComfyUI renders swap.
         "default_source": style_source(config, active_style(config))[0],
-        "styles": config["styles"],
+        "styles": [{**style, "takes_reference": _takes_reference(config, style)} for style in config["styles"]],
     }
+
+
+def _takes_reference(config, style) -> bool:
+    """Whether this style's backend has an image input a picture could fill, whatever the style's own reference setting.
+
+    The same test a render given a picture applies through `plan_slots`, read off the target without I/O.
+    """
+    try:
+        target = get_adapter(config, {**style, "reference_source": "previous"}).resolve_target(None)
+    except (ImageGenerationError, ValueError):
+        return False
+    return bool(target.reference_slots) or bool(target.reference_capacity and target.reference_template)
+
+
+def _clipped(value: object) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    return text if len(text) <= _DESCRIBED_CHARS else f"{text[:_DESCRIBED_CHARS]}…[+{len(text) - _DESCRIBED_CHARS} chars]"
+
+
+def _pixel_size(data: bytes) -> tuple[int, int] | None:
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            return probe.size
+    except Exception:
+        return None
+
+
+def _render_facts(row: Mapping[str, Any]) -> dict:
+    """What one of this workflow's own renders recorded about how it was made."""
+    try:
+        recorded = json.loads(row.get("generation_metadata") or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(recorded, dict):
+        return {}
+    facts: dict[str, Any] = {key: _clipped(recorded.get(key)) for key in ("style_id", "prompt", "direction")}
+    if recorded.get("reference"):
+        facts["chosen_reference"] = True
+    return {key: value for key, value in facts.items() if value}
+
+
+async def _describe(body) -> dict:
+    """Facts about one chat image by origin, and its preview for a model to look at."""
+    origin = body.get("origin") if isinstance(body, dict) else None
+    if not isinstance(origin, str) or origin.partition(":")[0] not in ("attachment", "upload"):
+        return {"error": "origin names a chat image as attachment:<id> or an upload as upload:<message id>:<id>"}
+    try:
+        row, message_id = await origin_row(origin)
+    except ImageGenerationError as exc:
+        return {"error": str(exc)}
+    message = await get_message_by_id(message_id)
+    upload = origin.startswith("upload:")
+    facts: dict[str, Any] = {
+        "conversation_id": (message or {}).get("conversation_id"),
+        "message_id": message_id,
+        "kind": "upload" if upload else "render",
+        "mime": row.get("mime_type"),
+    }
+    if not upload:
+        facts["workflow"] = row.get("workflow_id")
+        if row.get("workflow_id") == WORKFLOW_ID:
+            facts.update(_render_facts(row))
+    payload = row.get("data_b64")
+    if payload == EVICTED_MARKER:
+        facts["evicted"] = True
+        return {"facts": facts, "preview_url": ""}
+    try:
+        data = base64.b64decode(payload or "", validate=True)
+    except (ValueError, TypeError):
+        data = b""
+    size = await asyncio.to_thread(_pixel_size, data) if data else None
+    if size is None:
+        facts["unreadable"] = True
+        return {"facts": facts, "preview_url": ""}
+    facts["width"], facts["height"] = size
+    return {"facts": facts, "preview_url": await review_image_url(data, str(row.get("mime_type") or ""))}
 
 
 def _style_by_id(config, style_id: str):
@@ -145,6 +240,7 @@ _QUERY_ACTIONS = {
     "test": _test_connection,
     "models": _external_models,
     "node_types": _node_types,
+    "describe": _describe,
 }
 
 

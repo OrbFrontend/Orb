@@ -47,6 +47,7 @@ from .config import (
     normalize_config,
     normalize_profile,
     resolve_style,
+    style_reference_source,
 )
 from .engine import (
     ImageGenerationError,
@@ -60,7 +61,18 @@ from .engine import (
 from .engine.contracts import ImageResult, ResolvedReference
 from .engine.display_encode import shrink_for_review
 from .prompts import DIRECTION_CHARS
-from .references import last_reply_image, plan_slots, previous_image, refetch_references, replay_slots, resolve_references
+from .references import (
+    NO_REFERENCE_INPUTS,
+    Fetched,
+    explicit_reference,
+    explicit_source,
+    last_reply_image,
+    plan_slots,
+    previous_image,
+    refetch_references,
+    replay_slots,
+    resolve_references,
+)
 from .scrub import bounded
 from .subjects import Subject
 
@@ -227,6 +239,7 @@ def _metadata(
     composition_skills: Sequence[Mapping[str, str]] = (),
     prompter_reference: str = "",
     direction: str = "",
+    reference: str = "",
     excerpt: Mapping[str, Any] | None = None,
 ) -> dict:
     info: Mapping[str, Any] = result.backend_info
@@ -246,6 +259,9 @@ def _metadata(
         record["prompter_reference"] = prompter_reference
     if direction:
         record["direction"] = direction
+    if reference:
+        # The origin of a picture the render was explicitly given; a reroll keeps sending it whatever the style says.
+        record["reference"] = reference
     if excerpt:
         record["excerpt"] = excerpt
     return record
@@ -406,12 +422,15 @@ async def _generate_fresh(
     phase: Callable[[str], None],
     history: Sequence[Mapping[str, Any]] | None = None,
     direction: str = "",
+    reference: Fetched | None = None,
     excerpt: Mapping[str, Any] | None = None,
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
 
     `direction` is the user's own ask for this image; the composer follows it over the reply on what the shot shows. `excerpt`
     is the span of the reply the user selected: every step reads the reply cut at its end, and the prompter is quoted it.
+    `reference` is a picture chosen for this render: it fills the style's image inputs in place of the chat's previous image,
+    even where the style leaves them off, and is what the prompter is shown.
 
     With refinement on, every revision is kept too, as it lands: the prompter's pick is only the last one, and the user may
     prefer an earlier render or stop the run once one is good enough. Review reasons appear only in live progress.
@@ -422,6 +441,9 @@ async def _generate_fresh(
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     macros = await conversation_macros(ctx.conversation_id, ctx.settings, seed="")
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
+    if reference is not None:
+        source = explicit_source(style_reference_source(selected_style), likeness=True)
+        selected_style = {**selected_style, "reference_source": source}
     adapter = get_adapter(config, selected_style)
     target = adapter.resolve_target(None)
     # Resolve camera -> subjects -> selector -> slots -> composer in dependency order. Select in-frame subjects before
@@ -461,12 +483,16 @@ async def _generate_fresh(
     # not.
     selected_visible = selection.visible_subjects if selection.valid else None
     addressable = addressable_subjects(subjects, selected_visible)
-    previous = previous_image(history, int(message["id"]))
-    slots = plan_slots(target, addressable, previous=previous)
+    previous = reference if reference is not None else previous_image(history, int(message["id"]))
+    slots = plan_slots(target, addressable, previous=previous, chosen=reference is not None)
+    if reference is not None and not slots:
+        raise ImageGenerationError(NO_REFERENCE_INPUTS)
     references = await resolve_references(slots, subjects=addressable, previous=previous)
     unfilled = len(slots) - len(references)
     prompter_reference, prompter_reference_url = "", ""
-    shown = last_reply_image(history, int(message["id"])) if config.get("prompter_reference") else None
+    shown = None
+    if config.get("prompter_reference"):
+        shown = reference if reference is not None else last_reply_image(history, int(message["id"]))
     if shown is not None:
         shown_bytes, shown_mime, prompter_reference = shown
         prompter_reference_url = await review_image_url(shown_bytes, shown_mime)
@@ -543,6 +569,7 @@ async def _generate_fresh(
             composition_skills=[{"id": skill["id"], "label": skill["label"]} for skill in selection.skills],
             prompter_reference=prompter_reference,
             direction=direction,
+            reference=reference[2] if reference is not None else "",
             excerpt=excerpt,
         )
         consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
@@ -630,6 +657,15 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
         return _failed_stream("Images can only be generated for assistant messages")
     direction = bounded(body.get("direction"), DIRECTION_CHARS)
     config, style_id, profile = await _render_inputs(ctx, body)
+    reference: Fetched | None = None
+    origin = body.get("reference")
+    if origin not in (None, ""):
+        if not isinstance(origin, str) or origin.partition(":")[0] not in ("attachment", "upload"):
+            return _failed_stream("reference names a chat image as attachment:<id> or an upload as upload:<message id>:<id>")
+        try:
+            reference = await explicit_reference(origin)
+        except ImageGenerationError as exc:
+            return _failed_stream(str(exc))
     try:
         excerpt = _excerpt(body.get("excerpt"), message["content"] or "")
         resolve_style(config, style_id)
@@ -673,6 +709,7 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
                 keep=keep,
                 phase=phase,
                 direction=direction,
+                reference=reference,
                 excerpt=excerpt,
             )
         )
@@ -780,6 +817,9 @@ async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
         raise ImageGenerationError("this image has no prompt to render; edit the prompt and reroll again")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     style = resolve_style(config, style_id)
+    if isinstance(params.get("reference"), str) and params["reference"]:
+        # A picture chosen for the render is sent again even where the style leaves its image inputs off.
+        style = {**style, "reference_source": explicit_source(style_reference_source(style), likeness=True)}
     prior_style = (ctx.prior_consumption_metadata or {}).get("style_id")
     style_changed = bool(prior_style) and prior_style != style_id
     adapter = get_adapter(config, style)

@@ -15,8 +15,13 @@ from tests.integration.test_assistant import RUN, _call, _reply, _script, build_
 from tests.integration.workflows._fixtures import register_for_test
 
 
-def _workflow(hook):
-    return Workflow(id="image_gen", display_name="Image Generation", subscriptions=[subscription(HookType.STANDALONE, hook)])
+def _workflow(hook, query=None):
+    hooks = [subscription(HookType.STANDALONE, hook), *([subscription(HookType.QUERY, query)] if query else [])]
+    return Workflow(id="image_gen", display_name="Image Generation", subscriptions=hooks)
+
+
+async def _styles_taking_references(ctx, body):
+    return {"default_style": "edit", "styles": [{"id": "edit", "label": "Edit", "takes_reference": True}]}
 
 
 def _request(**context):
@@ -223,11 +228,11 @@ async def test_an_earlier_assistant_picture_can_be_an_explicit_reference_and_exp
         seen.append(ctx.reference)
         return StandaloneResult(b"new picture", "image/png", "data:image/png;base64,eA==")
 
-    with register_for_test(_workflow(render)):
+    with register_for_test(_workflow(render, _styles_taking_references)):
         _script(
             monkeypatch,
-            _call("create_image", {"description": "Same picture with a blue coat.", "reference_image_id": source_id}),
-            _call("create_image", {"description": "Expired reference.", "reference_image_id": "f" * 32}),
+            _call("create_image", {"description": "Same picture with a blue coat.", "reference_image": f"image:{source_id}"}),
+            _call("create_image", {"description": "Expired reference.", "reference_image": "image:" + "f" * 32}),
             _reply("Done."),
         )
         from backend.inference import LLMClient
@@ -250,3 +255,50 @@ async def test_an_earlier_assistant_picture_can_be_an_explicit_reference_and_exp
     assert "expired" in missing["summary"]
     assert len(seen) == 1 and seen[0].data == b"source picture" and seen[0].origin == f"assistant:{source_id}"
     assert "base64" not in str(events), "image bytes belong to the model conversation, not SSE or browser storage"
+
+
+async def test_a_model_that_refuses_pictures_is_asked_again_with_their_captions_for_the_rest_of_the_run(
+    client, db, monkeypatch
+):
+    import httpx
+
+    from backend.inference import LLMCallError, LLMClient
+
+    await build_library(client, db)
+
+    async def render(ctx):
+        return StandaloneResult(b"new picture", "image/png", "data:image/png;base64,eA==")
+
+    def pictured(messages):
+        return any(isinstance(message["content"], list) for message in messages)
+
+    with register_for_test(_workflow(render)):
+        _script(
+            monkeypatch,
+            _call("create_image", {"description": "A lighthouse."}),
+            _call("list_image_styles", {}),
+            _reply("Done."),
+        )
+        complete = LLMClient.complete
+        sent = []
+
+        async def text_only_model(self, **kwargs):
+            sent.append(pictured(kwargs["messages"]))
+            if sent[-1]:
+                raise LLMCallError(
+                    "HTTP 400",
+                    request=httpx.Request("POST", "http://model"),
+                    response=httpx.Response(400),
+                    sentence="image input is not supported",
+                    body="",
+                    host="model",
+                    model="m",
+                )
+            async for event in complete(self, **kwargs):
+                yield event
+
+        monkeypatch.setattr(LLMClient, "complete", text_only_model)
+        events = frames(await client.post_checked(RUN, json=_request()))
+    # The step after the picture is refused once, then asked without it; so is every later step.
+    assert sent == [False, True, False, False]
+    assert [data["reason"] for event, data in events if event == "done"] == ["reply"]

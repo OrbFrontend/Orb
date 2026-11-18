@@ -17,6 +17,7 @@ from ...core.llm_types import CompletionMessage
 from ...core.settings import Settings
 from ...inference import (
     CachedBase,
+    LLMCallError,
     LLMClient,
     assistant_tool_call,
     honors_forced_tool_choice,
@@ -55,6 +56,8 @@ from .prompt import reply_tool, request_message, step_tool, system_prompt, tool_
 
 logger = logging.getLogger(__name__)
 
+# Rejections that say nothing about the request's content: credentials, rate and time limits.
+_NOT_PICTURE_STATUSES = frozenset({401, 403, 408, 429})
 _UNREADABLE = "The model's reply was not a readable step."
 _SEVERAL = "The model's reply made several calls at once, where one was asked for."
 _CORRECT = "Nothing ran. Choose the tool again and correct its arguments."
@@ -152,8 +155,16 @@ def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
     return total
 
 
+def _has_pictures(*runs: Sequence[Mapping[str, Any]]) -> bool:
+    return any(
+        isinstance(content := message.get("content"), list) and any(part.get("type") == "image_url" for part in content)
+        for messages in runs
+        for message in messages
+    )
+
+
 def _text_only_messages(messages: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """The messages as a text-only transport takes them: each picture's caption, and that the model was not shown it.
+    """The messages as a text-only model takes them: each picture's caption, and that the model was not shown it.
 
     The transcript itself keeps the pictures, so a transport that takes them later is sent them.
     """
@@ -163,7 +174,7 @@ def _text_only_messages(messages: Sequence[Mapping[str, Any]]) -> list[Mapping[s
         if isinstance(content, list):
             text = "\n".join(part["text"] for part in content if part.get("type") == "text")
             if any(part.get("type") == "image_url" for part in content):
-                text += "\nThe user can see this picture. You cannot inspect it: the current transport accepts text only."
+                text += "\nThe user can see this picture. You cannot inspect it: this model or its transport takes text only."
             projected.append({**message, "content": text})
         else:
             projected.append(message)
@@ -447,6 +458,8 @@ async def run_assistant(
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
     run: list[WireMessage] = []
     model_calls = executions = 0
+    # Set once the model refuses pictures, so the rest of the run sends their captions instead.
+    text_only = not client.supports_image_inputs
     # What this run's writes committed: one line each for an early ``done``, and each exact call so it is never made twice.
     committed: list[str] = []
     made: dict[str, ToolOutput] = {}
@@ -496,26 +509,42 @@ async def run_assistant(
             content = trailing[-1]["content"]
             amended = f"{content}\n\n{note}" if isinstance(content, str) else [*content, {"type": "text", "text": note}]
             trailing[-1] = {**trailing[-1], "content": amended}
-        response: CompletionMessage = {}
-        # The base ends where the previous request did: a provider that caches only at marked positions then finds that
-        # request's conversation under this one's.
-        async for event in CachedBase(
-            prefix=(system, *history),
-            tools=tuple(offered),
-            model=model,
-            resolve=None if client.supports_image_inputs else _text_only_messages,
-        ).complete(
-            client,
-            label=f"assistant:{label}",
-            trailing=trailing,
-            tool_choice=tool_choice,
-            # An endpoint that answers a forced choice as ``auto`` may otherwise reply with several calls at once.
-            single_tool_call=True,
-            **samplers,
-            **thinking,
-        ):
-            if event["type"] == "done":
-                response = event.get("message") or {}
+        nonlocal text_only
+
+        async def complete(text: bool) -> CompletionMessage:
+            response: CompletionMessage = {}
+            # The base ends where the previous request did: a provider that caches only at marked positions then finds that
+            # request's conversation under this one's.
+            async for event in CachedBase(
+                prefix=(system, *history),
+                tools=tuple(offered),
+                model=model,
+                resolve=_text_only_messages if text else None,
+            ).complete(
+                client,
+                label=f"assistant:{label}",
+                trailing=trailing,
+                tool_choice=tool_choice,
+                # An endpoint that answers a forced choice as ``auto`` may otherwise reply with several calls at once.
+                single_tool_call=True,
+                **samplers,
+                **thinking,
+            ):
+                if event["type"] == "done":
+                    response = event.get("message") or {}
+            return response
+
+        try:
+            response = await complete(text_only)
+        except LLMCallError as exc:
+            # A model without vision answers a picture with a client error worded per provider. Asking again without the
+            # pictures costs one quick call; an error that was not about them comes back from the retry.
+            status = exc.response.status_code
+            if text_only or not 400 <= status < 500 or status in _NOT_PICTURE_STATUSES or not _has_pictures(history, trailing):
+                raise
+            logger.warning("Assistant: the model refused pictures (%s); the run continues without them", exc)
+            text_only = True
+            response = await complete(True)
         if client.is_aborted:
             raise _Stopped
         return response

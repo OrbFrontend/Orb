@@ -297,7 +297,7 @@ throughout.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_image_styles`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
+| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_image_styles`, `view_image`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
 | write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `create_document`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_document`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
@@ -316,7 +316,7 @@ switching one off removes a whole subject:
 | Fragments (`fragments`) | The fragment reads, creates, setters and edits |
 | Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
 | Documents (`documents`) | `list_documents`, `read_document`, `create_document`, `edit_document` |
-| Images and speech (`media`) | `list_image_styles`, `create_image`, `illustrate_reply`, `generate_speech` |
+| Images and speech (`media`) | `list_image_styles`, `view_image`, `create_image`, `illustrate_reply`, `generate_speech` |
 | Web (`web`) | `search_web`, `read_web_page` |
 
 `read_context` and `query_library` are in no group and always offered. A tool
@@ -640,7 +640,7 @@ back. The transcript draws the opened chat as a view separator.
 
 ## Media
 
-`create_image(description, character_id?, reference_image_id?, style_id?)` makes a standalone picture shown in
+`create_image(description, character_id?, reference_image?, style_id?)` makes a standalone picture shown in
 this panel, separate from saved RP reply illustration. The assistant reads a
 card and writes the visual description itself; an explicit optional character
 id applies its saved appearance tags and exclusions, plus its reference picture
@@ -662,17 +662,10 @@ skills, camera resolution, RP-specific prompt cleanup, or review turns. Enabled
 reference inputs draw from the supplied character, with no RP image history in scope.
 The tool bounds the description (1–8,000 characters, not blank); the hook takes it as given.
 
-An explicit `reference_image_id` names a still-held picture from an earlier
-`create_image` result. It takes precedence over the character's reference image;
-saved appearance tags and exclusions still apply when `character_id` is also
-supplied. It enables the rendering style's available image inputs for this render,
-without changing its saved settings. The image's stored bytes go to those inputs;
-a style/backend with no usable image inputs refuses before composing. An expired
-id is a tool failure; it is never silently ignored.
-
 The returned bytes live in `api/assistant/images.py`, a process-local FIFO
 store capped at 32 images, 32 MiB per image and 128 MiB total. `tool_result.ids`
-carries `image_id`; the text result and browser storage contain no image bytes,
+carries `image_id`, and the model-facing result its `ref` (`image:<id>`); the text
+result and browser storage contain no image bytes,
 and no message refresh is requested. `GET /api/assistant/images/{id}` serves the
 image inline, also after workflow disablement. An
 id names one picture for as long as it is held, so the response is privately
@@ -681,14 +674,7 @@ or restart answers 404. The log validates the id, renders a preview with the
 shared click-to-zoom lightbox of workflow images, and preserves the
 id across reloads. An expired image becomes a note asking for a new picture.
 
-The model is shown the picture only where Image Generation's own settings say
-the Agent model takes pictures: `prompter_reference` on, or `refine_turns` above
-zero. Those features already send that model pictures. Otherwise the hook
-returns no preview and the conversation holds the text result alone, because a
-model without vision fails the call that carries a picture and, the transcript
-replaying it, every call after it.
-
-With a preview, the model conversation receives after the text tool result a
+The model is shown every picture it makes. After the text tool result the model conversation receives a
 user-role content list containing a caption naming the tool call and an
 `image_url` data part (`tool_pictures` in `contracts.py`, the one user message
 whose content is a list).
@@ -706,8 +692,12 @@ the first preview until its request is trimmed or edited away. The transcript
 holds a preview whatever transport made it. Claude Code advertises text-only
 input, so each call there is sent the previews as their captions and a note that
 the model was not shown them; a later transport that takes pictures is sent
-them. A model that rejects pictures despite the settings above fails the call;
-provider errors remain visible. There is no forced image-review pass: the assistant can
+them. A model without vision answers a call carrying pictures with a client
+error worded per provider. The loop then asks once more with every picture as
+its caption and keeps the rest of the run that way; credential, rate and timeout
+rejections (401, 403, 408, 429) and a call without pictures fail as before, and
+an error not about pictures comes back from the retry. The transcript keeps the
+pictures, so a later run asks with them again. There is no forced image-review pass: the assistant can
 inspect the picture in its normal next step and use its id for a requested revision.
 
 `illustrate_reply` and `generate_speech` make an artifact for one saved reply on
@@ -719,7 +709,8 @@ off: the refusal names the switch that is off, the workflow's own or the
 Both image tools take an optional `style_id`; empty renders in the workflow's
 default style, as the reply's image button does. `list_image_styles`, offered
 beside either tool, reads the styles through the image workflow's `styles`
-query: each style's id and label, and the current `default_style`. The tool
+query: each style's id and label, the current `default_style`, and the styles
+that take a reference image. The tool
 checks a named id against that list before rendering, and an unknown one fails,
 naming every style, so the model can correct it. `illustrate_reply` passes the id
 in the hook's body; `create_image` passes it in `StandaloneCtx.style_id`. The ids
@@ -735,12 +726,81 @@ corrected back toward the reply. The render records it in its metadata. Without
 one the image is composed from the reply alone, as the reply's image button
 does; a Regenerate from the image composes from the reply again.
 
+### Reference images
+
+Both image tools take an optional `reference_image`, a token naming the picture
+to work from:
+
+| Token | Picture | Where the model finds it |
+|---|---|---|
+| `attachment:<id>` | a workflow attachment with an image mime: any render or reroll sibling, in any chat | `read_messages` `images` |
+| `upload:<id>` | a user upload with an image mime | `read_messages` `images` |
+| `image:<id>` | a panel picture, for `create_image` only | a `create_image` result's `ref` |
+
+The tool checks the row exists and is an image without reading its bytes, and
+converts the token into the image workflow's origin: `attachment:<id>`,
+`upload:<message id>:<id>` or `assistant:<id>`. Only the image workflow reads a
+chat image's bytes; the host adds bytes to a `StandaloneReference` only for an
+`assistant:` picture, which only its panel store holds. Every failure names its cause
+and none is ignored: an unknown token, a missing row, a non-image, cleared
+(evicted) or unsupported bytes, an expired panel picture.
+
+`read_messages` lists a message's images under `images`, only when it has any:
+at most 8, renders before uploads and each newest first, with `more_images`
+beyond that. Each is `{ref, kind, shown}`; `kind` is `render` or `upload`, and
+`shown` marks what the chat draws: every upload, and each variant group's
+active sibling. The listing reads no attachment bytes
+(`image_attachments_for_messages`).
+
+A reference needs a style whose backend has an image input. The image
+workflow's `styles` query marks each style `takes_reference`, read off its
+render target with the source set to `previous`, without I/O or a per-provider
+table; `list_image_styles` lists those ids. Each call checks the style that will
+render, the named one or else the current default, since the user can change
+both between calls. A style without an input refuses before composing and names
+the styles that take one, or says none does and that a backend with image inputs
+is chosen in Image Generation. The image workflow repeats the check.
+
+The picture fills the `previous` role. It goes to the style's image inputs even
+where the style leaves its reference off, without changing saved settings. A
+`character` or `character_and_previous` style keeps its likeness slot when a
+character is in the render: `character_id` for `create_image`, the chat's characters for a
+reply. When the backend has too few inputs for every likeness and the picture,
+the picture keeps one and the likenesses fill the rest. For `create_image` the picture replaces the character's reference
+picture; saved appearance tags and exclusions still apply. For
+`illustrate_reply` it replaces the chat's previous image, and with
+`prompter_reference` on the prompter is shown it in place of the last reply's
+image.
+
+A panel picture cannot be a reply's reference. Reroll replays a saved render's
+references strictly from their recorded origins, the image workflow cannot read
+the panel store, and the store forgets pictures on restart, so the reply would
+fail its first Reroll. `illustrate_reply` refuses `image:` and tells the model
+to have the user upload the picture to the chat, where it becomes an `upload:`
+reference.
+
+`illustrate_reply` sends the origin as the hook body's `reference`. The render
+records it in `references[].origin` and as `reference` beside `direction`.
+Reroll replays the recorded origin, under the style's image inputs even where
+the style leaves its reference off. Regenerate composes afresh from the reply,
+as the reply's image button does, and drops both the direction and the chosen
+picture.
+
+`view_image(reference_image)`, a read offered beside `list_image_styles`,
+describes one chat image through the image workflow's `describe` query: its chat
+and message, kind, mime and pixel size, and for an Image Generation render its
+`style_id`, clipped `prompt` and `direction`, with a preview through the same
+`tool_pictures` path, budget and text-only fallback as `create_image`. An `image:` token answers with a note, since the
+panel picture came with its result. For a style that takes no reference, the
+model reads the picture this way and writes what matters into `direction` or
+`description`.
+
 A media tool runs the workflow's hook through `run_on_demand`, the same
 dispatch, enablement gate, workflow-state and character-state locks, character
 resolution, context and failure mapping as
 `POST /conversations/{cid}/workflows/{wid}/trigger`. The body is the plug-in's
 own on-demand contract (`{action, message_id}`, and for an image an optional
-`direction` and `style_id`), and the result is read from
+`direction`, `style_id` and `reference`), and the result is read from
 what the hook returns: `attachment_id` or `error`, or a stream of
 `phase_status`, `<wid>_render`, `<wid>_error` and `<wid>_done` events. Nothing
 imports a plug-in.

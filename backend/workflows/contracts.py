@@ -155,11 +155,15 @@ class OnDemandCtx:
 
 @dataclass(frozen=True)
 class StandaloneReference:
-    """An explicit caller-owned image to use as the render's reference."""
+    """An explicit image to use as the render's reference, named by *origin*.
 
-    data: bytes
-    mime: str
+    A caller-owned image the workflow cannot read carries its *data* and *mime*; without them, *origin* names a chat image
+    (``attachment:<id>`` or ``upload:<message id>:<id>``) the workflow reads itself.
+    """
+
     origin: str
+    data: bytes = b""
+    mime: str = ""
 
 
 @dataclass(frozen=True)
@@ -184,7 +188,7 @@ class StandaloneResult:
 
     data: bytes
     mime: str
-    # A small data URL for the Agent model to look at; empty unless the workflow's settings say that model takes pictures.
+    # A small data URL for the Agent model to look at; empty when the workflow has none.
     preview_url: str = ""
 
 

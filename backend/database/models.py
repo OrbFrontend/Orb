@@ -294,6 +294,22 @@ class WorkflowAttachmentRow(WorkflowAttachmentRowBase):
     message_id: int
 
 
+class ImageAttachmentRef(TypedDict):
+    """An image attachment on a message with nothing read from its bytes, from either table.
+
+    ``source`` names the table: ``workflow`` for ``workflow_attachments``, ``upload`` for ``user_attachments``, whose rows carry
+    NULL for the workflow columns.
+    """
+
+    id: int
+    message_id: int
+    source: Literal["workflow", "upload"]
+    mime_type: str
+    workflow_id: str | None
+    parent_attachment_id: int | None
+    active_sibling_id: int | None
+
+
 class MessageWithAttachments(MessageRow, total=False):
     """A ``MessageRow`` after the query layer glues on its attachment rows in place. The extra keys are not columns;
     _attach_attachments() populates them, hence ``total=False``.

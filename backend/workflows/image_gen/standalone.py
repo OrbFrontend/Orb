@@ -6,11 +6,26 @@ import secrets
 
 from ..toolkit import Macros, StandaloneCtx, StandaloneResult, get_workflow_character_state, get_workflow_config
 from .composer import PrompterCallError, compose_standalone
-from .config import WORKFLOW_ID, normalize_config, normalize_profile, resolve_style, style_reference_source
+from .config import (
+    REFERENCE_MIMES,
+    WORKFLOW_ID,
+    normalize_config,
+    normalize_profile,
+    resolve_style,
+    style_reference_source,
+)
 from .engine import ImageGenerationError, ImageRequest, get_adapter, resolve_and_generate
 from .hooks import render_progress, review_image_url
 from .macros import expand_profile, expand_style
-from .references import plan_slots, resolve_references
+from .references import (
+    NO_REFERENCE_INPUTS,
+    Fetched,
+    explicit_reference,
+    explicit_source,
+    plan_slots,
+    resolve_references,
+    unsupported_reference,
+)
 from .subjects import Subject
 
 
@@ -27,16 +42,25 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
     subjects = (Subject("", ctx.character_id, name, profile),) if ctx.character_id else ()
     # No chat image exists here. An explicit picture fills the style's image inputs even when the style leaves them off; without
     # one, a style that enables references draws this character's likeness.
-    previous = (ctx.reference.data, ctx.reference.mime, ctx.reference.origin) if ctx.reference is not None else None
-    source = "previous" if previous is not None else "character" if style_reference_source(style) else ""
+    reference = ctx.reference
+    previous: Fetched | None = None
+    if reference is not None and not reference.data:
+        previous = await explicit_reference(reference.origin)
+    elif reference is not None:
+        if reference.mime.lower() not in REFERENCE_MIMES:
+            raise unsupported_reference(reference.mime)
+        previous = (reference.data, reference.mime.lower(), reference.origin)
+    style_source = style_reference_source(style)
+    if previous is not None:
+        source = explicit_source(style_source, likeness=bool(ctx.character_id))
+    else:
+        source = "character" if style_source else ""
     style = {**style, "reference_source": source}
     adapter = get_adapter(config, style)
     target = adapter.resolve_target(None)
-    slots = plan_slots(target, subjects, previous=previous)
-    if ctx.reference is not None and not slots:
-        raise ImageGenerationError(
-            "This image style has no reference image inputs. Choose a style or backend that accepts references."
-        )
+    slots = plan_slots(target, subjects, previous=previous, chosen=previous is not None)
+    if previous is not None and not slots:
+        raise ImageGenerationError(NO_REFERENCE_INPUTS)
     references = await resolve_references(slots, subjects=subjects, previous=previous)
     ctx.phase("Composing the image prompt…")
     try:
@@ -67,8 +91,6 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
         target=target,
         progress=render_progress(ctx.phase),
     )
-    # The caller's model is the Agent lane. It is shown the picture only where this workflow's own vision features are on: a
-    # model without vision fails the call that carries a picture, and every later call that replays it.
-    sees = config.get("prompter_reference") or config.get("refine_turns")
-    preview = await review_image_url(result.image_bytes, result.mime) if sees else ""
+    # The caller's model sees what it made; a caller whose model refuses pictures drops them on its side.
+    preview = await review_image_url(result.image_bytes, result.mime)
     return StandaloneResult(result.image_bytes, result.mime, preview)

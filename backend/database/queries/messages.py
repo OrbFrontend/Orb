@@ -4,11 +4,18 @@ import json
 import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from ...core.domain_types import MessageRole
 from ..connection import check_expected, get_db, get_workflow_slot, select_rows, set_workflow_slot
-from ..models import MessageListing, MessageRow, MessageWithAttachments, UserAttachmentRow, WorkflowAttachmentRowBase
+from ..models import (
+    ImageAttachmentRef,
+    MessageListing,
+    MessageRow,
+    MessageWithAttachments,
+    UserAttachmentRow,
+    WorkflowAttachmentRowBase,
+)
 from .conversations import get_conversation
 from .director_state import update_director_state
 from .fragment_state import insert_state_events
@@ -373,6 +380,44 @@ async def get_user_attachment_by_id(attachment_id: int) -> UserAttachmentRow | N
         (attachment_id,),
     )
     return cast(UserAttachmentRow, dict(rows[0])) if rows else None
+
+
+_IMAGE_REF_SELECT = (
+    "SELECT id, message_id, 'workflow' AS source, mime_type, workflow_id, parent_attachment_id, active_sibling_id "
+    "FROM workflow_attachments WHERE {where} AND mime_type LIKE 'image/%' "
+    "UNION ALL "
+    "SELECT id, message_id, 'upload' AS source, mime_type, NULL, NULL, NULL "
+    "FROM user_attachments WHERE {where} AND mime_type LIKE 'image/%'"
+)
+
+
+async def image_attachments_for_messages(message_ids: Sequence[int]) -> dict[int, list[ImageAttachmentRef]]:
+    """Each message's image attachments from both tables, oldest first, without reading a byte of them."""
+    found: dict[int, list[ImageAttachmentRef]] = {}
+    for chunk in _chunked(list(dict.fromkeys(message_ids)), _SQL_PARAM_CHUNK // 2):
+        where = f"message_id IN ({','.join('?' * len(chunk))})"
+        rows = await select_rows(
+            _IMAGE_REF_SELECT.format(where=where) + " ORDER BY id",  # nosec B608 -- module literal and '?' placeholders only
+            (*chunk, *chunk),
+        )
+        for row in rows:
+            found.setdefault(row["message_id"], []).append(cast(ImageAttachmentRef, dict(row)))
+    return found
+
+
+async def get_image_attachment_ref(source: Literal["workflow", "upload"], attachment_id: int) -> ImageAttachmentRef | None:
+    """One attachment row's facts without its bytes; None when it does not exist. Any mime: the caller names a non-image."""
+    table = "workflow_attachments" if source == "workflow" else "user_attachments"
+    columns = (
+        "workflow_id, parent_attachment_id, active_sibling_id"
+        if source == "workflow"
+        else "NULL AS workflow_id, NULL AS parent_attachment_id, NULL AS active_sibling_id"
+    )
+    rows = await select_rows(
+        f"SELECT id, message_id, ? AS source, mime_type, {columns} FROM {table} WHERE id = ?",  # nosec B608 -- module literals
+        (source, attachment_id),
+    )
+    return cast(ImageAttachmentRef, dict(rows[0])) if rows else None
 
 
 async def get_workflow_attachments_for_message(message_id: int) -> list[WorkflowAttachmentRowBase]:

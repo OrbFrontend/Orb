@@ -195,6 +195,68 @@ def _unresolved(label: str, draw: Sequence[tuple[str, int]]) -> ImageGenerationE
     )
 
 
+NO_REFERENCE_INPUTS = "This image style has no reference image inputs. Choose a style or backend that accepts references."
+
+
+def unsupported_reference(mime: str) -> ImageGenerationError:
+    accepted = ", ".join(kind.removeprefix("image/").upper() for kind in REFERENCE_MIMES)
+    return ImageGenerationError(f"That image is {mime or 'of an unknown type'}; a reference image must be {accepted}.")
+
+
+def explicit_source(style_source: str, *, likeness: bool) -> str:
+    """The reference source of a render given one picture to work from, whatever the style's own setting.
+
+    The picture fills the `previous` role. A style that always draws a likeness keeps it when the render has a character to
+    draw it from; `plan_slots` gives the picture a slot first.
+    """
+    keeps = likeness and style_source in ("character", "character_and_previous")
+    return "character_and_previous" if keeps else "previous"
+
+
+async def _chat_row(origin: str) -> tuple[Mapping[str, Any], int] | None:
+    """The row an `attachment:` or `upload:` origin names, bytes included, and its message id; None when there is none."""
+    kind, _, ident = origin.partition(":")
+    if kind == "attachment" and ident.isdigit():
+        row = await get_workflow_attachment_by_id(int(ident))
+        return (row, int(row["message_id"])) if row is not None else None
+    if kind == "upload":
+        # "upload:<message id>:<attachment id>" -- user attachments are only readable per-message, so the origin carries both.
+        message_id, _, attachment_id = ident.partition(":")
+        if message_id.isdigit() and attachment_id.isdigit():
+            for row in await get_user_attachments_for_message(int(message_id)):
+                if row.get("id") == int(attachment_id):
+                    return row, int(message_id)
+    return None
+
+
+async def origin_row(origin: str) -> tuple[Mapping[str, Any], int]:
+    """The row an `attachment:` or `upload:` origin names, bytes included, and its message id; raises naming why not."""
+    if origin.partition(":")[0] not in ("attachment", "upload"):
+        raise ImageGenerationError(
+            "A reference names a chat image as attachment:<id> or an upload as upload:<message id>:<id>."
+        )
+    found = await _chat_row(origin)
+    if found is None:
+        raise ImageGenerationError("That chat image no longer exists.")
+    return found
+
+
+async def explicit_reference(origin: str) -> Fetched:
+    """The bytes of the picture a render was explicitly given, by origin; raises naming why it cannot be used."""
+    row, _ = await origin_row(origin)
+    mime = str(row.get("mime_type") or "").lower()
+    if row.get("data_b64") == EVICTED_MARKER:
+        raise ImageGenerationError(
+            "That chat image's bytes were cleared from storage; restore the image on its message first, or choose another one."
+        )
+    if mime not in REFERENCE_MIMES:
+        raise unsupported_reference(mime)
+    found = _bytes_from_row(row)
+    if found is None:
+        raise ImageGenerationError("That chat image's stored bytes could not be read.")
+    return found[0], found[1], origin
+
+
 def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:
     """The chat image a `previous` source would draw, found once for the whole render.
 
@@ -223,8 +285,13 @@ def last_reply_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fe
     return None
 
 
-def plan_slots(target: RenderTarget, subjects: Sequence[Subject], *, previous: Fetched | None) -> tuple[dict, ...]:
-    """Plan the reference slots for a render."""
+def plan_slots(
+    target: RenderTarget, subjects: Sequence[Subject], *, previous: Fetched | None, chosen: bool = False
+) -> tuple[dict, ...]:
+    """Plan the reference slots for a render.
+
+    *chosen* says `previous` is a picture picked for this render: it keeps a slot when likenesses would fill them all.
+    """
     source = target.reference_source
     policy = REFERENCE_SOURCES.get(source)
     if policy is None:
@@ -234,7 +301,7 @@ def plan_slots(target: RenderTarget, subjects: Sequence[Subject], *, previous: F
         # the reply speaker first and then assigns one distinct in-frame character per remaining slot. A graph may still declare
         # more required inputs than a solo round can fill, so surplus slots deliberately reuse the first image instead of
         # submitting the stale filenames exported with the workflow.
-        draws = _derived_draw(policy, subjects, len(target.reference_slots), previous is not None)
+        draws = _derived_draw(policy, subjects, len(target.reference_slots), previous is not None, chosen)
         return tuple(
             {**dict(entry), "draw": draws[index] if index < len(draws) else draws[0]}
             for index, entry in enumerate(target.reference_slots)
@@ -252,12 +319,12 @@ def plan_slots(target: RenderTarget, subjects: Sequence[Subject], *, previous: F
             "label": "Reference image" if index == 0 else f"Reference image {index + 1}",
             "draw": draw,
         }
-        for index, draw in enumerate(_derived_draw(policy, subjects, capacity, previous is not None))
+        for index, draw in enumerate(_derived_draw(policy, subjects, capacity, previous is not None, chosen))
     )
 
 
 def _derived_draw(
-    policy: SourcePolicy, subjects: Sequence[Subject], capacity: int, has_previous: bool
+    policy: SourcePolicy, subjects: Sequence[Subject], capacity: int, has_previous: bool, chosen: bool = False
 ) -> list[tuple[tuple[str, int], ...]]:
     """Return distinct images for a homogeneous reference array."""
     drawable = [index for index, subject in enumerate(subjects) if subject.card_id]
@@ -272,6 +339,10 @@ def _derived_draw(
             break
     if not planned:
         return [tuple((kind, 0) for kind in policy.kinds)]
+    picked = (("previous", 0),)
+    if chosen and picked in planned[capacity:] and capacity > 0:
+        # Likenesses come first, so a short array would cut the picture the render was asked to work from.
+        return [*(draw for draw in planned if draw != picked)][: capacity - 1] + [picked]
     return planned[:capacity]
 
 
@@ -332,16 +403,9 @@ def replay_slots(target: RenderTarget, recorded: Sequence[Mapping[str, Any]]) ->
 
 async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
     kind, _, ident = origin.partition(":")
-    if kind == "attachment" and ident.isdigit():
-        return _bytes_from_row(await get_workflow_attachment_by_id(int(ident)))
-    if kind == "upload":
-        # "upload:<message id>:<attachment id>" -- user attachments are only readable per-message, so the origin carries both.
-        message_id, _, attachment_id = ident.partition(":")
-        if message_id.isdigit() and attachment_id.isdigit():
-            for row in await get_user_attachments_for_message(int(message_id)):
-                if row.get("id") == int(attachment_id):
-                    return _bytes_from_row(row)
-        return None
+    if kind in ("attachment", "upload"):
+        found = await _chat_row(origin)
+        return _bytes_from_row(found[0]) if found is not None else None
     if kind == "character" and ident:
         # The card's *current* image, not a snapshot: this origin addresses a
         # setting rather than a chat message, so changing it and rerolling applies.
