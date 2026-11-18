@@ -1,4 +1,3 @@
-import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { showAvatarPopup } from "./chat_inspector.js";
 import { initDragReorder } from "./drag_reorder.js";
@@ -21,7 +20,6 @@ import {
 import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
 import { syncActivity } from "./operations.js";
-import { sectionRemembered, setSectionCollapsed, toggleSection } from "./sidebar_sections.js";
 import { charactersView, notify, S, subscribe, turnActive } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
@@ -763,8 +761,6 @@ export function consumeSpeakerOverride(state = S) {
 
 let _groupSearch = "";
 let _groupsExpanded = false;
-// The Groups section ships collapsed; it opens itself once for anyone who has groups, unless the reader set it.
-let _groupsSectionSettled = sectionRemembered("groups-section");
 
 function _groupItemHtml({ rootId, root, shown, open, members }) {
   const names = (shown.group_member_names || []).filter(Boolean);
@@ -801,12 +797,6 @@ export function renderGroupList() {
   const list = $("group-chat-list");
   if (!list) return;
   const families = groupFamilies(S.conversations, S.activeConvId);
-
-  if (!_groupsSectionSettled && families.length) {
-    _groupsSectionSettled = true;
-    const header = $("groups-section-toggle");
-    if (header) setSectionCollapsed(header, false);
-  }
 
   const searchWrap = $("group-search-wrap");
   if (searchWrap) {
@@ -925,12 +915,6 @@ function onCastChipClick(memberId) {
 export function initGroupSetup() {
   $("chat-avatar")?.addEventListener("click", (event) => {
     if (S.groupCast && event.target === event.currentTarget) showAvatarPopup();
-  });
-  registerActions("groups", {
-    toggleSection: (header) => {
-      _groupsSectionSettled = true;
-      toggleSection(header);
-    },
   });
   $("new-group-btn")?.addEventListener("click", showGroupCreate);
   $("group-search")?.addEventListener("input", (event) => {

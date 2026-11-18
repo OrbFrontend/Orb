@@ -12,7 +12,7 @@ function storedStates() {
 }
 
 /** Collapse or expand the section under *header* without remembering it. */
-export function setSectionCollapsed(header, collapsed) {
+function setSectionCollapsed(header, collapsed) {
   header.setAttribute("aria-expanded", String(!collapsed));
   header.querySelector(".arrow")?.classList.toggle("collapsed", collapsed);
   header.nextElementSibling?.classList.toggle("collapsed", collapsed);
@@ -28,11 +28,6 @@ export function toggleSection(header) {
     localStorage.setItem(LS_SECTIONS, JSON.stringify(states));
   } catch {}
   return collapsed;
-}
-
-/** Whether the reader has opened or closed section *bodyId* themselves. */
-export function sectionRemembered(bodyId) {
-  return typeof storedStates()[bodyId] === "boolean";
 }
 
 /** Put every section header under *root* back the way the reader left it. */

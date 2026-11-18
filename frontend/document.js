@@ -169,11 +169,6 @@ function setDocumentMode(on) {
   document.getElementById("app")?.classList.toggle("document-mode", on);
   localStorage.setItem(LS_MODE, on ? "1" : "0");
   if (!on) document.dispatchEvent(new window.Event("chat-view-resumed"));
-  if (on) {
-    const body = $("documents-section");
-    body?.classList.remove("collapsed");
-    body?.previousElementSibling?.querySelector(".arrow")?.classList.remove("collapsed");
-  }
   const btn = $("mode-switch-btn");
   if (btn) {
     btn.textContent = on ? "📄" : "💬";
