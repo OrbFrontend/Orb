@@ -493,13 +493,16 @@ async def _generate_fresh(
     unfilled = len(slots) - len(references)
     prompter_reference, prompter_reference_url = "", ""
     shown = None
+    refine_turns = int(config.get("refine_turns") or 0)
     if config.get("prompter_reference"):
         shown = reference if reference is not None else last_reply_image(history, int(message["id"]))
+    elif reference is not None and refine_turns > 0:
+        # A review holds an edit to the picture it edits, so it must have seen that picture; review already needs vision.
+        shown = reference
     if shown is not None:
         shown_bytes, shown_mime, prompter_reference = shown
         prompter_reference_url = await review_image_url(shown_bytes, shown_mime)
         logger.info("[image_gen] prompter reference: %s", prompter_reference)
-    refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
     try:
         scene, unwanted, composer_mode = await compose_scene(

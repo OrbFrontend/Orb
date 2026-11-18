@@ -621,6 +621,27 @@ async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(c
     assert events[-1] == ("image_gen_done", {"attachment_id": None})
 
 
+@pytest.mark.parametrize("refine_turns", [0, 1])
+async def test_an_edit_under_review_shows_the_prompter_the_picture_it_edits(client, monkeypatch, refine_turns):
+    """A review holds an edit to the rest of the picture, which it cannot do unseen; without review the setting decides."""
+    conv = f"ig-edit-seen-{refine_turns}"
+    mid = await _seed(conv, config={**CLOUD_CONFIG, "refine_turns": refine_turns})
+    aid = await insert_workflow_attachment_row(
+        mid, {"filename": "x.png", "mime": "image/png", "data": _png(), "workflow_id": "image_gen", "seed": "1"}
+    )
+    seen: dict = {}
+    _stub(monkeypatch, seen=seen)
+    _refine(monkeypatch, Revision("fine", True))
+
+    events = await _trigger(
+        client, conv, {"action": "generate", "message_id": mid, "direction": "Hair red.", "reference": f"attachment:{aid}"}
+    )
+
+    assert any(name == "image_gen_render" for name, _ in events)
+    assert seen["edit"] is True
+    assert seen["prompter_reference_url"].startswith("data:image/") is bool(refine_turns)
+
+
 async def test_a_selected_excerpt_is_the_moment_the_prompter_is_asked_to_draw(client, llm_mock, monkeypatch):
     """A reply tells many actions; the selection names the one to show, a regenerate replays its take's selection, and a stale selection is refused."""
     mid = await _seed("ig-excerpt")
