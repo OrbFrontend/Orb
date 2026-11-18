@@ -56,7 +56,7 @@ _MEDIA = (
         "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
         "With reference_image, the image model edits that chat image and direction says only what to change (any image of "
         "the reply itself included, to fix one render). For a change too large for one edit, edit in steps: pass each "
-        "result's attachment:<id> as the next reference_image, checking the result before the next step. For a standalone "
+        "result's last ref as the next reference_image, checking the result before the next step. For a standalone "
         "picture or avatar rather than a saved RP "
         "reply, use create_image instead.",
         directed=True,
@@ -237,6 +237,9 @@ async def _result(
     else:
         status, summary = "saved", f"{summary}."
     data: dict[str, Any] = {"saved": True, "attachment_ids": ids, **({} if status == "saved" else {"status": status})}
+    if medium.workflow_id == "image_gen":
+        # What a next step passes as reference_image, so an edit chain never assembles a token.
+        data["refs"] = [f"attachment:{attachment}" for attachment in ids]
     ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
     images: tuple[ImagePart, ...] = ()
     if medium.workflow_id == "image_gen":

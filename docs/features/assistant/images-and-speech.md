@@ -14,8 +14,9 @@ description itself and the picture appears in the log. Click it to zoom.
   reference picture when the style uses references.
 - Ask for a change to a picture ("same, but at night") and the assistant renders
   again from it.
-- Point at an image in a chat ("like the picture on #12") and the assistant
-  renders from it. The style must take reference images; the assistant says
+- Point at an image in a chat ("the picture on #12, but at night") and the
+  assistant edits it. The prompt says only what changes, so this works best
+  with an edit model. The style must take reference images; the assistant says
   which do.
 - Name a style, or leave it to the default. "Which styles do I have?" lists them.
 
@@ -28,9 +29,9 @@ pictures until it restarts, so save the ones you want.
 "Illustrate this reply" renders an image for a reply, as its image button does.
 Add what you want it to show ("from her side of the room, at dusk") and the
 picture follows your direction over the reply's moment, framing, and mood. The
-image is saved on the reply. It can also work from an image in a chat, as
-above. A picture from the panel cannot be used for a reply: upload it to the
-chat first.
+image is saved on the reply and shown in the log. It can also edit an image in
+a chat, as above. A picture from the panel cannot be used for a reply; the
+assistant renders the reply again with what the picture shows as its direction.
 
 To fix one render ("same image, but her skin is honey-colored"), the assistant
 edits that image. The prompt says only what changes, so this works best with an

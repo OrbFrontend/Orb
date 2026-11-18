@@ -249,6 +249,7 @@ async def test_a_chosen_chat_image_is_read_by_origin_and_keeps_a_likeness_beside
             reference=StandaloneReference(f"attachment:{picture}"),
         )
     )
+    # The edited picture leads, since an edit model edits its first image; a likeness follows where inputs allow.
     sent = renders[0].references
-    assert [reference.origin for reference in sent] == ["character:iris", f"attachment:{picture}"][2 - capacity :]
-    assert sent[-1].source_digest == hashlib.sha256(chosen.getvalue()).hexdigest()
+    assert [reference.origin for reference in sent] == [f"attachment:{picture}", "character:iris"][:capacity]
+    assert sent[0].source_digest == hashlib.sha256(chosen.getvalue()).hexdigest()

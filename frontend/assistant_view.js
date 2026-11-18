@@ -1,7 +1,7 @@
 // The assistant transcript as data: what may be stored, how a run's events change it,
 // and its markup. No DOM lookups and no requests, so every rule here can be tested on its own.
 import { EDIT_ICON } from "./icons.js";
-import { esc, escAttr, sentenceDiff } from "./utils.js";
+import { esc, escAttr, sentenceDiff, workflowAttachmentUrl } from "./utils.js";
 
 export const MAX_ITEM_CHARS = 8000;
 const MAX_ITEMS = 100;
@@ -804,13 +804,25 @@ function proseHtml(item, renderProse) {
 
 // A stored transcript cannot point an image at another origin or route, so only a server-shaped id renders.
 function imageHtml(item) {
-  const imageId = item.tool === "create_image" && item.ok === true && !item.running ? item.ids?.image_id : null;
+  if (item.ok !== true || item.running) return "";
+  if (item.tool === "illustrate_reply") return renderHtml(item.ids?.attachment_ids);
+  const imageId = item.tool === "create_image" ? item.ids?.image_id : null;
   if (typeof imageId !== "string" || !/^[a-f0-9]{32}$/.test(imageId)) return "";
   return (
     `<figure class="asst-image"><img class="workflow-artifact-image" src="/api/assistant/images/${imageId}" ` +
     `alt="Generated picture (temporary; save it to keep it)" loading="lazy" ` +
     `data-fallback="This picture expired or the server restarted. Ask for a new one.">` +
     `<figcaption>Temporary picture. Save it to keep it or set and crop an avatar.</figcaption></figure>`
+  );
+}
+
+// The last render a reply illustration saved, the one the model was shown; the reply keeps every render.
+function renderHtml(ids) {
+  const src = Array.isArray(ids) ? workflowAttachmentUrl({ id: ids.at(-1) }) : "";
+  if (!src) return "";
+  return (
+    `<figure class="asst-image"><img class="workflow-artifact-image" src="${src}" alt="Reply image" loading="lazy" ` +
+    `data-fallback="Image unavailable."></figure>`
   );
 }
 

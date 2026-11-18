@@ -356,9 +356,10 @@ def _derived_draw(
     if not planned:
         return [tuple((kind, 0) for kind in policy.kinds)]
     picked = (("previous", 0),)
-    if chosen and picked in planned[capacity:] and capacity > 0:
-        # Likenesses come first, so a short array would cut the picture the render was asked to work from.
-        return [*(draw for draw in planned if draw != picked)][: capacity - 1] + [picked]
+    if chosen and picked in planned:
+        # The render edits this picture, and an edit model edits its first image: the picture leads, likenesses follow, and
+        # a short array cuts a likeness rather than the picture.
+        return [picked, *(draw for draw in planned if draw != picked)][:capacity]
     return planned[:capacity]
 
 

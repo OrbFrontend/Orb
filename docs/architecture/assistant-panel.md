@@ -765,8 +765,9 @@ The picture fills the `previous` role. It goes to the style's image inputs even
 where the style leaves its reference off, without changing saved settings. A
 `character` or `character_and_previous` style keeps its likeness slot when a
 character is in the render: `character_id` for `create_image`, the chat's characters for a
-reply. When the backend has too few inputs for every likeness and the picture,
-the picture keeps one and the likenesses fill the rest. For `create_image` the picture replaces the character's reference
+reply. The picture takes the first input, since an edit model edits its first
+image, and the likenesses fill the rest; a backend with too few inputs cuts a
+likeness, never the picture. For `create_image` the picture replaces the character's reference
 picture; saved appearance tags and exclusions still apply. For
 `illustrate_reply` it replaces the chat's previous image, and with
 `prompter_reference` on the prompter is shown it in place of the last reply's
@@ -776,8 +777,8 @@ A panel picture cannot be a reply's reference. Reroll replays a saved render's
 references strictly from their recorded origins, the image workflow cannot read
 the panel store, and the store forgets pictures on restart, so the reply would
 fail its first Reroll. `illustrate_reply` refuses `image:` and tells the model
-to have the user upload the picture to the chat, where it becomes an `upload:`
-reference.
+to render the reply again without a reference, with what the picture shows as
+`direction`.
 
 `illustrate_reply` sends the origin as the hook body's `reference`. The render
 records it in `references[].origin` and as `reference` beside `direction`.
@@ -822,7 +823,10 @@ A media tool is a write: it settles whole and reports progress, each hook
 naming that one attachment, so the chat shows each render, review redos
 included, while the job goes on; one that lands as the tool settles is left to
 the settled write's `mutation`, which names them all. Its result names the
-attachment ids its own job reported saving, never bytes. A job that started and
+attachment ids its own job reported saving, never bytes; an image result also
+carries them as `refs` (`attachment:<id>`), the tokens a next edit passes as
+`reference_image`. The log draws an `illustrate_reply` result's last render from
+its content route, with the same click-to-zoom as a panel picture. A job that started and
 saved nothing is a tool error. A job stopped or cut short that reported nothing
 while new rows appeared on the message claims none of them: the error says an
 artifact may have been saved and to check the message. Because the hold on the

@@ -77,7 +77,8 @@ async def reference_of(token: str, *, panel: bool) -> Reference:
         if not panel:
             raise ToolFailure(
                 "A create_image picture cannot be a saved reply's reference: a Reroll of the reply could not fetch it again. "
-                "Ask the user to upload the picture to the chat, then use that message's upload: ref."
+                "For this picture on a reply, call illustrate_reply without reference_image and put what the picture shows "
+                "into direction."
             )
         return Reference(f"assistant:{image_id}", panel=True)
     ref = await get_image_attachment_ref("workflow" if kind == "attachment" else "upload", int(ident))
