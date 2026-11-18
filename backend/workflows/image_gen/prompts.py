@@ -196,10 +196,10 @@ _COMPOSE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "compose_image_prompt",
-        "description": "Write a detailed image-gen prompt for one visible scene.",
+        "description": "Write the image-gen prompt for one image.",
         "parameters": _strict(
             {
-                "scene": {"type": "string", "description": "A positive scene prompt in the requested format."},
+                "scene": {"type": "string", "description": "The positive prompt in the requested form."},
                 "unwanted": _nullable(
                     "A short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null."
                 ),
@@ -257,7 +257,7 @@ _REFINE_TOOL_SCHEMA = {
                     "type": "boolean",
                     "description": "True to draw the next render from a new seed instead of the current one; false when done.",
                 },
-                "scene": _nullable("The complete revised positive scene prompt in the requested format, or null when done."),
+                "scene": _nullable("The complete revised positive prompt in the requested form, or null when done."),
                 "unwanted": _nullable("The revised unwanted list, or null."),
             }
         ),
@@ -477,6 +477,67 @@ def compose_ooc(
     )
 
 
+_EDIT_FORM = (
+    "The image model edits one picture, the reference picture. It keeps everything in the picture that the prompt does not "
+    "change. So write `scene` as an edit: state only what changes, in short present-tense sentences, such as 'Her hair is "
+    "now red.' or 'She now sits on the bench.' Do not describe what stays the same, and do not describe the whole scene. "
+    "Name each person a sentence is about. "
+)
+
+
+def _edited_picture(shows: str, seen: bool) -> str:
+    """What the prompter knows of the picture being edited: the picture itself, the prompt it was drawn from, or neither."""
+    parts = []
+    if seen:
+        parts.append("The image before this request is the picture to edit. ")
+    if shows:
+        parts.append(f"The picture was drawn from this prompt; use it only to name what changes: “{bounded(shows)}”. ")
+    return "".join(parts)
+
+
+def edit_ooc(
+    *,
+    subjects: Sequence[SubjectAppearance] = (),
+    shows: str = "",
+    seen: bool = False,
+    supports_negative: bool = True,
+    style_prompt: str = "",
+    style_negative_prompt: str = "",
+    profile_negative_prompt: str = "",
+    extra_instructions: str = "",
+    direction: str = "",
+    excerpt: str = "",
+) -> str:
+    """The compose request for a render that edits a chosen picture: the prompt states the change, not the scene.
+
+    `shows` is the prompt the picture was drawn from, when known; `seen` says the picture rides before this request.
+    """
+    text = bounded(direction, DIRECTION_CHARS)
+    change = (
+        f"The user asked for this change, in their words: “{text}”. State that change and nothing else. "
+        if text
+        else _excerpt_block(excerpt) + "Change the picture so that it shows the final visible instant of the latest assistant "
+        "reply. State each difference it needs in pose, action, expression, clothing, setting, lighting, or framing. "
+    )
+    names = [bounded(subject.name, 200) for subject in subjects if bounded(subject.name, 200)]
+    roster = (
+        "Copy into `visible_subjects` the names of these subjects that are visible in the result: " + ", ".join(names) + ". "
+        if names
+        else "Leave `visible_subjects` empty because no subject was named. "
+    )
+    return (
+        "[OOC: Pause the roleplay and prompt one picture edit for an image-editing model. Call compose_image_prompt. "
+        + _EDIT_FORM
+        + _edited_picture(shows, seen)
+        + change
+        + roster
+        + _downstream_blocks(style_prompt, style_negative_prompt, profile_negative_prompt, supports_negative=supports_negative)
+        + (_UNWANTED_INSTRUCTION if supports_negative else _LEAVE_UNWANTED_EMPTY)
+        + _extra_block(extra_instructions)
+        + "]"
+    )
+
+
 # The selector names the camera by its id, which says enough for the two person
 # viewpoints; an empty-set shot needs saying what can still be "visible".
 _SELECTOR_POV = {BACKGROUND: "background: the setting only, no person in frame, though a subject can be a place"}
@@ -534,6 +595,7 @@ def refine_ooc(
     prompter_reference: bool = False,
     directed: bool = False,
     excerpted: bool = False,
+    edit: bool = False,
 ) -> str:
     """The review request that rides beside a render, after its tool result.
 
@@ -541,7 +603,8 @@ def refine_ooc(
     `prompter_reference` says the compose request carried the chat's earlier picture, so the review checks against it too.
     `directed` says it carried the user's direction for this image: the review holds the render to that first, so a departure
     from the reply the user asked for is never corrected away. `excerpted` says it quoted the passage the user selected, so the
-    review holds the render to where that passage ends rather than to what it leads to.
+    review holds the render to where that passage ends rather than to what it leads to. `edit` says the prompt is an edit of a
+    chosen picture: the review holds the render to the change and the rest of the picture, and a revision stays an edit.
     """
     unwanted = "Revise `unwanted` by the same rules as before." if supports_negative else _LEAVE_UNWANTED_EMPTY
     reseed = _RESEED if supports_seed else _NO_SEED
@@ -561,13 +624,17 @@ def refine_ooc(
         if directed
         else instant
     )
+    if edit:
+        against = "the change you stated: the change must show, and the rest must stay as it is in the edited picture"
+        earlier = ""
+    revised = "the revised edit in `scene`, still only what changes" if edit else "the complete revised prompt in `scene`"
     return (
         f"[OOC: The image above is render {render}, made from your last prompt. Review it against {against}{earlier}. Check the number of persons, who is visible, pose and "
         "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
         "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
         "render, set `reseed` to false, and set `scene` and `unwanted` to null. Otherwise set `done` to false and write "
-        "the complete revised prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more "
+        f"{revised}. Keep the parts that worked. Fix each problem: make its wording more "
         "explicit, move it earlier, or remove the words that caused it. If the image is completely mangled or wrong, "
         "try a different prompt approach or seed. Sometimes the image model simply cannot render certain perspectives or details. "
         f"{reseed} Use the same format rules as before. {unwanted}{last} Call refine_image_prompt.]"
@@ -589,8 +656,29 @@ def standalone_ooc(
     *,
     supports_negative: bool,
     has_references: bool,
+    edit: bool = False,
+    shows: str = "",
 ) -> str:
-    """Format guidance for a description, with no RP scene or camera policy."""
+    """Format guidance for a description, with no RP scene or camera policy.
+
+    `edit` says the render edits a chosen picture, so the description is its change; `shows` is that picture's prompt, if known.
+    """
+    if edit:
+        return (
+            "Edit one picture for an image-editing model. There is no roleplay reply to illustrate. Use compose_image_prompt. "
+            + _EDIT_FORM
+            + _edited_picture(shows, False)
+            + (_UNWANTED_INSTRUCTION if supports_negative else _LEAVE_UNWANTED_EMPTY)
+            + _downstream_blocks(
+                style.get("prompt", ""),
+                style.get("negative_prompt", ""),
+                profile.get("negative_prompt", ""),
+                supports_negative=supports_negative,
+            )
+            + "Leave `visible_subjects` empty."
+            + "\nThe change (description):\n"
+            + description
+        )
     prompt_format = normalize_prompt_format(style["prompt_format"])
     extra = bounded(style.get("extra_instructions"))
     return (

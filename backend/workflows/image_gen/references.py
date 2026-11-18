@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -241,8 +242,23 @@ async def origin_row(origin: str) -> tuple[Mapping[str, Any], int]:
     return found
 
 
-async def explicit_reference(origin: str) -> Fetched:
-    """The bytes of the picture a render was explicitly given, by origin; raises naming why it cannot be used."""
+def _rendered_from(row: Mapping[str, Any]) -> str:
+    """The prompt one of this workflow's whole-scene renders was drawn from; empty for an upload, an edit, or another workflow."""
+    if row.get("workflow_id") != WORKFLOW_ID:
+        return ""
+    try:
+        recorded = json.loads(row.get("generation_metadata") or "{}")
+    except ValueError:
+        return ""
+    if not isinstance(recorded, dict) or recorded.get("reference"):
+        return ""
+    prompt = recorded.get("prompt")
+    return prompt.strip() if isinstance(prompt, str) else ""
+
+
+async def explicit_reference(origin: str) -> tuple[Fetched, str]:
+    """The picture a render was explicitly given, by origin, and the prompt it was rendered from when that describes it (empty
+    otherwise); raises naming why it cannot be used."""
     row, _ = await origin_row(origin)
     mime = str(row.get("mime_type") or "").lower()
     if row.get("data_b64") == EVICTED_MARKER:
@@ -254,7 +270,7 @@ async def explicit_reference(origin: str) -> Fetched:
     found = _bytes_from_row(row)
     if found is None:
         raise ImageGenerationError("That chat image's stored bytes could not be read.")
-    return found[0], found[1], origin
+    return (found[0], found[1], origin), _rendered_from(row)
 
 
 def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:

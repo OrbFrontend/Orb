@@ -177,7 +177,9 @@ attachment.
 Image Generation's on-demand `generate` body is `{action, message_id}` with an
 optional `direction`, `style_id`, `excerpt` and `reference`. `reference` is an
 origin, `attachment:<id>` or `upload:<message id>:<id>`, naming the picture the
-render works from in place of the chat's previous image; a missing, cleared or
+render edits in place of the chat's previous image: the compose request asks
+for the change alone, quoting the picture's own prompt when it is a whole-scene
+render, and reviews keep revisions as edits; a missing, cleared or
 unsupported picture fails the stream with its cause, and a style whose backend
 has no image input fails it before composing. Its `styles` query marks each
 style `takes_reference`. Its `describe` query takes `{origin}` for one chat image

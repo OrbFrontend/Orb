@@ -10,7 +10,16 @@ from typing import Any, NamedTuple
 from ..toolkit import Settings, forced_tool_call
 from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
-from .prompts import DIRECTION_CHARS, OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc, standalone_ooc
+from .prompts import (
+    DIRECTION_CHARS,
+    OFFER_TOOLS,
+    compose_ooc,
+    edit_ooc,
+    refine_ooc,
+    render_result,
+    select_skills_ooc,
+    standalone_ooc,
+)
 from .scrub import (
     SubjectAppearance,
     bounded,
@@ -50,7 +59,8 @@ class RefineThread:
     under review. `call_id` names the call the next render answers. `prompter_reference` says the compose tail carried the
     chat's earlier picture, so each review checks against it too. `directed` says the compose tail carried the user's direction
     for this image, so each review holds the render to it first rather than pulling it back to the reply. `excerpted` says it
-    quoted the passage the user selected, so each review holds the render to where that passage ends.
+    quoted the passage the user selected, so each review holds the render to where that passage ends. `edit` says the prompt edits
+    a chosen picture, so each revision stays an edit.
     """
 
     messages: list[dict] = field(default_factory=list)
@@ -59,6 +69,7 @@ class RefineThread:
     prompter_reference: bool = False
     directed: bool = False
     excerpted: bool = False
+    edit: bool = False
 
 
 @dataclass
@@ -244,6 +255,8 @@ async def compose_scene(
     prompter_reference_sent: bool = False,
     direction: str = "",
     excerpt: str = "",
+    edit: bool = False,
+    shows: str = "",
 ) -> tuple[str, str, str]:
     """Compose scene text as ``(scene, unwanted, mode)``.
 
@@ -251,26 +264,41 @@ async def compose_scene(
     earlier picture, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
     image model receives that picture as well. A provider that rejects the image raises rather than composing blind.
     `direction` is the user's own ask for this one image, which outranks the reply on what the shot shows. `excerpt` is the
-    passage the user selected, which the reply in `prefix` ends with.
+    passage the user selected, which the reply in `prefix` ends with. `edit` says the reference is a chosen picture the image
+    model edits: the prompt states the change alone, and `shows` is the prompt that picture was drawn from, when known.
     """
     sheets = _sheets(subjects)
-    request = compose_ooc(
-        prompt_format,
-        pov,
-        subjects=sheets,
-        selected_skills=selected_skills,
-        extra_instructions=extra_instructions,
-        supports_negative=supports_negative,
-        has_references=has_references,
-        referenced_subjects=referenced_subjects,
-        style_prompt=style_prompt,
-        style_negative_prompt=style_negative_prompt,
-        profile_negative_prompt=profile_negative_prompt,
-        prompter_reference=bool(prompter_reference_url),
-        prompter_reference_sent=prompter_reference_sent,
-        direction=direction,
-        excerpt=excerpt,
-    )
+    if edit:
+        request = edit_ooc(
+            subjects=sheets,
+            shows=shows,
+            seen=bool(prompter_reference_url),
+            supports_negative=supports_negative,
+            style_prompt=style_prompt,
+            style_negative_prompt=style_negative_prompt,
+            profile_negative_prompt=profile_negative_prompt,
+            extra_instructions=extra_instructions,
+            direction=direction,
+            excerpt=excerpt,
+        )
+    else:
+        request = compose_ooc(
+            prompt_format,
+            pov,
+            subjects=sheets,
+            selected_skills=selected_skills,
+            extra_instructions=extra_instructions,
+            supports_negative=supports_negative,
+            has_references=has_references,
+            referenced_subjects=referenced_subjects,
+            style_prompt=style_prompt,
+            style_negative_prompt=style_negative_prompt,
+            profile_negative_prompt=profile_negative_prompt,
+            prompter_reference=bool(prompter_reference_url),
+            prompter_reference_sent=prompter_reference_sent,
+            direction=direction,
+            excerpt=excerpt,
+        )
     content: str | list[dict] = (
         [{"type": "image_url", "image_url": {"url": prompter_reference_url}}, {"type": "text", "text": request}]
         if prompter_reference_url
@@ -297,6 +325,9 @@ async def compose_scene(
     visible = _matching_subjects(sheets, names, "composition") if isinstance(names, (list, tuple)) else []
     if sheets and sheets[0] not in visible:
         visible = [sheets[0], *visible]
+    if edit:
+        # The picture carries every likeness already; fixed tags would restate the scene the edit leaves alone.
+        visible = []
     if thread is not None and isinstance(result.get("replay"), Mapping):
         thread.messages = [*tail, dict(result["replay"])]
         thread.visible = visible
@@ -304,8 +335,10 @@ async def compose_scene(
         thread.prompter_reference = bool(prompter_reference_url)
         thread.directed = bool(bounded(direction, DIRECTION_CHARS))
         thread.excerpted = bool(bounded(excerpt))
+        thread.edit = edit
     scene = inject_profile_appearance(scene, visible, prompt_format)
-    return scene, bounded(args.get("unwanted")), "scene_skills" if visible_subjects is not None else "single_call"
+    mode = "edit" if edit else "scene_skills" if visible_subjects is not None else "single_call"
+    return scene, bounded(args.get("unwanted")), mode
 
 
 async def refine_scene(
@@ -343,6 +376,7 @@ async def refine_scene(
         prompter_reference=thread.prompter_reference,
         directed=thread.directed,
         excerpted=thread.excerpted,
+        edit=thread.edit,
     )
     turn = [
         {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render, reseeded=reseeded)},
@@ -411,8 +445,13 @@ async def compose_standalone(
     supports_negative: bool,
     has_references: bool,
     reasoning_on: bool,
+    edit: bool = False,
+    shows: str = "",
 ) -> tuple[str, str]:
-    """One prompter call for a standalone picture; no skills, scene prefix, camera resolution, or review."""
+    """One prompter call for a standalone picture; no skills, scene prefix, camera resolution, or review.
+
+    `edit` says the render edits a chosen picture, so the description is its change; `shows` is that picture's prompt, if known.
+    """
     sheets = _sheets(subjects)
     result = await _forced_result(
         client=client,
@@ -428,6 +467,8 @@ async def compose_standalone(
                     sheets,
                     supports_negative=supports_negative,
                     has_references=has_references,
+                    edit=edit,
+                    shows=shows,
                 ),
             }
         ],
@@ -441,5 +482,6 @@ async def compose_standalone(
     scene = bounded(result["args"].get("scene"))
     if not scene:
         raise ValueError("couldn't compose an image prompt for this description")
-    scene = inject_profile_appearance(scene, sheets, style["prompt_format"])
+    if not edit:
+        scene = inject_profile_appearance(scene, sheets, style["prompt_format"])
     return assemble_prompts(style, profile, scene, bounded(result["args"].get("unwanted")))

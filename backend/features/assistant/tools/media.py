@@ -53,7 +53,8 @@ _MEDIA = (
         "Make an image of one saved reply in a chat with the Image Generation workflow and save it on that message. With "
         "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
         "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
-        "With reference_image, it is drawn from that chat image. For a standalone picture or avatar rather than a saved RP "
+        "With reference_image, the image model edits that chat image and direction says only what to change (any image of "
+        "the reply itself included, to fix one render). For a standalone picture or avatar rather than a saved RP "
         "reply, use create_image instead.",
         directed=True,
     ),

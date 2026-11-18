@@ -357,9 +357,10 @@ async def test_a_chosen_chat_image_is_the_reply_render_reference_and_a_reroll_re
     chosen = await _picture(path[-6]["id"], chosen_bytes)
     # Newer, so the chat's own previous image: the chosen one must win over it.
     await _picture(path[-3]["id"], _png("red"))
-    renders = []
+    renders, composed = [], []
 
     async def compose(**kwargs):
+        composed.append(kwargs)
         return "1girl, standing", "", "single_call"
 
     async def render(adapter, request, **kwargs):
@@ -378,6 +379,8 @@ async def test_a_chosen_chat_image_is_the_reply_render_reference_and_a_reroll_re
     listed, illustrated = _results(frames(await client.post_checked(RUN, json=_body(chat))))
 
     assert listed["ok"] and illustrated["ok"], illustrated
+    # The chosen picture is edited, not redrawn: the prompter states the change and knows what the picture was drawn from.
+    assert composed[0]["edit"] is True and composed[0]["shows"] == "1girl"
     [sent] = renders[0].references
     assert sent.origin == f"attachment:{chosen}" and sent.source_digest == hashlib.sha256(chosen_bytes).hexdigest()
     [row] = await get_workflow_attachments_for_message(kept)

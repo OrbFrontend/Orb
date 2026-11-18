@@ -44,8 +44,9 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
     # one, a style that enables references draws this character's likeness.
     reference = ctx.reference
     previous: Fetched | None = None
+    shows = ""
     if reference is not None and not reference.data:
-        previous = await explicit_reference(reference.origin)
+        previous, shows = await explicit_reference(reference.origin)
     elif reference is not None:
         if reference.mime.lower() not in REFERENCE_MIMES:
             raise unsupported_reference(reference.mime)
@@ -75,6 +76,8 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
             supports_negative=target.supports_negative_prompt,
             has_references=bool(references),
             reasoning_on=bool(config.get("prompter_reasoning")),
+            edit=previous is not None,
+            shows=shows,
         )
     except (PrompterCallError, ValueError) as exc:
         raise ImageGenerationError(f"Could not compose the standalone picture: {exc}") from exc

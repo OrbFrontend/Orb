@@ -423,6 +423,7 @@ async def _generate_fresh(
     history: Sequence[Mapping[str, Any]] | None = None,
     direction: str = "",
     reference: Fetched | None = None,
+    shows: str = "",
     excerpt: Mapping[str, Any] | None = None,
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
@@ -430,7 +431,8 @@ async def _generate_fresh(
     `direction` is the user's own ask for this image; the composer follows it over the reply on what the shot shows. `excerpt`
     is the span of the reply the user selected: every step reads the reply cut at its end, and the prompter is quoted it.
     `reference` is a picture chosen for this render: it fills the style's image inputs in place of the chat's previous image,
-    even where the style leaves them off, and is what the prompter is shown.
+    even where the style leaves them off, and is what the prompter is shown. The render edits it: the prompt states the change,
+    and `shows` is the prompt the picture was drawn from, when known.
 
     With refinement on, every revision is kept too, as it lands: the prompter's pick is only the last one, and the user may
     prefer an earlier render or stop the run once one is good enough. Review reasons appear only in live progress.
@@ -523,6 +525,8 @@ async def _generate_fresh(
             prompter_reference_sent=any(reference.origin == prompter_reference for reference in references),
             direction=direction,
             excerpt=picked,
+            edit=reference is not None,
+            shows=shows,
         )
     except PrompterCallError as exc:
         # Only a compose that carried the image raises; composing blind instead would
@@ -658,12 +662,13 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
     direction = bounded(body.get("direction"), DIRECTION_CHARS)
     config, style_id, profile = await _render_inputs(ctx, body)
     reference: Fetched | None = None
+    shows = ""
     origin = body.get("reference")
     if origin not in (None, ""):
         if not isinstance(origin, str) or origin.partition(":")[0] not in ("attachment", "upload"):
             return _failed_stream("reference names a chat image as attachment:<id> or an upload as upload:<message id>:<id>")
         try:
-            reference = await explicit_reference(origin)
+            reference, shows = await explicit_reference(origin)
         except ImageGenerationError as exc:
             return _failed_stream(str(exc))
     try:
@@ -710,6 +715,7 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
                 phase=phase,
                 direction=direction,
                 reference=reference,
+                shows=shows,
                 excerpt=excerpt,
             )
         )

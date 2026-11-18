@@ -9,7 +9,7 @@ const POV_SOURCE_LABELS = {
 };
 
 const REFERENCE_ORIGIN_LABELS = {
-  attachment: "previous image",
+  attachment: "chat image",
   upload: "uploaded image",
   character: "character card",
 };

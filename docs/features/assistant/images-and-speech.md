@@ -32,6 +32,10 @@ image is saved on the reply. It can also work from an image in a chat, as
 above. A picture from the panel cannot be used for a reply: upload it to the
 chat first.
 
+To fix one render ("same image, but her skin is honey-colored"), the assistant
+edits that image. The prompt says only what changes, so this works best with an
+edit model.
+
 ## Read a reply aloud
 
 "Read the last reply aloud" generates speech for a reply, as its speaker control
