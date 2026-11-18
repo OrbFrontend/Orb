@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import Field
 
+from ....core.llm_types import ImagePart
 from ....core.settings import Settings
 from ....database import get_active_path, get_message_by_id, get_settings, message_workflow_attachment_ids
 from ..contracts import AssistantTool, NoArguments, ToolArguments, ToolFailure, ToolOutput, ViewContext
@@ -54,7 +55,9 @@ _MEDIA = (
         "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
         "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
         "With reference_image, the image model edits that chat image and direction says only what to change (any image of "
-        "the reply itself included, to fix one render). For a standalone picture or avatar rather than a saved RP "
+        "the reply itself included, to fix one render). For a change too large for one edit, edit in steps: pass each "
+        "result's attachment:<id> as the next reference_image, checking the result before the next step. For a standalone "
+        "picture or avatar rather than a saved RP "
         "reply, use create_image instead.",
         directed=True,
     ),
@@ -235,7 +238,16 @@ async def _result(
         status, summary = "saved", f"{summary}."
     data: dict[str, Any] = {"saved": True, "attachment_ids": ids, **({} if status == "saved" else {"status": status})}
     ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
-    return ToolOutput(data, summary, ids_out, committed=({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},))
+    images: tuple[ImagePart, ...] = ()
+    if medium.workflow_id == "image_gen":
+        try:
+            preview = (await host.view_image(f"attachment:{ids[-1]}")).preview_url
+        except HostRefusal:
+            preview = ""
+        if preview:
+            images = ({"type": "image_url", "image_url": {"url": preview}},)
+    committed = ({"kind": "media", **ids_out, "workflow_id": medium.workflow_id},)
+    return ToolOutput(data, summary, ids_out, committed=committed, images=images)
 
 
 class _CreateImageArgs(ToolArguments):
