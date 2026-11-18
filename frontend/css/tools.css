@@ -17,6 +17,7 @@ input[type="range"]::-moz-range-track { height: 6px; background: var(--bg-elevat
 .tool-card.tool-on { border-color: var(--accent-dim); background: var(--accent-glow); }
 #tools-list.workflows-off .tool-card { opacity: 0.5; pointer-events: none; }
 .tool-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.tool-card-header:last-child { margin-bottom: 0; }
 .tool-card-name { font-size: 12px; font-weight: 500; color: var(--text-primary); }
 .tool-card-desc { font-size: 11px; color: var(--text-muted); line-height: 1.45; }
 .tool-card-select { background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border);
