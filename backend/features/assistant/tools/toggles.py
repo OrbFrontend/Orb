@@ -126,8 +126,8 @@ def build_toggle_tools(host: WorkflowSwitches) -> list[AssistantTool]:
     description = (
         "Turn one pipeline switch on or off. "
         "editor is the Editor pass: off turns off output_auditor and length_guard, on turns on output_auditor only. "
-        "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback and "
-        "recast; workflows (secondary workflows) is the master of each workflow:<id>. A master that is off keeps "
+        "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback, "
+        "recast and rewrite; workflows (secondary workflows) is the master of each workflow:<id>. A master that is off keeps "
         "the switches under it from taking effect; it is reported, not changed. director_individual_fragments: the Director "
         "fills each fragment in its own call. agentic_lorebook: the agent picks the lore entries to use."
     )
@@ -156,7 +156,7 @@ def build_toggle_tools(host: WorkflowSwitches) -> list[AssistantTool]:
             summary += f" It has no effect while {', '.join(blocked)} is off."
         data: dict[str, Any] = {"changed": changed, "switches": switches}
         if editor and not on:
-            data["note"] = "Recast and feedback fragments can still run an Editor pass; they are set per fragment."
+            data["note"] = "Recast, rewrite and feedback fragments can still run an Editor pass; they are set per fragment."
         if blocked:
             data["note_gates"] = (
                 f"{', '.join(blocked)} is off, so this has no effect yet. Tell the user; turn it on only if they ask."

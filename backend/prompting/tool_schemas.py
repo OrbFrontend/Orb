@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 
-from ..core import StateFragment
+from ..core import DECISION_FIELD_TYPE, REPLY_EDIT_FIELD_TYPES, StateFragment
 
 # Agent tool definitions.
 
@@ -46,7 +46,7 @@ def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) 
     required: list[str] = []
 
     for df in interactive_fragments:
-        if df.get("field_type") in ("recast", "decision"):
+        if df.get("field_type") in REPLY_EDIT_FIELD_TYPES or df.get("field_type") == DECISION_FIELD_TYPE:
             continue
         fid = df["id"]
         field_type = df["field_type"]
@@ -273,19 +273,24 @@ EDITOR_REWRITE_TOOL = {
     "type": "function",
     "function": {
         "name": "editor_rewrite",
-        "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's vocabulary, and any special formatting or code.",
+        "description": (
+            "Replace the entire draft with a rewrite that does what the request asks. Keep the story beats, the author's "
+            "vocabulary, and any special formatting or code that the request does not ask you to change."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "rewritten_text": {
                     "type": "string",
-                    "description": "The refined rewrite of the entire draft. Should address length constraints and/or audit issues while preserving the original intent.",
+                    "description": "The complete rewritten draft, from its first word to its last.",
                 }
             },
             "required": ["rewritten_text"],
         },
     },
 }
+
+EDITOR_REWRITE_CHOICE = {"type": "function", "function": {"name": "editor_rewrite"}}
 
 EDITOR_FIND_REPLACE_TOOL = {
     "type": "function",

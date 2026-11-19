@@ -8,7 +8,7 @@ Create or edit an Interactive Fragment and choose **recast (edits
 reply)** as its Field Type. The **Injection Label** becomes the Editor task
 heading, and **Description** is the instruction the Editor follows.
 
-The feature is active whenever the Agent and at least one recast
+The feature is active whenever the Agent and at least one recast or rewrite
 fragment are enabled. It does not depend on the Output Auditor or Length Guard.
 Card-embedded fragments use the same fields and behavior.
 
@@ -18,7 +18,8 @@ For each conversation reply, Orb runs recast fragments:
 
 1. after the Writer, any Output Auditor or Length Guard edits, and the subject
    fixation edit;
-2. once per enabled fragment, in `sort_order`;
+2. once per enabled fragment, in `sort_order`, interleaved with any
+   [rewrite fragments](rewrite-fragments.md);
 3. before Feedback and all secondary workflows.
 
 Each fragment receives the Writer request and the current evolving draft. Its
@@ -127,7 +128,7 @@ the Stop are kept, and no later fragment, Feedback, or workflow starts.
 
 ### In the Inspector
 
-Each gate adds a `recast_gate` entry under **Tool Calls**, before its
+Each gate adds a `fragment_gate` entry under **Tool Calls**, before its
 fragment's `editor_find_replace` call when that runs:
 
 ```json

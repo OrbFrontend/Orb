@@ -1,11 +1,11 @@
-"""Run fragment-defined exact edits over the Writer draft."""
+"""Run fragment-defined edits over the Writer draft: exact patches (recast) or a whole new draft (rewrite)."""
 
 from __future__ import annotations
 
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,20 +17,21 @@ from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
 from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
-from ....prompting.tool_schemas import EDITOR_FIND_REPLACE_CHOICE
+from ....prompting.tool_schemas import EDITOR_FIND_REPLACE_CHOICE, EDITOR_REWRITE_CHOICE
 from ...subject_tags import TaggedReply, tag_text
 from ...timing import measure_step
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
-from .prompts import build_recast_prompt, build_subject_fixation_prompt
+from .prompts import build_recast_prompt, build_rewrite_prompt, build_subject_fixation_prompt
+from .rewrite import rewritten_text
 from .subject_repeats import repeat_scores
 
 logger = logging.getLogger(__name__)
 
 
-def recast_active(recast_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
+def reply_edits_active(reply_edit_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return whether fragment-defined Editor work should run this turn."""
-    return agent_on and bool(recast_fragments)
+    return agent_on and bool(reply_edit_fragments)
 
 
 def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", narration_only: bool = False) -> str:
@@ -43,7 +44,7 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
     """
     if not isinstance(patches, list):
         if patches is not None:
-            logger.warning("Recast %r: patches is not a list, nothing applied: %r", label, patches)
+            logger.warning("Find/replace %r: patches is not a list, nothing applied: %r", label, patches)
         return draft
 
     current = draft
@@ -82,7 +83,7 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
                         if mask is not None:
                             mask[start:end] = [True] * len(replace)
         if reason:
-            logger.warning("Recast %r: patch %d skipped (%s): %r", label, index, reason, patch)
+            logger.warning("Find/replace %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
 
 
@@ -97,11 +98,11 @@ def _apply_find_replace_calls(
             if isinstance(entries, list):
                 patches.extend(entries)
             elif entries is not None:
-                logger.warning("Recast %r: patches is not a list, nothing applied: %r", label, entries)
+                logger.warning("Find/replace %r: patches is not a list, nothing applied: %r", label, entries)
     return apply_find_replace_patches(draft, patches, label=label, narration_only=narration_only)
 
 
-async def _find_replace_call(
+async def _forced_edit_call(
     client: LLMClient,
     base: CachedBase,
     resp: CompletionMessage,
@@ -110,11 +111,13 @@ async def _find_replace_call(
     settings: Settings,
     *,
     writer_user_msg: str | list[ContentPart],
+    tool_choice: dict,
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """One forced ``editor_find_replace`` call over *draft* that extends the Writer's prefix; the reply lands in *resp*."""
+    """One Editor call over *draft*, forced to the tool *tool_choice* names, that extends the Writer's prefix; the reply lands
+    in *resp*."""
     trailing: list[ChatMessage] = [
         {"role": "user", "content": writer_user_msg},
         {"role": "assistant", "content": draft},
@@ -125,7 +128,7 @@ async def _find_replace_call(
         resp,
         label="editor",
         trailing=trailing,
-        tool_choice=EDITOR_FIND_REPLACE_CHOICE,
+        tool_choice=tool_choice,
         kv_tracker=kv_tracker,
         **extract_hyperparams(settings, lane="agent"),
         **reasoning_cfg(reasoning_on, reasoning_prefill),
@@ -133,20 +136,27 @@ async def _find_replace_call(
         yield event
 
 
+# Each reply-edit kind's request builder and forced tool.
+_KINDS: Mapping[str, tuple[Callable[..., str], dict]] = {
+    "recast": (build_recast_prompt, EDITOR_FIND_REPLACE_CHOICE),
+    "rewrite": (build_rewrite_prompt, EDITOR_REWRITE_CHOICE),
+}
+
+
 @dataclass(slots=True)
-class RecastResult:
+class ReplyEditResult:
     """The evolving draft and normalized calls produced by all fragments."""
 
     draft: str
     tool_calls: list[ParsedToolCall] = field(default_factory=list)
 
 
-async def recast_step(
+async def reply_edit_step(
     client: LLMClient,
     base: CachedBase,
     draft: str,
     settings: Settings,
-    recast_fragments: Sequence[Mapping[str, Any]],
+    reply_edit_fragments: Sequence[Mapping[str, Any]],
     *,
     writer_user_msg: str | list[ContentPart],
     effective_msg: str,
@@ -157,7 +167,9 @@ async def recast_step(
     reasoning_prefill: str = "",
     timing_entries: list[GenerationTimingRow] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Run one forced exact-edit call per fragment in ``sort_order``.
+    """Run one forced Editor call per fragment in ``sort_order``: exact patches for a recast fragment, a whole new draft for a
+    rewrite fragment. Each fragment edits the draft the earlier ones left, and a ``step`` event names its kind whenever the
+    kind changes.
 
     A fragment with a gate question first asks the Judge about the draft as the earlier fragments left it, and is skipped on a
     no. The gate may also show the Judge some of *recent_replies* (newest first). Every gate in the step shares one
@@ -168,12 +180,19 @@ async def recast_step(
     """
     current = draft
     all_calls: list[ParsedToolCall] = []
-    fragments = sorted(recast_fragments, key=lambda item: item.get("sort_order", 0))
+    fragments = sorted(reply_edit_fragments, key=lambda item: item.get("sort_order", 0))
     judge_allowance = GATE_BUDGET_SECONDS
+    step = ""
 
     for fragment in fragments:
         if client.is_aborted:
             break
+        kind = "rewrite" if fragment.get("field_type") == "rewrite" else "recast"
+        build_prompt, tool_choice = _KINDS[kind]
+        label = fragment.get("label") or fragment.get("id", "")
+        if kind != step:
+            step = kind
+            yield {"type": "step", "step": kind}
 
         with measure_step(
             timing_entries,
@@ -203,19 +222,20 @@ async def recast_step(
                     break
                 if not record["arguments"]["fired"]:
                     timing["status"] = "skipped"
-                    logger.info("Recast fragment %r skipped by its gate", fragment.get("id", ""))
+                    logger.info("%s fragment %r skipped by its gate", kind.title(), fragment.get("id", ""))
                     continue
 
             resp: CompletionMessage = {}
             try:
-                async for event in _find_replace_call(
+                async for event in _forced_edit_call(
                     client,
                     base,
                     resp,
                     current,
-                    build_recast_prompt(fragment, draft=current, reasoning_on=reasoning_on),
+                    build_prompt(fragment, draft=current, reasoning_on=reasoning_on),
                     settings,
                     writer_user_msg=writer_user_msg,
+                    tool_choice=tool_choice,
                     kv_tracker=kv_tracker,
                     reasoning_on=reasoning_on,
                     reasoning_prefill=reasoning_prefill,
@@ -223,9 +243,8 @@ async def recast_step(
                     yield event
             except Exception as exc:
                 timing["status"] = "failed"
-                logger.exception("Recast fragment %r failed; skipping it", fragment.get("id", ""))
-                label = fragment.get("label") or fragment.get("id", "")
-                yield {"type": "failure", "during": "recast", "label": label, "error": exc}
+                logger.exception("%s fragment %r failed; skipping it", kind.title(), fragment.get("id", ""))
+                yield {"type": "failure", "during": kind, "label": label, "error": exc}
                 continue
             # A stop cuts the call short; its edits may be half-written, so the
             # draft keeps the earlier fragments' finished edits only.
@@ -235,18 +254,22 @@ async def recast_step(
             parsed = parse_tool_calls(resp)
             all_calls.extend(parsed)
             before = current
-            current = _apply_find_replace_calls(current, parsed, label=fragment.get("label") or fragment.get("id", ""))
+            if kind == "rewrite":
+                current = rewritten_text(parsed, resp, label=f"Rewrite fragment {label!r}") or current
+            else:
+                current = _apply_find_replace_calls(current, parsed, label=label)
             if current != before:
                 yield {"type": "draft_update", "draft": current}
 
             logger.info(
-                "Recast fragment %r completed (changed=%s): %s",
+                "%s fragment %r completed (changed=%s): %s",
+                kind.title(),
                 fragment.get("id", ""),
                 current != before,
                 json.dumps(resp, default=str),
             )
 
-    yield {"type": "done", "result": RecastResult(draft=current, tool_calls=all_calls)}
+    yield {"type": "done", "result": ReplyEditResult(draft=current, tool_calls=all_calls)}
 
 
 async def subject_fixation_step(
@@ -280,7 +303,7 @@ async def subject_fixation_step(
         return
     yield {"type": "step", "step": "subject_fixation"}
     resp: CompletionMessage = {}
-    async for event in _find_replace_call(
+    async for event in _forced_edit_call(
         client,
         base,
         resp,
@@ -288,6 +311,7 @@ async def subject_fixation_step(
         build_subject_fixation_prompt(streaks, draft=draft, reasoning_on=reasoning_on),
         settings,
         writer_user_msg=writer_user_msg,
+        tool_choice=EDITOR_FIND_REPLACE_CHOICE,
         kv_tracker=kv_tracker,
         reasoning_on=reasoning_on,
         reasoning_prefill=reasoning_prefill,
@@ -298,4 +322,4 @@ async def subject_fixation_step(
     if edited != draft:
         yield {"type": "draft_update", "draft": edited}
     logger.info("Subject fixation on %s: changed=%s", [streak.category for streak in streaks], edited != draft)
-    yield {"type": "done", "result": RecastResult(draft=edited, tool_calls=calls)}
+    yield {"type": "done", "result": ReplyEditResult(draft=edited, tool_calls=calls)}

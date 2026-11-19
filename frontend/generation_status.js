@@ -9,6 +9,7 @@ const STEP_LABELS = {
   length_guard: "Checking the length…",
   subject_fixation: "Cutting repeated descriptions…",
   recast: "Recasting the reply…",
+  rewrite: "Rewriting the reply…",
   feedback: "Preparing feedback…",
   world_changes: "Checking for world changes…",
   sheet_updates: "Reviewing character sheets…",

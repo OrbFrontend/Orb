@@ -39,6 +39,7 @@
     "state",
     "feedback",
     "recast",
+    "rewrite",
     "decision"
   ],
   "enabled_fragments": [

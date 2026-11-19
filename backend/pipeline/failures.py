@@ -219,6 +219,7 @@ _STEP_HEADLINES = {
     "length_guard": "The length check didn't finish.",
     "subject_fixation": "The subject fixation edit didn't finish.",
     "recast": "Recast “{label}” didn't finish.",
+    "rewrite": "Rewrite “{label}” didn't finish.",
     "feedback": "Feedback didn't finish.",
     "editor": "The Editor didn't finish.",
     "world_changes": "The World change check didn't finish.",

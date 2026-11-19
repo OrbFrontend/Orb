@@ -41,9 +41,9 @@ LEGACY_DIRECTION_NOTE = "direction_note"
 LEGACY_TIMING_TO_UPDATE: Mapping[str, str] = {"pre_writer": "before_writer", "post_turn": "after_reply"}
 # Recast fragments were called post-processing fragments; cards keep the old type and gate keys.
 LEGACY_POST_PROCESSING = "post_processing"
-LEGACY_RECAST_KEYS: Mapping[str, str] = {
-    "post_processing_gate": "recast_gate",
-    "post_processing_gate_replies": "recast_gate_replies",
+LEGACY_GATE_KEYS: Mapping[str, str] = {
+    "post_processing_gate": "gate_question",
+    "post_processing_gate_replies": "gate_replies",
 }
 
 
@@ -70,7 +70,7 @@ def upgrade_legacy_fragment(entry: Mapping[str, Any]) -> dict[str, Any]:
     out = dict(entry)
     if out.get("field_type") == LEGACY_POST_PROCESSING:
         out["field_type"] = "recast"
-        for old, new in LEGACY_RECAST_KEYS.items():
+        for old, new in LEGACY_GATE_KEYS.items():
             if old in out:
                 out.setdefault(new, out.pop(old))
         return out

@@ -535,10 +535,10 @@ class InteractiveFragmentRow(TypedDict):
     decision_resolution: str | None
     decision_threshold: float | None
     decision_confidence_floor: float | None
-    # Recast only; '' means the fragment runs every turn.
-    recast_gate: str
-    # Recast only; previous replies the gate shows the Judge (0 = draft alone).
-    recast_gate_replies: int
+    # Recast and rewrite only; '' means the fragment runs every turn.
+    gate_question: str
+    # Recast and rewrite only; previous replies the gate shows the Judge (0 = draft alone).
+    gate_replies: int
 
 
 class MoodFragmentRow(TypedDict):

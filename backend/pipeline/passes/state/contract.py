@@ -6,12 +6,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ....core import DECISION_FIELD_TYPE, STATE_FIELD_TYPE, StateFragment, state_fragments_of
+from ....core import DECISION_FIELD_TYPE, REPLY_EDIT_FIELD_TYPES, STATE_FIELD_TYPE, StateFragment, state_fragments_of
 from ....core.settings import Settings
 from ...predicates import agent_enabled
 
 # Fragment types that are not the Director's per-turn scene values.
-NON_SCENE_FIELD_TYPES = ("feedback", STATE_FIELD_TYPE, "recast", DECISION_FIELD_TYPE)
+NON_SCENE_FIELD_TYPES = ("feedback", STATE_FIELD_TYPE, *sorted(REPLY_EDIT_FIELD_TYPES), DECISION_FIELD_TYPE)
 
 
 @dataclass(frozen=True, slots=True)

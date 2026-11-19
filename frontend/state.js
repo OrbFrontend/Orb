@@ -306,7 +306,7 @@ export function moodFragmentsView() {
 export function upgradeLegacyFragment(f) {
   if (f?.field_type === "post_processing") {
     const { post_processing_gate: gate, post_processing_gate_replies: replies, ...rest } = f;
-    return { recast_gate: gate, recast_gate_replies: replies, ...rest, field_type: "recast" };
+    return { gate_question: gate, gate_replies: replies, ...rest, field_type: "recast" };
   }
   if (f?.field_type === "progressive") {
     return { ...f, field_type: "state", state_mode: "value", state_update: "before_writer", state_inject: "both" };

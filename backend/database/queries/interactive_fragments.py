@@ -21,8 +21,8 @@ _BASE_WRITE_COLUMNS = (
     "injection_label",
     "sort_order",
     "cooldown_turns",
-    "recast_gate",
-    "recast_gate_replies",
+    "gate_question",
+    "gate_replies",
     *STATE_COLUMNS,
 )
 
@@ -84,8 +84,8 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
         payload.get("sort_order"),
         payload.get("cooldown_turns", 0),
         # An explicit NULL would bypass the column default and violate NOT NULL.
-        payload.get("recast_gate") or "",
-        payload.get("recast_gate_replies") or 0,
+        payload.get("gate_question") or "",
+        payload.get("gate_replies") or 0,
         *(payload.get(column) for column in STATE_COLUMNS),
         *(payload.get(column) for column in DECISION_COLUMNS),
     )

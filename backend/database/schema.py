@@ -235,10 +235,10 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     decision_resolution TEXT DEFAULT NULL,
     decision_threshold REAL DEFAULT NULL,
     decision_confidence_floor REAL DEFAULT NULL,
-    -- Recast only: the Judge question that must answer yes for the fragment to run; '' always runs.
-    recast_gate TEXT NOT NULL DEFAULT '',
-    -- Recast only: how many previous replies the gate shows the Judge before the draft.
-    recast_gate_replies INTEGER NOT NULL DEFAULT 0
+    -- Recast and rewrite only: the Judge question that must answer yes for the fragment to run; '' always runs.
+    gate_question TEXT NOT NULL DEFAULT '',
+    -- Recast and rewrite only: how many previous replies the gate shows the Judge before the draft.
+    gate_replies INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (

@@ -41,6 +41,7 @@ out requests across the whole app.
 | [Anti-repetition](anti-repetition.md) | Detect repeated structures, openers, and phrases. |
 | [Length Guard](length-guard.md) | Limit reply length or rewrite replies that exceed the limit. |
 | [Recast Fragments](recast-fragments.md) | Apply ordered, exact Editor changes to replies. |
+| [Rewrite Fragments](rewrite-fragments.md) | Have the Editor rewrite each whole reply. |
 | [Prose Rewriter](prose-rewriter.md) | Use a local model to revise the texture of each paragraph. |
 
 ## Writing tools

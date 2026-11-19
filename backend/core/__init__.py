@@ -25,7 +25,7 @@ from .decisions import (
     with_outcome_text,
 )
 from .domain_types import CastMember, GroupContextMode, TurnCast
-from .fragment_stages import FRAGMENT_STAGES, FragmentStage, fragment_stage
+from .fragment_stages import FRAGMENT_STAGES, REPLY_EDIT_FIELD_TYPES, FragmentStage, fragment_stage
 from .fragment_state import (
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,

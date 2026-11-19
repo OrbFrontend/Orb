@@ -530,7 +530,7 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
         "confirm",
         _InteractiveFragmentEdit,
         "Propose an edit to an interactive fragment's text: label, description, injection_label; a recast "
-        "fragment's gate_question; a decision's question, situation, or one outcome's meaning (what it means, for the "
+        "or rewrite fragment's gate_question; a decision's question, situation, or one outcome's meaning (what it means, for the "
         "Judge) or guidance (what the story does on it).",
     )
     async def edit_interactive_fragment(args: Any) -> ToolOutput:

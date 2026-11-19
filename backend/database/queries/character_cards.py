@@ -17,6 +17,7 @@ from ...core import (
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
+    REPLY_EDIT_FIELD_TYPES,
     RESERVED_FRAGMENT_IDS,
     STATE_FIELD_TYPE,
     STATE_INJECTS,
@@ -97,7 +98,7 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
 # Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card fragment ids become LLM tool-schema property names,
 # and some backends enforce a strict charset/length on those.
 _CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_INTERACTIVE_FIELD_TYPES = {"string", "array", STATE_FIELD_TYPE, "feedback", "recast", DECISION_FIELD_TYPE}
+_INTERACTIVE_FIELD_TYPES = {"string", "array", STATE_FIELD_TYPE, "feedback", *REPLY_EDIT_FIELD_TYPES, DECISION_FIELD_TYPE}
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
@@ -193,8 +194,8 @@ def card_embedded_fragments(card: Mapping[str, Any] | None) -> tuple[list[MoodFr
                 "state_inject": _enum(entry, "state_inject", STATE_INJECTS, DEFAULT_STATE_INJECT) if is_state else None,
                 **{column: None for column in DECISION_COLUMNS},
                 # Unbounded here: the gate checks the Judge's byte limits when it runs.
-                "recast_gate": _text(entry, "recast_gate") if raw_type == "recast" else "",
-                "recast_gate_replies": (_int(entry, "recast_gate_replies", 0, 0, 10) if raw_type == "recast" else 0),
+                "gate_question": _text(entry, "gate_question") if raw_type in REPLY_EDIT_FIELD_TYPES else "",
+                "gate_replies": (_int(entry, "gate_replies", 0, 0, 10) if raw_type in REPLY_EDIT_FIELD_TYPES else 0),
             },
         )
         if raw_type == DECISION_FIELD_TYPE:

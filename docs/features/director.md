@@ -54,6 +54,7 @@ Writer. Describe the value you want and include examples when useful.
 | **Feedback** | A note shown to you after the reply. See [Feedback Fragments](feedback-fragments.md). |
 | **State** | A value or a list kept across turns on the conversation branch, such as trust, an inventory, or open threads. See [State Fragments](state-fragments.md). |
 | **Recast** | An editing instruction applied to the completed reply. See [Recast Fragments](recast-fragments.md). |
+| **Rewrite** | An instruction the Editor follows to rewrite the whole completed reply. See [Rewrite Fragments](rewrite-fragments.md). |
 | **Decision** | A question the Judge answers before the Director runs, contributing guidance the Director plans around. See [Decision Fragments](decision-fragments.md). |
 
 ## Macros and order
@@ -65,7 +66,7 @@ literal text.
 
 Fragments run from top to bottom within their stage. Earlier Director values can
 provide context for later values, and the Writer sees them in the same order.
-Recast fragments run afterward as Editor tasks and do not enter the
+Recast and rewrite fragments run afterward as Editor tasks and do not enter the
 Director schema or Scene Guidance.
 
 ## Inspector in the chat

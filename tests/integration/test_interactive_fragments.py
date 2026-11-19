@@ -175,65 +175,65 @@ _GATED = {
     **_BASE_PAYLOAD,
     "id": "trim",
     "field_type": "recast",
-    "recast_gate": "Do more than two actions happen?",
+    "gate_question": "Do more than two actions happen?",
 }
 
 
-async def test_recast_gate_is_created_or_defaults_empty(client, db):
+async def test_gate_question_is_created_or_defaults_empty(client, db):
     question = "x" * 4000
-    gated = await client.post("/api/interactive-fragments", json={**_GATED, "recast_gate": question})
+    gated = await client.post("/api/interactive-fragments", json={**_GATED, "gate_question": question})
     ungated = await client.post("/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "plain", "field_type": "recast"})
 
-    assert gated.json()["recast_gate"] == question
-    assert ungated.json()["recast_gate"] == ""
+    assert gated.json()["gate_question"] == question
+    assert ungated.json()["gate_question"] == ""
 
 
-async def test_recast_gate_rejects_explicit_null_and_overlong_text(client, db):
-    null = await client.post("/api/interactive-fragments", json={**_GATED, "recast_gate": None})
-    long = await client.post("/api/interactive-fragments", json={**_GATED, "recast_gate": "x" * 4001})
+async def test_gate_question_rejects_explicit_null_and_overlong_text(client, db):
+    null = await client.post("/api/interactive-fragments", json={**_GATED, "gate_question": None})
+    long = await client.post("/api/interactive-fragments", json={**_GATED, "gate_question": "x" * 4001})
 
     assert null.status_code == 422
     assert long.status_code == 422
 
 
-async def test_recast_gate_update_preserves_on_omission_or_null_and_clears_on_empty(client, db):
+async def test_gate_question_update_preserves_on_omission_or_null_and_clears_on_empty(client, db):
     await client.post("/api/interactive-fragments", json=_GATED)
 
     question = "x" * 4000
     omitted = await client.put("/api/interactive-fragments/trim", json={"label": "Trim"})
-    nulled = await client.put("/api/interactive-fragments/trim", json={"recast_gate": None})
-    changed = await client.put("/api/interactive-fragments/trim", json={"recast_gate": question})
-    cleared = await client.put("/api/interactive-fragments/trim", json={"recast_gate": ""})
+    nulled = await client.put("/api/interactive-fragments/trim", json={"gate_question": None})
+    changed = await client.put("/api/interactive-fragments/trim", json={"gate_question": question})
+    cleared = await client.put("/api/interactive-fragments/trim", json={"gate_question": ""})
 
-    assert omitted.json()["recast_gate"] == "Do more than two actions happen?"
-    assert nulled.json()["recast_gate"] == "Do more than two actions happen?"
-    assert changed.json()["recast_gate"] == question
-    assert cleared.json()["recast_gate"] == ""
+    assert omitted.json()["gate_question"] == "Do more than two actions happen?"
+    assert nulled.json()["gate_question"] == "Do more than two actions happen?"
+    assert changed.json()["gate_question"] == question
+    assert cleared.json()["gate_question"] == ""
 
 
 async def test_other_types_never_store_a_gate(client, db):
     created = await client.post("/api/interactive-fragments", json={**_GATED, "id": "scene", "field_type": "string"})
     await client.post("/api/interactive-fragments", json=_GATED)
     retyped = await client.put("/api/interactive-fragments/trim", json={"field_type": "feedback"})
-    partial = await client.put("/api/interactive-fragments/trim", json={"recast_gate": "Sneaky?"})
+    partial = await client.put("/api/interactive-fragments/trim", json={"gate_question": "Sneaky?"})
     back = await client.put("/api/interactive-fragments/trim", json={"field_type": "recast"})
 
-    assert created.json()["recast_gate"] == ""
-    assert retyped.json()["recast_gate"] == ""
-    assert partial.json()["recast_gate"] == ""
-    assert back.json()["recast_gate"] == ""
+    assert created.json()["gate_question"] == ""
+    assert retyped.json()["gate_question"] == ""
+    assert partial.json()["gate_question"] == ""
+    assert back.json()["gate_question"] == ""
 
 
 async def test_gate_history_is_bounded_kept_and_cleared_with_the_type(client, db):
-    created = await client.post("/api/interactive-fragments", json={**_GATED, "recast_gate_replies": 2})
-    over = await client.post("/api/interactive-fragments", json={**_GATED, "id": "x", "recast_gate_replies": 11})
+    created = await client.post("/api/interactive-fragments", json={**_GATED, "gate_replies": 2})
+    over = await client.post("/api/interactive-fragments", json={**_GATED, "id": "x", "gate_replies": 11})
     kept = await client.put("/api/interactive-fragments/trim", json={"label": "Trim"})
     retyped = await client.put("/api/interactive-fragments/trim", json={"field_type": "feedback"})
 
-    assert created.json()["recast_gate_replies"] == 2
+    assert created.json()["gate_replies"] == 2
     assert over.status_code == 422
-    assert kept.json()["recast_gate_replies"] == 2
-    assert retyped.json()["recast_gate_replies"] == 0
+    assert kept.json()["gate_replies"] == 2
+    assert retyped.json()["gate_replies"] == 0
 
 
 async def test_direct_database_create_normalizes_a_missing_or_null_gate(client, db):
@@ -241,10 +241,10 @@ async def test_direct_database_create_normalizes_a_missing_or_null_gate(client, 
 
     base = {key: value for key, value in _BASE_PAYLOAD.items() if key != "id"}
     missing = await create_interactive_fragment({**base, "id": "missing", "field_type": "recast"})
-    null = await create_interactive_fragment({**base, "id": "null", "field_type": "recast", "recast_gate": None})
+    null = await create_interactive_fragment({**base, "id": "null", "field_type": "recast", "gate_question": None})
 
-    assert missing is not None and missing["recast_gate"] == ""
-    assert null is not None and null["recast_gate"] == ""
+    assert missing is not None and missing["gate_question"] == ""
+    assert null is not None and null["gate_question"] == ""
 
 
 async def test_card_gate_survives_export_and_import(client, db, tmp_path):
@@ -260,8 +260,8 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
                         "label": "Card Trim",
                         "description": "Trim actions.",
                         "field_type": "recast",
-                        "recast_gate": "Do more than two actions happen?",
-                        "recast_gate_replies": 2,
+                        "gate_question": "Do more than two actions happen?",
+                        "gate_replies": 2,
                     }
                 ]
             }
@@ -278,8 +278,8 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
     ctx = await load_pipeline_context(conv["id"])
     assert ctx is not None
     fragment = next(row for row in ctx.interactive_fragments if row["id"] == "card_trim")
-    assert fragment["recast_gate"] == "Do more than two actions happen?"
-    assert fragment["recast_gate_replies"] == 2
+    assert fragment["gate_question"] == "Do more than two actions happen?"
+    assert fragment["gate_replies"] == 2
 
 
 def test_migration_0078_gives_existing_gates_no_history_and_reruns_safely():
@@ -326,23 +326,34 @@ def test_migration_0072_skips_a_database_without_the_table():
     conn.close()
 
 
-def test_migration_0095_renames_post_processing_to_recast_and_reruns_safely():
+def test_migration_0095_renames_post_processing_seeds_trim_once_and_reruns_safely():
     import importlib
     import sqlite3
 
     conn = sqlite3.connect(":memory:")
     conn.execute(
-        "CREATE TABLE interactive_fragments (id TEXT PRIMARY KEY, field_type TEXT NOT NULL, "
+        "CREATE TABLE interactive_fragments (id TEXT PRIMARY KEY, label TEXT NOT NULL, description TEXT NOT NULL, "
+        "field_type TEXT NOT NULL, required INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1, "
+        "injection_label TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, "
         "post_processing_gate TEXT NOT NULL DEFAULT '', post_processing_gate_replies INTEGER NOT NULL DEFAULT 0)"
     )
     conn.execute(
-        "INSERT INTO interactive_fragments VALUES ('trim', 'post_processing', 'Is it long?', 2), ('mood', 'string', '', 0)"
+        "INSERT INTO interactive_fragments (id, label, description, field_type, injection_label, sort_order, "
+        "post_processing_gate, post_processing_gate_replies) VALUES "
+        "('tighten', 'Tighten', 'd', 'post_processing', 'Tighten', 3, 'Is it long?', 2), "
+        "('mood', 'Mood', 'd', 'string', 'Mood', 5, '', 0)"
     )
-    migrate = importlib.import_module("backend.database.migrations.0095_recast_fragments").migrate
+    migrate = importlib.import_module("backend.database.migrations.0095_reply_edit_fragments").migrate
 
     migrate(conn)
     migrate(conn)
 
-    rows = conn.execute("SELECT id, field_type, recast_gate, recast_gate_replies FROM interactive_fragments ORDER BY id")
-    assert rows.fetchall() == [("mood", "string", "", 0), ("trim", "recast", "Is it long?", 2)]
+    rows = conn.execute(
+        "SELECT id, field_type, enabled, sort_order, gate_question, gate_replies FROM interactive_fragments ORDER BY id"
+    )
+    assert rows.fetchall() == [
+        ("mood", "string", 1, 5, "", 0),
+        ("tighten", "recast", 1, 3, "Is it long?", 2),
+        ("trim_prose", "rewrite", 0, 6, "", 0),
+    ]
     conn.close()

@@ -73,7 +73,7 @@ async def test_card_post_processing_fragment_reads_as_recast(client, db):
     ctx = await load_pipeline_context(cid)
     assert ctx is not None
     fragment = {f["id"]: f for f in ctx.interactive_fragments}["card_humanize"]
-    assert (fragment["field_type"], fragment["recast_gate"], fragment["recast_gate_replies"]) == ("recast", "Is it stiff?", 2)
+    assert (fragment["field_type"], fragment["gate_question"], fragment["gate_replies"]) == ("recast", "Is it stiff?", 2)
 
 
 async def test_card_row_shadowing_a_disabled_global_keeps_the_blob_slot(client, db):

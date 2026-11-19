@@ -41,7 +41,7 @@ async def _create_fragment(client, fid: str, instruction: str, sort_order: int, 
             "required": False,
             "enabled": True,
             "sort_order": sort_order,
-            "recast_gate": gate,
+            "gate_question": gate,
         },
     )
 
@@ -292,7 +292,7 @@ async def _director_log(client, cid: str, message_id: int) -> dict:
 
 
 def _gate_records(calls: list[dict]) -> list[dict]:
-    return [call["arguments"] for call in calls if call["name"] == "recast_gate"]
+    return [call["arguments"] for call in calls if call["name"] == "fragment_gate"]
 
 
 async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows_still_run(client, llm_mock, monkeypatch):
@@ -383,7 +383,7 @@ async def test_a_gate_answering_yes_runs_its_fragment(client, llm_mock, monkeypa
     events = await _drain(handle_turn(cid, "go"))
 
     [editor_done] = [event for event in events if event.get("event") == "editor_done"]
-    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["recast_gate", "editor_find_replace"]
+    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["fragment_gate", "editor_find_replace"]
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "Mara ran."
 
@@ -447,7 +447,7 @@ async def test_each_group_reply_is_gated_on_its_own_draft(client, llm_mock, monk
     assert not any(name == "recast" for name, _ in llm_mock.calls)
     assert [state.rsplit("Reply:\n", 1)[1] for state in judge.states] == ["I found tracks.", "The ward is broken."]
     done = [data for name, data in _sse_events(response.text) if name == "editor_done"]
-    assert [[call["name"] for call in data["tool_calls"]] for data in done] == [["recast_gate"]] * 2  # type: ignore[index]
+    assert [[call["name"] for call in data["tool_calls"]] for data in done] == [["fragment_gate"]] * 2  # type: ignore[index]
     replies = [message for message in await dbmod.get_messages(conv["id"]) if message["role"] == "assistant"]
     assert [reply["content"] for reply in replies] == ["I found tracks.", "The ward is broken."]
     speaker_snapshots = []

@@ -1,4 +1,4 @@
-"""Ask the Judge whether a recast fragment applies to the draft."""
+"""Ask the Judge whether a reply-edit (recast or rewrite) fragment applies to the draft."""
 
 from __future__ import annotations
 
@@ -26,9 +26,9 @@ from ..judge.judge import REQUEST_TIMEOUT_SECONDS
 logger = logging.getLogger(__name__)
 
 GATE_THRESHOLD = 0.5
-# Shared by every gate in one recast step; Editor calls do not spend it.
+# Shared by every gate in one reply-edit step; Editor calls do not spend it.
 GATE_BUDGET_SECONDS = REQUEST_TIMEOUT_SECONDS
-GATE_RECORD_NAME = "recast_gate"
+GATE_RECORD_NAME = "fragment_gate"
 
 # Validated against the configured Judge on fixed drafts: bare "Yes."/"No." put
 # a borderline two-action reply exactly on the cutoff, where it fires.
@@ -43,13 +43,13 @@ CONDITION_NOT_MET = "condition_not_met"
 
 def gate_question(fragment: Mapping[str, Any]) -> str:
     """The fragment's gate text, or ``""`` when it runs every turn."""
-    value = fragment.get("recast_gate")
+    value = fragment.get("gate_question")
     return value.strip() if isinstance(value, str) else ""
 
 
 def gate_replies(fragment: Mapping[str, Any]) -> int:
     """How many previous replies the fragment's gate shows the Judge."""
-    value = fragment.get("recast_gate_replies")
+    value = fragment.get("gate_replies")
     return value if isinstance(value, int) and value > 0 else 0
 
 
@@ -125,7 +125,7 @@ async def judge_gate(
     except (httpx.TimeoutException, TimeoutError):
         return record(fired=True, reason=SkipReason.TIMEOUT)
     except (LLMCallError, DecisionTransportError, httpx.HTTPError) as exc:
-        logger.warning("Recast gate for %r failed (%r); running the fragment", key, exc)
+        logger.warning("Gate for %r failed (%r); running the fragment", key, exc)
         return record(fired=True, reason=SkipReason.TRANSPORT_FAILURE)
 
     answer = response.answers.get(key)

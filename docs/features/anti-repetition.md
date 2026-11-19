@@ -11,6 +11,10 @@ It can detect:
 - Consecutive sentences with the same opener, such as `He A. He B.`
 - Distinctive phrases repeated in the reply or recent turns
 
+Reused paragraph structure has no single span to patch, so the Editor rewrites
+the whole reply for it; the other findings are patched in place. Neither needs
+the [Length Guard](length-guard.md).
+
 For unwanted words, contrastive negation, and dialogue echoed from the user, see
 [Anti-slop](anti-slop.md).
 
