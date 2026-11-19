@@ -1,8 +1,8 @@
 /* Night City: a dark console lit by two signs. Cyan is the app and the character; pink is you.
    Everything here is static paint: no filters, blend modes, fixed backgrounds or theme-owned animations, so it
    scrolls and streams like a flat theme. Keep the glow small and rare; the page should stay mostly dark. */
-:root { --bg-deep:#04050c; --bg-primary:#080a16; --bg-surface:#0c0f1e; --bg-elevated:#11142a; --bg-hover:#181c36;
-  --border:#1a1e40; --border-light:#242856; --text-primary:#dce4f0; --text-secondary:#7888b8; --text-muted:#6b7aa7;
+:root { --bg-deep:#0a0e20; --bg-primary:#0f1428; --bg-surface:#151b33; --bg-elevated:#1c2340; --bg-hover:#252d52;
+  --border:#2c335f; --border-light:#3a4378; --text-primary:#e6ecf6; --text-secondary:#a8b6dc; --text-muted:#97a6cf;
   --accent:#00d4ee; --accent-dim:#006878; --accent-glow:color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
   --red:#ff1a5e; --font-prose:'Exo 2',system-ui,sans-serif; --font-ui:'Fira Code','Cascadia Code',Consolas,monospace;
   --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:3px; --font-prose-size:16px;
@@ -16,7 +16,7 @@
 body { background:
     radial-gradient(46% 42% at 12% -6%, rgba(0,212,238,0.09) 0%, rgba(0,212,238,0) 70%),
     radial-gradient(58% 48% at 92% 108%, rgba(255,77,148,0.11) 0%, rgba(255,77,148,0) 70%),
-    #04050c !important; }
+    #0a0e20 !important; }
 
 /* ── Bars ── */
 
@@ -49,10 +49,10 @@ body { background:
 .message .msg-body { box-shadow: inset 2px 0 0 var(--nc-cyan-edge) !important; }
 .message.user .msg-body { background: color-mix(in srgb, var(--nc-pink) 6%, var(--bg-surface)) !important;
   border-color: var(--nc-pink-dim) !important; box-shadow: inset -2px 0 0 var(--nc-pink-edge) !important; }
-.message.user .msg-role { color: #d9619a !important; }
+.message.user .msg-role { color: #ec7cb0 !important; }
 .message.user .msg-edit-area textarea { background: color-mix(in srgb, var(--nc-pink) 4%, var(--bg-deep)) !important;
   border-color: var(--nc-pink-dim) !important; }
-.message .msg-body em { color: #9d93d6 !important; }
+.message .msg-body em { color: #b6ade8 !important; }
 .message .msg-body pre, .message .msg-body code.inline-code { background: var(--bg-deep) !important; }
 .message .msg-body blockquote { border-left-color: var(--nc-pink-dim) !important; }
 
