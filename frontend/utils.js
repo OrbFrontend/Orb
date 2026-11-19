@@ -197,7 +197,7 @@ export function convActivity(c) {
 export const NO_AVATAR_ICON = "👤"; // character lists
 export const CHAT_AVATAR_ICON = "📜"; // active conversation header
 
-// *icon* is plain text: shown when there is no picture, or when it fails to load.
+// *icon* is plain text: shown when there is no image, or when it fails to load.
 export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "" } = {}) {
   if (!src) return esc(icon);
   return `<img src="${src}"${attrs ? ` ${attrs}` : ""} data-fallback="${escAttr(icon)}">`;

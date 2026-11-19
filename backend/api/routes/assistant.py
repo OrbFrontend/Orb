@@ -279,18 +279,16 @@ async def api_revise_assistant_edit(data: AssistantReviseRequest):
 
 @router.get("/api/assistant/images/{image_id}")
 async def api_assistant_image(image_id: str):
-    """A temporary assistant picture, shown inline; the browser saves it for manual avatar assignment and cropping."""
+    """A temporary assistant image, shown inline; the user saves it and sets and crops it on a card."""
     image = get_image(image_id)
     if image is None:
-        raise HTTPException(
-            status_code=404, detail="This assistant picture expired or the server restarted. Generate it again."
-        )
+        raise HTTPException(status_code=404, detail="This assistant image expired or the server restarted. Generate it again.")
     return Response(
         image.data,
         media_type=image.mime,
         headers={
             "Content-Disposition": f'inline; filename="{image.filename}"',
-            # An id names one picture for as long as it is held, so a browser that has it need not fetch it again.
+            # An id names one image for as long as it is held, so a browser that has it need not fetch it again.
             "Cache-Control": "private, max-age=86400, immutable",
             "X-Content-Type-Options": "nosniff",
         },

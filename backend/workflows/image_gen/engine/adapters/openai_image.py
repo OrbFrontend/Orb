@@ -129,7 +129,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         source = style_reference_source(style)
         if replay:
             # The source moved onto the style, where it is editable after the fact, so a rehydrate replaying it off the style
-            # would reproduce a different picture -- turning references off in settings used to re-render an evicted image from
+            # would reproduce a different image -- turning references off in settings used to re-render an evicted image from
             # the prompt alone and overwrite the row with it. **A string wins, not a truthy one**: `""` is a real recorded value
             # ("this render sent none"), so a record carrying it is authoritative and only a record with no scalar at all falls
             # back to the style.

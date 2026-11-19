@@ -84,7 +84,7 @@ async def resolve(
     for member in cast.members:
         if member.member_id in ("", subjects[0].member_id) or member.member_id not in spoke:
             continue
-        # A narrator has no likeness and no appearance sheet; it speaks in the round without ever being in the picture.
+        # A narrator has no likeness and no appearance sheet; it speaks in the round without ever being in the image.
         if member.kind != "character" or not member.card_id:
             continue
         subjects.append(

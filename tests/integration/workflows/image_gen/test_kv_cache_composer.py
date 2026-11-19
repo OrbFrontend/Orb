@@ -269,7 +269,7 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     assert compose["messages"][:-1] == select["messages"][:-1], "the image must not move into the shared prefix"
     image, request = compose["messages"][-1]["content"]
     assert image["type"] == "image_url" and image["image_url"]["url"].startswith("data:image/jpeg;base64,")
-    assert "picture from earlier in this chat" in request["text"]
+    assert "image from earlier in this chat" in request["text"]
     earlier = json.loads((await get_workflow_attachment_by_id(first_id))["generation_metadata"])
     assert "earlier_scene_marker" in earlier["prompt"]
     assert "earlier_avoid_marker" in earlier["negative_prompt"]
@@ -300,7 +300,7 @@ async def test_an_upload_is_not_sent_to_the_prompter_twice(client, llm_mock, mon
 
 
 async def test_an_image_older_than_the_last_reply_is_not_sent_to_the_prompter(client, llm_mock, monkeypatch):
-    """A picture from before the last reply shows a scene the story has left."""
+    """An image from before the last reply shows a scene the story has left."""
     cid, _card_id = await _armed_conversation(client, llm_mock)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
     await _configure(prompter_reference=True)

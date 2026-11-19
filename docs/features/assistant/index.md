@@ -2,7 +2,7 @@
 
 The assistant is an agent that works the app for you. Ask it in plain language
 and it reads, creates, and changes characters, chats, lorebooks, fragments,
-documents, and settings, renders pictures and speech, and searches the web. It
+documents, and settings, renders images and speech, and searches the web. It
 can do most things you can do from the UI, and nothing beyond it.
 
 It runs on the **Agent** model, in a panel of its own. Its conversation is
@@ -41,7 +41,7 @@ mark while one runs and counts the changes waiting for your review.
 | Fragments | Read, create, and edit mood and interactive fragments, including decisions | "Add a decision fragment: does she trust him yet?" |
 | Settings and phrase bank | Read the pipeline switches; turn the Director, Output Auditor, Length Guard, Agentic Lorebook, and workflows on or off; set Length Guard limits; add and delete banned phrases | "Turn off the Director for now." |
 | Documents | Read, create, and edit documents | "Tighten the passage I selected." |
-| Images and speech | Create a picture, illustrate a reply, read a reply aloud | "Create an avatar image for this character." |
+| Images and speech | Create an image, illustrate a reply, read a reply aloud | "Create an image of this character." |
 | Web | Search the web and read pages | "Look up this character's canon and fill in the card." |
 | Library questions | Count, search, and compare across every chat, card, and entry | "What are the most used 2-grams in this chat?" |
 
@@ -51,7 +51,7 @@ assistant does it.
 
 It cannot:
 
-- see or change endpoints, models, API keys, avatars, or images on cards;
+- see or change endpoints, models, API keys, or images on cards;
 - delete personas, documents, or fragments (turn a fragment off instead);
 - read pages that need JavaScript, or anything on `localhost` or your home network.
 
@@ -119,13 +119,13 @@ regenerated reply, another branch), it is told.
 - A request runs at most 12 tools. A bigger job takes more than one request: ask
   it to continue.
 - A request is at most 8,000 characters, and a selection at most 20,000.
-- A picture or speech render holds the assistant until it finishes.
+- An image or speech render holds the assistant until it finishes.
 
 ## More
 
 - [Reviewing Changes](reviewing-changes.md): what waits for you and how to apply,
   edit, or undo it.
-- [Images and Speech](images-and-speech.md): pictures in the panel, reply
+- [Images and Speech](images-and-speech.md): images in the panel, reply
   illustrations, speech.
 - [Options](options.md): Think, tool groups, and the system prompt.
 - [Web Search](web-search.md): set up SearXNG.

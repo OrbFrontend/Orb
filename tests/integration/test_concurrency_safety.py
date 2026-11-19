@@ -223,7 +223,7 @@ async def test_repeated_media_stop_waits_for_cleanup_and_keeps_bulk_writes_out()
             cleaning.set()
             await release.wait()
 
-    task = deps.start_workflow_job(cid, render(), job="picture", message_id=42)
+    task = deps.start_workflow_job(cid, render(), job="image", message_id=42)
     await started.wait()
     try:
         assert await deps.stop_workflow_jobs(cid, timeout=0) == {"stopped": 1, "settled": False}
@@ -293,7 +293,7 @@ async def test_media_stop_then_stream_disconnect_preserves_remote_cleanup():
             cleaning.set()
             await release.wait()
 
-    response = deps.workflow_event_stream_response(WorkflowEventStream(events=events()), cid=cid, job="picture")
+    response = deps.workflow_event_stream_response(WorkflowEventStream(events=events()), cid=cid, job="image")
     frames = response.body_iterator
     assert "Rendering" in await anext(frames)
     await rendering.wait()

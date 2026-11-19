@@ -154,7 +154,7 @@ class ExternalComfyAdapter(ImageAdapter):
         """The original file of a past render, or None where the server no longer has it.
 
         Matched by digest, not by name: ComfyUI reuses output names once its folder is cleared, and the connection may point at
-        another server by now, so a name alone can answer with a different picture.
+        another server by now, so a name alone can answer with a different image.
         """
         digest = record.get("sha256")
         if not isinstance(digest, str) or not all(isinstance(record.get(key), str) for key in VIEW_KEYS):

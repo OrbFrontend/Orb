@@ -1,4 +1,4 @@
-"""Standalone pictures compose once from a description, style and optional saved likeness."""
+"""Standalone images compose once from a description, style and optional saved likeness."""
 
 import base64
 import hashlib
@@ -96,7 +96,7 @@ async def test_standalone_composes_once_with_default_style_and_character_referen
     monkeypatch.setattr(composer, "forced_tool_call", forced)
     result = await standalone(
         StandaloneCtx(
-            description="An avatar of Iris in a blue coat.",
+            description="An image of Iris in a blue coat.",
             settings=await get_settings(),
             agent_client=object(),
             agent_model_name="agent",
@@ -106,14 +106,14 @@ async def test_standalone_composes_once_with_default_style_and_character_referen
         )
     )
     assert result.data == b"rendered" and result.mime == "image/png"
-    # Review turns are on, so the Agent model is one that takes pictures: it is handed this one to look at.
+    # Review turns are on, so the Agent model is one that takes images: it is handed this one to look at.
     assert result.preview_url.startswith("data:image/")
     assert selected[0]["reference_source"] == "character", "a style that uses references draws the card's, with no chat image"
     assert len(calls) == len(renders) == 1
     assert selected[0]["id"] == "portrait" and selected[0]["prompt_format"] == prompt_format
     assert calls[0]["prefix"] == [] and calls[0]["offer_tools"] == ("compose_image_prompt",)
     instruction = calls[0]["tail_messages"][0]["content"]
-    assert "An avatar of Iris in a blue coat." in instruction
+    assert "An image of Iris in a blue coat." in instruction
     assert "silver hair" in instruction and "Iris portrait style" in instruction
     assert "previous assistant reply" not in instruction
     request = renders[0]
@@ -163,7 +163,7 @@ async def test_explicit_reference_enables_style_inputs_or_refuses_before_composi
             ),
         )
     ctx = StandaloneCtx(
-        description="The same picture in green.",
+        description="The same image in green.",
         settings=await get_settings(),
         agent_client=object(),
         agent_model_name="agent",
@@ -198,7 +198,7 @@ async def test_a_chosen_chat_image_is_read_by_origin_and_keeps_a_likeness_beside
     )
     await create_conversation("standalone-chat", "Images", "Iris", "")
     mid, _ = await add_message("standalone-chat", "assistant", "She turns.", 0)
-    picture = await insert_workflow_attachment_row(
+    image = await insert_workflow_attachment_row(
         mid,
         {"filename": "x.png", "mime": "image/png", "data": chosen.getvalue(), "workflow_id": "image_gen", "seed": "1"},
     )
@@ -240,16 +240,16 @@ async def test_a_chosen_chat_image_is_read_by_origin_and_keeps_a_likeness_beside
     monkeypatch.setattr(composer, "forced_tool_call", forced)
     await standalone(
         StandaloneCtx(
-            description="Iris, the same picture at night.",
+            description="Iris, the same image at night.",
             settings=await get_settings(),
             agent_client=object(),
             agent_model_name="agent",
             character_id="iris",
             character={"name": "Iris"},
-            reference=StandaloneReference(f"attachment:{picture}"),
+            reference=StandaloneReference(f"attachment:{image}"),
         )
     )
-    # The edited picture leads, since an edit model edits its first image; a likeness follows where inputs allow.
+    # The edited image leads, since an edit model edits its first image; a likeness follows where inputs allow.
     sent = renders[0].references
-    assert [reference.origin for reference in sent] == [f"attachment:{picture}", "character:iris"][:capacity]
+    assert [reference.origin for reference in sent] == [f"attachment:{image}", "character:iris"][:capacity]
     assert sent[0].source_digest == hashlib.sha256(chosen.getvalue()).hexdigest()

@@ -4,34 +4,34 @@ The assistant renders through the [Image Generation](../../multimedia/image-gene
 and [Text-to-Speech](../../multimedia/tts.md) workflows, so set those up first.
 When one is switched off, the assistant says which switch; ask it to turn it on.
 
-## Pictures in the panel
+## Images in the panel
 
-Ask for a picture that is not of a reply: "create an avatar image for this
+Ask for an image that is not of a reply: "create an image of this
 character", "draw the tavern from her description". The assistant writes the
-description itself and the picture appears in the log. Click it to zoom.
+description itself and the image appears in the log. Click it to zoom.
 
 - Name a character and its saved appearance tags and exclusions apply, plus its
-  reference picture when the style uses references.
-- Ask for a change to a picture ("same, but at night") and the assistant renders
+  reference image when the style uses references.
+- Ask for a change to an image ("same, but at night") and the assistant renders
   again from it.
-- Point at an image in a chat ("the picture on #12, but at night") and the
+- Point at an image in a chat ("the image on #12, but at night") and the
   assistant edits it. The prompt says only what changes, so this works best
   with an edit model. The style must take reference images; the assistant says
   which do.
 - Name a style, or leave it to the default. "Which styles do I have?" lists them.
 
-Nothing is attached to a card or chat. To use a picture as an avatar, save it
+Nothing is attached to a card or chat. To use an image on a card, save it
 from the browser and set it in the card editor. Orb keeps the most recent 32
-pictures until it restarts, so save the ones you want.
+images until it restarts, so save the ones you want.
 
 ## Illustrate a reply
 
 "Illustrate this reply" renders an image for a reply, as its image button does.
 Add what you want it to show ("from her side of the room, at dusk") and the
-picture follows your direction over the reply's moment, framing, and mood. The
+image follows your direction over the reply's moment, framing, and mood. The
 image is saved on the reply and shown in the log. It can also edit an image in
-a chat, as above. A picture from the panel cannot be used for a reply; the
-assistant renders the reply again with what the picture shows as its direction.
+a chat, as above. An image from the panel cannot be used for a reply; the
+assistant renders the reply again with what the image shows as its direction.
 
 To fix one render ("same image, but her skin is honey-colored"), the assistant
 edits that image. The prompt says only what changes, so this works best with an
@@ -44,9 +44,9 @@ does, in the character's voice.
 
 ## What the assistant sees
 
-The assistant sees the pictures it makes and the chat images it looks at, so it
+The assistant sees the images it makes and the chat images it looks at, so it
 can check a render and fix it on request. If the Agent model takes text only,
-the assistant carries on without the pictures.
+the assistant carries on without the images.
 
 ## While it renders
 

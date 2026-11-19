@@ -665,7 +665,7 @@ registerActions("inspector", {
   clearDiff: () => clearRefineDiff(),
   toolsTab: (el) => setToolsTab(el.dataset.tab),
   avatarPopup: () => showAvatarPopup(),
-  // The backdrop closes the popup; a click on the picture inside it does not.
+  // The backdrop closes the popup; a click on the image inside it does not.
   avatarBackdrop: (el, e) => {
     if (e.target === el) hideAvatarPopup();
   },

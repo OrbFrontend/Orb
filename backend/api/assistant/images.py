@@ -1,4 +1,4 @@
-"""Bounded, process-local pictures for the assistant log, separate from workflow attachments and avatars."""
+"""Bounded, process-local images for the assistant log, separate from workflow attachments and card images."""
 
 from __future__ import annotations
 
@@ -26,9 +26,9 @@ _images: OrderedDict[str, AssistantImage] = OrderedDict()
 
 
 def keep_image(data: bytes, mime: str) -> str:
-    """Keep one raster image, evicting oldest pictures to meet both count and byte limits."""
+    """Keep one raster image, evicting oldest images to meet both count and byte limits."""
     if mime not in _EXTENSIONS or not data or len(data) > MAX_IMAGE_BYTES:
-        raise ValueError("The generated picture is empty, too large, or in an unsupported image format.")
+        raise ValueError("The generated image is empty, too large, or in an unsupported image format.")
     held = sum(len(image.data) for image in _images.values())
     while _images and (len(_images) >= MAX_IMAGES or held + len(data) > MAX_TOTAL_BYTES):
         held -= len(_images.popitem(last=False)[1].data)

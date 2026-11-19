@@ -255,12 +255,12 @@ def _metadata(
         "references": info.get("references") or [],
     }
     if prompter_reference:
-        # The origin of the chat picture the prompter saw, not one the image model got.
+        # The origin of the chat image the prompter saw, not one the image model got.
         record["prompter_reference"] = prompter_reference
     if direction:
         record["direction"] = direction
     if reference:
-        # The origin of a picture the render was explicitly given; a reroll keeps sending it whatever the style says.
+        # The origin of an image the render was explicitly given; a reroll keeps sending it whatever the style says.
         record["reference"] = reference
     if excerpt:
         record["excerpt"] = excerpt
@@ -430,9 +430,9 @@ async def _generate_fresh(
 
     `direction` is the user's own ask for this image; the composer follows it over the reply on what the shot shows. `excerpt`
     is the span of the reply the user selected: every step reads the reply cut at its end, and the prompter is quoted it.
-    `reference` is a picture chosen for this render: it fills the style's image inputs in place of the chat's previous image,
+    `reference` is an image chosen for this render: it fills the style's image inputs in place of the chat's previous image,
     even where the style leaves them off, and is what the prompter is shown. The render edits it: the prompt states the change,
-    and `shows` is the prompt the picture was drawn from, when known.
+    and `shows` is the prompt the image was drawn from, when known.
 
     With refinement on, every revision is kept too, as it lands: the prompter's pick is only the last one, and the user may
     prefer an earlier render or stop the run once one is good enough. Review reasons appear only in live progress.
@@ -497,7 +497,7 @@ async def _generate_fresh(
     if config.get("prompter_reference"):
         shown = reference if reference is not None else last_reply_image(history, int(message["id"]))
     elif reference is not None and refine_turns > 0:
-        # A review holds an edit to the picture it edits, so it must have seen that picture; review already needs vision.
+        # A review holds an edit to the image it edits, so it must have seen that image; review already needs vision.
         shown = reference
     if shown is not None:
         shown_bytes, shown_mime, prompter_reference = shown
@@ -827,7 +827,7 @@ async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     style = resolve_style(config, style_id)
     if isinstance(params.get("reference"), str) and params["reference"]:
-        # A picture chosen for the render is sent again even where the style leaves its image inputs off.
+        # An image chosen for the render is sent again even where the style leaves its image inputs off.
         style = {**style, "reference_source": explicit_source(style_reference_source(style), likeness=True)}
     prior_style = (ctx.prior_consumption_metadata or {}).get("style_id")
     style_changed = bool(prior_style) and prior_style != style_id

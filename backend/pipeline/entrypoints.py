@@ -49,7 +49,7 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
 
     The wire format (``mime``/``b64``) reaches a turn straight from the browser, while ``format_message_with_attachments`` reads
     history rows through the DB names. A later speaker in an exchange sees the user's image only as part of the replayed history
-    -- not as its own trailing attachment -- so the two spellings have to meet here or the picture silently stops at the first
+    -- not as its own trailing attachment -- so the two spellings have to meet here or the image silently stops at the first
     speaker.
     """
     out: list[dict] = []

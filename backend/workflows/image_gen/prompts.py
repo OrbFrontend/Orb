@@ -128,7 +128,7 @@ _SCENE_FORMAT_TAIL = (
 
 _REFERENCE_INSTRUCTION = (
     "A reference image goes to the image model with this prompt. The image model takes the likeness from that "
-    "picture. Do not write the identity traits in full. Give a short identity summary for each visible person: "
+    "image. Do not write the identity traits in full. Give a short identity summary for each visible person: "
     "only the few traits that tell the persons apart. Then give the current pose, action, expression, clothing, "
     "interaction, setting, lighting, and framing in full detail. This instruction has priority over the "
     "appearance guidance below. "
@@ -136,10 +136,10 @@ _REFERENCE_INSTRUCTION = (
 
 
 _REFERENCE_TAIL = (
-    "The image model gets these pictures in a plain list with no names attached. Write each person's name in "
+    "The image model gets these images in a plain list with no names attached. Write each person's name in "
     "`scene`. Put a short identity summary next to each listed name: only the few traits that tell the persons "
     "apart. Do not write the identity traits of a listed person in full. Describe in full each visible person "
-    "who is not in the list above, because no picture carries that person. Then give the current pose, action, "
+    "who is not in the list above, because no image carries that person. Then give the current pose, action, "
     "expression, clothing, interaction, setting, lighting, and framing for every person in full detail. This "
     "instruction has priority over the appearance guidance below. "
 )
@@ -152,7 +152,7 @@ def _reference_instruction(referenced: Sequence[tuple[int, str]]) -> str:
     listed = ", ".join(f"{position}. {name}" for position, name in referenced)
     return (
         "Reference images go to the image model with this prompt, in this order: "
-        f"{listed}. The image model takes each of those people's likeness from their own picture. " + _REFERENCE_TAIL
+        f"{listed}. The image model takes each of those people's likeness from their own image. " + _REFERENCE_TAIL
     )
 
 
@@ -404,25 +404,25 @@ def _downstream_blocks(
 
 
 def _prompter_reference_instruction(also_sent: bool) -> str:
-    """Describe the chat's earlier picture that rides before the compose request.
+    """Describe the chat's earlier image that rides before the compose request.
 
-    Called "the earlier picture from this chat", never a reference, so it cannot be
+    Called "the earlier image from this chat", never a reference, so it cannot be
     mistaken for the image model's reference images.
     """
     shared = (
-        " The image model also receives this same picture. Explicitly describe the new pose, action, and scene so it "
-        "updates the picture to the current story."
+        " The image model also receives this same image. Explicitly describe the new pose, action, and scene so it "
+        "updates the image to the current story."
         if also_sent
         else ""
     )
     return (
-        "The image before this request is a picture from earlier in this chat. Do not describe or recreate that picture. "
+        "The image before this request is an image from earlier in this chat. Do not describe or recreate that image. "
         "First determine the final visible instant of the latest assistant reply in the conversation. Compose that new "
         "shot in `scene`, including its current pose, action, expression, interaction, setting, and framing. "
-        "Use the earlier picture only to fill in continuity details the story leaves unchanged, such as identity, outfit, "
+        "Use the earlier image only to fill in continuity details the story leaves unchanged, such as identity, outfit, "
         "setting, lighting, and visual style. Replace any pictured detail the latest reply changes. Do not carry over "
-        "the earlier pose, action, expression, or framing just because it is visible in the picture. "
-        "For example, if the picture shows a person sitting but the latest reply has them stand, prompt the person standing."
+        "the earlier pose, action, expression, or framing just because it is visible in the image. "
+        "For example, if the image shows a person sitting but the latest reply has them stand, prompt the person standing."
         + shared
         + " "
     )
@@ -457,7 +457,7 @@ def compose_ooc(
     downstream = _downstream_blocks(
         style_prompt, style_negative_prompt, profile_negative_prompt, supports_negative=supports_negative
     )
-    earlier_picture = _prompter_reference_instruction(prompter_reference_sent) if prompter_reference else ""
+    earlier_image = _prompter_reference_instruction(prompter_reference_sent) if prompter_reference else ""
     return (
         "[OOC: "
         + _COMPOSER_MISSION
@@ -468,7 +468,7 @@ def compose_ooc(
         + reference
         + "Use the final assistant reply as the current visible story facts and use earlier conversation only for stable "
         "visible continuity such as identity, the current outfit, and the setting. "
-        + earlier_picture
+        + earlier_image
         + _direction_block(direction)
         + "Resolve conflicts in this order: "
         + ("the user's direction above, then " if bounded(direction, DIRECTION_CHARS) else "")
@@ -478,20 +478,20 @@ def compose_ooc(
 
 
 _EDIT_FORM = (
-    "The image model edits one picture, the reference picture. It keeps everything in the picture that the prompt does not "
+    "The image model edits one image, the reference image. It keeps everything in the image that the prompt does not "
     "change. So write `scene` as an edit: state only what changes, in short present-tense sentences, such as 'Her hair is "
     "now red.' or 'She now sits on the bench.' Do not describe what stays the same, and do not describe the whole scene. "
     "Name each person a sentence is about. "
 )
 
 
-def _edited_picture(shows: str, seen: bool) -> str:
-    """What the prompter knows of the picture being edited: the picture itself, the prompt it was drawn from, or neither."""
+def _edited_image(shows: str, seen: bool) -> str:
+    """What the prompter knows of the image being edited: the image itself, the prompt it was drawn from, or neither."""
     parts = []
     if seen:
-        parts.append("The image before this request is the picture to edit. ")
+        parts.append("The image before this request is the image to edit. ")
     if shows:
-        parts.append(f"The picture was drawn from this prompt; use it only to name what changes: “{bounded(shows)}”. ")
+        parts.append(f"The image was drawn from this prompt; use it only to name what changes: “{bounded(shows)}”. ")
     return "".join(parts)
 
 
@@ -508,15 +508,15 @@ def edit_ooc(
     direction: str = "",
     excerpt: str = "",
 ) -> str:
-    """The compose request for a render that edits a chosen picture: the prompt states the change, not the scene.
+    """The compose request for a render that edits a chosen image: the prompt states the change, not the scene.
 
-    `shows` is the prompt the picture was drawn from, when known; `seen` says the picture rides before this request.
+    `shows` is the prompt the image was drawn from, when known; `seen` says the image rides before this request.
     """
     text = bounded(direction, DIRECTION_CHARS)
     change = (
         f"The user asked for this change, in their words: “{text}”. State that change and nothing else. "
         if text
-        else _excerpt_block(excerpt) + "Change the picture so that it shows the final visible instant of the latest assistant "
+        else _excerpt_block(excerpt) + "Change the image so that it shows the final visible instant of the latest assistant "
         "reply. State each difference it needs in pose, action, expression, clothing, setting, lighting, or framing. "
     )
     names = [bounded(subject.name, 200) for subject in subjects if bounded(subject.name, 200)]
@@ -526,9 +526,9 @@ def edit_ooc(
         else "Leave `visible_subjects` empty because no subject was named. "
     )
     return (
-        "[OOC: Pause the roleplay and prompt one picture edit for an image-editing model. Call compose_image_prompt. "
+        "[OOC: Pause the roleplay and prompt one image edit for an image-editing model. Call compose_image_prompt. "
         + _EDIT_FORM
-        + _edited_picture(shows, seen)
+        + _edited_image(shows, seen)
         + change
         + roster
         + _downstream_blocks(style_prompt, style_negative_prompt, profile_negative_prompt, supports_negative=supports_negative)
@@ -600,17 +600,17 @@ def refine_ooc(
     """The review request that rides beside a render, after its tool result.
 
     `turns_left` counts the renders still available after this review, so the model knows when a revision is its last chance.
-    `prompter_reference` says the compose request carried the chat's earlier picture, so the review checks against it too.
+    `prompter_reference` says the compose request carried the chat's earlier image, so the review checks against it too.
     `directed` says it carried the user's direction for this image: the review holds the render to that first, so a departure
     from the reply the user asked for is never corrected away. `excerpted` says it quoted the passage the user selected, so the
     review holds the render to where that passage ends rather than to what it leads to. `edit` says the prompt is an edit of a
-    chosen picture: the review holds the render to the change and the rest of the picture, and a revision stays an edit.
+    chosen image: the review holds the render to the change and the rest of the image, and a revision stays an edit.
     """
     unwanted = "Revise `unwanted` by the same rules as before." if supports_negative else _LEAVE_UNWANTED_EMPTY
     reseed = _RESEED if supports_seed else _NO_SEED
     last = " This is the last revision: the next render is final." if turns_left == 1 else ""
     earlier = (
-        ", against your prompt, and against the earlier chat picture only for details the story leaves unchanged"
+        ", against your prompt, and against the earlier chat image only for details the story leaves unchanged"
         if prompter_reference
         else " and against your prompt"
     )
@@ -625,7 +625,7 @@ def refine_ooc(
         else instant
     )
     if edit:
-        against = "the change you stated: the change must show, and the rest must stay as it is in the edited picture"
+        against = "the change you stated: the change must show, and the rest must stay as it is in the edited image"
         earlier = ""
     revised = "the revised edit in `scene`, still only what changes" if edit else "the complete revised prompt in `scene`"
     return (
@@ -661,13 +661,13 @@ def standalone_ooc(
 ) -> str:
     """Format guidance for a description, with no RP scene or camera policy.
 
-    `edit` says the render edits a chosen picture, so the description is its change; `shows` is that picture's prompt, if known.
+    `edit` says the render edits a chosen image, so the description is its change; `shows` is that image's prompt, if known.
     """
     if edit:
         return (
-            "Edit one picture for an image-editing model. There is no roleplay reply to illustrate. Use compose_image_prompt. "
+            "Edit one image for an image-editing model. There is no roleplay reply to illustrate. Use compose_image_prompt. "
             + _EDIT_FORM
-            + _edited_picture(shows, False)
+            + _edited_image(shows, False)
             + (_UNWANTED_INSTRUCTION if supports_negative else _LEAVE_UNWANTED_EMPTY)
             + _downstream_blocks(
                 style.get("prompt", ""),
@@ -682,7 +682,7 @@ def standalone_ooc(
     prompt_format = normalize_prompt_format(style["prompt_format"])
     extra = bounded(style.get("extra_instructions"))
     return (
-        "Create one standalone picture from the description below. There is no roleplay reply to illustrate. "
+        "Create one standalone image from the description below. There is no roleplay reply to illustrate. "
         "Use compose_image_prompt. "
         + (
             "Start with person count tags; use no humans when nobody is in frame, and solo for one person. "
@@ -700,6 +700,6 @@ def standalone_ooc(
             supports_negative=supports_negative,
         )
         + (f" Additional style guidance from the user: {extra} " if extra else "")
-        + "\nDescription (picture content):\n"
+        + "\nDescription (image content):\n"
         + description
     )

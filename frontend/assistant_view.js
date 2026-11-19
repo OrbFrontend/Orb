@@ -726,7 +726,7 @@ const SUGGESTIONS = {
     "How do I strategically get into her pants?",
     "Update the active lorebooks based on how the story has progressed.",
     "What are the most used 2-grams in this chat?",
-    "Create an avatar image for this character. ComfyUI is up.",
+    "Create an image of this character. ComfyUI is up.",
     "Illustrate this reply, but…",
   ],
   character: [
@@ -810,9 +810,9 @@ function imageHtml(item) {
   if (typeof imageId !== "string" || !/^[a-f0-9]{32}$/.test(imageId)) return "";
   return (
     `<figure class="asst-image"><img class="workflow-artifact-image" src="/api/assistant/images/${imageId}" ` +
-    `alt="Generated picture (temporary; save it to keep it)" loading="lazy" ` +
-    `data-fallback="This picture expired or the server restarted. Ask for a new one.">` +
-    `<figcaption>Temporary picture. Save it to keep it or set and crop an avatar.</figcaption></figure>`
+    `alt="Generated image (temporary; save it to keep it)" loading="lazy" ` +
+    `data-fallback="This image expired or the server restarted. Ask for a new one.">` +
+    `<figcaption>Temporary image. Save it to keep it.</figcaption></figure>`
   );
 }
 

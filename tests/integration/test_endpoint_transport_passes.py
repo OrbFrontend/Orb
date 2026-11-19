@@ -221,14 +221,14 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
 
 
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "gemini"])
-async def test_assistant_picture_uses_existing_image_transport_after_its_tool_result(provider):
+async def test_assistant_image_uses_existing_image_transport_after_its_tool_result(provider):
     from backend.database.seeds import DEFAULT_SETTINGS
     from backend.features.assistant import AssistantTool, ToolOutput, ViewContext, run_assistant
     from backend.features.assistant.contracts import NoArguments
 
     ep._RESOLVED_ROUTES.clear()
-    step = {"tool": "picture", "message": "Making a picture."}
-    reply = {"tool": "reply", "message": "I can see the picture."}
+    step = {"tool": "image", "message": "Making an image."}
+    reply = {"tool": "reply", "message": "I can see the image."}
     if provider == "anthropic":
         endpoint, model = "https://api.anthropic.com/v1/messages", "claude-haiku-4-5"
         scripts = [_anthropic_tool("assistant_step", step), _anthropic_tool("assistant_step", reply)]
@@ -245,8 +245,8 @@ async def test_assistant_picture_uses_existing_image_transport_after_its_tool_re
     transport = _Transport(scripts)
     image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}
 
-    async def picture(args):
-        return ToolOutput({"image_id": "test-image"}, "Created a picture.", images=(image,))
+    async def make_image(args):
+        return ToolOutput({"image_id": "test-image"}, "Created an image.", images=(image,))
 
     client = LLMClient(endpoint, "secret")
     with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport):
@@ -256,8 +256,8 @@ async def test_assistant_picture_uses_existing_image_transport_after_its_tool_re
                 client,
                 model,
                 settings=DEFAULT_SETTINGS,
-                tools=[AssistantTool("picture", "Make a picture.", NoArguments, "write", picture)],
-                request="Make and inspect a picture.",
+                tools=[AssistantTool("image", "Make an image.", NoArguments, "write", make_image)],
+                request="Make and inspect an image.",
                 view=ViewContext("library"),
                 single_call=False,
             )

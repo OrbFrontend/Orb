@@ -425,7 +425,7 @@ async def test_a_cloud_style_is_never_asked_for_a_comfyui_workflow(client):
 async def test_a_reference_image_the_normalizer_drops_is_reported_not_swallowed(client):
     """`normalize_profile` drops an image it cannot accept rather than truncating it
     -- half a base64 payload is not a smaller image. Answering a bare "ok" let the
-    settings form preview the picture, report a successful save, and show it gone on
+    settings form preview the image, report a successful save, and show it gone on
     the next open with nothing to explain why."""
     await create_character_card({"id": "ig-drop", "name": "Iris"})
     await create_conversation("ig-drop-conv", "Images", "Iris", "A room", character_card_id="ig-drop")
@@ -565,7 +565,7 @@ async def test_a_comfy_graph_carries_one_image_per_person_in_the_round(client, m
 
 async def test_a_cloud_array_carries_one_image_per_person_in_the_round(client, monkeypatch):
     """The other shape: a homogeneous array, so the slots are derived from who is in the
-    picture. One image each and never the same person twice -- and the prompt is told
+    image. One image each and never the same person twice -- and the prompt is told
     which array position is whom, since a provider handed an array is told nothing.
     """
     ids = await _two_hander(client, source="character", connection="xai")

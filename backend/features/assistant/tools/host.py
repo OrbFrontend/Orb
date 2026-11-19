@@ -172,7 +172,7 @@ class MediaOutcome:
 @dataclass(frozen=True)
 class ImageStyles:
     """The image workflow's styles: each id's label in the workflow's order, the id a render without one uses, and the ids
-    whose backend has an image input a reference picture can fill."""
+    whose backend has an image input a reference image can fill."""
 
     labels: Mapping[str, str]
     default: str
@@ -181,7 +181,7 @@ class ImageStyles:
 
 @dataclass(frozen=True)
 class CreatedImage:
-    """A temporary picture's id and model-facing preview, independent of its stored download bytes."""
+    """A temporary image's id and model-facing preview, independent of its stored download bytes."""
 
     image_id: str
     preview_url: str
@@ -189,14 +189,14 @@ class CreatedImage:
 
 @dataclass(frozen=True)
 class ViewedImage:
-    """What the image workflow reports about one chat image, and its model-facing preview where the Agent model sees pictures."""
+    """What the image workflow reports about one chat image, and its model-facing preview where the Agent model sees images."""
 
     facts: Mapping[str, Any]
     preview_url: str
 
 
 class MediaJobs(Protocol):
-    """Media dispatch: message-scoped workflow jobs and standalone pictures linked only to the assistant run."""
+    """Media dispatch: message-scoped workflow jobs and standalone images linked only to the assistant run."""
 
     def media_available(self, workflow_id: str) -> bool:
         """Whether *workflow_id* is installed with an on-demand hook."""
@@ -213,7 +213,7 @@ class MediaJobs(Protocol):
     async def create_image(
         self, description: str, character_id: str | None, reference: str, style_id: str, run: MediaRun
     ) -> CreatedImage:
-        """Render, from the picture at origin *reference* when one is given, and return its temporary id and preview;
+        """Render, from the image at origin *reference* when one is given, and return its temporary id and preview;
         HostRefusal on failure or Stop.
 
         *reference* is an image workflow origin (``attachment:<id>``, ``upload:<message id>:<id>`` or ``assistant:<image id>``).

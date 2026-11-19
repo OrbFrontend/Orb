@@ -83,9 +83,9 @@ async def _styles(body) -> dict:
 
 
 def _takes_reference(config, style) -> bool:
-    """Whether this style's backend has an image input a picture could fill, whatever the style's own reference setting.
+    """Whether this style's backend has an image input a reference could fill, whatever the style's own reference setting.
 
-    The same test a render given a picture applies through `plan_slots`, read off the target without I/O.
+    The same test a render given an image applies through `plan_slots`, read off the target without I/O.
     """
     try:
         target = get_adapter(config, {**style, "reference_source": "previous"}).resolve_target(None)

@@ -50,14 +50,14 @@ from .contracts import (
     ViewContext,
     encode_result,
     is_request_message,
-    tool_pictures,
+    tool_images,
 )
 from .prompt import reply_tool, request_message, step_tool, system_prompt, tool_schema
 
 logger = logging.getLogger(__name__)
 
 # Rejections that say nothing about the request's content: credentials, rate and time limits.
-_NOT_PICTURE_STATUSES = frozenset({401, 403, 408, 429})
+_NOT_IMAGE_STATUSES = frozenset({401, 403, 408, 429})
 _UNREADABLE = "The model's reply was not a readable step."
 _SEVERAL = "The model's reply made several calls at once, where one was asked for."
 _CORRECT = "Nothing ran. Choose the tool again and correct its arguments."
@@ -155,7 +155,7 @@ def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
     return total
 
 
-def _has_pictures(*runs: Sequence[Mapping[str, Any]]) -> bool:
+def _has_images(*runs: Sequence[Mapping[str, Any]]) -> bool:
     return any(
         isinstance(content := message.get("content"), list) and any(part.get("type") == "image_url" for part in content)
         for messages in runs
@@ -164,9 +164,9 @@ def _has_pictures(*runs: Sequence[Mapping[str, Any]]) -> bool:
 
 
 def _text_only_messages(messages: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """The messages as a text-only model takes them: each picture's caption, and that the model was not shown it.
+    """The messages as a text-only model takes them: each image's caption, and that the model was not shown it.
 
-    The transcript itself keeps the pictures, so a transport that takes them later is sent them.
+    The transcript itself keeps the images, so a transport that takes them later is sent them.
     """
     projected: list[Mapping[str, Any]] = []
     for message in messages:
@@ -174,7 +174,7 @@ def _text_only_messages(messages: Sequence[Mapping[str, Any]]) -> list[Mapping[s
         if isinstance(content, list):
             text = "\n".join(part["text"] for part in content if part.get("type") == "text")
             if any(part.get("type") == "image_url" for part in content):
-                text += "\nThe user can see this picture. You cannot inspect it: this model or its transport takes text only."
+                text += "\nThe user can see this image. You cannot inspect it: this model or its transport takes text only."
             projected.append({**message, "content": text})
         else:
             projected.append(message)
@@ -458,7 +458,7 @@ async def run_assistant(
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
     run: list[WireMessage] = []
     model_calls = executions = 0
-    # Set once the model refuses pictures, so the rest of the run sends their captions instead.
+    # Set once the model refuses images, so the rest of the run sends their captions instead.
     text_only = not client.supports_image_inputs
     # What this run's writes committed: one line each for an early ``done``, and each exact call so it is never made twice.
     committed: list[str] = []
@@ -537,12 +537,12 @@ async def run_assistant(
         try:
             response = await complete(text_only)
         except LLMCallError as exc:
-            # A model without vision answers a picture with a client error worded per provider. Asking again without the
-            # pictures costs one quick call; an error that was not about them comes back from the retry.
+            # A model without vision answers an image with a client error worded per provider. Asking again without the
+            # images costs one quick call; an error that was not about them comes back from the retry.
             status = exc.response.status_code
-            if text_only or not 400 <= status < 500 or status in _NOT_PICTURE_STATUSES or not _has_pictures(history, trailing):
+            if text_only or not 400 <= status < 500 or status in _NOT_IMAGE_STATUSES or not _has_images(history, trailing):
                 raise
-            logger.warning("Assistant: the model refused pictures (%s); the run continues without them", exc)
+            logger.warning("Assistant: the model refused images (%s); the run continues without them", exc)
             text_only = True
             response = await complete(True)
         if client.is_aborted:
@@ -711,7 +711,7 @@ async def run_assistant(
                     yield {"type": "mutation", "call_id": call_id, "tool": name, "resources": resources}
                 run.append(tool_result(call_id, f"{_encode(output.data, output.summary)}{last}"))
                 if output.images:
-                    run.append(tool_pictures(name, call_id, output.images))
+                    run.append(tool_images(name, call_id, output.images))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
                     # Review is a checkpoint: no more model calls until the user decides in a new request.

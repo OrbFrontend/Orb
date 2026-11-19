@@ -11,7 +11,7 @@ out requests across the whole app.
 |---|---|
 | [Assistant Chat](assistant/index.md) | An agent that reads and changes your characters, chats, lore, fragments, documents, and settings on request. |
 | [Reviewing Changes](assistant/reviewing-changes.md) | Apply, edit, skip, or undo the edits and deletes it proposes. |
-| [Images and Speech](assistant/images-and-speech.md) | Have it make pictures, illustrate replies, and read replies aloud. |
+| [Images and Speech](assistant/images-and-speech.md) | Have it make images, illustrate replies, and read replies aloud. |
 | [Assistant Options](assistant/options.md) | Think, tool groups, and the system prompt. |
 | [Web Search](assistant/web-search.md) | Let it search the web through SearXNG. |
 

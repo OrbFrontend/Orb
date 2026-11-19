@@ -127,7 +127,7 @@ characters in the scene.[^group-reference-selection]
 4. Select **Save**.
 
 The limit is 10 MB. If no reference is saved, Orb uses the character card's
-avatar.
+image.
 
 ### ComfyUI reference inputs
 
@@ -331,17 +331,17 @@ prompt steps with thinking on come back empty.
 to the Agent model when it writes the prompt, so the outfit, setting, lighting and
 look carry over between renders even when the story text does not restate them.
 The prompter composes the final visible instant of the latest assistant reply, or of the selected text.
-It uses the earlier picture only for continuity details the story leaves unchanged,
+It uses the earlier image only for continuity details the story leaves unchanged,
 and replaces any pose, action, expression, setting, or framing the story changes.
 The setting is off by default.
 
 Orb sends the image only when it is on the reply just before the message being
-visualized, or on a message after that reply. An older picture shows a scene the
+visualized, or on a message after that reply. An older image shows a scene the
 story has left, so the prompter gets no image then. The message being visualized is
 skipped, so **Regenerate** shows the image from the reply before it rather than the
 render it replaces. Uploads are never sent, because the prompter already sees them in
 the conversation.
-When the same picture also goes to the image model as a reference image, the
+When the same image also goes to the image model as a reference image, the
 prompter is told so. The earlier image's prompt and negative prompt are not sent.
 The render's details record which image the prompter saw.
 

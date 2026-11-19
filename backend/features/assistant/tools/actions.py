@@ -98,7 +98,7 @@ class _LoreEntryArgs(ToolArguments):
 
 
 class _CharacterCreate(ToolArguments):
-    """Authored text only: no image, avatar, extension, embedded book, import source or URL can be named."""
+    """Authored text only: no image, extension, embedded book, import source or URL can be named."""
 
     name: str = Field(min_length=1, max_length=_NAME_CHARS)
     description: str = _text(_LONG_TEXT_CHARS, "Who the character is.")
@@ -250,7 +250,10 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         return wrote(data, summary, "lorebook_entry", world_id=world["id"], entry_id=entry["id"])
 
     @tools.add(
-        "write", _CharacterCreate, "Create a character card: text only, no avatar. No chat is started.", name="create_character"
+        "write",
+        _CharacterCreate,
+        "Create a character card: text only, no image. No chat is started.",
+        name="create_character",
     )
     async def add_character(args: _CharacterCreate) -> ToolOutput:
         # The creation route's own schema and writer, without the parts of that route that import: no embedded book, no

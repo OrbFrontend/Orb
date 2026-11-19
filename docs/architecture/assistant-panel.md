@@ -220,7 +220,7 @@ Each result is at most 6,000 characters as encoded; tools bound their own
 output, and an oversized one becomes an error result rather than a cut value.
 The conversation, excluding the system prompt and tool schemas, is held to
 80,000 characters: a fixed size, since Orb has no setting for an endpoint's
-context window. Text results are bounded independently; pictures each consume
+context window. Text results are bounded independently; images each consume
 an 8,192-character allowance. Only past the budget does anything go: the oldest requests, whole, until
 the conversation is a quarter under it, so the cut that rewrites the prefix is
 made rarely. The stream then says so (`trimmed`), naming the oldest request the model still reads, and the log marks
@@ -365,7 +365,7 @@ only what the call and the request do not already say:
 
 The `summary` and `ids` of a result go to the browser's transcript.
 
-Reads project explicit allowlists, never whole rows: no avatars, extensions,
+Reads project explicit allowlists, never whole rows: no images, extensions,
 prompt overrides, workflow state, endpoints, models or credentials. The
 projections are the privacy boundary; `query_library` reads allowlisted SQL
 views with the library's read-only caps, and its rows may come from branches the
@@ -640,13 +640,13 @@ back. The transcript draws the opened chat as a view separator.
 
 ## Media
 
-`create_image(description, character_id?, reference_image?, style_id?)` makes a standalone picture shown in
+`create_image(description, character_id?, reference_image?, style_id?)` makes a standalone image shown in
 this panel, separate from saved RP reply illustration. The assistant reads a
 card and writes the visual description itself; an explicit optional character
-id applies its saved appearance tags and exclusions, plus its reference picture
+id applies its saved appearance tags and exclusions, plus its reference image
 when the rendering style enables references. An
 empty id means no character, even with a character in view. Nothing is assigned
-to a card or chat. The user saves the picture from the browser, sets it as an avatar and
+to a card or chat. The user saves the image from the browser, sets it on a card and
 crops it themselves. `illustrate_reply` directs requests unrelated to saved
 replies to this tool.
 
@@ -668,37 +668,37 @@ carries `image_id`, and the model-facing result its `ref` (`image:<id>`); the te
 result and browser storage contain no image bytes,
 and no message refresh is requested. `GET /api/assistant/images/{id}` serves the
 image inline, also after workflow disablement. An
-id names one picture for as long as it is held, so the response is privately
+id names one image for as long as it is held, so the response is privately
 cacheable and the log and the lightbox fetch it once. Eviction
 or restart answers 404. The log validates the id, renders a preview with the
 shared click-to-zoom lightbox of workflow images, and preserves the
-id across reloads. An expired image becomes a note asking for a new picture.
+id across reloads. An expired image becomes a note asking for a new image.
 
-The model is shown every picture it makes. After the text tool result the model conversation receives a
+The model is shown every image it makes. After the text tool result the model conversation receives a
 user-role content list containing a caption naming the tool call and an
-`image_url` data part (`tool_pictures` in `contracts.py`, the one user message
+`image_url` data part (`tool_images` in `contracts.py`, the one user message
 whose content is a list).
-This is a tool-returned picture, not another user request: request marks, edits,
+This is a tool-returned image, not another user request: request marks, edits,
 and budget trimming count only the actual text requests. The preview is a JPEG
 bounded to a 1,024-pixel edge, using the image workflow's existing review encoder;
-the stored full-size and render-reference bytes remain separate. Each picture
+the stored full-size and render-reference bytes remain separate. Each image
 costs an allowance of 8,192 characters in the assistant's context budget, rather
 than its base64 byte length. Previews replay unchanged across requests until
 the containing request is trimmed or edited away; no image bytes enter SSE.
 
 Existing transports carry these normal image parts. Text-completion mode falls
-back to chat for calls containing pictures, which is every assistant call from
+back to chat for calls containing images, which is every assistant call from
 the first preview until its request is trimmed or edited away. The transcript
 holds a preview whatever transport made it. Claude Code advertises text-only
 input, so each call there is sent the previews as their captions and a note that
-the model was not shown them; a later transport that takes pictures is sent
-them. A model without vision answers a call carrying pictures with a client
-error worded per provider. The loop then asks once more with every picture as
+the model was not shown them; a later transport that takes images is sent
+them. A model without vision answers a call carrying images with a client
+error worded per provider. The loop then asks once more with every image as
 its caption and keeps the rest of the run that way; credential, rate and timeout
-rejections (401, 403, 408, 429) and a call without pictures fail as before, and
-an error not about pictures comes back from the retry. The transcript keeps the
-pictures, so a later run asks with them again. There is no forced image-review pass: the assistant can
-inspect the picture in its normal next step and use its id for a requested revision.
+rejections (401, 403, 408, 429) and a call without images fail as before, and
+an error not about images comes back from the retry. The transcript keeps the
+images, so a later run asks with them again. There is no forced image-review pass: the assistant can
+inspect the image in its normal next step and use its id for a requested revision.
 
 `illustrate_reply` and `generate_speech` make an artifact for one saved reply on
 a chat's kept branch. They are listed whenever their workflow (`image_gen`,
@@ -728,22 +728,22 @@ does; a Regenerate from the image composes from the reply again.
 
 ### Reference images
 
-Both image tools take an optional `reference_image`, a token naming the picture
+Both image tools take an optional `reference_image`, a token naming the image
 to work from:
 
-| Token | Picture | Where the model finds it |
+| Token | Image | Where the model finds it |
 |---|---|---|
 | `attachment:<id>` | a workflow attachment with an image mime: any render or reroll sibling, in any chat | `read_messages` `images` |
 | `upload:<id>` | a user upload with an image mime | `read_messages` `images` |
-| `image:<id>` | a panel picture, for `create_image` only | a `create_image` result's `ref` |
+| `image:<id>` | a panel image, for `create_image` only | a `create_image` result's `ref` |
 
 The tool checks the row exists and is an image without reading its bytes, and
 converts the token into the image workflow's origin: `attachment:<id>`,
 `upload:<message id>:<id>` or `assistant:<id>`. Only the image workflow reads a
 chat image's bytes; the host adds bytes to a `StandaloneReference` only for an
-`assistant:` picture, which only its panel store holds. Every failure names its cause
+`assistant:` image, which only its panel store holds. Every failure names its cause
 and none is ignored: an unknown token, a missing row, a non-image, cleared
-(evicted) or unsupported bytes, an expired panel picture.
+(evicted) or unsupported bytes, an expired panel image.
 
 `read_messages` lists a message's images under `images`, only when it has any:
 at most 8, renders before uploads and each newest first, with `more_images`
@@ -761,23 +761,23 @@ both between calls. A style without an input refuses before composing and names
 the styles that take one, or says none does and that a backend with image inputs
 is chosen in Image Generation. The image workflow repeats the check.
 
-The picture fills the `previous` role. It goes to the style's image inputs even
+The image fills the `previous` role. It goes to the style's image inputs even
 where the style leaves its reference off, without changing saved settings. A
 `character` or `character_and_previous` style keeps its likeness slot when a
 character is in the render: `character_id` for `create_image`, the chat's characters for a
-reply. The picture takes the first input, since an edit model edits its first
+reply. The image takes the first input, since an edit model edits its first
 image, and the likenesses fill the rest; a backend with too few inputs cuts a
-likeness, never the picture. For `create_image` the picture replaces the character's reference
-picture; saved appearance tags and exclusions still apply. For
+likeness, never the image. For `create_image` the image replaces the character's reference
+image; saved appearance tags and exclusions still apply. For
 `illustrate_reply` it replaces the chat's previous image, and with
 `prompter_reference` on the prompter is shown it in place of the last reply's
 image.
 
-A panel picture cannot be a reply's reference. Reroll replays a saved render's
+A panel image cannot be a reply's reference. Reroll replays a saved render's
 references strictly from their recorded origins, the image workflow cannot read
-the panel store, and the store forgets pictures on restart, so the reply would
+the panel store, and the store forgets images on restart, so the reply would
 fail its first Reroll. `illustrate_reply` refuses `image:` and tells the model
-to render the reply again without a reference, with what the picture shows as
+to render the reply again without a reference, with what the image shows as
 `direction`.
 
 `illustrate_reply` sends the origin as the hook body's `reference`. The render
@@ -785,15 +785,15 @@ records it in `references[].origin` and as `reference` beside `direction`.
 Reroll replays the recorded origin, under the style's image inputs even where
 the style leaves its reference off. Regenerate composes afresh from the reply,
 as the reply's image button does, and drops both the direction and the chosen
-picture.
+image.
 
 `view_image(reference_image)`, a read offered beside `list_image_styles`,
 describes one chat image through the image workflow's `describe` query: its chat
 and message, kind, mime and pixel size, and for an Image Generation render its
 `style_id`, clipped `prompt` and `direction`, with a preview through the same
-`tool_pictures` path, budget and text-only fallback as `create_image`. An `image:` token answers with a note, since the
-panel picture came with its result. For a style that takes no reference, the
-model reads the picture this way and writes what matters into `direction` or
+`tool_images` path, budget and text-only fallback as `create_image`. An `image:` token answers with a note, since the
+panel image came with its result. For a style that takes no reference, the
+model reads the image this way and writes what matters into `direction` or
 `description`.
 
 A media tool runs the workflow's hook through `run_on_demand`, the same
@@ -826,7 +826,7 @@ the settled write's `mutation`, which names them all. Its result names the
 attachment ids its own job reported saving, never bytes; an image result also
 carries them as `refs` (`attachment:<id>`), the tokens a next edit passes as
 `reference_image`. The log draws an `illustrate_reply` result's last render from
-its content route, with the same click-to-zoom as a panel picture. A job that started and
+its content route, with the same click-to-zoom as a panel image. A job that started and
 saved nothing is a tool error. A job stopped or cut short that reported nothing
 while new rows appeared on the message claims none of them: the error says an
 artifact may have been saved and to check the message. Because the hold on the

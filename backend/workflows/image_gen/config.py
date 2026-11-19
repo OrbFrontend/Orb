@@ -109,7 +109,7 @@ class SourcePolicy(NamedTuple):
 # is listed first because it has no cold-start cliff: a style pinned to `previous` alone hard-fails on a new conversation's
 # first Visualize.
 #
-# **One reference image per character.** `character` means the people this render is a picture *of*, one image each and never
+# **One reference image per character.** `character` means the people this render is an image *of*, one image each and never
 # the same person twice -- in a solo chat that is one image, in a group it is one per member in frame, in `subjects.py`'s order.
 # What a style no longer does is say *which* image goes in *which* slot: position is the subject order, so there is nothing
 # positional left to configure and no `cast` ordinal to count. How many actually travel is the render target's to cap.

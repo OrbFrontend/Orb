@@ -57,10 +57,10 @@ class RefineThread:
 
     `messages` extends the shared prefix: the compose tail, then per render the replayed call, its tool result, and the image
     under review. `call_id` names the call the next render answers. `prompter_reference` says the compose tail carried the
-    chat's earlier picture, so each review checks against it too. `directed` says the compose tail carried the user's direction
+    chat's earlier image, so each review checks against it too. `directed` says the compose tail carried the user's direction
     for this image, so each review holds the render to it first rather than pulling it back to the reply. `excerpted` says it
     quoted the passage the user selected, so each review holds the render to where that passage ends. `edit` says the prompt edits
-    a chosen picture, so each revision stays an edit.
+    a chosen image, so each revision stays an edit.
     """
 
     messages: list[dict] = field(default_factory=list)
@@ -261,11 +261,11 @@ async def compose_scene(
     """Compose scene text as ``(scene, unwanted, mode)``.
 
     A `thread` is filled with the call as the model made it, so a review can follow. `prompter_reference_url` is the chat's
-    earlier picture, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
-    image model receives that picture as well. A provider that rejects the image raises rather than composing blind.
+    earlier image, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
+    image model receives that image as well. A provider that rejects the image raises rather than composing blind.
     `direction` is the user's own ask for this one image, which outranks the reply on what the shot shows. `excerpt` is the
-    passage the user selected, which the reply in `prefix` ends with. `edit` says the reference is a chosen picture the image
-    model edits: the prompt states the change alone, and `shows` is the prompt that picture was drawn from, when known.
+    passage the user selected, which the reply in `prefix` ends with. `edit` says the reference is a chosen image the image
+    model edits: the prompt states the change alone, and `shows` is the prompt that image was drawn from, when known.
     """
     sheets = _sheets(subjects)
     if edit:
@@ -326,7 +326,7 @@ async def compose_scene(
     if sheets and sheets[0] not in visible:
         visible = [sheets[0], *visible]
     if edit:
-        # The picture carries every likeness already; fixed tags would restate the scene the edit leaves alone.
+        # The image carries every likeness already; fixed tags would restate the scene the edit leaves alone.
         visible = []
     if thread is not None and isinstance(result.get("replay"), Mapping):
         thread.messages = [*tail, dict(result["replay"])]
@@ -448,9 +448,9 @@ async def compose_standalone(
     edit: bool = False,
     shows: str = "",
 ) -> tuple[str, str]:
-    """One prompter call for a standalone picture; no skills, scene prefix, camera resolution, or review.
+    """One prompter call for a standalone image; no skills, scene prefix, camera resolution, or review.
 
-    `edit` says the render edits a chosen picture, so the description is its change; `shows` is that picture's prompt, if known.
+    `edit` says the render edits a chosen image, so the description is its change; `shows` is that image's prompt, if known.
     """
     sheets = _sheets(subjects)
     result = await _forced_result(

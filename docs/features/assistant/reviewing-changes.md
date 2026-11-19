@@ -17,7 +17,7 @@ The assistant changes some things straight away and asks you before others.
   flags, a fragment's settings and order;
 - the active persona, and a chat's title, locked persona, and worlds;
 - copying a chat, showing another branch, adding a banned phrase;
-- pictures and speech.
+- images and speech.
 
 To reverse one of these, ask the assistant to set it back or change it yourself.
 Clear and Edit undo nothing.

@@ -10,7 +10,7 @@ goes into your library.
    enough to start.
 3. Optionally add a reference image: pick a file, or paste or drop
    one onto the panel. You can then leave the idea empty, or say how to use it,
-   such as "a character with this picture's mood".
+   such as "a character with this image's mood".
 4. Choose how much of your library Orb should use, then press **Generate**.
 5. Read the draft in the character editor. Change anything you like, add an
    avatar if you want, and press **Save**.

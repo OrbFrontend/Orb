@@ -11,7 +11,7 @@ from ....database import get_image_attachment_ref, image_attachments_for_message
 from ....database.models import ImageAttachmentRef
 from ..contracts import ToolFailure
 
-# The longest reference token: "attachment:" and a row id, or "image:" and a panel picture's 32 hex digits.
+# The longest reference token: "attachment:" and a row id, or "image:" and a panel image's 32 hex digits.
 TOKEN_CHARS = 48
 # The images one message lists, newest first.
 _LISTED_IMAGES = 8
@@ -20,7 +20,7 @@ _TOKEN = re.compile(r"(attachment|upload):([1-9][0-9]{0,15})|image:([0-9a-f]{32}
 
 @dataclass(frozen=True)
 class Reference:
-    """A picture a token names: its *origin* as the image workflow records it, and whether it is a panel picture."""
+    """An image a token names: its *origin* as the image workflow records it, and whether it is a panel image."""
 
     origin: str
     panel: bool
@@ -64,20 +64,20 @@ async def listed_images(message_ids: Sequence[int]) -> dict[int, dict[str, Any]]
 
 
 async def reference_of(token: str, *, panel: bool) -> Reference:
-    """The picture *token* names, checked to exist and be an image; a panel picture only where *panel* allows one."""
+    """The image *token* names, checked to exist and be an image; a panel image only where *panel* allows one."""
     token = token.strip()
     match = _TOKEN.fullmatch(token)
     if match is None:
         raise ToolFailure(
             f"{token!r} is not an image reference. Use a ref from read_messages images (attachment:<id> or upload:<id>), "
-            "or image:<image_id> for a create_image picture."
+            "or image:<image_id> for an image from create_image."
         )
     kind, ident, image_id = match.groups()
     if image_id:
         if not panel:
             raise ToolFailure(
-                "A create_image picture cannot be a saved reply's reference: a Reroll of the reply could not fetch it again. "
-                "For this picture on a reply, call illustrate_reply without reference_image and put what the picture shows "
+                "An image from create_image cannot be a saved reply's reference: a Reroll of the reply could not fetch it again. "
+                "For this image on a reply, call illustrate_reply without reference_image and put what the image shows "
                 "into direction."
             )
         return Reference(f"assistant:{image_id}", panel=True)

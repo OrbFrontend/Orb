@@ -15,9 +15,9 @@ requires a saved character.
 
 ## Persona avatars
 
-Edit a persona to give it a picture. **Choose image** opens the same crop editor
+Edit a persona to give it an image. **Choose image** opens the same crop editor
 character avatars use; **Remove** drops back to the coloured circle holding the
-persona's initial. The picture appears beside the persona in the user menu, and
+persona's initial. The image appears beside the persona in the user menu, and
 in the chat gutter when avatars are turned on.
 
 Turn the gutter on under **Settings -> Show avatars in chat**. It is off by

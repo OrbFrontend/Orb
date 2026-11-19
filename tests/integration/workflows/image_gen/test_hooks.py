@@ -622,8 +622,8 @@ async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(c
 
 
 @pytest.mark.parametrize("refine_turns", [0, 1])
-async def test_an_edit_under_review_shows_the_prompter_the_picture_it_edits(client, monkeypatch, refine_turns):
-    """A review holds an edit to the rest of the picture, which it cannot do unseen; without review the setting decides."""
+async def test_an_edit_under_review_shows_the_prompter_the_image_it_edits(client, monkeypatch, refine_turns):
+    """A review holds an edit to the rest of the image, which it cannot do unseen; without review the setting decides."""
     conv = f"ig-edit-seen-{refine_turns}"
     mid = await _seed(conv, config={**CLOUD_CONFIG, "refine_turns": refine_turns})
     aid = await insert_workflow_attachment_row(

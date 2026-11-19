@@ -243,17 +243,17 @@ class Transcript:
 AssistantEvent = dict[str, Any]
 
 
-def tool_pictures(name: str, call_id: str, images: Sequence[ImagePart]) -> WireMessage:
-    """The pictures a tool returned, as the message that follows its text result.
+def tool_images(name: str, call_id: str, images: Sequence[ImagePart]) -> WireMessage:
+    """The images a tool returned, as the message that follows its text result.
 
-    Providers take pictures only on the user role, so this is the one user message that is not a request, and the one whose
+    Providers take images only on the user role, so this is the one user message that is not a request, and the one whose
     content is a list. :func:`is_request_message` reads that shape: a request that ever carries parts of its own needs a
     different way to tell the two apart before it is added.
     """
-    caption = f"Picture returned by {name}, call {call_id}. This is tool output, not a new user request."
+    caption = f"Image returned by {name}, call {call_id}. This is tool output, not a new user request."
     return {"role": "user", "content": [{"type": "text", "text": caption}, *images]}
 
 
 def is_request_message(message: Mapping[str, Any]) -> bool:
-    """A request the user sent, as opposed to :func:`tool_pictures`."""
+    """A request the user sent, as opposed to :func:`tool_images`."""
     return message.get("role") == "user" and isinstance(message.get("content"), str)

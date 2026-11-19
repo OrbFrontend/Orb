@@ -273,7 +273,7 @@ async def test_both_image_tools_render_in_a_listed_style_and_an_unknown_one_is_r
 
     async def standalone(ctx):
         seen.append(ctx.style_id)
-        return StandaloneResult(b"picture", "image/png")
+        return StandaloneResult(b"image", "image/png")
 
     calls = []
     script = [
@@ -311,7 +311,7 @@ def _png(color) -> bytes:
     return buffer.getvalue()
 
 
-async def _picture(message_id, data, *, parent=None):
+async def _image(message_id, data, *, parent=None):
     return await insert_workflow_attachment_row(
         message_id,
         {
@@ -354,9 +354,9 @@ async def test_a_chosen_chat_image_is_the_reply_render_reference_and_a_reroll_re
     await set_workflow_config("image_gen", CLOUD_CONFIG)
     path = await get_active_path(chat)
     chosen_bytes = _png("blue")
-    chosen = await _picture(path[-6]["id"], chosen_bytes)
+    chosen = await _image(path[-6]["id"], chosen_bytes)
     # Newer, so the chat's own previous image: the chosen one must win over it.
-    await _picture(path[-3]["id"], _png("red"))
+    await _image(path[-3]["id"], _png("red"))
     renders, composed = [], []
 
     async def compose(**kwargs):
@@ -379,7 +379,7 @@ async def test_a_chosen_chat_image_is_the_reply_render_reference_and_a_reroll_re
     listed, illustrated = _results(frames(await client.post_checked(RUN, json=_body(chat))))
 
     assert listed["ok"] and illustrated["ok"], illustrated
-    # The chosen picture is edited, not redrawn: the prompter states the change and knows what the picture was drawn from.
+    # The chosen image is edited, not redrawn: the prompter states the change and knows what the image was drawn from.
     assert composed[0]["edit"] is True and composed[0]["shows"] == "1girl"
     [sent] = renders[0].references
     assert sent.origin == f"attachment:{chosen}" and sent.source_digest == hashlib.sha256(chosen_bytes).hexdigest()
@@ -395,7 +395,7 @@ async def test_a_chosen_chat_image_is_the_reply_render_reference_and_a_reroll_re
 async def test_a_reference_for_a_style_without_image_inputs_is_refused_naming_the_styles_that_take_one(client, db, monkeypatch):
     library = await build_library(client, db)
     chat, kept = library["chat"], library["kept"]
-    chosen = await _picture((await get_active_path(chat))[-3]["id"], _png("blue"))
+    chosen = await _image((await get_active_path(chat))[-3]["id"], _png("blue"))
     made = []
 
     async def on_demand(ctx, body):
@@ -404,7 +404,7 @@ async def test_a_reference_for_a_style_without_image_inputs_is_refused_naming_th
 
     async def standalone(ctx):
         made.append(ctx)
-        return StandaloneResult(b"picture", "image/png")
+        return StandaloneResult(b"image", "image/png")
 
     with register_for_test(_media("image_gen", on_demand, standalone=standalone, query=_styles(plain=False, edit=True))):
         _script(
@@ -420,12 +420,12 @@ async def test_a_reference_for_a_style_without_image_inputs_is_refused_naming_th
         assert not result["ok"] and "edit (Edit)" in result["summary"] and "plain (Plain)" not in result["summary"]
 
 
-async def test_create_image_takes_chat_images_and_uploads_and_a_reply_refuses_a_panel_picture(client, db, monkeypatch):
+async def test_create_image_takes_chat_images_and_uploads_and_a_reply_refuses_a_panel_image(client, db, monkeypatch):
     library = await build_library(client, db)
     chat, kept = library["chat"], library["kept"]
     path = await get_active_path(chat)
     rendered, uploaded = _png("blue"), _png("green")
-    render_id = await _picture(path[-3]["id"], rendered)
+    render_id = await _image(path[-3]["id"], rendered)
     upload_id = await _upload(db, path[-2]["id"], uploaded)
     seen = []
 
@@ -435,7 +435,7 @@ async def test_create_image_takes_chat_images_and_uploads_and_a_reply_refuses_a_
 
     async def standalone(ctx):
         seen.append(ctx.reference)
-        return StandaloneResult(b"picture", "image/png")
+        return StandaloneResult(b"image", "image/png")
 
     with register_for_test(_media("image_gen", on_demand, standalone=standalone, query=_styles(edit=True))):
         _script(
@@ -459,8 +459,8 @@ async def test_read_messages_lists_each_message_images_with_the_one_on_screen_an
     library = await build_library(client, db)
     chat, kept = library["chat"], library["kept"]
     asked = (await get_active_path(chat))[-2]["id"]
-    root = await _picture(kept, _png("blue"))
-    redo = await _picture(kept, _png("red"), parent=root)
+    root = await _image(kept, _png("blue"))
+    redo = await _image(kept, _png("red"), parent=root)
     await set_active_sibling(root, root, expected_message_id=kept)
     upload = await _upload(db, asked, _png("green"))
     queries, calls = [], []

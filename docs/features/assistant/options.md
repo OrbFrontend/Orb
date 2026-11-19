@@ -22,7 +22,7 @@ group covers and it tells you which one to turn on.
 | Fragments | Mood and interactive fragments |
 | Settings and phrase bank | Pipeline switches, Length Guard limits, banned phrases |
 | Documents | Read, create, and edit documents |
-| Images and speech | Pictures, reply illustrations, speech |
+| Images and speech | Images, reply illustrations, speech |
 | Web | Web search and page reading |
 
 Library questions are always available. Pending changes can still be applied,

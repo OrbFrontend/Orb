@@ -1,4 +1,4 @@
-"""The assistant's media dispatch: saved replies through ON_DEMAND and panel pictures through STANDALONE.
+"""The assistant's media dispatch: saved replies through ON_DEMAND and panel images through STANDALONE.
 
 A job runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the
 assistant's Stop cancels that job alone) and under the message it renders (so deleting the message or its chat finds and
@@ -219,13 +219,13 @@ async def view_image(origin: str) -> ViewedImage:
 
 
 def _reference(origin: str) -> StandaloneReference:
-    """The picture at *origin*: a panel picture with its bytes, since only this store holds them, else a chat image by origin."""
+    """The image at *origin*: a panel image with its bytes, since only this store holds them, else a chat image by origin."""
     kind, _, image_id = origin.partition(":")
     if kind != "assistant":
         return StandaloneReference(origin)
     image = get_image(image_id)
     if image is None:
-        raise HostRefusal("That reference picture expired or the server restarted. Ask for a new picture.")
+        raise HostRefusal("That reference image expired or the server restarted. Ask for a new image.")
     return StandaloneReference(origin, image.data, image.mime)
 
 
@@ -244,7 +244,7 @@ async def create_image(
         character = await get_character_card(character_id) if character_id else None
         if character_id and character is None:
             raise HostRefusal("That character no longer exists; nothing was made.")
-        picture = _reference(reference) if reference else None
+        image = _reference(reference) if reference else None
         client = client_from_settings(settings, abort_token=run.abort)
         agent, model = agent_lane_from_settings(settings, writer_client=client, abort_token=run.abort)
         ctx = StandaloneCtx(
@@ -255,7 +255,7 @@ async def create_image(
             character_id=character_id,
             character=readonly_view(character),
             phase=lambda label: run.report(label[:_LABEL_CHARS]),
-            reference=picture,
+            reference=image,
             style_id=style_id,
         )
         task = asyncio.ensure_future(sub.callable(ctx))
@@ -267,7 +267,7 @@ async def create_image(
                 task.cancel()
                 await asyncio.wait({task})
         if stopped or run.abort.is_aborted:
-            raise HostRefusal("Stopped before any standalone picture was made.")
+            raise HostRefusal("Stopped before any standalone image was made.")
         result = task.result()
         return CreatedImage(keep_image(result.data, result.mime), result.preview_url)
     except API_PASSTHROUGH_ERRORS as exc:
@@ -278,4 +278,4 @@ async def create_image(
         raise
     except Exception:
         logger.exception("Assistant standalone image failed")
-        raise HostRefusal("The picture failed; the server log has the details.") from None
+        raise HostRefusal("The image failed; the server log has the details.") from None

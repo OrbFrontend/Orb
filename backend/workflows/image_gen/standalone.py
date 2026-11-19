@@ -1,4 +1,4 @@
-"""Description-driven pictures, independent of RP messages and their attachment lifecycle."""
+"""Description-driven images, independent of RP messages and their attachment lifecycle."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
         macros,
     )
     subjects = (Subject("", ctx.character_id, name, profile),) if ctx.character_id else ()
-    # No chat image exists here. An explicit picture fills the style's image inputs even when the style leaves them off; without
+    # No chat image exists here. An explicit image fills the style's image inputs even when the style leaves them off; without
     # one, a style that enables references draws this character's likeness.
     reference = ctx.reference
     previous: Fetched | None = None
@@ -80,7 +80,7 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
             shows=shows,
         )
     except (PrompterCallError, ValueError) as exc:
-        raise ImageGenerationError(f"Could not compose the standalone picture: {exc}") from exc
+        raise ImageGenerationError(f"Could not compose the standalone image: {exc}") from exc
     result = await resolve_and_generate(
         adapter,
         ImageRequest(
@@ -94,6 +94,6 @@ async def standalone(ctx: StandaloneCtx) -> StandaloneResult:
         target=target,
         progress=render_progress(ctx.phase),
     )
-    # The caller's model sees what it made; a caller whose model refuses pictures drops them on its side.
+    # The caller's model sees what it made; a caller whose model refuses images drops them on its side.
     preview = await review_image_url(result.image_bytes, result.mime)
     return StandaloneResult(result.image_bytes, result.mime, preview)

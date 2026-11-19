@@ -612,7 +612,7 @@ def takes_references(preset: ProviderPreset) -> bool:
 
     Provider-level and nothing finer. Which *models* behind it accept one was a hand-kept allowlist over catalogues that grow
     without us, and being wrong in the withholding direction is invisible: the user configured a likeness, paid for the render,
-    and got neither the picture nor a word about it. A model that will not take what it was sent refuses, and the remote message
+    and got neither the image nor a word about it. A model that will not take what it was sent refuses, and the remote message
     tells the user to adjust the existing reference control.
     """
     return preset.supports_references

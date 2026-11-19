@@ -1,4 +1,4 @@
-"""Assistant media: saved-reply illustration and speech, plus standalone pictures returned to the panel."""
+"""Assistant media: saved-reply illustration and speech, plus standalone images returned to the panel."""
 
 from __future__ import annotations
 
@@ -55,10 +55,9 @@ _MEDIA = (
         "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
         "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
         "With reference_image, the image model edits that chat image and direction says only what to change (any image of "
-        "the reply itself included, to fix one render). For a change too large for one edit, edit in steps: pass each "
-        "result's last ref as the next reference_image, checking the result before the next step. For a standalone "
-        "picture or avatar rather than a saved RP "
-        "reply, use create_image instead.",
+        "the reply itself included, to fix one render). For a change too large for one edit, edit in steps, checking each "
+        "version: pass the ref of the best version so far as the next reference_image. For a standalone image rather than "
+        "a saved RP reply, use create_image instead.",
         directed=True,
     ),
     _Medium(
@@ -129,8 +128,8 @@ def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHo
         tools.append(
             AssistantTool(
                 "view_image",
-                "Look at one chat image: the picture, what message it is on, its size and, for an Image Generation render, the "
-                "style and prompt it was made with. To carry a picture's content into a style that takes no reference, write "
+                "Look at one chat image: the image, what message it is on, its size and, for an Image Generation render, the "
+                "style and prompt it was made with. To carry an image's content into a style that takes no reference, write "
                 "what matters from it into direction or description.",
                 _ViewImageArgs,
                 "read",
@@ -141,10 +140,12 @@ def build_media_tools(view: ViewContext, run: MediaRun | None, host: AssistantHo
         tools.append(
             AssistantTool(
                 "create_image",
-                "Create a standalone picture from a description and show it in this panel; nothing is saved on a chat or a "
-                "card (illustrate_reply is the tool for a saved RP reply). For an avatar, read the card and describe its looks "
-                "here; the user downloads the picture and sets and crops the avatar themselves. To revise an earlier picture "
-                "or work from a chat image, pass its ref as reference_image with the changes.",
+                "Create a standalone image from a description and show it in this panel; nothing is saved on a chat or a "
+                "card (illustrate_reply is the tool for a saved RP reply). For an image of a character, read the card and describe "
+                "its looks here; the user downloads the image and sets and crops it on the card themselves. To revise an "
+                "earlier image or work from a chat image, pass its ref as reference_image with the changes. For a change "
+                "too large for one edit, edit in steps, checking each version: pass the ref of the best version so far as the "
+                "next reference_image.",
                 _CreateImageArgs,
                 "write",
                 partial(_create_image, run, host),
@@ -257,20 +258,20 @@ class _CreateImageArgs(ToolArguments):
     description: str = Field(
         min_length=1,
         max_length=8000,
-        description="A complete visual description of the picture.",
+        description="A complete visual description of the image.",
     )
     character_id: str = Field(
         default="",
         max_length=64,
-        description="Card whose saved appearance tags and reference picture apply. Empty: no character, even with one in view.",
+        description="Card whose saved appearance tags and reference image apply. Empty: no character, even with one in view.",
     )
     reference_image: str = Field(
         default="",
         max_length=TOKEN_CHARS,
-        description="A picture to work from: an earlier create_image result's ref (image:<image_id>), or a chat image's ref from "
-        "read_messages images (attachment:<id> or upload:<id>). Used in place of the character's reference picture; needs "
+        description="An image to work from: an earlier create_image result's ref (image:<image_id>), or a chat image's ref from "
+        "read_messages images (attachment:<id> or upload:<id>). Used in place of the character's reference image; needs "
         "a style list_image_styles marks takes_reference. The description then states the changes the user asked for, not "
-        "what the picture already shows.",
+        "what the image already shows.",
     )
     style_id: str = Field(default="", max_length=64, description=_STYLE_ID)
 
@@ -278,7 +279,7 @@ class _CreateImageArgs(ToolArguments):
 async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageArgs) -> ToolOutput:
     description = args.description.strip()
     if not description:
-        raise ToolFailure("Describe the picture to create.")
+        raise ToolFailure("Describe the image to create.")
     character_id = args.character_id or None
     off = _switched_off("image_gen", await get_settings(), host)
     if off:
@@ -290,7 +291,7 @@ async def _create_image(run: MediaRun, host: AssistantHost, args: _CreateImageAr
         created = await host.create_image(description, character_id, reference, style_id, run)
     except HostRefusal as exc:
         raise ToolFailure(str(exc)) from None
-    summary = "Created a standalone picture in the assistant panel."
+    summary = "Created a standalone image in the assistant panel."
     return ToolOutput(
         {"image_id": created.image_id, "ref": f"image:{created.image_id}"},
         summary,
@@ -307,7 +308,7 @@ async def _styles(host: AssistantHost) -> ImageStyles:
 
 
 async def _render_choice(host: AssistantHost, style_id: str, token: str, *, panel: bool) -> tuple[str, str]:
-    """The style id to send (empty for the default) and the reference picture's origin (empty for none), both checked.
+    """The style id to send (empty for the default) and the reference image's origin (empty for none), both checked.
 
     An unknown style fails naming the styles, and a reference fails when the style that will render takes none. Styles are read
     at call time: the user may change the default, or a style's backend, between calls.
@@ -329,11 +330,11 @@ async def _render_choice(host: AssistantHost, style_id: str, token: str, *, pane
         if takers:
             raise ToolFailure(
                 f"{which} has no image input for a reference_image; nothing was made. Styles that take one: {takers}. "
-                "Pass one as style_id, or leave reference_image empty and write what matters from the picture into the request."
+                "Pass one as style_id, or leave reference_image empty and write what matters from the image into the request."
             )
         raise ToolFailure(
             f"{which} has no image input for a reference_image, and no style has one; nothing was made. The user can choose "
-            "a backend with image inputs in the Image Generation settings. Meanwhile, view_image shows what the picture "
+            "a backend with image inputs in the Image Generation settings. Meanwhile, view_image shows what the image "
             "holds, to write into the request."
         )
     return style_id, reference.origin
@@ -343,8 +344,8 @@ async def _view_image(host: AssistantHost, args: _ViewImageArgs) -> ToolOutput:
     token = args.reference_image.strip()
     reference = await reference_of(token, panel=True)
     if reference.panel:
-        note = "A create_image picture came with its result; there is nothing more to view."
-        return ToolOutput({"ref": token, "note": note}, "A panel picture has nothing more to view.")
+        note = "An image from create_image came with its result; there is nothing more to view."
+        return ToolOutput({"ref": token, "note": note}, "A panel image has nothing more to view.")
     try:
         viewed = await host.view_image(reference.origin)
     except HostRefusal as exc:
@@ -352,7 +353,7 @@ async def _view_image(host: AssistantHost, args: _ViewImageArgs) -> ToolOutput:
     facts = {"ref": token, **viewed.facts}
     cid, mid = facts.get("conversation_id"), facts.get("message_id")
     ids = {"conversation_id": cid, "message_ids": [mid]} if isinstance(cid, str) and isinstance(mid, int) else {}
-    seen = "" if viewed.preview_url else ", without the picture"
+    seen = "" if viewed.preview_url else ", without the image"
     return ToolOutput(
         facts,
         f"Viewed {token}{seen}.",

@@ -302,7 +302,7 @@ def _outputs_an_image(entry: Mapping[str, Any]) -> bool:
     """OpenRouter: no `type` anywhere, but each entry declares its modalities.
 
     Read from `output_modalities`, never `modality` or `input_modalities` -- an image model's inputs say what it can be *shown*,
-    and every text model that can read a picture matches on those.
+    and every text model that can read an image matches on those.
     """
     architecture = entry.get("architecture")
     modalities = architecture.get("output_modalities") if isinstance(architecture, Mapping) else None

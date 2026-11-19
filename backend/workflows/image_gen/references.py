@@ -29,7 +29,7 @@ Fetched = tuple[bytes, str, str]
 SOURCE_LABELS = {"previous": "the previous image in the chat", "character": "the character reference image"}
 
 # How far back a `previous` slot looks, in messages on this branch. Unbounded, the first render in a conversation permanently
-# retires the character reference: `previous_or_character` would find *something* forever after, and a picture from two hundred
+# retires the character reference: `previous_or_character` would find *something* forever after, and an image from two hundred
 # messages ago would outrank a likeness the user set on purpose.
 _PREVIOUS_LOOKBACK_MESSAGES = 30
 
@@ -115,7 +115,7 @@ def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tup
 
 
 async def _subject_image(subject: Subject | None) -> tuple[bytes, str, str] | None:
-    """The subject's likeness: their per-character reference, falling back to the card avatar -- a genuine likeness, always
+    """The subject's likeness: their per-character reference, falling back to the card image -- a genuine likeness, always
     present, so this source works before anything is uploaded.
 
     The origin is keyed by card id, which is what lets a replay re-fetch it years later with no conversation in hand --
@@ -205,10 +205,10 @@ def unsupported_reference(mime: str) -> ImageGenerationError:
 
 
 def explicit_source(style_source: str, *, likeness: bool) -> str:
-    """The reference source of a render given one picture to work from, whatever the style's own setting.
+    """The reference source of a render given one image to work from, whatever the style's own setting.
 
-    The picture fills the `previous` role. A style that always draws a likeness keeps it when the render has a character to
-    draw it from; `plan_slots` gives the picture a slot first.
+    The image fills the `previous` role. A style that always draws a likeness keeps it when the render has a character to
+    draw it from; `plan_slots` gives the image a slot first.
     """
     keeps = likeness and style_source in ("character", "character_and_previous")
     return "character_and_previous" if keeps else "previous"
@@ -257,7 +257,7 @@ def _rendered_from(row: Mapping[str, Any]) -> str:
 
 
 async def explicit_reference(origin: str) -> tuple[Fetched, str]:
-    """The picture a render was explicitly given, by origin, and the prompt it was rendered from when that describes it (empty
+    """The image a render was explicitly given, by origin, and the prompt it was rendered from when that describes it (empty
     otherwise); raises naming why it cannot be used."""
     row, _ = await origin_row(origin)
     mime = str(row.get("mime_type") or "").lower()
@@ -285,7 +285,7 @@ def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetc
 def last_reply_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:
     """The generated image on the reply just before the anchor, or on the turns since.
 
-    Narrower than `previous_image` on purpose: this is what the prompter is shown, and a picture from several replies back shows
+    Narrower than `previous_image` on purpose: this is what the prompter is shown, and an image from several replies back shows
     a scene the story has left. The walk stops at the first earlier assistant message, image or not. Uploads never count, since
     the prompter already sees them in the conversation.
     """
@@ -306,7 +306,7 @@ def plan_slots(
 ) -> tuple[dict, ...]:
     """Plan the reference slots for a render.
 
-    *chosen* says `previous` is a picture picked for this render: it keeps a slot when likenesses would fill them all.
+    *chosen* says `previous` is an image picked for this render: it keeps a slot when likenesses would fill them all.
     """
     source = target.reference_source
     policy = REFERENCE_SOURCES.get(source)
@@ -357,8 +357,8 @@ def _derived_draw(
         return [tuple((kind, 0) for kind in policy.kinds)]
     picked = (("previous", 0),)
     if chosen and picked in planned:
-        # The render edits this picture, and an edit model edits its first image: the picture leads, likenesses follow, and
-        # a short array cuts a likeness rather than the picture.
+        # The render edits this image, and an edit model edits its first image: the image leads, likenesses follow, and
+        # a short array cuts a likeness rather than the image.
         return [picked, *(draw for draw in planned if draw != picked)][:capacity]
     return planned[:capacity]
 

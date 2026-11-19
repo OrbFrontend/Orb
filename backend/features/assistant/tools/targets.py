@@ -39,7 +39,7 @@ from .host import ChatGuards
 # How long an id argument to any assistant tool may be.
 ID_CHARS = 64
 _LABEL_CHARS = 120
-# The authored card text a reader may see and an edit may change. Prompt overrides, extensions, avatars and workflow state
+# The authored card text a reader may see and an edit may change. Prompt overrides, extensions, images and workflow state
 # stay out.
 CharacterField = Literal["description", "personality", "scenario", "first_mes", "mes_example", "creator_notes"]
 CHARACTER_FIELDS: tuple[CharacterField, ...] = get_args(CharacterField)
