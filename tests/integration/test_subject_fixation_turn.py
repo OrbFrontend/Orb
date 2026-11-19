@@ -39,7 +39,7 @@ async def judge_reads(client, monkeypatch) -> list[str]:
 
 
 def _enqueue_fix(llm_mock) -> None:
-    llm_mock.enqueue_post_processing(
+    llm_mock.enqueue_recast(
         [
             {
                 "id": "f1",
@@ -81,7 +81,7 @@ async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock, ju
 
     await _drain(handle_turn(cid, "hello"))
 
-    assert [name for name, _ in llm_mock.calls if name == "post_processing"] == ["post_processing"]
+    assert [name for name, _ in llm_mock.calls if name == "recast"] == ["recast"]
     saved = (await dbmod.get_active_path(cid))[-1]
     assert saved["content"] == '*She looks up.* "You came back."'
     [row] = (await dbmod.get_message_subjects([saved["id"]])).values()
@@ -122,7 +122,7 @@ async def test_a_group_steer_reads_the_speakers_replies_past_the_audit_window(cl
     _enqueue_fix(llm_mock)
     await client.post_checked(f"/api/conversations/{conv['id']}/messages/{parent}/super_regenerate", json={})
 
-    assert [name for name, _ in llm_mock.calls if name == "post_processing"] == ["post_processing"]
+    assert [name for name, _ in llm_mock.calls if name == "recast"] == ["recast"]
 
 
 @pytest.mark.parametrize("grouped", [False, True], ids=["solo", "group"])
@@ -173,6 +173,6 @@ async def test_steering_excludes_a_replaced_reply_that_duplicates_older_text(cli
     await client.post_checked(f"/api/conversations/{cid}/messages/{parent}/super_regenerate", json={})
 
     # Three earlier replies cannot meet the four-reply presence rule. The identical target is a sibling, not evidence.
-    assert not any(name == "post_processing" for name, _ in llm_mock.calls)
+    assert not any(name == "recast" for name, _ in llm_mock.calls)
     saved = (await dbmod.get_active_path(cid))[-1]
     assert saved["content"] == draft and saved["id"] != parent

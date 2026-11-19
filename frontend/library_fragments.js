@@ -159,7 +159,7 @@ async function toggleMoodFragmentEnabled(id, newEnabled) {
 }
 
 // Group interactive fragments by Judge, Director, and Editor stages.
-const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "post_processing"]);
+const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "recast"]);
 
 const INTERACTIVE_LANES = [
   { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
@@ -327,7 +327,7 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     injection_label: "e.g. Outcome",
     inj_hint: "for Director & Writer",
   },
-  post_processing: {
+  recast: {
     id: "e.g. tighten_dialogue",
     label: "e.g. Tighten Dialogue",
     injection_label: "e.g. Tighten Dialogue",
@@ -374,13 +374,13 @@ document.addEventListener("input", (e) => {
 });
 
 function _gateRowHtml(d) {
-  const hidden = (d.post_processing_gate || "").trim() ? "" : "display:none";
-  return `<div id="interactive-frag-gate-row" style="${d.field_type === "post_processing" ? "" : "display:none"}">
+  const hidden = (d.recast_gate || "").trim() ? "" : "display:none";
+  return `<div id="interactive-frag-gate-row" style="${d.field_type === "recast" ? "" : "display:none"}">
       <div class="field-row ifrag-gate-row">
         <div class="field"><label for="interactive-frag-gate">Run only when (asks the Judge)</label>
-          <textarea id="interactive-frag-gate" data-gate-question rows="2" maxlength="4000" placeholder="Is this reply stagnant?">${esc(d.post_processing_gate || "")}</textarea></div>
+          <textarea id="interactive-frag-gate" data-gate-question rows="2" maxlength="4000" placeholder="Is this reply stagnant?">${esc(d.recast_gate || "")}</textarea></div>
         <div class="field field-narrow" id="interactive-frag-gate-history" style="${hidden}"><label for="interactive-frag-gate-replies">History</label>
-          <input id="interactive-frag-gate-replies" type="number" min="0" max="10" step="1" value="${escAttr(d.post_processing_gate_replies || 0)}" title="Previous replies to send to the Judge"></div>
+          <input id="interactive-frag-gate-replies" type="number" min="0" max="10" step="1" value="${escAttr(d.recast_gate_replies || 0)}" title="Previous replies to send to the Judge"></div>
       </div>
       <div class="field-hint">Yes/no question for the Judge — empty = always run, even if the Judge is unavailable.<span id="interactive-frag-gate-history-hint" style="${hidden}"> History = how many previous replies to send to the Judge.</span></div>
       <div class="field-warning ifrag-gate-note" id="interactive-frag-gate-note" style="${_judgeKnownUnconfigured() ? "" : "display:none"}">
@@ -410,7 +410,7 @@ function updateInteractiveFragmentExample(fieldType) {
   const descRow = document.getElementById("interactive-frag-desc-row");
   if (descRow) descRow.style.display = isDecision ? "none" : "";
   const gateRow = document.getElementById("interactive-frag-gate-row");
-  if (gateRow) gateRow.style.display = fieldType === "post_processing" ? "" : "none";
+  if (gateRow) gateRow.style.display = fieldType === "recast" ? "" : "none";
   _repaintGateNote();
   _syncStateControls();
   const decisionSection = document.getElementById("decision-section");
@@ -445,7 +445,7 @@ const STATE_CHOICES = {
 /** Required applies where the Director fills the field: scene fields, and a value it sets before the Writer. */
 function _requiredApplies(fieldType, mode, update) {
   if (fieldType === "state") return (mode || STATE_DEFAULTS.mode) === "value" && update === "before_writer";
-  return fieldType !== "post_processing" && fieldType !== "decision";
+  return fieldType !== "recast" && fieldType !== "decision";
 }
 
 function _stateSelectValue(setting) {
@@ -527,7 +527,7 @@ function _interactiveFragFormHtml(d, isEdit) {
           <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
           <option value="state" ${d.field_type === "state" ? "selected" : ""}>state (kept across turns)</option>
           <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
-          <option value="post_processing" ${d.field_type === "post_processing" ? "selected" : ""}>post-processing (edits reply)</option>
+          <option value="recast" ${d.field_type === "recast" ? "selected" : ""}>recast (edits reply)</option>
           <option value="decision" ${d.field_type === "decision" ? "selected" : ""}>decision (asks a question)</option>
         </select>
       </div>
@@ -553,7 +553,7 @@ function _interactiveFragFormHtml(d, isEdit) {
 
 function _readInteractiveFragForm() {
   const fieldType = document.getElementById("interactive-frag-type").value;
-  const gate = fieldType === "post_processing" ? document.getElementById("interactive-frag-gate").value.trim() : "";
+  const gate = fieldType === "recast" ? document.getElementById("interactive-frag-gate").value.trim() : "";
   const base = {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
@@ -565,10 +565,8 @@ function _readInteractiveFragForm() {
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
     // Always sent, so a type change also clears a card fragment's stale gate.
-    post_processing_gate: gate,
-    post_processing_gate_replies: gate
-      ? parseInt(document.getElementById("interactive-frag-gate-replies").value, 10) || 0
-      : 0,
+    recast_gate: gate,
+    recast_gate_replies: gate ? parseInt(document.getElementById("interactive-frag-gate-replies").value, 10) || 0 : 0,
   };
   if (fieldType === "state") {
     base.state_mode = _stateSelectValue("mode");
@@ -670,8 +668,8 @@ function _interactiveTypeBadge(f) {
     ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
     : f.field_type === "state"
       ? ` <span class="frag-type-badge" title="State fragment: ${f.state_mode === "entries" ? "multiple entries" : "one value"}">S</span>`
-      : f.field_type === "post_processing"
-        ? ` <span class="frag-type-badge" title="Post-processing fragment">P</span>`
+      : f.field_type === "recast"
+        ? ` <span class="frag-type-badge" title="Recast fragment">R</span>`
         : f.field_type === "decision"
           ? ` <span class="frag-type-badge" title="Decision fragment">?</span>`
           : "";
@@ -688,7 +686,7 @@ function _stateUpdatesOffReason(f) {
 function _featureGate(f) {
   // Not disabled: the fragment is still injected and editable by hand.
   const stateUpdatesOff = _stateUpdatesOffReason(f);
-  const agentOff = (f.field_type === "post_processing" || f.field_type === "feedback") && !S.agentEnabled;
+  const agentOff = (f.field_type === "recast" || f.field_type === "feedback") && !S.agentEnabled;
   // Without a Judge, decisions remain enabled but are skipped at runtime.
   const judgeOff = f.field_type === "decision" && decisionConfig()?.configured === false;
   const title = stateUpdatesOff

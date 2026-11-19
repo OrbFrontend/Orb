@@ -41,7 +41,7 @@ def _find_replace(find: str, replace: str, *, call_id: str) -> list[dict]:
     ]
 
 
-async def _post_processing_fragment(client, fid: str, sort_order: int) -> None:
+async def _recast_fragment(client, fid: str, sort_order: int) -> None:
     await client.post_checked(
         "/api/interactive-fragments",
         json={
@@ -49,7 +49,7 @@ async def _post_processing_fragment(client, fid: str, sort_order: int) -> None:
             "label": fid,
             "injection_label": fid.replace("_", " ").title(),
             "description": "Tighten the prose.",
-            "field_type": "post_processing",
+            "field_type": "recast",
             "required": False,
             "enabled": True,
             "sort_order": sort_order,
@@ -103,13 +103,13 @@ async def test_an_editor_timeout_warns_and_the_turn_completes_with_the_finished_
     cid = "conv-retention-editor"
     await _directed_turn_setup(client, llm_mock, cid)
     await _enable_feedback(client)
-    await _post_processing_fragment(client, "first_fix", 1)
-    await _post_processing_fragment(client, "second_fix", 2)
-    await _post_processing_fragment(client, "third_fix", 3)
+    await _recast_fragment(client, "first_fix", 1)
+    await _recast_fragment(client, "second_fix", 2)
+    await _recast_fragment(client, "third_fix", 3)
     llm_mock.enqueue_writer(REPLY)
-    llm_mock.enqueue_post_processing(_find_replace("barely a whisper", "a low murmur", call_id="pp1"))
-    llm_mock.fail("post_processing", httpx.ReadTimeout("timed out"), after=1)
-    llm_mock.enqueue_post_processing(_find_replace("Her voice", "His voice", call_id="pp3"))
+    llm_mock.enqueue_recast(_find_replace("barely a whisper", "a low murmur", call_id="pp1"))
+    llm_mock.fail("recast", httpx.ReadTimeout("timed out"), after=1)
+    llm_mock.enqueue_recast(_find_replace("Her voice", "His voice", call_id="pp3"))
     llm_mock.enqueue_feedback(_feedback_call("Ask what she heard."))
 
     events = await _drain(handle_turn(cid, "hello"))
@@ -117,14 +117,14 @@ async def test_an_editor_timeout_warns_and_the_turn_completes_with_the_finished_
     assert not [event for event in events if event["event"] == "error"]
     assert events[-1]["event"] == "done"
     [warning] = _warnings(events)
-    assert warning["headline"] == "Post-processing “second_fix” didn't finish."
+    assert warning["headline"] == "Recast “second_fix” didn't finish."
     assert warning["stage"] == "editor pass"
     assert "timed out" in warning["sentence"]
     # The fragment after the failed one and the feedback step still ran.
-    assert [name for name, _ in llm_mock.calls if name in ("post_processing", "feedback")] == [
-        "post_processing",
-        "post_processing",
-        "post_processing",
+    assert [name for name, _ in llm_mock.calls if name in ("recast", "feedback")] == [
+        "recast",
+        "recast",
+        "recast",
         "feedback",
     ]
     edited = "His voice was a low murmur."

@@ -33,7 +33,7 @@ ID must match `[a-z0-9][a-z0-9_-]{0,63}`. A card cannot use an ID already used b
 one of your global fragments.
 
 Both editors accept up to 200 characters in labels and injection labels, 10,000
-in descriptions, and 50,000 in each mood prompt field. Post-processing gate
+in descriptions, and 50,000 in each mood prompt field. Recast gate
 questions accept up to 4,000 characters.
 
 ## Import and export
@@ -58,7 +58,7 @@ stopping the import.
 | Missing or unknown state setting | Uses the default: `value`, `after_reply`, `both` |
 
 Valid interactive field types are `string`, `array`, `state`, `feedback`,
-`post_processing`, and `decision`. A `state` fragment takes three more keys, the
+`recast`, and `decision`. A `state` fragment takes three more keys, the
 [state settings](state-fragments.md#settings):
 
 | Key | Values |
@@ -126,7 +126,7 @@ Card creators can add fragments under the card's `data.extensions` object:
               "id": "tighten_dialogue",
               "label": "Tighten Dialogue",
               "description": "Make spoken dialogue shorter and more natural. Preserve meaning and characterization; do not change narration.",
-              "field_type": "post_processing",
+              "field_type": "recast",
               "injection_label": "Tighten Dialogue",
               "required": false,
               "enabled": true
@@ -141,4 +141,4 @@ Card creators can add fragments under the card's `data.extensions` object:
 
 `mood` and `interactive` can be omitted or empty. Card fragments appear after
 global fragments in their respective stage. Writer fragment types become
-Director fields and Scene Guidance; post-processing types remain Editor-only.
+Director fields and Scene Guidance; feedback and recast types remain Editor-only.

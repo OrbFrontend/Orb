@@ -97,7 +97,7 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
 # Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card fragment ids become LLM tool-schema property names,
 # and some backends enforce a strict charset/length on those.
 _CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_INTERACTIVE_FIELD_TYPES = {"string", "array", STATE_FIELD_TYPE, "feedback", "post_processing", DECISION_FIELD_TYPE}
+_INTERACTIVE_FIELD_TYPES = {"string", "array", STATE_FIELD_TYPE, "feedback", "recast", DECISION_FIELD_TYPE}
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
@@ -193,10 +193,8 @@ def card_embedded_fragments(card: Mapping[str, Any] | None) -> tuple[list[MoodFr
                 "state_inject": _enum(entry, "state_inject", STATE_INJECTS, DEFAULT_STATE_INJECT) if is_state else None,
                 **{column: None for column in DECISION_COLUMNS},
                 # Unbounded here: the gate checks the Judge's byte limits when it runs.
-                "post_processing_gate": _text(entry, "post_processing_gate") if raw_type == "post_processing" else "",
-                "post_processing_gate_replies": (
-                    _int(entry, "post_processing_gate_replies", 0, 0, 10) if raw_type == "post_processing" else 0
-                ),
+                "recast_gate": _text(entry, "recast_gate") if raw_type == "recast" else "",
+                "recast_gate_replies": (_int(entry, "recast_gate_replies", 0, 0, 10) if raw_type == "recast" else 0),
             },
         )
         if raw_type == DECISION_FIELD_TYPE:
@@ -207,7 +205,7 @@ def card_embedded_fragments(card: Mapping[str, Any] | None) -> tuple[list[MoodFr
 
 
 def upgrade_card_fragment_types(extensions: Any) -> Any:
-    """Return card *extensions* with legacy state fragment types written explicitly.
+    """Return card *extensions* with legacy state and post-processing fragment types written as their current types.
 
     Card export writes the new type with its settings spelled out, so the file means the same thing to every reader; an older
     Orb reads the unknown type as a plain string field. Everything else is returned untouched.

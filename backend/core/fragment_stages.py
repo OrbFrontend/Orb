@@ -9,7 +9,7 @@ from .fragment_state import STATE_FIELD_TYPE
 
 FragmentStage = Literal["judge", "director", "state", "editor"]
 FRAGMENT_STAGES: tuple[FragmentStage, ...] = ("judge", "director", "state", "editor")
-_EDITOR_FIELD_TYPES = frozenset(("feedback", "post_processing"))
+_EDITOR_FIELD_TYPES = frozenset(("feedback", "recast"))
 
 
 def fragment_stage(field_type: str) -> FragmentStage:

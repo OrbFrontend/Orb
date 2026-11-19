@@ -39,6 +39,12 @@ USER_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
 LEGACY_PROGRESSIVE = "progressive"
 LEGACY_DIRECTION_NOTE = "direction_note"
 LEGACY_TIMING_TO_UPDATE: Mapping[str, str] = {"pre_writer": "before_writer", "post_turn": "after_reply"}
+# Recast fragments were called post-processing fragments; cards keep the old type and gate keys.
+LEGACY_POST_PROCESSING = "post_processing"
+LEGACY_RECAST_KEYS: Mapping[str, str] = {
+    "post_processing_gate": "recast_gate",
+    "post_processing_gate_replies": "recast_gate_replies",
+}
 
 
 def _choice(value: Any, allowed: Sequence[str], default: str) -> str:
@@ -60,8 +66,14 @@ def legacy_state_settings(field_type: str, direction_note_timing: Any = None) ->
 
 
 def upgrade_legacy_fragment(entry: Mapping[str, Any]) -> dict[str, Any]:
-    """Rewrite a legacy card fragment as a state fragment, returning a copy."""
+    """Rewrite a legacy card fragment as a state or recast fragment, returning a copy."""
     out = dict(entry)
+    if out.get("field_type") == LEGACY_POST_PROCESSING:
+        out["field_type"] = "recast"
+        for old, new in LEGACY_RECAST_KEYS.items():
+            if old in out:
+                out.setdefault(new, out.pop(old))
+        return out
     settings = legacy_state_settings(str(entry.get("field_type") or ""), entry.get("direction_note_timing"))
     if settings is None:
         return out

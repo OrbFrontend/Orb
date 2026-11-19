@@ -190,9 +190,9 @@ async def run_pipeline(
         cache_shape=prefix_cache_shape(context_mode, speaker),
     )
 
-    # Feedback and post-processing fragments are handled after the Writer, and
+    # Feedback and recast fragments are handled after the Writer, and
     # state fragments by their own routing; scene fragments shape the Writer prompt.
-    _, feedback_fragments, state_fragments, post_processing_fragments = split_interactive_fragments(interactive_fragments)
+    _, feedback_fragments, state_fragments, recast_fragments = split_interactive_fragments(interactive_fragments)
     # Captured once for the turn: tool construction, routing, validation and
     # commit all read this contract, never the live fragment settings.
     contract = state_contract or StateContract.capture(settings, state_fragments)
@@ -259,7 +259,7 @@ async def run_pipeline(
             settings=settings,
             phrase_bank=phrase_bank,
             feedback_fragments=feedback_fragments,
-            post_processing_fragments=post_processing_fragments,
+            recast_fragments=recast_fragments,
             editor_audit_history=editor_audit_history,
             kv_tracker=kv_tracker,
             judge_config=judge_config,

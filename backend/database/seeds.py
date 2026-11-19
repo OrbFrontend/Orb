@@ -265,7 +265,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "Preserve meaning, characterization, subtext, tone, plot facts, and dialogue markup. Change dialogue only; do not "
             "rewrite narration or add new events."
         ),
-        "field_type": "post_processing",
+        "field_type": "recast",
         "required": False,
         "injection_label": "Humanize Dialogue",
         "sort_order": 7,

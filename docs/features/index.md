@@ -40,7 +40,7 @@ out requests across the whole app.
 | [Anti-slop](anti-slop.md) | Rewrite phrases and patterns you do not want in replies. |
 | [Anti-repetition](anti-repetition.md) | Detect repeated structures, openers, and phrases. |
 | [Length Guard](length-guard.md) | Limit reply length or rewrite replies that exceed the limit. |
-| [Post-processing Fragments](post-processing-fragments.md) | Apply ordered, exact Editor changes to replies. |
+| [Recast Fragments](recast-fragments.md) | Apply ordered, exact Editor changes to replies. |
 | [Prose Rewriter](prose-rewriter.md) | Use a local model to revise the texture of each paragraph. |
 
 ## Writing tools

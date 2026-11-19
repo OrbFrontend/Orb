@@ -11,7 +11,7 @@ from ....core.settings import Settings
 from ...predicates import agent_enabled
 
 # Fragment types that are not the Director's per-turn scene values.
-NON_SCENE_FIELD_TYPES = ("feedback", STATE_FIELD_TYPE, "post_processing", DECISION_FIELD_TYPE)
+NON_SCENE_FIELD_TYPES = ("feedback", STATE_FIELD_TYPE, "recast", DECISION_FIELD_TYPE)
 
 
 @dataclass(frozen=True, slots=True)

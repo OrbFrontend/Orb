@@ -70,18 +70,18 @@ def _checked_state_write(payload: dict, existing: Mapping[str, Any] | None) -> d
 
 
 def _checked_gate_write(payload: dict, existing: Mapping[str, Any] | None) -> dict:
-    """Keep a Judge gate on post-processing fragments only.
+    """Keep a Judge gate on recast fragments only.
 
-    A type change away from post-processing clears it, and a partial write to another type discards an incoming one.
+    A type change away from recast clears it, and a partial write to another type discards an incoming one.
     """
     field_type = payload.get("field_type", (existing or {}).get("field_type"))
-    if field_type != "post_processing":
+    if field_type != "recast":
         if "field_type" in payload:
-            payload["post_processing_gate"] = ""
-            payload["post_processing_gate_replies"] = 0
+            payload["recast_gate"] = ""
+            payload["recast_gate_replies"] = 0
         else:
-            payload.pop("post_processing_gate", None)
-            payload.pop("post_processing_gate_replies", None)
+            payload.pop("recast_gate", None)
+            payload.pop("recast_gate_replies", None)
     return payload
 
 

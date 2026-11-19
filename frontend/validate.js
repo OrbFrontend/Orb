@@ -208,7 +208,7 @@ function validateMoodFragment(data) {
   return text.valid ? integerRange(data.cooldown_turns, 0, 50, "Cooldown") : text;
 }
 
-const FRAGMENT_FIELD_TYPES = ["string", "array", "state", "feedback", "post_processing", "decision"];
+const FRAGMENT_FIELD_TYPES = ["string", "array", "state", "feedback", "recast", "decision"];
 const STATE_SETTINGS = {
   state_mode: ["value", "entries"],
   state_update: ["after_reply", "before_writer", "manual"],
@@ -235,7 +235,7 @@ function validateInteractiveFragment(data) {
   }
 
   const cooldown = integerRange(data.cooldown_turns, 0, 50, "Cooldown");
-  return cooldown.valid ? integerRange(data.post_processing_gate_replies, 0, 10, "History") : cooldown;
+  return cooldown.valid ? integerRange(data.recast_gate_replies, 0, 10, "History") : cooldown;
 }
 
 const TEXT_SETTINGS = {

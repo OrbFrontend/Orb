@@ -235,10 +235,10 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     decision_resolution TEXT DEFAULT NULL,
     decision_threshold REAL DEFAULT NULL,
     decision_confidence_floor REAL DEFAULT NULL,
-    -- Post-processing only: the Judge question that must answer yes for the fragment to run; '' always runs.
-    post_processing_gate TEXT NOT NULL DEFAULT '',
-    -- Post-processing only: how many previous replies the gate shows the Judge before the draft.
-    post_processing_gate_replies INTEGER NOT NULL DEFAULT 0
+    -- Recast only: the Judge question that must answer yes for the fragment to run; '' always runs.
+    recast_gate TEXT NOT NULL DEFAULT '',
+    -- Recast only: how many previous replies the gate shows the Judge before the draft.
+    recast_gate_replies INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (

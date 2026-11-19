@@ -22,15 +22,15 @@ from ...subject_tags import TaggedReply, tag_text
 from ...timing import measure_step
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
-from .prompts import build_post_processing_prompt, build_subject_fixation_prompt
+from .prompts import build_recast_prompt, build_subject_fixation_prompt
 from .subject_repeats import repeat_scores
 
 logger = logging.getLogger(__name__)
 
 
-def post_processing_active(post_processing_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
+def recast_active(recast_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return whether fragment-defined Editor work should run this turn."""
-    return agent_on and bool(post_processing_fragments)
+    return agent_on and bool(recast_fragments)
 
 
 def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", narration_only: bool = False) -> str:
@@ -43,7 +43,7 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
     """
     if not isinstance(patches, list):
         if patches is not None:
-            logger.warning("Post-processing %r: patches is not a list, nothing applied: %r", label, patches)
+            logger.warning("Recast %r: patches is not a list, nothing applied: %r", label, patches)
         return draft
 
     current = draft
@@ -82,7 +82,7 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
                         if mask is not None:
                             mask[start:end] = [True] * len(replace)
         if reason:
-            logger.warning("Post-processing %r: patch %d skipped (%s): %r", label, index, reason, patch)
+            logger.warning("Recast %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
 
 
@@ -97,7 +97,7 @@ def _apply_find_replace_calls(
             if isinstance(entries, list):
                 patches.extend(entries)
             elif entries is not None:
-                logger.warning("Post-processing %r: patches is not a list, nothing applied: %r", label, entries)
+                logger.warning("Recast %r: patches is not a list, nothing applied: %r", label, entries)
     return apply_find_replace_patches(draft, patches, label=label, narration_only=narration_only)
 
 
@@ -134,19 +134,19 @@ async def _find_replace_call(
 
 
 @dataclass(slots=True)
-class PostProcessingResult:
+class RecastResult:
     """The evolving draft and normalized calls produced by all fragments."""
 
     draft: str
     tool_calls: list[ParsedToolCall] = field(default_factory=list)
 
 
-async def post_processing_step(
+async def recast_step(
     client: LLMClient,
     base: CachedBase,
     draft: str,
     settings: Settings,
-    post_processing_fragments: Sequence[Mapping[str, Any]],
+    recast_fragments: Sequence[Mapping[str, Any]],
     *,
     writer_user_msg: str | list[ContentPart],
     effective_msg: str,
@@ -168,7 +168,7 @@ async def post_processing_step(
     """
     current = draft
     all_calls: list[ParsedToolCall] = []
-    fragments = sorted(post_processing_fragments, key=lambda item: item.get("sort_order", 0))
+    fragments = sorted(recast_fragments, key=lambda item: item.get("sort_order", 0))
     judge_allowance = GATE_BUDGET_SECONDS
 
     for fragment in fragments:
@@ -203,7 +203,7 @@ async def post_processing_step(
                     break
                 if not record["arguments"]["fired"]:
                     timing["status"] = "skipped"
-                    logger.info("Post-processing fragment %r skipped by its gate", fragment.get("id", ""))
+                    logger.info("Recast fragment %r skipped by its gate", fragment.get("id", ""))
                     continue
 
             resp: CompletionMessage = {}
@@ -213,7 +213,7 @@ async def post_processing_step(
                     base,
                     resp,
                     current,
-                    build_post_processing_prompt(fragment, draft=current, reasoning_on=reasoning_on),
+                    build_recast_prompt(fragment, draft=current, reasoning_on=reasoning_on),
                     settings,
                     writer_user_msg=writer_user_msg,
                     kv_tracker=kv_tracker,
@@ -223,9 +223,9 @@ async def post_processing_step(
                     yield event
             except Exception as exc:
                 timing["status"] = "failed"
-                logger.exception("Post-processing fragment %r failed; skipping it", fragment.get("id", ""))
+                logger.exception("Recast fragment %r failed; skipping it", fragment.get("id", ""))
                 label = fragment.get("label") or fragment.get("id", "")
-                yield {"type": "failure", "during": "post_processing", "label": label, "error": exc}
+                yield {"type": "failure", "during": "recast", "label": label, "error": exc}
                 continue
             # A stop cuts the call short; its edits may be half-written, so the
             # draft keeps the earlier fragments' finished edits only.
@@ -240,13 +240,13 @@ async def post_processing_step(
                 yield {"type": "draft_update", "draft": current}
 
             logger.info(
-                "Post-processing fragment %r completed (changed=%s): %s",
+                "Recast fragment %r completed (changed=%s): %s",
                 fragment.get("id", ""),
                 current != before,
                 json.dumps(resp, default=str),
             )
 
-    yield {"type": "done", "result": PostProcessingResult(draft=current, tool_calls=all_calls)}
+    yield {"type": "done", "result": RecastResult(draft=current, tool_calls=all_calls)}
 
 
 async def subject_fixation_step(
@@ -298,4 +298,4 @@ async def subject_fixation_step(
     if edited != draft:
         yield {"type": "draft_update", "draft": edited}
     logger.info("Subject fixation on %s: changed=%s", [streak.category for streak in streaks], edited != draft)
-    yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=calls)}
+    yield {"type": "done", "result": RecastResult(draft=edited, tool_calls=calls)}

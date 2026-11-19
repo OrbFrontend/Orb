@@ -298,11 +298,16 @@ export function moodFragmentsView() {
 }
 
 /**
- * A card fragment with a legacy state type, rewritten as an explicit state
+ * A card fragment with a legacy type, rewritten as an explicit state or recast
  * fragment -- the same mapping the backend applies at its card read boundary.
- * Shared card files keep ``progressive`` and ``direction_note`` indefinitely.
+ * Shared card files keep ``progressive``, ``direction_note`` and
+ * ``post_processing`` indefinitely.
  */
 export function upgradeLegacyFragment(f) {
+  if (f?.field_type === "post_processing") {
+    const { post_processing_gate: gate, post_processing_gate_replies: replies, ...rest } = f;
+    return { recast_gate: gate, recast_gate_replies: replies, ...rest, field_type: "recast" };
+  }
   if (f?.field_type === "progressive") {
     return { ...f, field_type: "state", state_mode: "value", state_update: "before_writer", state_inject: "both" };
   }

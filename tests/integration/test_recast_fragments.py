@@ -1,4 +1,4 @@
-"""Conversation-turn coverage for post-processing interactive fragments."""
+"""Conversation-turn coverage for recast interactive fragments."""
 
 import asyncio
 import importlib
@@ -37,17 +37,17 @@ async def _create_fragment(client, fid: str, instruction: str, sort_order: int, 
             "label": fid,
             "injection_label": fid.replace("_", " ").title(),
             "description": instruction,
-            "field_type": "post_processing",
+            "field_type": "recast",
             "required": False,
             "enabled": True,
             "sort_order": sort_order,
-            "post_processing_gate": gate,
+            "recast_gate": gate,
         },
     )
 
 
 async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(client, llm_mock):
-    cid = "conv-post-processing"
+    cid = "conv-recast"
     await dbmod.create_conversation(cid, "post", "Bot", "a scenario")
     await client.put(
         "/api/settings",
@@ -65,10 +65,10 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
         yield  # pragma: no cover
 
     llm_mock.enqueue_writer("Hello there.")
-    llm_mock.enqueue_post_processing(_call("Hello", "Hey", call_id="p1"))
-    llm_mock.enqueue_post_processing(_call("Hey there.", "Hey, friend.", call_id="p2"))
-    llm_mock.enqueue_reasoning("post_processing", "first edit reasoning")
-    llm_mock.enqueue_reasoning("post_processing", "second edit reasoning")
+    llm_mock.enqueue_recast(_call("Hello", "Hey", call_id="p1"))
+    llm_mock.enqueue_recast(_call("Hey there.", "Hey, friend.", call_id="p2"))
+    llm_mock.enqueue_reasoning("recast", "first edit reasoning")
+    llm_mock.enqueue_reasoning("recast", "second edit reasoning")
     llm_mock.enqueue_feedback(
         [
             {
@@ -82,12 +82,12 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     with register_for_test(make_workflow("post_observer", post_pipeline=post_hook)):
         events = await _drain(handle_turn(cid, "hello"))
 
-    assert [name for name, _ in llm_mock.calls if name in ("post_processing", "feedback")] == [
-        "post_processing",
-        "post_processing",
+    assert [name for name, _ in llm_mock.calls if name in ("recast", "feedback")] == [
+        "recast",
+        "recast",
         "feedback",
     ]
-    post_calls = [call for call in llm_mock.captured if call["pass"] == "post_processing"]
+    post_calls = [call for call in llm_mock.captured if call["pass"] == "recast"]
     writer_call = next(call for call in llm_mock.captured if call["pass"] == "writer")
     tool_names = [tool["function"]["name"] for tool in writer_call["tools"]]
     assert "editor_find_replace" in tool_names
@@ -106,7 +106,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     assert writer_done["data"]["editor_will_run"] is True
     assert [event["data"]["step"] for event in events if event.get("event") == "step_start"] == [
         "writer",
-        "post_processing",
+        "recast",
         "feedback",
     ]
     assert [event["data"]["draft"] for event in events if event.get("event") == "draft_update"] == [
@@ -144,25 +144,25 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     ]
 
 
-async def test_post_processing_is_skipped_when_agent_is_off(client, llm_mock):
-    cid = "conv-post-processing-off"
+async def test_recast_is_skipped_when_agent_is_off(client, llm_mock):
+    cid = "conv-recast-off"
     await dbmod.create_conversation(cid, "post off", "Bot", "a scenario")
     await client.put("/api/settings", json={"enable_agent": False})
     await _create_fragment(client, "would_edit", "Edit it.", 8)
     llm_mock.enqueue_writer("Original.")
-    llm_mock.enqueue_post_processing(_call("Original", "Changed", call_id="unused"))
+    llm_mock.enqueue_recast(_call("Original", "Changed", call_id="unused"))
 
     events = await _drain(handle_turn(cid, "hello"))
 
-    assert not any(name == "post_processing" for name, _ in llm_mock.calls)
+    assert not any(name == "recast" for name, _ in llm_mock.calls)
     [writer_done] = [event for event in events if event.get("event") == "writer_done"]
     assert writer_done["data"]["editor_will_run"] is False
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "Original."
 
 
-async def test_post_processing_receives_output_auditors_edited_draft(client, llm_mock):
-    cid = "conv-post-processing-audited"
+async def test_recast_receives_output_auditors_edited_draft(client, llm_mock):
+    cid = "conv-recast-audited"
     await dbmod.create_conversation(cid, "post audited", "Bot", "a scenario")
     await client.put(
         "/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True, "editor_apply_patch": True}}
@@ -188,25 +188,25 @@ async def test_post_processing_receives_output_auditors_edited_draft(client, llm
             ],
         }
     )
-    llm_mock.enqueue_post_processing(_call("She whispered.", "She spoke softly.", call_id="post1"))
+    llm_mock.enqueue_recast(_call("She whispered.", "She spoke softly.", call_id="post1"))
 
     events = await _drain(handle_turn(cid, "hello"))
 
     calls = [name for name, _ in llm_mock.calls]
-    assert calls.index("editor") < calls.index("post_processing")
+    assert calls.index("editor") < calls.index("recast")
     assert [event["data"]["step"] for event in events if event.get("event") == "step_start"] == [
         "writer",
         "output_auditor",
-        "post_processing",
+        "recast",
     ]
-    post_call = next(call for call in llm_mock.captured if call["pass"] == "post_processing")
+    post_call = next(call for call in llm_mock.captured if call["pass"] == "recast")
     assert post_call["messages"][-2]["content"] == "She whispered. He whispered back."
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "She spoke softly. He whispered back."
 
 
 async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, llm_mock):
-    cid = "conv-post-processing-abort"
+    cid = "conv-recast-abort"
     await dbmod.create_conversation(cid, "post abort", "Bot", "a scenario")
     await client.put("/api/settings", json={"enable_agent": True})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
@@ -221,9 +221,9 @@ async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, ll
         yield  # pragma: no cover
 
     llm_mock.enqueue_writer("Original.")
-    llm_mock.enqueue_post_processing(_call("Original", "Changed", call_id="unused1"))
-    llm_mock.enqueue_post_processing(_call("Changed", "Changed again", call_id="unused2"))
-    gate = llm_mock.gate("post_processing")
+    llm_mock.enqueue_recast(_call("Original", "Changed", call_id="unused1"))
+    llm_mock.enqueue_recast(_call("Changed", "Changed again", call_id="unused2"))
+    gate = llm_mock.gate("recast")
 
     with register_for_test(make_workflow("abort_observer", post_pipeline=post_hook)):
         task = asyncio.create_task(_drain(handle_turn(cid, "hello")))
@@ -232,7 +232,7 @@ async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, ll
         gate.release.set()
         events = await task
 
-    assert [name for name, _ in llm_mock.calls].count("post_processing") == 1
+    assert [name for name, _ in llm_mock.calls].count("recast") == 1
     assert not any(name == "feedback" for name, _ in llm_mock.calls)
     assert workflow_ran == []
     assert not [event for event in events if event.get("event") == "writer_rewrite"]
@@ -292,11 +292,11 @@ async def _director_log(client, cid: str, message_id: int) -> dict:
 
 
 def _gate_records(calls: list[dict]) -> list[dict]:
-    return [call["arguments"] for call in calls if call["name"] == "post_processing_gate"]
+    return [call["arguments"] for call in calls if call["name"] == "recast_gate"]
 
 
 async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows_still_run(client, llm_mock, monkeypatch):
-    cid = "conv-post-processing-gated"
+    cid = "conv-recast-gated"
     await dbmod.create_conversation(cid, "gated", "Bot", "a scenario")
     await client.put("/api/settings", json={"enable_agent": True})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
@@ -313,7 +313,7 @@ async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows
         yield  # pragma: no cover
 
     llm_mock.enqueue_writer("Mara sat down.")
-    llm_mock.enqueue_post_processing(_call("Mara", "Unused", call_id="unused"))
+    llm_mock.enqueue_recast(_call("Mara", "Unused", call_id="unused"))
     llm_mock.enqueue_feedback(
         [
             {
@@ -328,7 +328,7 @@ async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows
         events = await _drain(handle_turn(cid, "Where is Mara?"))
 
     assert judge.states == ["Current request:\nWhere is Mara?\n\nReply:\nMara sat down."] * 2
-    assert not any(name == "post_processing" for name, _ in llm_mock.calls)
+    assert not any(name == "recast" for name, _ in llm_mock.calls)
     feedback_call = next(call for call in llm_mock.captured if call["pass"] == "feedback")
     writer_call = next(call for call in llm_mock.captured if call["pass"] == "writer")
     assert feedback_call["messages"][-2]["content"] == "Mara sat down."
@@ -338,7 +338,7 @@ async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows
     assert seen_by_workflow == ["Mara sat down."]
     assert [event["data"]["step"] for event in events if event.get("event") == "step_start"] == [
         "writer",
-        "post_processing",
+        "recast",
         "feedback",
     ]
     assert not [event for event in events if event.get("event") in ("draft_update", "writer_rewrite")]
@@ -371,25 +371,25 @@ async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows
 
 
 async def test_a_gate_answering_yes_runs_its_fragment(client, llm_mock, monkeypatch):
-    cid = "conv-post-processing-gate-yes"
+    cid = "conv-recast-gate-yes"
     await dbmod.create_conversation(cid, "gate yes", "Bot", "a scenario")
     await client.put("/api/settings", json={"enable_agent": True})
     await _configure_judge(client)
     await _create_fragment(client, "trim", "Trim.", 8, gate="Do more than two actions happen?")
     _Judge(monkeypatch, 0.9)
     llm_mock.enqueue_writer("Mara sat, stood, and ran.")
-    llm_mock.enqueue_post_processing(_call("sat, stood, and ran", "ran", call_id="p1"))
+    llm_mock.enqueue_recast(_call("sat, stood, and ran", "ran", call_id="p1"))
 
     events = await _drain(handle_turn(cid, "go"))
 
     [editor_done] = [event for event in events if event.get("event") == "editor_done"]
-    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["post_processing_gate", "editor_find_replace"]
+    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["recast_gate", "editor_find_replace"]
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "Mara ran."
 
 
 async def test_agent_off_turns_ask_no_gates(client, llm_mock, monkeypatch):
-    cid = "conv-post-processing-gate-off"
+    cid = "conv-recast-gate-off"
     await dbmod.create_conversation(cid, "gate off", "Bot", "a scenario")
     await client.put("/api/settings", json={"enable_agent": False})
     await _configure_judge(client)
@@ -400,7 +400,7 @@ async def test_agent_off_turns_ask_no_gates(client, llm_mock, monkeypatch):
     await _drain(handle_turn(cid, "hello"))
 
     assert judge.states == []
-    assert not any(name == "post_processing" for name, _ in llm_mock.calls)
+    assert not any(name == "recast" for name, _ in llm_mock.calls)
 
 
 def _sse_events(body: str) -> list[tuple[str, object]]:
@@ -444,10 +444,10 @@ async def test_each_group_reply_is_gated_on_its_own_draft(client, llm_mock, monk
 
     response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
 
-    assert not any(name == "post_processing" for name, _ in llm_mock.calls)
+    assert not any(name == "recast" for name, _ in llm_mock.calls)
     assert [state.rsplit("Reply:\n", 1)[1] for state in judge.states] == ["I found tracks.", "The ward is broken."]
     done = [data for name, data in _sse_events(response.text) if name == "editor_done"]
-    assert [[call["name"] for call in data["tool_calls"]] for data in done] == [["post_processing_gate"]] * 2  # type: ignore[index]
+    assert [[call["name"] for call in data["tool_calls"]] for data in done] == [["recast_gate"]] * 2  # type: ignore[index]
     replies = [message for message in await dbmod.get_messages(conv["id"]) if message["role"] == "assistant"]
     assert [reply["content"] for reply in replies] == ["I found tracks.", "The ward is broken."]
     speaker_snapshots = []

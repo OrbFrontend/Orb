@@ -82,7 +82,7 @@ pass being skipped.
 | `user_message_created` | `{id, content}` | Replaces the optimistic user row with its saved id and text. `/send` only. |
 | `director_start` | — | Starts the directing phase. |
 | `decisions` | `{evaluations, skipped, cooldowns, inherited?}` | Publishes the resolved decision fragments, once per turn and once per group exchange, before the directing phase. Sent only when the turn had a decision to run or to report. `inherited: 1` marks a later speaker's regeneration that reused its exchange's committed result without asking. |
-| `step_start` | `{step}` | Names the step that is starting: `judge`, `lorebook`, `state`, `writer`, `output_auditor`, `length_guard`, `subject_fixation`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
+| `step_start` | `{step}` | Names the step that is starting: `judge`, `lorebook`, `state`, `writer`, `output_auditor`, `length_guard`, `subject_fixation`, `recast`, `feedback`, `world_changes`, or `sheet_updates`. |
 | `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
 | `director_done` | Director data | Updates the inspector. |
 | `latency` | `{agent_latency_ms, latency_breakdown}` | Replaces the Inspector timing snapshot after completed stages. Each row has `phase`, `label`, `elapsed_ms`, `status`, and an optional `fragment_id`. |
@@ -174,7 +174,7 @@ failure, which is reported as `error` even when the turn was stopped.
 "Authoritative" advances only with finished work:
 
 - the Editor's result grows with each completed patch batch, whole rewrite, or
-  post-processing edit, never with a call that Stop cut short;
+  recast edit, never with a call that Stop cut short;
 - a workflow's result grows with each whole replacement draft, complete
   artifact, or message state that it hands over. Its
   [`draft_update` previews](secondary-workflow.md#a-workflow-inside-a-turn)

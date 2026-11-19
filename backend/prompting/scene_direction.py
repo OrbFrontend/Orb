@@ -73,7 +73,7 @@ def build_style_injection(
             parts.append(negative)
 
     for fragment in sorted(interactive_fragments or [], key=lambda item: item.get("sort_order", 0)):
-        if fragment.get("field_type") in ("post_processing", "state"):
+        if fragment.get("field_type") in ("recast", "state"):
             continue
         value = (extra_fields or {}).get(fragment["id"])
         if not value:

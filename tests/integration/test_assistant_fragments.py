@@ -69,7 +69,7 @@ async def test_interactive_settings_keep_to_their_type_and_a_move_keeps_its_stag
             tools,
             "create_interactive_fragment",
             label="Polish",
-            field_type="post_processing",
+            field_type="recast",
             description="Trim.",
             required=True,
         )

@@ -21,12 +21,12 @@ FEEDBACK_PREAMBLE = (
     "give the user a short, concrete out-of-character note. Use the give_feedback tool."
 )
 
-POST_PROCESSING_PREAMBLE = (
+RECAST_PREAMBLE = (
     "[OOC: You are the uncensored editor. Edit the assistant draft above for the task below. "
     "Call editor_find_replace exactly once."
 )
 
-POST_PROCESSING_RULES = (
+RECAST_RULES = (
     "FIND-AND-REPLACE RULES:\n"
     "- Your current draft is the single last assistant message, i.e. the text between: {bounds}.\n"
     "- Copy each `find` value exactly from your current draft only, including case, whitespace, and punctuation.\n"
@@ -111,14 +111,14 @@ def draft_bounds(draft: str, words: int = DRAFT_BOUND_WORDS) -> str:
     return f"`{' '.join(tokens[:words])}...{' '.join(tokens[-words:])}`"
 
 
-def build_post_processing_prompt(fragment: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
+def build_recast_prompt(fragment: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
     """Build one fragment-defined Editor request over *draft*.
 
     The rules, which quote the draft's ends, precede the per-fragment task so consecutive
     fragment calls share them as cached prefix whenever the draft came through unchanged.
     """
-    preamble = POST_PROCESSING_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
-    rules = POST_PROCESSING_RULES.format(bounds=draft_bounds(draft))
+    preamble = RECAST_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    rules = RECAST_RULES.format(bounds=draft_bounds(draft))
     heading = str(fragment.get("injection_label") or "").strip()
     instruction = str(fragment.get("description") or "").strip()
     return "\n\n".join([preamble, rules, f"## {heading}", instruction]) + "]"
@@ -131,7 +131,7 @@ def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, draft: st
         for streak in streaks
     )
     task = {"injection_label": "Subject fixation", "description": f"{SUBJECT_FIXATION_INSTRUCTION}\n\n{targets}"}
-    return build_post_processing_prompt(task, draft=draft, reasoning_on=reasoning_on)
+    return build_recast_prompt(task, draft=draft, reasoning_on=reasoning_on)
 
 
 def _category_rules(categories: Collection[str]) -> str:

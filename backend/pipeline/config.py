@@ -118,14 +118,14 @@ def split_interactive_fragments(
 ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]]]:
     """Split fragments by pipeline stage; decisions run before the Director.
 
-    Returns ``(scene, feedback, state, post_processing)``. Scene fragments are the Director's per-turn values. State fragments
+    Returns ``(scene, feedback, state, recast)``. Scene fragments are the Director's per-turn values. State fragments
     are routed by their own settings (see :class:`StateContract`).
     """
     scene = [df for df in fragments if df.get("field_type") not in NON_SCENE_FIELD_TYPES]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
     state = [df for df in fragments if df.get("field_type") == STATE_FIELD_TYPE]
-    post_processing = [df for df in fragments if df.get("field_type") == "post_processing"]
-    return scene, feedback, state, post_processing
+    recast = [df for df in fragments if df.get("field_type") == "recast"]
+    return scene, feedback, state, recast
 
 
 def _without_required(schema: dict) -> dict:

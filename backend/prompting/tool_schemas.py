@@ -46,7 +46,7 @@ def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) 
     required: list[str] = []
 
     for df in interactive_fragments:
-        if df.get("field_type") in ("post_processing", "decision"):
+        if df.get("field_type") in ("recast", "decision"):
             continue
         fid = df["id"]
         field_type = df["field_type"]

@@ -1,20 +1,20 @@
-# Post-processing Fragments
+# Recast Fragments
 
-A post-processing fragment is an Editor instruction that edits every generated
+A recast fragment is an Editor instruction that edits every generated
 chat reply. It is useful for narrowly scoped touch-up passes and enforcing
 the Director's will if the Writer missed something.
 
-Create or edit an Interactive Fragment and choose **post-processing (edits
+Create or edit an Interactive Fragment and choose **recast (edits
 reply)** as its Field Type. The **Injection Label** becomes the Editor task
 heading, and **Description** is the instruction the Editor follows.
 
-The feature is active whenever the Agent and at least one post-processing
+The feature is active whenever the Agent and at least one recast
 fragment are enabled. It does not depend on the Output Auditor or Length Guard.
 Card-embedded fragments use the same fields and behavior.
 
 ## Pipeline placement
 
-For each conversation reply, Orb runs post-processing:
+For each conversation reply, Orb runs recast fragments:
 
 1. after the Writer, any Output Auditor or Length Guard edits, and the subject
    fixation edit;
@@ -22,7 +22,7 @@ For each conversation reply, Orb runs post-processing:
 3. before Feedback and all secondary workflows.
 
 Each fragment receives the Writer request and the current evolving draft. Its
-edits therefore compose with earlier fragments. The post-processed text is the
+edits therefore compose with earlier fragments. The recast text is the
 retained `writer_draft`; a selected secondary workflow can still change the
 visible reply afterward.
 
@@ -91,7 +91,7 @@ Start at 1 and go higher if the gate misses things that happened further back.
 Earlier user messages are not included.
 
 The draft is the evolving one: after Output Auditor, Length Guard, and subject
-fixation edits and after every earlier post-processing fragment. Each gate is
+fixation edits and after every earlier recast fragment. Each gate is
 judged on its own draft, one at a time. In a group chat, every generated reply
 has its own gates.
 
@@ -118,7 +118,7 @@ The authoring form caps a question at 4,000 characters. Card-embedded questions
 skip that cap, so the byte limits above are checked when the gate runs; an
 oversized question is never truncated.
 
-**Budget.** All gates in one post-processing step share six seconds of Judge
+**Budget.** All gates in one recast step share six seconds of Judge
 waiting. Editor calls do not count against it. Once the budget is spent, the
 remaining gated fragments run without asking.
 
@@ -127,7 +127,7 @@ the Stop are kept, and no later fragment, Feedback, or workflow starts.
 
 ### In the Inspector
 
-Each gate adds a `post_processing_gate` entry under **Tool Calls**, before its
+Each gate adds a `recast_gate` entry under **Tool Calls**, before its
 fragment's `editor_find_replace` call when that runs:
 
 ```json

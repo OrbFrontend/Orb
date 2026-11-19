@@ -58,6 +58,24 @@ async def test_card_fragments_merge_into_pipeline_context(client, db):
     assert [fragment.id for fragment in ctx.state_contract.director_values()] == ["card_trust"]
 
 
+async def test_card_post_processing_fragment_reads_as_recast(client, db):
+    # Shared cards keep the old post-processing type and gate keys.
+    legacy = {
+        "id": "card_humanize",
+        "label": "Humanize",
+        "description": "d",
+        "field_type": "post_processing",
+        "post_processing_gate": "Is it stiff?",
+        "post_processing_gate_replies": 2,
+    }
+    _, cid = await _make_card_conv(client, {"orb": {"fragments": {"interactive": [legacy]}}})
+
+    ctx = await load_pipeline_context(cid)
+    assert ctx is not None
+    fragment = {f["id"]: f for f in ctx.interactive_fragments}["card_humanize"]
+    assert (fragment["field_type"], fragment["recast_gate"], fragment["recast_gate_replies"]) == ("recast", "Is it stiff?", 2)
+
+
 async def test_card_row_shadowing_a_disabled_global_keeps_the_blob_slot(client, db):
     # The enabled list is the blob's order filtered, so a card row standing in
     # for a disabled global is listed where the shared schemas offer it.
