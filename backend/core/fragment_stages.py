@@ -9,7 +9,9 @@ from .fragment_state import STATE_FIELD_TYPE
 
 FragmentStage = Literal["judge", "director", "state", "editor"]
 FRAGMENT_STAGES: tuple[FragmentStage, ...] = ("judge", "director", "state", "editor")
-_EDITOR_FIELD_TYPES = frozenset(("feedback", "post_processing"))
+# The Editor applies these to the reply in one ordered, gated step: recast patches it, rewrite replaces it whole.
+REPLY_EDIT_FIELD_TYPES = frozenset(("recast", "rewrite"))
+_EDITOR_FIELD_TYPES = frozenset(("feedback", *REPLY_EDIT_FIELD_TYPES))
 
 
 def fragment_stage(field_type: str) -> FragmentStage:

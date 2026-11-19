@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
-from ..core import STATE_FIELD_TYPE, ChatMessage, Macros
+from ..core import REPLY_EDIT_FIELD_TYPES, STATE_FIELD_TYPE, ChatMessage, Macros
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import CachedBase, LLMClient, lane_template_thinking
@@ -118,14 +118,15 @@ def split_interactive_fragments(
 ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]]]:
     """Split fragments by pipeline stage; decisions run before the Director.
 
-    Returns ``(scene, feedback, state, post_processing)``. Scene fragments are the Director's per-turn values. State fragments
-    are routed by their own settings (see :class:`StateContract`).
+    Returns ``(scene, feedback, state, reply_edits)``. Scene fragments are the Director's per-turn values. State fragments
+    are routed by their own settings (see :class:`StateContract`). Reply edits are the recast and rewrite fragments
+    together, because they run as one ordered step.
     """
     scene = [df for df in fragments if df.get("field_type") not in NON_SCENE_FIELD_TYPES]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
     state = [df for df in fragments if df.get("field_type") == STATE_FIELD_TYPE]
-    post_processing = [df for df in fragments if df.get("field_type") == "post_processing"]
-    return scene, feedback, state, post_processing
+    reply_edits = [df for df in fragments if df.get("field_type") in REPLY_EDIT_FIELD_TYPES]
+    return scene, feedback, state, reply_edits
 
 
 def _without_required(schema: dict) -> dict:

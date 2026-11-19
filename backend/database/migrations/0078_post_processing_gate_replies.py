@@ -10,7 +10,7 @@ import sqlite3
 
 def migrate(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(interactive_fragments)").fetchall()}
-    if not columns or "post_processing_gate_replies" in columns:
+    if not columns or columns & {"post_processing_gate_replies", "gate_replies"}:  # renamed by 0095
         return
     conn.execute("ALTER TABLE interactive_fragments ADD COLUMN post_processing_gate_replies INTEGER NOT NULL DEFAULT 0")
     conn.commit()

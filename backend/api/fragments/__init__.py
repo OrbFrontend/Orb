@@ -12,6 +12,7 @@ from ...core import (
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
+    REPLY_EDIT_FIELD_TYPES,
     STATE_COLUMNS,
     STATE_FIELD_TYPE,
 )
@@ -70,18 +71,18 @@ def _checked_state_write(payload: dict, existing: Mapping[str, Any] | None) -> d
 
 
 def _checked_gate_write(payload: dict, existing: Mapping[str, Any] | None) -> dict:
-    """Keep a Judge gate on post-processing fragments only.
+    """Keep a Judge gate on recast and rewrite fragments only.
 
-    A type change away from post-processing clears it, and a partial write to another type discards an incoming one.
+    A type change away from them clears it, and a partial write to another type discards an incoming one.
     """
     field_type = payload.get("field_type", (existing or {}).get("field_type"))
-    if field_type != "post_processing":
+    if field_type not in REPLY_EDIT_FIELD_TYPES:
         if "field_type" in payload:
-            payload["post_processing_gate"] = ""
-            payload["post_processing_gate_replies"] = 0
+            payload["gate_question"] = ""
+            payload["gate_replies"] = 0
         else:
-            payload.pop("post_processing_gate", None)
-            payload.pop("post_processing_gate_replies", None)
+            payload.pop("gate_question", None)
+            payload.pop("gate_replies", None)
     return payload
 
 

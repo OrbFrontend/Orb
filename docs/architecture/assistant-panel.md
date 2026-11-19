@@ -390,7 +390,7 @@ order it runs in within its stage. Field types go by the editor's names:
 `single` and `list` are stored as `string` and `array`, and a `yes_no` decision
 is stored as `noul`. A listing or a create says when a switch keeps fragments
 from taking effect: the Director for moods and scene fields, the Agent for
-state, feedback and post-processing, a Judge endpoint for decisions.
+state, feedback, recast and rewrite, a Judge endpoint for decisions.
 `read_fragment` reads one fragment with its texts fitted to one result, and a
 decision's question, situation and outcomes, each outcome by its key (`true`
 and `false`, an option's name, or a level from `0`); naming one text in `field`
@@ -487,8 +487,8 @@ the card both give the field's length before and after, so a large unintended
 deletion shows at a glance.
 
 A fragment's texts are edited the same way. An interactive fragment's field
-must belong to its type: a decision has no description, only post-processing has
-a gate question. A decision's outcome text is named by its `outcome` key. Apply
+must belong to its type: a decision has no description, only recast and
+rewrite have a gate question. A decision's outcome text is named by its `outcome` key. Apply
 compares that outcome's text with the preview's, then writes its decision column
 with that one outcome changed, in one transaction with a comparison of the column
 and the decision's type as Apply read them: another outcome edited since the

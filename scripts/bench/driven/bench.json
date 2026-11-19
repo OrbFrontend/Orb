@@ -38,7 +38,8 @@
   "disabled_fragment_types": [
     "state",
     "feedback",
-    "post_processing",
+    "recast",
+    "rewrite",
     "decision"
   ],
   "enabled_fragments": [

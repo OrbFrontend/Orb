@@ -21,18 +21,31 @@ FEEDBACK_PREAMBLE = (
     "give the user a short, concrete out-of-character note. Use the give_feedback tool."
 )
 
-POST_PROCESSING_PREAMBLE = (
+RECAST_PREAMBLE = (
     "[OOC: You are the uncensored editor. Edit the assistant draft above for the task below. "
     "Call editor_find_replace exactly once."
 )
 
-POST_PROCESSING_RULES = (
+RECAST_RULES = (
     "FIND-AND-REPLACE RULES:\n"
     "- Your current draft is the single last assistant message, i.e. the text between: {bounds}.\n"
     "- Copy each `find` value exactly from your current draft only, including case, whitespace, and punctuation.\n"
     "- Keep each find as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
     "- Leave `replace` empty when the text in `find` should be deleted.\n"
+)
+
+REWRITE_PREAMBLE = (
+    "[OOC: You are the uncensored editor. Rewrite the assistant draft above for the task below. "
+    "Call editor_rewrite exactly once."
+)
+
+REWRITE_RULES = (
+    "REWRITE RULES:\n"
+    "- Your current draft is the single last assistant message, i.e. the text between: {bounds}.\n"
+    "- Put the complete new reply in `rewritten_text`, from its first word to its last; it replaces the whole draft.\n"
+    "- Keep the story beats, dialogue and formatting the task does not ask you to change.\n"
+    "- Write only the reply itself, with no notes or commentary about the rewrite.\n"
 )
 
 DRAFT_BOUND_WORDS = 5
@@ -66,13 +79,19 @@ PATCH_CATEGORY_RULES: dict[str, str] = {
 # Categories whose rule also applies when a length or structural check chooses a full rewrite.
 REWRITE_RULE_CATEGORIES = frozenset({"negated_narration"})
 
+# {task} and {flow} depend on whether the Length Guard asked for the rewrite; a structural rewrite alone has no limits.
 EDITOR_REWRITE_INSTRUCTIONS = (
-    "Use `editor_rewrite` to produce a rewrite within the specified limits.\n\n"
+    "Use `editor_rewrite` to {task}.\n\n"
     "REWRITING RULES:\n"
     "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied.\n"
     "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
-    "- Be more concise but maintain coherence and narrative flow."
+    "- {flow}"
 )
+_REWRITE_LIMITED = {
+    "task": "produce a rewrite within the specified limits",
+    "flow": "Be more concise but maintain coherence and narrative flow.",
+}
+_REWRITE_UNLIMITED = {"task": "rewrite the whole draft", "flow": "Maintain coherence and narrative flow."}
 
 EDITOR_BOTH_INSTRUCTIONS = "Call `editor_rewrite` to address both concerns in a single rewrite. Address all audit issues while also respecting length constraints."
 
@@ -111,17 +130,26 @@ def draft_bounds(draft: str, words: int = DRAFT_BOUND_WORDS) -> str:
     return f"`{' '.join(tokens[:words])}...{' '.join(tokens[-words:])}`"
 
 
-def build_post_processing_prompt(fragment: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
-    """Build one fragment-defined Editor request over *draft*.
+def _fragment_prompt(preamble: str, rules: str, task: Mapping[str, Any], *, draft: str, reasoning_on: bool) -> str:
+    """One fragment-defined Editor request over *draft*.
 
     The rules, which quote the draft's ends, precede the per-fragment task so consecutive
-    fragment calls share them as cached prefix whenever the draft came through unchanged.
+    fragment calls of one kind share them as cached prefix whenever the draft came through unchanged.
     """
-    preamble = POST_PROCESSING_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
-    rules = POST_PROCESSING_RULES.format(bounds=draft_bounds(draft))
-    heading = str(fragment.get("injection_label") or "").strip()
-    instruction = str(fragment.get("description") or "").strip()
-    return "\n\n".join([preamble, rules, f"## {heading}", instruction]) + "]"
+    preamble += REASONING_GUIDANCE if reasoning_on else ""
+    heading = str(task.get("injection_label") or "").strip()
+    instruction = str(task.get("description") or "").strip()
+    return "\n\n".join([preamble, rules.format(bounds=draft_bounds(draft)), f"## {heading}", instruction]) + "]"
+
+
+def build_recast_prompt(task: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
+    """Build an exact-patch request over *draft* for a recast fragment or another find/replace task."""
+    return _fragment_prompt(RECAST_PREAMBLE, RECAST_RULES, task, draft=draft, reasoning_on=reasoning_on)
+
+
+def build_rewrite_prompt(task: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
+    """Build a whole-draft rewrite request over *draft* for a rewrite fragment."""
+    return _fragment_prompt(REWRITE_PREAMBLE, REWRITE_RULES, task, draft=draft, reasoning_on=reasoning_on)
 
 
 def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, draft: str, reasoning_on: bool = False) -> str:
@@ -131,7 +159,7 @@ def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, draft: st
         for streak in streaks
     )
     task = {"injection_label": "Subject fixation", "description": f"{SUBJECT_FIXATION_INSTRUCTION}\n\n{targets}"}
-    return build_post_processing_prompt(task, draft=draft, reasoning_on=reasoning_on)
+    return build_recast_prompt(task, draft=draft, reasoning_on=reasoning_on)
 
 
 def _category_rules(categories: Collection[str]) -> str:
@@ -179,7 +207,7 @@ def build_editor_prompt(
         parts.append(patch_instructions(patch_categories))
         parts.append(report_text)
     elif length_guard_triggered or structural_rewrite:
-        parts.append(EDITOR_REWRITE_INSTRUCTIONS)
+        parts.append(EDITOR_REWRITE_INSTRUCTIONS.format(**(_REWRITE_LIMITED if length_guard_triggered else _REWRITE_UNLIMITED)))
         if has_audit_issues:
             parts.append(report_text)
             if rules := _category_rules(REWRITE_RULE_CATEGORIES.intersection(patch_categories)):

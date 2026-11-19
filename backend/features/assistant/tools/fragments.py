@@ -17,6 +17,7 @@ from ....core import (
     FRAGMENT_STAGES,
     MAX_SCORE_LEVELS,
     MIN_SCORE_LEVELS,
+    REPLY_EDIT_FIELD_TYPES,
     RESERVED_FRAGMENT_IDS,
     STATE_FIELD_TYPE,
     FragmentStage,
@@ -48,7 +49,8 @@ FIELD_TYPE_NAMES = {
     "array": "list",
     "feedback": "feedback",
     "state": "state",
-    "post_processing": "post_processing",
+    "recast": "recast",
+    "rewrite": "rewrite",
     "decision": "decision",
 }
 _STORED_TYPES = {name: stored for stored, name in FIELD_TYPE_NAMES.items()}
@@ -60,7 +62,7 @@ INTERACTIVE_TEXT_COLUMNS = {
     "label": "label",
     "description": "description",
     "injection_label": "injection_label",
-    "gate_question": "post_processing_gate",
+    "gate_question": "gate_question",
     "question": "decision_instructions",
     "situation": "decision_state_template",
 }
@@ -84,7 +86,7 @@ REQUIRED_TEXT = frozenset(("label", "prompt_text", "injection_label", "question"
 # Which field types each interactive text field belongs to; the rest belong to every type.
 _FIELD_TYPES_OF = {
     "description": frozenset(set(FIELD_TYPE_NAMES) - {DECISION_FIELD_TYPE}),
-    "gate_question": frozenset({"post_processing"}),
+    "gate_question": REPLY_EDIT_FIELD_TYPES,
     "question": frozenset({DECISION_FIELD_TYPE}),
     "situation": frozenset({DECISION_FIELD_TYPE}),
     "outcome_meaning": frozenset({DECISION_FIELD_TYPE}),
@@ -103,7 +105,8 @@ _Outcome = Annotated[str, StringConstraints(max_length=TEXT_CAPS["outcome_meanin
 _OptionName = Annotated[str, StringConstraints(min_length=1, max_length=_OPTION_CHARS)]
 _TYPE_HELP = (
     "single: one value the Director writes each turn. list: several values. feedback: a note to the user after the reply. "
-    "state: facts kept across turns. post_processing: an edit the Editor makes to each reply."
+    "state: facts kept across turns. recast: an edit the Editor makes to each reply. rewrite: the Editor rewrites each "
+    "whole reply."
 )
 _RESOLUTION_HELP = (
     "yes_no: threshold or roll (by its odds). choice: argmax (most likely), weighted (drawn by the odds) or gated (first "
@@ -119,7 +122,7 @@ def required_applies(field_type: str, state_mode: str | None, state_update: str 
     """Whether Required means anything: a field the Director fills, or a single state value it sets before the Writer."""
     if field_type == STATE_FIELD_TYPE:
         return (state_mode or DEFAULT_STATE_MODE) == "value" and state_update == "before_writer"
-    return field_type not in ("post_processing", DECISION_FIELD_TYPE)
+    return field_type not in REPLY_EDIT_FIELD_TYPES and field_type != DECISION_FIELD_TYPE
 
 
 def fragment_text(row: Mapping[str, Any], field: str, outcome: str = "") -> str | None:
@@ -227,9 +230,9 @@ def interactive_projection(
         data["required"] = bool(row["required"])
     if field_type == STATE_FIELD_TYPE:
         data["state"] = {"mode": row["state_mode"], "update": row["state_update"], "inject": row["state_inject"]}
-    if field_type == "post_processing":
-        data["gate_question"] = clip(row["post_processing_gate"], cap)
-        data["gate_replies"] = row["post_processing_gate_replies"]
+    if field_type in REPLY_EDIT_FIELD_TYPES:
+        data["gate_question"] = clip(row["gate_question"], cap)
+        data["gate_replies"] = row["gate_replies"]
     if field_type == DECISION_FIELD_TYPE:
         data["decision"] = decision_projection(row, cap, rules, listing=listing)
     else:
@@ -263,7 +266,7 @@ async def effect_note(field_type: str, settings: Settings, host: AssistantHost) 
     elif field_type in ("mood", "string", "array"):
         needs, switch = "The Director chooses moods and fills scene fields", "director"
     else:
-        needs, switch = "The Agent runs state updates, feedback and post-processing", "agent"
+        needs, switch = "The Agent runs state updates, feedback, recasts and rewrites", "agent"
     if not switch or switches[switch] is True:
         return ""
     return f"{needs}, and it is off now, so this has no effect yet. Tell the user; turn it on only if they ask."
@@ -308,7 +311,7 @@ class _MoodCreate(ToolArguments):
 
 class _InteractiveCreate(ToolArguments):
     label: str = _text(_LABEL_CHARS, "Its name.", required=True)
-    field_type: Literal["single", "list", "feedback", "state", "post_processing"]
+    field_type: Literal["single", "list", "feedback", "state", "recast", "rewrite"]
     description: str = _text(
         _ARG_TEXT_CHARS,
         "What to write, note or record, or the edit to make; examples help.",
@@ -325,7 +328,7 @@ class _InteractiveCreate(ToolArguments):
     state_inject: Literal["", "off", "director", "writer", "both"] = Field(
         default="", description="state: which passes get it. Empty: both."
     )
-    gate_question: str = _text(4000, "post_processing: a yes/no question for the Judge; the edit runs only on yes.")
+    gate_question: str = _text(4000, "recast, rewrite: a yes/no question for the Judge; the edit runs only on yes.")
     gate_replies: int = Field(default=0, ge=0, le=10, description="With a gate: earlier replies the Judge sees.")
     cooldown_turns: int = _cooldown()
     enabled: bool = Field(default=True, description="false creates it switched off.")
@@ -384,7 +387,7 @@ class _InteractiveSet(ToolArguments):
     enabled: Switch = Field(default="unchanged", description=f"Whether it runs: {_SWITCH}")
     required: Switch = Field(default="unchanged", description=f"Whether the Director must give a value every turn: {_SWITCH}")
     cooldown_turns: int = _cooldown(unchanged=True)
-    field_type: Literal["unchanged", "single", "list", "feedback", "state", "post_processing"] = Field(
+    field_type: Literal["unchanged", "single", "list", "feedback", "state", "recast", "rewrite"] = Field(
         default="unchanged", description="A new type, as create_interactive_fragment names them; a decision keeps its type."
     )
     state_mode: Literal["unchanged", "value", "entries"] = Field(default="unchanged", description="state only.")
@@ -519,8 +522,8 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
                 "Nothing was created."
             )
         gate = args.gate_question.strip()
-        if (gate or args.gate_replies) and field_type != "post_processing":
-            raise ToolFailure("gate_question and gate_replies are for a post_processing fragment only. Nothing was created.")
+        if (gate or args.gate_replies) and field_type not in REPLY_EDIT_FIELD_TYPES:
+            raise ToolFailure("gate_question and gate_replies are for a recast or rewrite fragment only. Nothing was created.")
         if args.gate_replies and not gate:
             raise ToolFailure("gate_replies needs a gate_question. Nothing was created.")
         payload: dict[str, Any] = {
@@ -531,8 +534,8 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             "enabled": args.enabled,
             "injection_label": args.injection_label.strip() or args.label.strip(),
             "cooldown_turns": args.cooldown_turns,
-            "post_processing_gate": gate,
-            "post_processing_gate_replies": args.gate_replies,
+            "gate_question": gate,
+            "gate_replies": args.gate_replies,
             **{key: value or None for key, value in state.items()},
         }
         return await create_interactive(payload, args.label)
@@ -638,12 +641,12 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             raise ToolFailure("state_mode, state_update and state_inject are for a state fragment only. Nothing was changed.")
         wanted.update(state)
         if args.gate_replies >= 0:
-            if field_type != "post_processing" or not (row["post_processing_gate"] or "").strip():
+            if field_type not in REPLY_EDIT_FIELD_TYPES or not (row["gate_question"] or "").strip():
                 raise ToolFailure(
-                    "gate_replies is for a post_processing fragment with a gate question; edit_interactive_fragment adds "
+                    "gate_replies is for a recast or rewrite fragment with a gate question; edit_interactive_fragment adds "
                     "one. Nothing was changed."
                 )
-            wanted["post_processing_gate_replies"] = args.gate_replies
+            wanted["gate_replies"] = args.gate_replies
         mode = state.get("state_mode", row["state_mode"] if row["field_type"] == STATE_FIELD_TYPE else None)
         update = state.get("state_update", row["state_update"] if row["field_type"] == STATE_FIELD_TYPE else None)
         applies = required_applies(field_type, mode, update)
@@ -749,7 +752,7 @@ def _said(changes: Mapping[str, Any]) -> str:
     """The changes a setter made, as a summary names them."""
     names = {"decision_resolution": "resolution", "decision_inject": "inject", "decision_threshold": "threshold"}
     names["decision_confidence_floor"] = "min confidence"
-    names["post_processing_gate_replies"] = "gate replies"
+    names["gate_replies"] = "gate replies"
 
     def value(key: str, item: Any) -> str:
         if isinstance(item, bool):

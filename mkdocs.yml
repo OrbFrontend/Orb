@@ -105,7 +105,8 @@ nav:
           - Anti-slop: features/anti-slop.md
           - Anti-repetition: features/anti-repetition.md
           - Length Guard: features/length-guard.md
-          - Post-processing Fragments: features/post-processing-fragments.md
+          - Recast Fragments: features/recast-fragments.md
+          - Rewrite Fragments: features/rewrite-fragments.md
           - Prose Rewriter: features/prose-rewriter.md
       - Writing tools:
           - Macros: features/macros.md

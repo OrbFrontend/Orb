@@ -33,5 +33,5 @@
     "max_tokens": 4096,
     "extra_body": "{\"cache_prompt\":true,\"timings\":true}"
   },
-  "disabled_fragment_types": ["state", "feedback", "post_processing", "decision"]
+  "disabled_fragment_types": ["state", "feedback", "recast", "rewrite", "decision"]
 }

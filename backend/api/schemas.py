@@ -298,27 +298,27 @@ class InteractiveFragmentCreate(_DecisionFields, _StateFields):
     id: str
     label: str
     description: str
-    field_type: Literal["string", "array", "state", "feedback", "post_processing", "decision"] = "string"
+    field_type: Literal["string", "array", "state", "feedback", "recast", "rewrite", "decision"] = "string"
     required: bool = False
     enabled: bool = True
     injection_label: str
     sort_order: int | None = None
     cooldown_turns: int = Field(0, ge=0, le=50)
-    post_processing_gate: str = Field("", max_length=4000)
-    post_processing_gate_replies: int = Field(0, ge=0, le=10)
+    gate_question: str = Field("", max_length=4000)
+    gate_replies: int = Field(0, ge=0, le=10)
 
 
 class InteractiveFragmentUpdate(_DecisionFields, _StateFields):
     label: str | None = None
     description: str | None = None
-    field_type: Literal["string", "array", "state", "feedback", "post_processing", "decision"] | None = None
+    field_type: Literal["string", "array", "state", "feedback", "recast", "rewrite", "decision"] | None = None
     required: bool | None = None
     enabled: bool | None = None
     injection_label: str | None = None
     sort_order: int | None = None
     cooldown_turns: int | None = Field(None, ge=0, le=50)
-    post_processing_gate: str | None = Field(None, max_length=4000)
-    post_processing_gate_replies: int | None = Field(None, ge=0, le=10)
+    gate_question: str | None = Field(None, max_length=4000)
+    gate_replies: int | None = Field(None, ge=0, le=10)
 
 
 class InteractiveFragmentReorder(BaseModel):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, MutableMapping, Sequence
 from typing import Any
 
-from ..core import resolve_stored_random
+from ..core import REPLY_EDIT_FIELD_TYPES, STATE_FIELD_TYPE, resolve_stored_random
 
 
 def resolve_mood_fragment_randoms(
@@ -73,7 +73,7 @@ def build_style_injection(
             parts.append(negative)
 
     for fragment in sorted(interactive_fragments or [], key=lambda item: item.get("sort_order", 0)):
-        if fragment.get("field_type") in ("post_processing", "state"):
+        if fragment.get("field_type") in REPLY_EDIT_FIELD_TYPES or fragment.get("field_type") == STATE_FIELD_TYPE:
             continue
         value = (extra_fields or {}).get(fragment["id"])
         if not value:

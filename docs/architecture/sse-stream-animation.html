@@ -399,7 +399,7 @@ const STEPS = [
     dots: ["done", "active", ""], bubble: null,
     feline: `status → <b>Writing the reply…</b>`,
     beNote: `Each core step announces itself as it starts: lorebook, state, writer, and every Editor sub-step.`,
-    narr: `<span class="mw">step_start</span> carries only a step id. The FE looks up its status text — <span class="k">Writing the reply…</span>, <span class="k">Auditing the draft…</span>, <span class="k">Applying post-processing…</span>, <span class="k">Preparing feedback…</span>, … — and shows it until the next step starts. Steps that don't run this turn never announce, so the bar only ever describes real work.`,
+    narr: `<span class="mw">step_start</span> carries only a step id. The FE looks up its status text — <span class="k">Writing the reply…</span>, <span class="k">Auditing the draft…</span>, <span class="k">Recasting the reply…</span>, <span class="k">Preparing feedback…</span>, … — and shows it until the next step starts. Steps that don't run this turn never announce, so the bar only ever describes real work.`,
   }),
 
   // 7 ── first token
@@ -435,7 +435,7 @@ const STEPS = [
     dots: ["done", "done", "active"], bubble: `Eli leans in, voice dropping to a near-whisper. "You shouldn't have come back."`,
     feline: `prose finished; the next <b>step_start</b> names the Editor work`,
     beNote: `Authoritative end-of-writer marker. <code>editor_will_run</code> tells the FE whether a refining pass follows.`,
-    narr: `<span class="mw">writer_done</span> is the backend telling the FE, authoritatively, that prose is finished and whether an editor pass follows. When it does, each Editor sub-step then sends its own <span class="mw">step_start</span> — <code>output_auditor</code>, <code>post_processing</code>, <code>feedback</code> — so the status bar describes the check that is actually running.`,
+    narr: `<span class="mw">writer_done</span> is the backend telling the FE, authoritatively, that prose is finished and whether an editor pass follows. When it does, each Editor sub-step then sends its own <span class="mw">step_start</span> — <code>output_auditor</code>, <code>recast</code>, <code>feedback</code> — so the status bar describes the check that is actually running.`,
   }),
 
   // 10 ── writer_rewrite (optional)

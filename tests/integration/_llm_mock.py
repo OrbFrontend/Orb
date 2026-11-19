@@ -16,14 +16,14 @@ from backend.inference import AbortToken, LLMClient
 _PASS_BY_FUNCTION = {
     "editor_apply_patch": "editor",
     "editor_rewrite": "editor",
-    "editor_find_replace": "post_processing",
+    "editor_find_replace": "recast",
     "direct_scene": "director",
     "give_feedback": "feedback",
     "update_state": "state",
     "propose_world_changes": "world_change",
     "assign_character_tags": "auto_tag",
 }
-_PASSES = ("director", "writer", "editor", "post_processing", "feedback", "state", "world_change", "auto_tag", "workflow")
+_PASSES = ("director", "writer", "editor", "recast", "feedback", "state", "world_change", "auto_tag", "workflow")
 
 
 def _validate_tool_calls(tool_calls: Any) -> None:
@@ -151,10 +151,10 @@ class FakeLLMClient:
         _validate_tool_calls(tool_calls)
         self._queues["feedback"].append({"tool_calls": tool_calls})
 
-    def enqueue_post_processing(self, tool_calls: list[dict]) -> None:
+    def enqueue_recast(self, tool_calls: list[dict]) -> None:
         """Queue one fragment's forced ``editor_find_replace`` response."""
         _validate_tool_calls(tool_calls)
-        self._queues["post_processing"].append({"tool_calls": tool_calls})
+        self._queues["recast"].append({"tool_calls": tool_calls})
 
     def enqueue_state(self, tool_calls: list[dict]) -> None:
         """Queue a state-update response (the ``update_state`` forced call)."""
@@ -293,7 +293,7 @@ class FakeLLMClient:
             yield {"type": "done", "message": payload.get("message", {})}
             return
 
-        if pass_name in ("feedback", "post_processing"):
+        if pass_name in ("feedback", "recast"):
             payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
             yield {"type": "done", "message": {"role": "assistant", "content": "", "tool_calls": payload.get("tool_calls", [])}}
             return

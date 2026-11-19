@@ -23,7 +23,7 @@ We essentially break the RP task into smaller, more focused tasks before the fin
 3. **Customizability**: Customizable prompt injection that's automatically used by Director model
 4. **Anti-slop**: Get rid of overused words, phrases, and patterns often seen in LLM outputs
 5. **Anti-repetition**: Detect various types of repetition from outputs and surgically fix them
-6. **Post-processing/Recast**: User-defined modifications after the Writer draft has been written
+6. **Recast & Rewrite**: User-defined modifications or full rewrites after the Writer draft has been written
 7. **Length Guard**: Actively or passively protect from length degradation as context grows
 8. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take (mileage varies)
 9. **Magic Rewrite**: Rewrite the target message in a user-defined direction

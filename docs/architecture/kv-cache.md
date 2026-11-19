@@ -31,7 +31,7 @@ messages.
 |---|---|---|
 | Director | OOC instruction and the current user message | A forced `direct_scene` tool call |
 | Writer | Selected lore, scene direction, and the user message | Streaming prose |
-| Editor | The Writer request, the evolving draft, and an edit instruction | Audit fixes, the subject fixation edit, post-processing patches, or feedback |
+| Editor | The Writer request, the evolving draft, and an edit instruction | Audit fixes, the subject fixation edit, recast patches, rewrite-fragment rewrites, or feedback |
 
 The Editor extends the Writer request instead of rebuilding a new conversation.
 Its first call can therefore reuse the Writer's history and draft; later ReAct
@@ -280,7 +280,7 @@ For a user message such as `I draw my sword`:
 2. Ask the Director for scene direction.
 3. Ask the Writer for prose, adding direction and selected lore to the tail.
 4. If needed, extend that request with the draft and let the Editor apply audit
-   fixes, then the subject fixation edit, then each post-processing fragment
+   fixes, then the subject fixation edit, then each recast or rewrite fragment
    in order.
 5. Run Feedback and secondary workflows against the resulting draft.
 

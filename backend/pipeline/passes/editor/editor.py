@@ -21,7 +21,7 @@ from ...subject_tags import TaggedReply, branch_tags, subjects_enabled
 from ...timing import latency_event, timed_events
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
-from .post_processing import PostProcessingResult, post_processing_active, post_processing_step, subject_fixation_step
+from .reply_edits import ReplyEditResult, reply_edit_step, reply_edits_active, subject_fixation_step
 
 if TYPE_CHECKING:
     from ....database.models import PhraseGroup
@@ -36,6 +36,7 @@ from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
 from .length_guard import LengthGuard, evaluate_length_guard
 from .prompts import EDITOR_RENUMBER_NOTICE, build_editor_prompt, editor_patches, patch_instructions
+from .rewrite import rewritten_text
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ AUDIT_BASELINE_WINDOW = 20
 def feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return True when the feedback step should run this turn.
 
-    Requires the agent on and at least one enabled feedback fragment, like ``post_processing_active``. *agent_on* is passed in
+    Requires the agent on and at least one enabled feedback fragment, like ``reply_edits_active``. *agent_on* is passed in
     (rather than recomputed) so ``agent_enabled`` stays the single source of truth.
     """
     return agent_on and bool(feedback_fragments)
@@ -74,7 +75,7 @@ def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
 
 def _baseline_window(base: CachedBase, audit_context_msgs: list[str] | None) -> list[str]:
     """The recent assistant-message window (newest first, up to AUDIT_BASELINE_WINDOW) the repetition scanners compare the draft
-    against and post-processing gates draw their previous replies from.
+    against and reply-edit gates draw their previous replies from.
 
     Callers may pass an explicit list via *audit_context_msgs* (e.g. super-regenerate, which excludes the message being
     replaced); when None the window is derived from the cached prefix.
@@ -155,12 +156,12 @@ async def editor_pass(
     audit_context_msgs: list[str] | None = None,
     writer_user_msg: str | list[ContentPart] | None = None,
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
-    post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
+    reply_edit_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
     subject_history: Sequence[TaggedReply] | None = None,
     timing_entries: list[GenerationTimingRow] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Run the audit/edit loop, the subject fixation edit, post-processing fragments, and feedback.
+    """Run the audit/edit loop, the subject fixation edit, recast and rewrite fragments, and feedback.
 
     *subject_history* (newest first) turns the subject fixation edit on; None leaves it off.
 
@@ -209,7 +210,7 @@ async def editor_pass(
         else:
             yield ev
 
-    # A None draft means "unchanged"; an empty string remains a meaningful post-processing result.
+    # A None draft means "unchanged"; an empty string remains a meaningful edit result.
     final_text = draft if done["draft"] is None else done["draft"]
 
     if subject_history is not None and final_text and not client.is_aborted:
@@ -237,22 +238,22 @@ async def editor_pass(
             )
         ):
             if ev["type"] == "done":
-                fixed: PostProcessingResult = ev["result"]
+                fixed: ReplyEditResult = ev["result"]
                 final_text = fixed.draft
                 if fixed.tool_calls:
                     done["tool_calls"] = [*(done.get("tool_calls") or []), *fixed.tool_calls]
             else:
                 yield ev
 
-    if post_processing_fragments and not client.is_aborted:
-        yield {"type": "step", "step": "post_processing"}
+    # Recast and rewrite fragments run as one ordered step, which names each kind as it starts.
+    if reply_edit_fragments and not client.is_aborted:
         async for ev in _editor_events(
-            post_processing_step(
+            reply_edit_step(
                 client,
                 base,
                 final_text,
                 settings,
-                post_processing_fragments,
+                reply_edit_fragments,
                 writer_user_msg=writer_msg,
                 effective_msg=effective_msg,
                 judge_config=judge_config,
@@ -264,10 +265,10 @@ async def editor_pass(
             )
         ):
             if ev["type"] == "done":
-                post: PostProcessingResult = ev["result"]
-                final_text = post.draft
-                if post.tool_calls:
-                    done["tool_calls"] = [*(done.get("tool_calls") or []), *post.tool_calls]
+                edits: ReplyEditResult = ev["result"]
+                final_text = edits.draft
+                if edits.tool_calls:
+                    done["tool_calls"] = [*(done.get("tool_calls") or []), *edits.tool_calls]
             else:
                 yield ev
 
@@ -338,7 +339,7 @@ async def editor_stage(
     settings: Settings,
     phrase_bank: list[PhraseGroup] | None,
     feedback_fragments: Sequence[Mapping[str, Any]],
-    post_processing_fragments: Sequence[Mapping[str, Any]] = (),
+    reply_edit_fragments: Sequence[Mapping[str, Any]] = (),
     editor_audit_history: Sequence[Mapping[str, Any]] | None,
     kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
@@ -351,24 +352,24 @@ async def editor_stage(
     boundary, then runs :func:`editor_pass` and folds the results back into *state* (``resp_text``, ``reasoning_editor``,
     ``feedback_values``, ``latency``).
     """
-    # The feedback step is an editor sub-step (post-processing on the final text), not a top-level pass: it shares the editor's
+    # The feedback step is an editor sub-step (it runs on the final text), not a top-level pass: it shares the editor's
     # reasoning channel and timing and surfaces only its user-facing note. It is gated on the Agent AND at least one enabled
     # feedback-type fragment, so the extra LLM call is fully opt-in. Because feedback is folded in here, we still enter the
     # editor pass (with audit/guard editing disabled) when only fragment work is wanted.
     feedback_needed = feedback_active(feedback_fragments, agent_on=cfg.agent_on)
-    post_processing_needed = post_processing_active(post_processing_fragments, agent_on=cfg.agent_on)
-    editor_will_run = bool(state.resp_text and (cfg.do_edit or post_processing_needed or feedback_needed))
+    reply_edits_needed = reply_edits_active(reply_edit_fragments, agent_on=cfg.agent_on)
+    editor_will_run = bool(state.resp_text and (cfg.do_edit or reply_edits_needed or feedback_needed))
 
     # writer_done says whether an Editor sub-step follows; each sub-step emits its own step_start.
     yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
 
     if editor_will_run:
         logger.info(
-            "Editor pass starting (draft=%d chars, phrase_bank=%d groups, edit=%s, post_processing=%s, feedback=%s)",
+            "Editor pass starting (draft=%d chars, phrase_bank=%d groups, edit=%s, reply_edits=%s, feedback=%s)",
             len(state.resp_text),
             len(phrase_bank) if phrase_bank else 0,
             cfg.do_edit,
-            post_processing_needed,
+            reply_edits_needed,
             feedback_needed,
         )
         # The draft the browser was last told is authoritative.
@@ -405,7 +406,7 @@ async def editor_stage(
                 reasoning_prefill=cfg.editor_reasoning_prefill,
                 audit_context_msgs=editor_audit_msgs,
                 writer_user_msg=state.writer_content,
-                post_processing_fragments=post_processing_fragments if post_processing_needed else None,
+                reply_edit_fragments=reply_edit_fragments if reply_edits_needed else None,
                 feedback_fragments=feedback_fragments if feedback_needed else None,
                 judge_config=judge_config,
                 subject_history=subject_history,
@@ -448,9 +449,9 @@ async def editor_stage(
         yield latency_event(state)
     else:
         logger.info(
-            "Editor pass skipped (do_edit=%s, post_processing=%s, feedback=%s, draft=%d chars)",
+            "Editor pass skipped (do_edit=%s, reply_edits=%s, feedback=%s, draft=%d chars)",
             cfg.do_edit,
-            post_processing_needed,
+            reply_edits_needed,
             feedback_needed,
             len(state.resp_text),
         )
@@ -485,8 +486,9 @@ async def _run_edit_loop(
     # mid-loop would bust the KV cache every iteration. Which single tool the model must call is steered entirely by tool_choice
     # (see _pick_tool_choice, recomputed each iteration) while base.tools stays byte-identical throughout. A forced call can
     # only name a tool that blob already carries, so a rewrite needs ``editor_rewrite`` there. The blob offers it whenever the
-    # Agent is on; the length guard is what opts a turn into whole-draft rewrites.
-    can_rewrite = length_guard is not None and any(schema["function"]["name"] == "editor_rewrite" for schema in base.tools)
+    # Agent is on, so an over-long draft (with the Length Guard on) or structural repetition (with the audit on) can each ask
+    # for a whole-draft rewrite without the other.
+    can_rewrite = any(schema["function"]["name"] == "editor_rewrite" for schema in base.tools)
     lg_triggered, lg_instruction, lg_word_count = evaluate_length_guard(draft, length_guard)
     if lg_triggered and not can_rewrite:
         logger.warning("Editor: length guard triggered, but the tools blob has no editor_rewrite to force; skipping it")
@@ -703,20 +705,18 @@ class _EditLoop:
             logger.info("Editor iteration %d: no tool call (resp=%s), stopping", n, outcome)
             return None
         self.calls.extend(parsed)
-        if rewrite_call := next((tc for tc in parsed if tc["name"] == "editor_rewrite"), None):
-            return self._apply_rewrite(rewrite_call, resp, n)
+        if any(tc["name"] == "editor_rewrite" for tc in parsed):
+            return self._apply_rewrite(parsed, resp, n)
         if patch_call := next((tc for tc in parsed if tc["name"] == "editor_apply_patch"), None):
             return self._apply_patches(patch_call, resp, n)
         logger.info("Editor iteration %d: unrecognised tool call, stopping", n)
         return None
 
-    def _apply_rewrite(self, call: ParsedToolCall, resp: CompletionMessage, n: int) -> Callable[[], Awaitable[bool]] | None:
-        # An explicit ``"rewritten_text": null`` is the model declining the forced call, and reads the same as the empty string
-        # -- the default only covers an absent key, so coerce before .strip() rather than after.
-        raw_rewrite = call.get("arguments", {}).get("rewritten_text")
-        rewritten = raw_rewrite.strip() if isinstance(raw_rewrite, str) else ""
+    def _apply_rewrite(
+        self, calls: Sequence[ParsedToolCall], resp: CompletionMessage, n: int
+    ) -> Callable[[], Awaitable[bool]] | None:
+        rewritten = rewritten_text(calls, resp, label=f"Editor iteration {n}")
         if not rewritten:
-            logger.info("Editor iteration %d: empty rewrite, stopping", n)
             return None
         pre_len = len(self.draft)
         self.draft = rewritten

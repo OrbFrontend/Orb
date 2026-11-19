@@ -123,6 +123,11 @@ NOTES_STATE_FRAGMENT = {
     "state_inject": "both",
 }
 
+TRIM_DESCRIPTION = (
+    "Combine wordy phrases into fewer, more impactful words, and drop filler and loose beats that add nothing to the scene. "
+    "Preserve plot facts, characterization, the meaning of every line of dialogue, and markup; do not add new events."
+)
+
 SEED_INTERACTIVE_FRAGMENTS = [
     {
         "id": "outcome",
@@ -265,10 +270,20 @@ SEED_INTERACTIVE_FRAGMENTS = [
             "Preserve meaning, characterization, subtext, tone, plot facts, and dialogue markup. Change dialogue only; do not "
             "rewrite narration or add new events."
         ),
-        "field_type": "post_processing",
+        "field_type": "recast",
         "required": False,
         "injection_label": "Humanize Dialogue",
         "sort_order": 7,
+        "enabled": False,
+    },
+    {
+        "id": "trim_prose",
+        "label": "Trim",
+        "description": TRIM_DESCRIPTION,
+        "field_type": "rewrite",
+        "required": False,
+        "injection_label": "Trim",
+        "sort_order": 11,
         "enabled": False,
     },
     # Starter state fragments, one per mode. Disabled until the user opts in.
