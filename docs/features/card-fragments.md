@@ -55,10 +55,10 @@ stopping the import.
 | `enabled: false` | Fragment is skipped |
 | Duplicate IDs in one card | The first fragment is kept |
 | Unknown `field_type` | Uses `string` |
-| Missing or unknown state setting | Uses the default: `value`, `after_reply`, `both` |
+| Missing or unknown state setting | Uses the default: `value`, `after_reply`, `both`, no entry limit |
 
 Valid interactive field types are `string`, `array`, `state`, `feedback`,
-`recast`, `rewrite`, and `decision`. A `state` fragment takes three more keys, the
+`recast`, `rewrite`, and `decision`. A `state` fragment takes four more keys, the
 [state settings](state-fragments.md#settings):
 
 | Key | Values |
@@ -66,6 +66,7 @@ Valid interactive field types are `string`, `array`, `state`, `feedback`,
 | `state_mode` | `value` or `entries` |
 | `state_update` | `after_reply`, `before_writer`, or `manual` |
 | `state_inject` | `off`, `director`, `writer`, or `both` |
+| `state_max_entries` | The most entries a list keeps, up to `1000`; `0` is no limit |
 
 A `recast` or `rewrite` fragment may take a [gate](recast-fragments.md#gating):
 `gate_question`, the Judge's yes/no question, and `gate_replies`, the previous

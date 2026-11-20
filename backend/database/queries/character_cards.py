@@ -21,6 +21,7 @@ from ...core import (
     RESERVED_FRAGMENT_IDS,
     STATE_FIELD_TYPE,
     STATE_INJECTS,
+    STATE_MAX_ENTRIES_CEILING,
     STATE_MODES,
     STATE_UPDATES,
     TurnCast,
@@ -192,6 +193,7 @@ def card_embedded_fragments(card: Mapping[str, Any] | None) -> tuple[list[MoodFr
                 "state_mode": _enum(entry, "state_mode", STATE_MODES, DEFAULT_STATE_MODE) if is_state else None,
                 "state_update": _enum(entry, "state_update", STATE_UPDATES, DEFAULT_STATE_UPDATE) if is_state else None,
                 "state_inject": _enum(entry, "state_inject", STATE_INJECTS, DEFAULT_STATE_INJECT) if is_state else None,
+                "state_max_entries": _int(entry, "state_max_entries", 0, 0, STATE_MAX_ENTRIES_CEILING) if is_state else None,
                 **{column: None for column in DECISION_COLUMNS},
                 # Unbounded here: the gate checks the Judge's byte limits when it runs.
                 "gate_question": _text(entry, "gate_question") if raw_type in REPLY_EDIT_FIELD_TYPES else "",

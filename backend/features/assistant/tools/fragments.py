@@ -20,6 +20,7 @@ from ....core import (
     REPLY_EDIT_FIELD_TYPES,
     RESERVED_FRAGMENT_IDS,
     STATE_FIELD_TYPE,
+    STATE_MAX_ENTRIES_CEILING,
     FragmentStage,
     fragment_stage,
     outcome_keys_of,
@@ -229,7 +230,10 @@ def interactive_projection(
     if required_applies(field_type, row["state_mode"], row["state_update"]):
         data["required"] = bool(row["required"])
     if field_type == STATE_FIELD_TYPE:
-        data["state"] = {"mode": row["state_mode"], "update": row["state_update"], "inject": row["state_inject"]}
+        state: dict[str, Any] = {"mode": row["state_mode"], "update": row["state_update"], "inject": row["state_inject"]}
+        if row["state_mode"] == "entries":
+            state["max_entries"] = row["state_max_entries"] or 0
+        data["state"] = state
     if field_type in REPLY_EDIT_FIELD_TYPES:
         data["gate_question"] = clip(row["gate_question"], cap)
         data["gate_replies"] = row["gate_replies"]
@@ -328,6 +332,9 @@ class _InteractiveCreate(ToolArguments):
     state_inject: Literal["", "off", "director", "writer", "both"] = Field(
         default="", description="state: which passes get it. Empty: both."
     )
+    state_max_entries: int = Field(
+        default=0, ge=0, le=STATE_MAX_ENTRIES_CEILING, description="state entries: the most it keeps; 0 is no limit."
+    )
     gate_question: str = _text(4000, "recast, rewrite: a yes/no question for the Judge; the edit runs only on yes.")
     gate_replies: int = Field(default=0, ge=0, le=10, description="With a gate: earlier replies the Judge sees.")
     cooldown_turns: int = _cooldown()
@@ -396,6 +403,12 @@ class _InteractiveSet(ToolArguments):
     )
     state_inject: Literal["unchanged", "off", "director", "writer", "both"] = Field(
         default="unchanged", description="state only."
+    )
+    state_max_entries: int = Field(
+        default=-1,
+        ge=-1,
+        le=STATE_MAX_ENTRIES_CEILING,
+        description="state entries: the most it keeps; 0 is no limit, -1 leaves it.",
     )
     gate_replies: int = Field(
         default=-1, ge=-1, le=10, description="With a gate: earlier replies the Judge sees; -1 leaves it."
@@ -513,9 +526,16 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
     )
     async def add_interactive_fragment(args: _InteractiveCreate) -> ToolOutput:
         field_type = _STORED_TYPES[args.field_type]
-        state = {"state_mode": args.state_mode, "state_update": args.state_update, "state_inject": args.state_inject}
+        state = {
+            "state_mode": args.state_mode,
+            "state_update": args.state_update,
+            "state_inject": args.state_inject,
+            "state_max_entries": args.state_max_entries,
+        }
         if field_type != STATE_FIELD_TYPE and any(state.values()):
-            raise ToolFailure("state_mode, state_update and state_inject are for a state fragment only. Nothing was created.")
+            raise ToolFailure(
+                "state_mode, state_update, state_inject and state_max_entries are for a state fragment only. Nothing was created."
+            )
         if args.required and not required_applies(field_type, args.state_mode or None, args.state_update or None):
             raise ToolFailure(
                 "required applies only to single, list and feedback fragments, and to a state value updated before_writer. "
@@ -628,7 +648,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
                 )
             wanted["field_type"] = _STORED_TYPES[args.field_type]
         field_type = wanted.get("field_type", row["field_type"])
-        state = {
+        state: dict[str, Any] = {
             column: value
             for column, value in (
                 ("state_mode", args.state_mode),
@@ -637,8 +657,12 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             )
             if value != "unchanged"
         }
+        if args.state_max_entries >= 0:
+            state["state_max_entries"] = args.state_max_entries
         if state and field_type != STATE_FIELD_TYPE:
-            raise ToolFailure("state_mode, state_update and state_inject are for a state fragment only. Nothing was changed.")
+            raise ToolFailure(
+                "state_mode, state_update, state_inject and state_max_entries are for a state fragment only. Nothing was changed."
+            )
         wanted.update(state)
         if args.gate_replies >= 0:
             if field_type not in REPLY_EDIT_FIELD_TYPES or not (row["gate_question"] or "").strip():

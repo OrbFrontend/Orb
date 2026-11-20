@@ -28,14 +28,14 @@ from .domain_types import CastMember, GroupContextMode, TurnCast
 from .fragment_stages import FRAGMENT_STAGES, REPLY_EDIT_FIELD_TYPES, FragmentStage, fragment_stage
 from .fragment_state import (
     DEFAULT_STATE_INJECT,
+    DEFAULT_STATE_MAX_ENTRIES,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
-    MAX_ACTIVE_ENTRIES,
-    MAX_STATE_TEXT_CHARS,
     RESERVED_FRAGMENT_IDS,
     STATE_COLUMNS,
     STATE_FIELD_TYPE,
     STATE_INJECTS,
+    STATE_MAX_ENTRIES_CEILING,
     STATE_MODES,
     STATE_UPDATES,
     StateEntry,

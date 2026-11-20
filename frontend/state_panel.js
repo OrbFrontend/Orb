@@ -156,13 +156,13 @@ function badgesHtml(f) {
   if (!f.configured) html += badge("Deleted", "The fragment was deleted; its saved state is read-only.");
   else if (!f.enabled) html += badge("Disabled", "The fragment is disabled: not updated, not injected.");
   if (f.origin === "card") html += badge("Card", "Embedded in the character card.");
-  if (f.full) html += badge("Full", "The list holds the most entries it can. Retire one before adding.", " danger");
+  if (f.full) html += badge("Full", "The list holds its Max entries. Retire one before adding.", " danger");
   return html;
 }
 
 function describe(f) {
   if (!f.configured) return "";
-  const mode = f.mode === "entries" ? `List ${f.entries.length}/${panel.limits.entries}` : "Value";
+  const mode = f.mode === "entries" ? `List ${f.entries.length}${f.max_entries ? `/${f.max_entries}` : ""}` : "Value";
   return [mode, UPDATE_LABELS[f.update] || f.update, INJECT_LABELS[f.inject] || f.inject].join(" · ");
 }
 
@@ -179,11 +179,9 @@ function isEditing(f, op, entryId = "") {
 
 function editorHtml() {
   const { text } = editing;
-  const limit = panel.limits.text;
   return `<div class="state-editor">
-    <textarea class="state-editor-input" rows="3" maxlength="${limit}">${esc(text)}</textarea>
+    <textarea class="state-editor-input" rows="3">${esc(text)}</textarea>
     <div class="state-editor-foot">
-      <span class="state-editor-count">${text.length}/${limit}</span>
       ${button("cancel", "Cancel")}${button("save", "Save", { cls: "btn-accent" })}
     </div>
   </div>`;
@@ -412,8 +410,6 @@ function onKeydown(e) {
 function onInput(e) {
   if (!e.target.classList?.contains("state-editor-input") || !editing) return;
   editing.text = e.target.value;
-  const count = e.target.closest(".state-editor")?.querySelector(".state-editor-count");
-  if (count) count.textContent = `${e.target.value.length}/${panel.limits.text}`;
 }
 
 const content = $("state-panel-content");

@@ -85,6 +85,9 @@ SEED_MOOD_FRAGMENTS = [
     },
 ]
 
+# Starter lists updated after every reply keep a cap so they do not grow the prompt without bound.
+STARTER_STATE_MAX_ENTRIES = 12
+
 # Shared with migration 0067, which seeds the same rows into existing installs.
 STARTER_STATE_FRAGMENTS = [
     {
@@ -104,6 +107,7 @@ STARTER_STATE_FRAGMENTS = [
         "state_mode": "entries",
         "state_update": "after_reply",
         "state_inject": "both",
+        "state_max_entries": STARTER_STATE_MAX_ENTRIES,
     }
 ]
 
@@ -121,6 +125,7 @@ NOTES_STATE_FRAGMENT = {
     "state_mode": "entries",
     "state_update": "manual",
     "state_inject": "both",
+    "state_max_entries": 0,
 }
 
 TRIM_DESCRIPTION = (
@@ -261,6 +266,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "state_mode": "entries",
         "state_update": "after_reply",
         "state_inject": "both",
+        "state_max_entries": STARTER_STATE_MAX_ENTRIES,
     },
     {
         "id": "humanize_dialogue",

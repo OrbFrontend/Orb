@@ -234,6 +234,8 @@ function validateInteractiveFragment(data) {
     }
   }
 
+  const maxEntries = integerRange(data.state_max_entries, 0, 1000, "Max entries");
+  if (!maxEntries.valid) return maxEntries;
   const cooldown = integerRange(data.cooldown_turns, 0, 50, "Cooldown");
   return cooldown.valid ? integerRange(data.gate_replies, 0, 10, "History") : cooldown;
 }

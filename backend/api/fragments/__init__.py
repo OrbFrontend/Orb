@@ -10,6 +10,7 @@ from ...core import (
     DECISION_FIELD_TYPE,
     DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_INJECT,
+    DEFAULT_STATE_MAX_ENTRIES,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
     REPLY_EDIT_FIELD_TYPES,
@@ -20,7 +21,12 @@ from ...pipeline.passes.judge import definition_problems
 
 __all__ = ["DecisionProblems", "checked_interactive_write"]
 
-_STATE_DEFAULTS = {"state_mode": DEFAULT_STATE_MODE, "state_update": DEFAULT_STATE_UPDATE, "state_inject": DEFAULT_STATE_INJECT}
+_STATE_DEFAULTS = {
+    "state_mode": DEFAULT_STATE_MODE,
+    "state_update": DEFAULT_STATE_UPDATE,
+    "state_inject": DEFAULT_STATE_INJECT,
+    "state_max_entries": DEFAULT_STATE_MAX_ENTRIES,
+}
 
 
 class DecisionProblems(ValueError):

@@ -432,8 +432,8 @@ function updateInteractiveFragmentExample(fieldType) {
   if (leaving) leaving.style.display = _editingStoredDecision && !isDecision ? "" : "none";
 }
 
-// The three state settings; new fragments start from the backend defaults.
-const STATE_SETTING_KEYS = ["state_mode", "state_update", "state_inject"];
+// The state settings; new fragments start from the backend defaults.
+const STATE_SETTING_KEYS = ["state_mode", "state_update", "state_inject", "state_max_entries"];
 const STATE_DEFAULTS = { mode: "value", update: "after_reply", inject: "both" };
 const STATE_CHOICES = {
   mode: [
@@ -463,11 +463,15 @@ function _stateSelectValue(setting) {
   return document.getElementById(`interactive-frag-state-${setting}`)?.value || STATE_DEFAULTS[setting];
 }
 
+function _stateMaxEntries() {
+  return Math.max(0, parseInt(document.getElementById("interactive-frag-state-max")?.value, 10) || 0);
+}
+
 /** What the chosen settings do, by their effect. */
-function _stateHint(mode, update) {
+function _stateHint(mode, update, maxEntries) {
   const modeText =
     mode === "entries"
-      ? "Keeps up to 12 entries; updates add new ones and retire stale ones."
+      ? `Keeps ${maxEntries ? `up to ${maxEntries}` : "any number of"} entries; updates add new ones and retire stale ones.`
       : "Keeps one value; each update replaces it.";
   const updateText = {
     after_reply: "Updated after the reply, from what it actually showed.",
@@ -483,6 +487,7 @@ function _stateSectionHtml(d) {
     update: d.state_update || STATE_DEFAULTS.update,
     inject: d.state_inject || STATE_DEFAULTS.inject,
   };
+  const maxEntries = d.state_max_entries || 0;
   const select = (setting, label) => `<div class="field"><label>${label}</label>
       <select id="interactive-frag-state-${setting}" data-state-setting="${setting}">
         ${STATE_CHOICES[setting].map(([value, text]) => `<option value="${value}" ${current[setting] === value ? "selected" : ""}>${text}</option>`).join("")}
@@ -492,8 +497,11 @@ function _stateSectionHtml(d) {
       ${select("mode", "Mode")}
       ${select("update", "Update")}
       ${select("inject", "Inject")}
+      <div class="field field-narrow" id="interactive-frag-state-max-row" style="${current.mode === "entries" ? "" : "display:none"}">
+        <label>Max entries</label>
+        <input id="interactive-frag-state-max" data-state-setting="max" type="number" min="0" max="1000" step="1" value="${maxEntries || ""}" placeholder="No limit" title="The most entries the list keeps; empty is no limit"></div>
     </div>
-    <div class="field-hint" id="interactive-frag-state-hint">${esc(_stateHint(current.mode, current.update))}</div>
+    <div class="field-hint" id="interactive-frag-state-hint">${esc(_stateHint(current.mode, current.update, maxEntries))}</div>
   </div>`;
 }
 
@@ -505,8 +513,10 @@ function _syncStateControls() {
   if (section) section.style.display = isState ? "" : "none";
   const mode = _stateSelectValue("mode");
   const update = _stateSelectValue("update");
+  const maxRow = document.getElementById("interactive-frag-state-max-row");
+  if (maxRow) maxRow.style.display = mode === "entries" ? "" : "none";
   const hint = document.getElementById("interactive-frag-state-hint");
-  if (hint) hint.textContent = _stateHint(mode, update);
+  if (hint) hint.textContent = _stateHint(mode, update, _stateMaxEntries());
   const applies = _requiredApplies(fieldType, mode, update);
   const requiredRow = document.getElementById("interactive-frag-required-row");
   if (requiredRow) requiredRow.style.display = applies ? "" : "none";
@@ -514,9 +524,11 @@ function _syncStateControls() {
   if (required && !applies) required.checked = false;
 }
 
-document.addEventListener("change", (e) => {
-  if (e.target.closest?.("[data-state-setting]")) _syncStateControls();
-});
+for (const type of ["change", "input"]) {
+  document.addEventListener(type, (e) => {
+    if (e.target.closest?.("[data-state-setting]")) _syncStateControls();
+  });
+}
 
 function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
@@ -584,6 +596,7 @@ function _readInteractiveFragForm() {
     base.state_mode = _stateSelectValue("mode");
     base.state_update = _stateSelectValue("update");
     base.state_inject = _stateSelectValue("inject");
+    base.state_max_entries = base.state_mode === "entries" ? _stateMaxEntries() : 0;
   }
   // The backend clears decision fields when a write names another type.
   return fieldType === "decision" ? { ...base, ...readDecisionFields() } : base;

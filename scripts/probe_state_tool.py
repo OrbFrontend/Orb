@@ -35,7 +35,6 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.core import (  # noqa: E402
-    MAX_ACTIVE_ENTRIES,
     StateFragment,
     fold_events,
     plan_state_ops,
@@ -50,6 +49,7 @@ from backend.prompting.tool_schemas import (  # noqa: E402
     build_state_tool,
 )
 
+LIMIT = 12
 LOCATION = StateFragment(
     id="location",
     label="Location",
@@ -66,6 +66,7 @@ THREADS = StateFragment(
         "retire one once it is resolved, kept, or broken."
     ),
     mode="entries",
+    max_entries=LIMIT,
 )
 FRAGMENTS = (LOCATION, THREADS)
 
@@ -256,7 +257,7 @@ def summarize(scenario: Scenario, outcomes: list[Outcome]) -> dict[str, Any]:
         "errors": sum(bool(o.error) for o in outcomes),
         "valid_call_rate": round(sum(o.valid for o in outcomes) / n, 3),
         "active_before": scenario.threads,
-        "limit": MAX_ACTIVE_ENTRIES,
+        "limit": LIMIT,
         "resolved_retire_recall": round(hits / (expected * n), 3) if expected else None,
         "mistaken_retires_per_run": round(sum(mistaken) / n, 3),
         "runs_with_a_mistaken_retire": sum(bool(m) for m in mistaken),

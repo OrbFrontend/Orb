@@ -1,7 +1,7 @@
 """Read-only oracle for migration 0067 state at each historical branch tip.
 
-Compare folded events with the latest non-empty progressive snapshot and ordered direction notes, retaining user labels. Report
-lists above the cap. Exclude messages/events added after migration because they have no legacy source.
+Compare folded events with the latest non-empty progressive snapshot and ordered direction notes, retaining user labels.
+Exclude messages/events added after migration because they have no legacy source.
 """
 
 import json
@@ -9,7 +9,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from backend.core import MAX_ACTIVE_ENTRIES, fold_events
+from backend.core import fold_events
 
 _MIGRATION = "0067_state_fragments"
 _HUMAN = "human"
@@ -23,9 +23,6 @@ class Report:
     skipped_new: int = 0
     restored: int = 0
     mismatches: list[str] = field(default_factory=list)
-    # Branch tips whose converted list starts above the active-entry cap, which
-    # refuses every Agent add until enough entries are retired. Not a mismatch.
-    over_cap: list[str] = field(default_factory=list)
 
 
 def _when(value: str | None) -> datetime | None:
@@ -130,11 +127,6 @@ def check(path: str, *, notes_id: str | None = None) -> Report:
             ]
             view = fold_events(events)
             folded = {fid: [entry.text for entry in view.active(fid)] for fid in view.entries}
-            for fid, texts in folded.items():
-                if len(texts) > MAX_ACTIVE_ENTRIES:
-                    report.over_cap.append(
-                        f"conversation {path[0]['conversation_id']} leaf {leaf_id}: {fid} holds {len(texts)} entries"
-                    )
             if folded != expected:
                 report.mismatches.append(
                     f"conversation {path[0]['conversation_id']} leaf {leaf_id}: expected {expected!r}, folded {folded!r}"

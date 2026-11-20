@@ -523,6 +523,7 @@ class InteractiveFragmentRow(TypedDict):
     state_mode: str | None
     state_update: str | None
     state_inject: str | None
+    state_max_entries: int | None
     # Decision fields are NULL for other fragment types; JSON fields are decoded
     # at query boundaries and the definition is validated as a whole.
     decision_type: str | None

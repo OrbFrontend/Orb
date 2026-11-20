@@ -12,7 +12,8 @@ Enable these in **Interactive Fragments**. Both start disabled.
   to **both Director and Writer on every turn**, so what you write can guide the
   scene and the reply. Only you change these notes, in **Inspector → State**.
 - **Inventory** tracks items characters hold. The Agent updates the list after
-  each reply and sends it to both Director and Writer on later turns.
+  each reply and sends it to both Director and Writer on later turns. It keeps
+  up to 12 entries; change **Max entries** to raise or remove the cap.
 
 ## Settings
 
@@ -23,7 +24,8 @@ set its field type to **State**.
 
 - **One value**: one piece of text, such as `Trust: wary`. Each update replaces it.
 - **Multiple entries**: a list, such as items or open plot threads. Updates add
-  entries and retire ones that no longer apply.
+  entries and retire ones that no longer apply. **Max entries** caps the list at
+  up to 1000; leave it empty for no limit.
 
 **Update** chooses when it changes:
 
@@ -71,18 +73,14 @@ Skipped or failed updates leave saved facts unchanged. Empty text does not clear
 them. The Agent can replace a single value, but only you can clear it. For lists,
 the Agent corrects an entry by retiring it and adding a replacement.
 
-## Limits
+## Length
 
-| Limit | Value |
-|---|---|
-| Characters per value or entry | 800 |
-| Active entries per fragment | 12 |
+Values and entries have no length limit, and lists have none unless you set
+**Max entries**. A list at its Max entries shows **Full** and needs an entry
+retired before another can be added. Duplicate entries and invalid changes are
+refused; the Inspector shows why.
 
-A list marked **Full** needs an entry retired before another can be added.
-Duplicate entries and invalid changes are refused; the Inspector shows why.
-
-Keep facts short: everything you send to the Director or Writer adds to the
-prompt on every turn.
+Everything you send to the Director or Writer adds to the prompt on every turn.
 
 ## Changing the mode
 

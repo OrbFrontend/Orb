@@ -14,7 +14,6 @@ from unittest.mock import patch
 import pytest
 
 import backend.database as dbmod
-from backend.core import MAX_ACTIVE_ENTRIES
 from backend.pipeline import handle_regenerate, handle_turn
 
 _THREAD = "The stolen key is still missing."
@@ -325,7 +324,6 @@ async def test_retire_by_alias_frees_a_slot_and_revision_is_retire_plus_add(clie
     # The request listed entries by alias, never by id.
     request = _requests(llm_mock, "state")[-1]
     assert "- [e1] Find the key." in request and "- [e2] Meet the smuggler." in request
-    assert "2 of 12 entries" in request
     assert await _active_state(cid) == {"threads": ["Meet the smuggler.", "Find the key before dawn."]}
 
 
@@ -363,16 +361,24 @@ async def test_keep_semantics_for_skipped_empty_and_malformed_calls(client, db, 
 
 async def test_over_limit_add_is_rejected_and_the_fragment_shows_full(client, db, llm_mock):
     cid = await _conversation("conv-state-full")
-    await _fragment(client, "threads", mode="entries", update="after_reply")
+    await _fragment(client, "threads", mode="entries", update="after_reply", state_max_entries=3)
+    await _fragment(client, "items", mode="entries", update="after_reply")
     await _settings(client)
     llm_mock.enqueue_writer("One.")
-    llm_mock.enqueue_state(_state_call(threads=[f"thread {i}" for i in range(MAX_ACTIVE_ENTRIES + 2)]))
+    long_entry = "x" * 5000
+    llm_mock.enqueue_state(
+        _state_call(threads=[f"thread {i}" for i in range(5)], items=[long_entry, *(f"item {i}" for i in range(29))])
+    )
     events = await _drain(handle_turn(cid, "one"))
 
-    assert len((await _active_state(cid))["threads"]) == MAX_ACTIVE_ENTRIES
+    active = await _active_state(cid)
+    assert len(active["threads"]) == 3
+    # Without Max entries a list takes any number of entries, of any length.
+    assert len(active["items"]) == 30 and long_entry in active["items"]
     assert [r["reason"] for r in _state_payloads(events)[-1]["rejected"]] == ["full", "full"]
     panel = await client.get_json(f"/api/conversations/{cid}/state")
-    assert next(f for f in panel["fragments"] if f["fragment_id"] == "threads")["full"] is True
+    full = {f["fragment_id"]: f["full"] for f in panel["fragments"]}
+    assert (full["threads"], full["items"]) == (True, False)
 
     # The next request tells the updater the list is full.
     llm_mock.enqueue_writer("Two.")
@@ -715,7 +721,6 @@ async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, 
 
     cases = [
         ({"fragment_id": "place", "op": "add", "text": "x"}, 422),  # wrong mode
-        ({"fragment_id": "threads", "op": "add", "text": "x" * 801}, 422),  # too long
         ({"fragment_id": "threads", "op": "retire", "entry_id": "nope"}, 422),  # unknown entry
         ({"fragment_id": "ghost", "op": "add", "text": "x"}, 409),  # no such fragment
         ({"fragment_id": "threads", "op": "add", "text": "   "}, 400),  # empty

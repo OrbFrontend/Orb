@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
+from ..core.fragment_state import STATE_MAX_ENTRIES_CEILING
 from ..features.assistant import MAX_ITEM_CHARS, MAX_SELECTION_CHARS
 
 
@@ -292,6 +293,7 @@ class _StateFields(BaseModel):
     state_mode: Literal["value", "entries"] | None = None
     state_update: Literal["after_reply", "before_writer", "manual"] | None = None
     state_inject: Literal["off", "director", "writer", "both"] | None = None
+    state_max_entries: int | None = Field(None, ge=0, le=STATE_MAX_ENTRIES_CEILING)
 
 
 class InteractiveFragmentCreate(_DecisionFields, _StateFields):

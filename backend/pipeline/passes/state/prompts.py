@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ....core import MAX_ACTIVE_ENTRIES, MAX_STATE_TEXT_CHARS, StateFragment, StateView
+from ....core import StateFragment, StateView
 from .._prompting import REASONING_GUIDANCE, tool_call_instruction
 
 STATE_PREAMBLE = (
@@ -47,7 +47,8 @@ def _field_section(fragment: StateFragment, view: StateView, aliases: Sequence[A
     entries = view.active(fragment.id)
     lines: list[str] = []
     if fragment.mode == "entries":
-        lines.append(f"{fragment.heading} -- list, {len(entries)} of {MAX_ACTIVE_ENTRIES} entries (parameter: {fragment.id})")
+        count = f"{len(entries)} of {fragment.max_entries}" if fragment.max_entries else str(len(entries))
+        lines.append(f"{fragment.heading} -- list, {count} entries (parameter: {fragment.id})")
         lines.append(f"What to record: {fragment.description}")
         by_entry = {alias.entry_id: alias.alias for alias in aliases if alias.fragment_id == fragment.id}
         lines.extend(f"- [{by_entry[entry.entry_id]}] {entry.text}" for entry in entries)
@@ -57,7 +58,7 @@ def _field_section(fragment: StateFragment, view: StateView, aliases: Sequence[A
             "Add only new entries. Put the id of an entry that no longer holds in `retire`; to correct one, "
             "retire it and add the corrected text."
         )
-        if len(entries) >= MAX_ACTIVE_ENTRIES:
+        if fragment.is_full(len(entries)):
             lines.append("This list is full: retire entries before adding any.")
     else:
         lines.append(f"{fragment.heading} -- one value (parameter: {fragment.id})")
@@ -90,7 +91,6 @@ def build_state_request(
     parts.extend(_field_section(fragment, view, aliases) for fragment in fragments)
     if any(fragment.mode == "value" for fragment in fragments):
         parts.append("For fields with one value, write the complete new value only if it changed.")
-    parts.append(f"Each value or entry may be at most {MAX_STATE_TEXT_CHARS} characters.")
     if decision_guidance:
         parts.append("___\n\n" + decision_guidance)
     if scene_direction:

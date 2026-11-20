@@ -132,10 +132,10 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .state-entry-foot, .state-editor-foot {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 4px;
 }
-.state-entry-meta, .state-editor-count {
+.state-entry-meta {
   font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted);
 }
-.state-editor-count { margin-right: auto; }
+.state-editor-foot { justify-content: flex-end; }
 .state-entry-actions, .state-frag-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .state-frag-actions { margin-top: 6px; }
 .state-editor { padding: 6px 0; }

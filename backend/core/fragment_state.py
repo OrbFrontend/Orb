@@ -15,15 +15,14 @@ STATE_MODES = ("value", "entries")
 STATE_UPDATES = ("after_reply", "before_writer", "manual")
 # Which passes receive the current state.
 STATE_INJECTS = ("off", "director", "writer", "both")
-STATE_COLUMNS = ("state_mode", "state_update", "state_inject")
+STATE_COLUMNS = ("state_mode", "state_update", "state_inject", "state_max_entries")
 
 DEFAULT_STATE_MODE = "value"
 DEFAULT_STATE_UPDATE = "after_reply"
 DEFAULT_STATE_INJECT = "both"
-
-# Fixed limits; rejected adds are reported so full lists are visible.
-MAX_STATE_TEXT_CHARS = 800
-MAX_ACTIVE_ENTRIES = 12
+# The most active entries a list keeps; 0 is no limit. The ceiling bounds the setting, keeping it a valid SQLite integer.
+DEFAULT_STATE_MAX_ENTRIES = 0
+STATE_MAX_ENTRIES_CEILING = 1000
 
 # Fixed tool parameters that interactive fragment ids would overwrite: ``direct_scene``'s ``moods`` and group speaking plan, and
 # ``update_state``'s ``retire``.
@@ -49,6 +48,12 @@ LEGACY_GATE_KEYS: Mapping[str, str] = {
 
 def _choice(value: Any, allowed: Sequence[str], default: str) -> str:
     return value if isinstance(value, str) and value in allowed else default
+
+
+def _max_entries(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return DEFAULT_STATE_MAX_ENTRIES
+    return min(value, STATE_MAX_ENTRIES_CEILING)
 
 
 def legacy_state_settings(field_type: str, direction_note_timing: Any = None) -> dict[str, str] | None:
@@ -97,6 +102,11 @@ class StateFragment:
     inject: str = DEFAULT_STATE_INJECT
     cooldown_turns: int = 0
     enabled: bool = True
+    max_entries: int = DEFAULT_STATE_MAX_ENTRIES
+
+    def is_full(self, count: int) -> bool:
+        """Whether a list holding *count* active entries is at its limit."""
+        return self.mode == "entries" and 0 < self.max_entries <= count
 
     @property
     def injects_director(self) -> bool:
@@ -134,6 +144,7 @@ def state_fragment_of(row: Mapping[str, Any]) -> StateFragment | None:
         inject=_choice(row.get("state_inject"), STATE_INJECTS, DEFAULT_STATE_INJECT),
         cooldown_turns=int(row.get("cooldown_turns") or 0),
         enabled=bool(row.get("enabled", 1)),
+        max_entries=_max_entries(row.get("state_max_entries")),
     )
 
 
@@ -306,9 +317,6 @@ def plan_state_ops(
                 if op.op == "revise":
                     reject(op, "empty", "A revision needs text; retire the entry to remove it.")
                 continue  # Empty means keep.
-            if len(text) > MAX_STATE_TEXT_CHARS:
-                reject(op, "too_long", f"Longer than {MAX_STATE_TEXT_CHARS} characters.")
-                continue
 
         if op.op == "set":
             if len(active) == 1:
@@ -326,8 +334,8 @@ def plan_state_ops(
             if any(_normalized(entry.text) == _normalized(text) for entry in active):
                 reject(op, "duplicate", "Already an active entry.")
                 continue
-            if len(active) >= MAX_ACTIVE_ENTRIES:
-                reject(op, "full", f"{fragment.label} already holds {MAX_ACTIVE_ENTRIES} entries; retire some first.")
+            if fragment.is_full(len(active)):
+                reject(op, "full", f"{fragment.label} already holds {fragment.max_entries} entries; retire some first.")
                 continue
             emit(fragment, "add", new_id(), text)
         elif op.op in ("revise", "retire"):

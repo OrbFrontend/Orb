@@ -224,6 +224,8 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     state_mode TEXT DEFAULT NULL CHECK (state_mode IS NULL OR state_mode IN ('value', 'entries')),
     state_update TEXT DEFAULT NULL CHECK (state_update IS NULL OR state_update IN ('after_reply', 'before_writer', 'manual')),
     state_inject TEXT DEFAULT NULL CHECK (state_inject IS NULL OR state_inject IN ('off', 'director', 'writer', 'both')),
+    -- The most active entries a list keeps; 0 is no limit.
+    state_max_entries INTEGER DEFAULT NULL CHECK (state_max_entries IS NULL OR state_max_entries >= 0),
     -- Decision-only fields; NULL for other fragment types and validated together.
     decision_type TEXT DEFAULT NULL,
     decision_placement TEXT DEFAULT NULL,

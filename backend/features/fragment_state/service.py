@@ -8,8 +8,6 @@ from typing import Any
 
 from ... import database as db
 from ...core import (
-    MAX_ACTIVE_ENTRIES,
-    MAX_STATE_TEXT_CHARS,
     STATE_FIELD_TYPE,
     StateEntry,
     StateFragment,
@@ -90,7 +88,8 @@ async def state_panel(cid: str) -> dict[str, Any]:
                 "enabled": fragment.enabled,
                 "configured": True,
                 "read_only": not fragment.enabled,
-                "full": fragment.mode == "entries" and len(entries) >= MAX_ACTIVE_ENTRIES,
+                "max_entries": fragment.max_entries,
+                "full": fragment.is_full(len(entries)),
                 "several_values": fragment.mode == "value" and len(entries) > 1,
                 "entries": [_entry_projection(entry, turns) for entry in entries],
             }
@@ -111,6 +110,7 @@ async def state_panel(cid: str) -> dict[str, Any]:
                 "enabled": False,
                 "configured": False,
                 "read_only": True,
+                "max_entries": 0,
                 "full": False,
                 "several_values": False,
                 "entries": [_entry_projection(entry, turns) for entry in entries],
@@ -119,7 +119,6 @@ async def state_panel(cid: str) -> dict[str, Any]:
     return {
         "fragments": fragments,
         "has_state": bool(events),
-        "limits": {"text": MAX_STATE_TEXT_CHARS, "entries": MAX_ACTIVE_ENTRIES},
     }
 
 
