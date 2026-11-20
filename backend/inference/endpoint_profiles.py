@@ -131,28 +131,37 @@ def is_gemini_openai_surface(url: str) -> bool:
     return path == _GEMINI_OPENAI_PATH or f"{_GEMINI_OPENAI_PATH}/" in f"{path}/"
 
 
-def _gemini_reasoning_off(body: dict) -> str | None:
-    """Request reasoning_effort=none when Gemini reasoning is off.
+# Orb's other reasoning dialects. Google's compatibility layer refuses each by name ('Unknown name "thinking": Cannot find
+# field.'), so sending them costs one rejection per field per model before the refusal is learned.
+_GEMINI_UNREAD_REASONING_FIELDS = ("reasoning", "chat_template_kwargs", "thinking")
 
-    Its compatibility layer ignores Orb's other off flags. Explicit effort wins;
-    rejected none values are learned and omitted for the session.
+
+def _gemini_reasoning(body: dict) -> str | None:
+    """Carry Orb's reasoning switch in ``reasoning_effort``, the one control this surface reads.
+
+    Reasoning off asks for ``none`` unless an explicit effort is set; a level the model refuses is stepped along
+    :data:`_EFFORT_FALLBACK` once learned. The other dialects are dropped up front.
     """
-    if "reasoning_effort" in body:
-        return None
     reasoning = body.get("reasoning")
     thinking = body.get("thinking")
     disabled = (isinstance(reasoning, Mapping) and reasoning.get("enabled") is False) or (
         isinstance(thinking, Mapping) and thinking.get("type") == "disabled"
     )
-    if not disabled:
-        return None
-    body["reasoning_effort"] = "none"
-    return "reasoning_effort='none' (reasoning off)"
+    dropped = [key for key in _GEMINI_UNREAD_REASONING_FIELDS if key in body]
+    for key in dropped:
+        body.pop(key)
+    actions: list[str] = []
+    if disabled and "reasoning_effort" not in body:
+        body["reasoning_effort"] = "none"
+        actions.append("reasoning_effort='none' (reasoning off)")
+    if dropped:
+        actions.append(f"{dropped} dropped (not read by this surface)")
+    return "; ".join(actions) or None
 
 
-# Google's OpenAI compatibility API accepts ordinary OpenAI request fields
-# (unknown additions are ignored) and honors strict json_schema output.
-_GEMINI_PROFILE = ModelProfile(structured_tool_calls=True, custom=(_gemini_reasoning_off,))
+# Google's OpenAI compatibility API takes ordinary OpenAI request fields, refuses unknown ones by name, and honors strict
+# json_schema output.
+_GEMINI_PROFILE = ModelProfile(structured_tool_calls=True, custom=(_gemini_reasoning,))
 
 
 Protocol = Literal["openai", "anthropic"]
@@ -359,6 +368,11 @@ def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
     return profile is not None and profile.structured_tool_calls
 
 
+def _is_gemini(endpoint_url: str, model: str = "") -> bool:
+    """Whether the pair is served on the ``/v1beta/openai`` surface, configured or probed there."""
+    return is_gemini_openai_surface(endpoint_url) or is_gemini_openai_surface(_resolve_endpoint(endpoint_url, model).url)
+
+
 def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """Resolve (endpoint_url, model) to a ``ModelProfile``, or ``None`` for pass-through.
 
@@ -370,8 +384,7 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """
     if not endpoint_url:
         return None
-    resolved_url = _resolve_endpoint(endpoint_url, model).url
-    if is_gemini_openai_surface(endpoint_url) or is_gemini_openai_surface(resolved_url):
+    if _is_gemini(endpoint_url, model):
         return _GEMINI_PROFILE
     haystack = endpoint_url.lower()
     for needle, models in PROFILES.items():
@@ -397,11 +410,15 @@ _TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
 # field so forced and writer ``"none"`` requests are coerced rather than dropped.
 _TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
 
-# Pairs whose reply rejected the ``reasoning_effort`` VALUE Orb sent. Orb offers a superset of levels (``xhigh`` is an
-# Anthropic/OpenAI-ism; Gemini's set is high/low/medium/none) and a provider that validates the field answers 400 to anything
-# outside its own. Learning the rejection rather than hard-coding each provider's accepted set is deliberate: those sets move
-# under us, and a static list rots into wrongly clamping a level the provider has since added.
-_REASONING_EFFORT_UNSUPPORTED: set[tuple[str, str]] = set()
+# ``reasoning_effort`` levels each pair refused this session. Orb offers a superset of levels and providers validate against
+# their own, which move under us, so the refusal is learned rather than listed. Learning is per level: a refused ``xhigh`` must
+# not cost a reasoning-off call the ``none`` the same model takes.
+_REASONING_EFFORT_REFUSED: dict[tuple[str, str], set[str]] = {}
+
+# Where a refused level goes next, keeping the call's intent: off stays as near off as the model allows and on stays on. Measured
+# on Google's surface 2026-11-20: Gemma 4 takes only minimal and high, Gemini 3.5 Flash-Lite refuses none, and no model takes
+# xhigh. A level with no next step is dropped and the provider default governs.
+_EFFORT_FALLBACK = {"none": "minimal", "xhigh": "high", "low": "medium", "medium": "high"}
 
 # Pairs whose endpoint always reasons and refuses a request that turns reasoning off. OpenRouter answers "Reasoning is mandatory
 # for this endpoint and cannot be disabled" to a disabling ``reasoning`` object while taking the other dialects' off switches, so
@@ -467,17 +484,44 @@ def _is_tool_choice_auto_only(status: int, text: str) -> bool:
     return status in {400, 404} and "tool_choice" in low and "only" in low and "auto" in low and "support" in low
 
 
-def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
-    """Return True when the body names ``reasoning_effort`` as the bad field.
+_THINKING_REFUSAL_RE = re.compile(r"thinking (?:budget|level)\b.*\bnot supported")
 
-    Matches Google's "Invalid reasoning_effort: xhigh. Valid values are: high, low, medium, none" and the equivalent from any
-    provider that validates the field. Kept to bodies that name the field so a generic 400 (bad model, oversized prompt) never
-    costs a reasoning setting the endpoint accepts.
+
+def _is_reasoning_effort_rejected(endpoint_url: str, model: str, body: Mapping[str, Any], status: int, text: str) -> bool:
+    """Return True when a 400 refuses the body's ``reasoning_effort`` level.
+
+    Matches a body naming the field as invalid, and Google's wording for the thinking setting the level maps to ("Thinking budget
+    is not supported for this model.", "Thinking level XHIGH is not supported"). Google refuses ``none`` on a model that cannot
+    stop thinking with only its generic "Request contains an invalid argument.", so that is read as the level's refusal there
+    alone. Any other generic 400 (bad model, oversized prompt) never costs a reasoning setting the endpoint accepts.
     """
     low = text.lower()
-    if status != 400 or "reasoning_effort" not in low:
+    if status != 400:
         return False
-    return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
+    if "reasoning_effort" in low:
+        return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
+    if _THINKING_REFUSAL_RE.search(low):
+        return True
+    return (
+        body.get("reasoning_effort") == "none"
+        and "request contains an invalid argument" in low
+        and _is_gemini(endpoint_url, model)
+    )
+
+
+def _settle_effort(body: dict, refused: set[str]) -> str | None:
+    """Move the body's ``reasoning_effort`` past every level in *refused*; return a log line when it changed."""
+    original = body.get("reasoning_effort")
+    effort = original
+    while isinstance(effort, str) and effort in refused:
+        effort = _EFFORT_FALLBACK.get(effort)
+    if effort == original:
+        return None
+    if effort is None:
+        body.pop("reasoning_effort")
+        return f"reasoning_effort {original!r} dropped"
+    body["reasoning_effort"] = effort
+    return f"reasoning_effort {original!r} -> {effort!r}"
 
 
 def _disables_reasoning(body: Mapping[str, Any]) -> bool:
@@ -599,9 +643,9 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     if refused_fields:
         actions.append(f"{refused_fields} dropped (session-learned unsupported)")
 
-    if "reasoning_effort" in body and (endpoint_url, model) in _REASONING_EFFORT_UNSUPPORTED:
-        effort = body.pop("reasoning_effort")
-        actions.append(f"reasoning_effort {effort!r} dropped (session-learned unsupported)")
+    settled = _settle_effort(body, _REASONING_EFFORT_REFUSED.get((endpoint_url, model), set()))
+    if settled:
+        actions.append(f"{settled} (session-learned unsupported)")
 
     if (endpoint_url, model) in _REASONING_MANDATORY and _disables_reasoning(body):
         body.pop("reasoning")
@@ -654,10 +698,14 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         tc = body["tool_choice"]
         body["tool_choice"] = {"type": "auto"} if isinstance(tc, dict) and "function" not in tc else "auto"
         return f"Model {model} accepts only tool_choice='auto'; retrying with auto."
-    if "reasoning_effort" in body and _is_reasoning_effort_rejected(status, text):
-        _REASONING_EFFORT_UNSUPPORTED.add((endpoint_url, model))
-        effort = body.pop("reasoning_effort")
-        return f"Model {model} rejected reasoning_effort={effort!r}; retrying without it."
+    if "reasoning_effort" in body and _is_reasoning_effort_rejected(endpoint_url, model, body, status, text):
+        effort = body["reasoning_effort"]
+        if not isinstance(effort, str):
+            body.pop("reasoning_effort")
+            return f"Model {model} rejected reasoning_effort={effort!r}; retrying without it."
+        refused = _REASONING_EFFORT_REFUSED.setdefault((endpoint_url, model), set())
+        refused.add(effort)
+        return f"Model {model} rejected reasoning_effort={effort!r}; {_settle_effort(body, refused)}, retrying."
     if _disables_reasoning(body) and _is_reasoning_mandatory(status, text):
         _REASONING_MANDATORY.add((endpoint_url, model))
         body.pop("reasoning")

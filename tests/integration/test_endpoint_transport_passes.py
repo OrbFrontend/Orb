@@ -273,3 +273,62 @@ async def test_assistant_image_uses_existing_image_transport_after_its_tool_resu
         assert body["messages"][-1]["role"] == "user"
         assert body["messages"][-1]["content"][-1] == image
     assert "base64" not in json.dumps(events)
+
+
+class _Refusal(_Response):
+    status_code = 400
+
+    def __init__(self, message: str):
+        super().__init__([])
+        self.message = message
+
+    async def aread(self):
+        return json.dumps([{"error": {"code": 400, "message": self.message, "status": "INVALID_ARGUMENT"}}]).encode()
+
+
+class _ScriptedTransport(_Transport):
+    def stream(self, method, url, json=None, headers=None):
+        self.requests.append({"url": url, "body": dict(json or {}), "headers": dict(headers or {})})
+        script = self.scripts.pop(0)
+        return script if isinstance(script, _Response) else _Response(script)
+
+
+async def test_gemma_on_gemini_turns_reasoning_off_and_keeps_thoughts_out_of_the_reply():
+    """Measured on AI Studio 2026-11-20: Gemma 4 refuses every thinking budget (``none``) and takes only minimal/high, and streams
+    its thought as content flagged ``extra_content.google.thought`` inside ``<thought>`` tags."""
+    from backend.inference.client import reasoning_cfg
+
+    ep._RESOLVED_ROUTES.clear()
+    endpoint, model = "https://generativelanguage.googleapis.com/v1beta/openai", "gemma-4-test"
+    thought = {"google": {"thought": True}}
+    transport = _ScriptedTransport(
+        [
+            _Refusal("Thinking budget is not supported for this model."),
+            _openai_text(),
+            _openai_text(),
+            [
+                _data({"choices": [{"delta": {"content": "<thought>plan", "extra_content": thought}}]}),
+                _data({"choices": [{"delta": {"content": " more", "extra_content": thought}}]}),
+                _data({"choices": [{"delta": {"content": "</thought>Hi there."}, "finish_reason": "stop"}]}),
+                "data: [DONE]",
+            ],
+        ]
+    )
+    client = LLMClient(endpoint, "secret")
+    messages = [{"role": "user", "content": "turn"}]
+
+    async def run(on: bool) -> dict:
+        events = [event async for event in client.complete(messages, model, max_tokens=100, **reasoning_cfg(on))]
+        return events[-1]["message"]
+
+    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport):
+        assert (await run(False))["content"] == "draft"
+        assert (await run(False))["content"] == "draft"
+        reply = await run(True)
+
+    bodies = [request["body"] for request in transport.requests]
+    assert [body.get("reasoning_effort") for body in bodies] == ["none", "minimal", "minimal", None]
+    # The surface refuses Orb's other reasoning dialects by name, so none is ever sent.
+    assert not any({"reasoning", "thinking", "chat_template_kwargs"} & body.keys() for body in bodies)
+    assert reply["content"] == "Hi there."
+    assert reply["reasoning_content"] == "plan more"

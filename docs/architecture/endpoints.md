@@ -75,10 +75,15 @@ cached per configured URL and model for the life of the backend process;
 configured settings are never rewritten.
 
 A rejected `reasoning_effort` value is recovered on any OpenAI-protocol route:
-Orb offers a superset of levels (`xhigh` is not a Gemini value), so a body that
-names the field as invalid drops it for one retry and for the rest of the
-session. Providers' accepted sets move, so this is learned from the response
-rather than held as a per-provider list.
+Orb offers a superset of levels, and providers validate against their own. The
+refused level is learned per model and the call moves to the nearest level that
+keeps its intent: `none` to `minimal`, `xhigh` to `high`, `low` to `medium` to
+`high`; a level with nowhere left to go is dropped. Learning is per level, so a
+refused `xhigh` never costs a reasoning-off call a `none` the model takes. A
+refusal counts when the body names `reasoning_effort` as invalid or names the
+thinking budget or level it maps to as unsupported (Google's wording). Providers'
+accepted sets move, so this is learned from the response rather than held as a
+per-provider list.
 
 An endpoint that always reasons refuses a request that turns reasoning off:
 OpenRouter answers "Reasoning is mandatory for this endpoint and cannot be
@@ -269,11 +274,18 @@ any structured-output endpoint above. A pass that offers tools under
 Editor's unforced iteration is the one such pass, and it stops as it would for
 any model that declined to call a tool.
 
-Reasoning-off is translated. Orb's `reasoning`, `chat_template_kwargs`, and
-`thinking` fields mean nothing to the compatibility layer and are silently
-ignored, so reasoning-off calls carry `reasoning_effort: "none"` — the control
-the layer actually reads. Families that cannot disable thinking reject that
-value; the rejection is learned per model like any other capability fact.
+Reasoning is translated. The compatibility layer refuses Orb's `reasoning`,
+`chat_template_kwargs`, and `thinking` fields by name, so they are never sent,
+and reasoning-off calls carry `reasoning_effort: "none"` — the control the layer
+actually reads. Families that cannot disable thinking refuse that value (Gemma 4
+takes only `minimal` and `high`; Gemini 3.5 Flash-Lite answers only "Request
+contains an invalid argument.", which is read as the refusal on this surface
+for `none` alone), and the step to `minimal` is learned per model as above.
+
+Gemma models stream their thought as `content` deltas flagged
+`extra_content.google.thought`, wrapped in `<thought>` tags. The stream parser
+moves those into reasoning, so the reply and a forced call's JSON carry only the
+answer.
 
 `logprobs` is not supported on this surface, so Document mode's per-token
 steering is unavailable on Gemini for the same reason it is on Anthropic.

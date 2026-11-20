@@ -80,6 +80,13 @@ def _spent_budget(usage: object, max_tokens: int | None) -> bool:
     return isinstance(spent, int) and not isinstance(spent, bool) and spent >= max_tokens
 
 
+def _is_google_thought(delta: Mapping[str, Any]) -> bool:
+    """Whether Google's compatibility layer flagged this delta's content as thought (``extra_content.google.thought``)."""
+    extra = delta.get("extra_content")
+    google = extra.get("google") if isinstance(extra, Mapping) else None
+    return isinstance(google, Mapping) and google.get("thought") is True
+
+
 async def consume_openai(
     payloads: AsyncIterable[str],
     acc: ChatStream,
@@ -117,6 +124,9 @@ async def consume_openai(
         return unindexed
 
     saw_done = False
+    # Google streams a Gemma model's thought as content flagged thought and wrapped in ``<thought>`` tags, the closing tag leading
+    # the first unflagged delta. It is reasoning, so it must not reach the reply, or a forced call's JSON.
+    in_thought = False
     async for payload in payloads:
         if payload == "[DONE]":
             saw_done = True
@@ -149,6 +159,16 @@ async def consume_openai(
                 yield {"type": "reasoning", "delta": delta[rc_key]}
             merge_reasoning_details(acc.reasoning_details, delta.get("reasoning_details"))
             content = delta.get("content")
+            if content and _is_google_thought(delta):
+                thought = (content if in_thought else content.removeprefix("<thought>")).removesuffix("</thought>")
+                in_thought = True
+                content = None
+                if thought:
+                    acc.reasoning_parts.append(thought)
+                    yield {"type": "reasoning", "delta": thought}
+            elif content and in_thought:
+                in_thought = False
+                content = content.removeprefix("</thought>")
             if content:
                 acc.content_parts.append(content)
                 if not forced:
