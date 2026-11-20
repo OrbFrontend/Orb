@@ -44,8 +44,7 @@ REWRITE_RULES = (
     "REWRITE RULES:\n"
     "- Your current draft is the single last assistant message, i.e. the text between: {bounds}.\n"
     "- Put the complete new reply in `rewritten_text`, from its first word to its last; it replaces the whole draft.\n"
-    "- Keep the story beats, dialogue and formatting the task does not ask you to change.\n"
-    "- Write only the reply itself, with no notes or commentary about the rewrite.\n"
+    "- Output only the reply itself, with no notes or commentary about the rewrite.\n"
 )
 
 DRAFT_BOUND_WORDS = 5
