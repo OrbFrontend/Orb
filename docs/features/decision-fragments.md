@@ -24,7 +24,8 @@ decision model answers on its own `/v1/systemone` route, which Orb finds from th
 server's base URL. Google AI Studio's decision model (`gemini-decision-1`) answers
 at `/v1beta/decisions`, which Orb derives from the Google host, `/v1beta`, or the
 `/v1beta/openai` chat URL; Orb sends that route Google's request field and API-key
-header. **Test** sends a synthetic situation and does not
+header, and asks yes/no decisions as a choice between their two outcomes because
+that route refuses outcome text on a yes/no question. **Test** sends a synthetic situation and does not
 include conversation content. Without a configured Judge, decisions are skipped
 and reported in the Inspector.
 

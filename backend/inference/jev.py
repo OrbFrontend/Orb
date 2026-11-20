@@ -76,9 +76,12 @@ class DecisionQuestion:
     criteria: Mapping[str, str] | Sequence[str]
     question_type: str = "noul"
 
-    def payload(self) -> dict[str, Any]:
+    def payload(self, *, noul_criteria: bool = True) -> dict[str, Any]:
         criteria = dict(self.criteria) if isinstance(self.criteria, Mapping) else list(self.criteria)
-        payload: dict[str, Any] = {"type": self.question_type, "instructions": self.instructions}
+        question_type = self.question_type
+        if question_type == "noul" and criteria and not noul_criteria:
+            question_type = "choice"
+        payload: dict[str, Any] = {"type": question_type, "instructions": self.instructions}
         # A noul with no criteria is a plain yes/no; Jev rejects an empty criteria object.
         if criteria:
             payload["criteria"] = criteria
@@ -143,6 +146,10 @@ def _distribution(value: Any, keys: Sequence[str]) -> dict[str, float] | None:
 def _answer(entry: Any, question: DecisionQuestion) -> NormalizedAnswer | None:
     if not isinstance(entry, Mapping):
         return None
+    if question.question_type == "noul" and entry.get("type") == "choice" and isinstance(question.criteria, Mapping):
+        # A noul asked as a choice between its outcomes (see ``Dialect.decision_noul_criteria``).
+        probabilities = _distribution(entry.get("probabilities"), tuple(question.criteria))
+        return probabilities.get("true") if probabilities is not None else None
     if entry.get("type") not in (None, question.question_type):
         return None
     if question.question_type == "noul":
@@ -252,7 +259,7 @@ class DecisionClient:
         body = {
             "model": self.model,
             self.dialect.decision_state_field: state,
-            "questions": {q.key: q.payload() for q in questions},
+            "questions": {q.key: q.payload(noul_criteria=self.dialect.decision_noul_criteria) for q in questions},
         }
         started = time.monotonic()
         encoded = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()

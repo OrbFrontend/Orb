@@ -131,3 +131,5 @@ class Google(Dialect):
 
     # Decision questions and answers are Jev's shape, but ``state`` is refused as an unknown parameter.
     decision_state_field = "input"
+    # Its noul criteria object takes no outcome fields ("Unknown parameter 'true'"); its choice questions take any keys.
+    decision_noul_criteria = False

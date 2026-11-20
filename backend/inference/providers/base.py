@@ -112,3 +112,5 @@ class Dialect:
 
     # The request field that carries the situation to a decisions route.
     decision_state_field = "state"
+    # Whether a noul question may carry its true/false outcome text; when not, it travels as a choice between them.
+    decision_noul_criteria = True

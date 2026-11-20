@@ -253,15 +253,17 @@ async def test_a_google_judge_gets_googles_request_shape(monkeypatch):
 
     async def _post(self, url, *, content, headers):  # noqa: ANN001
         sent.update(url=url, body=json.loads(content), headers=headers)
-        answer = {"type": "noul", "noul": 0.8, "confidence": 0.8}
+        answer = {"type": "choice", "choice": "true", "probabilities": {"true": 0.8, "false": 0.2}, "confidence": 0.8}
         return httpx.Response(200, json={"answers": {"q": answer}}, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _post)
     url = decisions_url("https://generativelanguage.googleapis.com/v1beta/openai/")
     response = await DecisionClient(url, "gk", "gemini-decision-1", timeout=5).decide(
-        "situation", [DecisionQuestion("q", "Is it so?", {})]
+        "situation", [DecisionQuestion("q", "Is it so?", {"true": "It is.", "false": "It is not."})]
     )
 
+    # Its noul criteria object takes no outcome fields, so a noul with outcome text is asked as a choice between them.
+    assert sent["body"]["questions"]["q"]["type"] == "choice"
     assert response.answers == {"q": 0.8}
     assert sent["body"]["input"] == "situation" and "state" not in sent["body"]
     assert sent["headers"]["x-goog-api-key"] == "gk" and "Authorization" not in sent["headers"]
