@@ -43,6 +43,32 @@ _SYSTEMONE_ROUTE = ("v1", "systemone")
 # Derived routes that 404'd and answered on their ``/v1/systemone`` sibling instead.
 _SYSTEMONE_FALLBACKS: dict[str, str] = {}
 
+# Google AI Studio serves its decision models (``gemini-decision-1``) at ``/v1beta/decisions``. The question and answer shapes
+# are Jev's, but the situation travels as ``input`` rather than ``state`` (``state`` is refused as an unknown parameter), and the
+# key goes in ``x-goog-api-key``: Google reads a Bearer token as OAuth and refuses an API key there. The dialect is identified
+# by its version-prefixed route, so a proxy exposing the same shape gets the same request.
+_GOOGLE_VERSIONS = ("v1beta", "v1alpha")
+_GOOGLE_SUFFIXES = (*_ROUTE_SUFFIXES, "openai", "models")
+_GOOGLE_HOST = "generativelanguage.googleapis.com"
+
+
+def _google_route(netloc: str, segments: Sequence[str]) -> list[str] | None:
+    """The Google decisions route for a chat-style Google URL (``/v1beta/openai``, ``/v1beta``, or the bare host)."""
+    trimmed = list(segments)
+    while trimmed and trimmed[-1] in _GOOGLE_SUFFIXES:
+        trimmed.pop()
+    if trimmed and trimmed[-1] in _GOOGLE_VERSIONS:
+        return [*trimmed, "decisions"]
+    if not trimmed and netloc.lower() == _GOOGLE_HOST:
+        return [_GOOGLE_VERSIONS[0], "decisions"]
+    return None
+
+
+def is_google_decisions_route(url: str) -> bool:
+    """Whether *url* is a ``/v1beta/decisions``-shaped Google route."""
+    segments = [segment for segment in urlsplit(url).path.split("/") if segment]
+    return len(segments) >= 2 and segments[-1] == "decisions" and segments[-2] in _GOOGLE_VERSIONS
+
 
 def decisions_url(base_url: str) -> str:
     """Derive the Judge route, preserving URLs that already end in ``decisions`` or ``systemone``."""
@@ -50,6 +76,8 @@ def decisions_url(base_url: str) -> str:
     segments = [segment for segment in parts.path.split("/") if segment]
     if segments and segments[-1] in _ROUTE_ENDINGS:
         return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(segments), "", ""))
+    if (google := _google_route(parts.netloc, segments)) is not None:
+        return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(google), "", ""))
     while segments and segments[-1] in _ROUTE_SUFFIXES:
         segments.pop()
     return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join((*segments, *_DERIVED_ROUTE)), "", ""))
@@ -231,6 +259,7 @@ class DecisionClient:
         self.model = model
         self.timeout = timeout
         self.proxy = proxy or None
+        self.google = is_google_decisions_route(url)
 
     async def decide(
         self,
@@ -242,7 +271,11 @@ class DecisionClient:
     ) -> DecisionResponse:
         if abort is not None and abort.is_aborted:
             raise DecisionCancelled("stopped before the decision request was sent")
-        body = {"model": self.model, "state": state, "questions": {q.key: q.payload() for q in questions}}
+        body = {
+            "model": self.model,
+            "input" if self.google else "state": state,
+            "questions": {q.key: q.payload() for q in questions},
+        }
         started = time.monotonic()
         encoded = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
         call = asyncio.ensure_future(self._post(encoded, timeout if timeout is not None else self.timeout))
@@ -267,7 +300,9 @@ class DecisionClient:
 
     async def _post(self, body: bytes, timeout: float) -> Any:
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
+        if self.api_key and self.google:
+            headers["x-goog-api-key"] = self.api_key
+        elif self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=timeout, proxy=self.proxy) as client:
             url = _SYSTEMONE_FALLBACKS.get(self.url, self.url)

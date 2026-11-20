@@ -21,7 +21,10 @@ In **Endpoints → Judge**, set the endpoint URL, API key, model, and optional
 proxy. Orb derives the decisions route from the URL; a URL that already ends in
 `/decisions` or `/systemone` is used as given. A llama.cpp server running a
 decision model answers on its own `/v1/systemone` route, which Orb finds from the
-server's base URL. **Test** sends a synthetic situation and does not
+server's base URL. Google AI Studio's decision model (`gemini-decision-1`) answers
+at `/v1beta/decisions`, which Orb derives from the Google host, `/v1beta`, or the
+`/v1beta/openai` chat URL; Orb sends that route Google's request field and API-key
+header. **Test** sends a synthetic situation and does not
 include conversation content. Without a configured Judge, decisions are skipped
 and reported in the Inspector.
 

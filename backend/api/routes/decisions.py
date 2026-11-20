@@ -84,7 +84,10 @@ def _rejection_sentence(error: LLMCallError) -> str:
     parts = [f"HTTP {status}"]
     if error.sentence:
         parts.append(error.sentence)
-    if status == 404:
+    if status == 404 and "model" in error.sentence.lower():
+        # Google answers an unknown model with a 404 too ("Requested model not found"); the route itself was found.
+        parts.append("the route answered but does not know this model — check the Judge Model")
+    elif status == 404:
         parts.append("no decisions route answered at this URL — check the Judge Endpoint URL")
     elif status in (401, 403):
         parts.append("the endpoint's API key was rejected")

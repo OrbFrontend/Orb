@@ -11,7 +11,14 @@ import httpx
 import pytest
 
 import backend.database as dbmod
-from backend.inference import RAW_ANSWER_CACHE, DecisionCancelled, DecisionResponse
+from backend.inference import (
+    RAW_ANSWER_CACHE,
+    DecisionCancelled,
+    DecisionClient,
+    DecisionQuestion,
+    DecisionResponse,
+    decisions_url,
+)
 from backend.inference.errors import llm_call_error
 from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_speak, handle_turn
 from backend.pipeline.passes.judge import judge as judge_module
@@ -227,11 +234,37 @@ async def test_configuration_derives_the_route(client, db):
         ("https://gw.test/v2/judge/decisions", "https://gw.test/v2/judge/decisions"),
         # The prefix is not doubled when the endpoint already carries it.
         ("https://openrouter.ai/api/alpha", "https://openrouter.ai/api/alpha/decisions"),
+        # Google AI Studio's chat URL, bare host, or version root all lead to its own decisions route.
+        (
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "https://generativelanguage.googleapis.com/v1beta/decisions",
+        ),
+        ("https://generativelanguage.googleapis.com", "https://generativelanguage.googleapis.com/v1beta/decisions"),
     ],
 )
 async def test_a_judge_endpoint_route_is_derived_from_its_url(client, db, url, resolved):
     await _configure(client, url=url)
     assert (await client.get_json("/api/decisions/config"))["resolved_url"] == resolved
+
+
+async def test_a_google_judge_gets_googles_request_shape(monkeypatch):
+    # Google refuses ``state`` as an unknown parameter and reads a Bearer key as a bad OAuth token.
+    sent = {}
+
+    async def _post(self, url, *, content, headers):  # noqa: ANN001
+        sent.update(url=url, body=json.loads(content), headers=headers)
+        answer = {"type": "noul", "noul": 0.8, "confidence": 0.8}
+        return httpx.Response(200, json={"answers": {"q": answer}}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _post)
+    url = decisions_url("https://generativelanguage.googleapis.com/v1beta/openai/")
+    response = await DecisionClient(url, "gk", "gemini-decision-1", timeout=5).decide(
+        "situation", [DecisionQuestion("q", "Is it so?", {})]
+    )
+
+    assert response.answers == {"q": 0.8}
+    assert sent["body"]["input"] == "situation" and "state" not in sent["body"]
+    assert sent["headers"]["x-goog-api-key"] == "gk" and "Authorization" not in sent["headers"]
 
 
 async def test_a_chat_endpoint_cannot_be_selected_as_the_judge(client, db):
