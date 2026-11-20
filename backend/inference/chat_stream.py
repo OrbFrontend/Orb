@@ -14,6 +14,7 @@ from typing import Any
 from ..core.llm_types import CompletionDelta, TokenProbability, ToolCall
 from . import text_completion
 from .errors import llm_stream_error
+from .providers import DeltaReader
 
 
 @dataclass(slots=True)
@@ -80,17 +81,11 @@ def _spent_budget(usage: object, max_tokens: int | None) -> bool:
     return isinstance(spent, int) and not isinstance(spent, bool) and spent >= max_tokens
 
 
-def _is_google_thought(delta: Mapping[str, Any]) -> bool:
-    """Whether Google's compatibility layer flagged this delta's content as thought (``extra_content.google.thought``)."""
-    extra = delta.get("extra_content")
-    google = extra.get("google") if isinstance(extra, Mapping) else None
-    return isinstance(google, Mapping) and google.get("thought") is True
-
-
 async def consume_openai(
     payloads: AsyncIterable[str],
     acc: ChatStream,
     *,
+    reader: DeltaReader | None = None,
     forced: bool,
     url: str,
     model: str,
@@ -102,8 +97,10 @@ async def consume_openai(
 
     A *forced* call buffers its content as the tool-arguments payload instead of streaming it, so the caller never sees a
     half-built JSON body. An in-band error or a stream without a finish reason or ``[DONE]`` is a provider failure, except an
-    error whose usage spent the whole *max_tokens*: that reply was cut off at its budget, and finishes as ``length``.
+    error whose usage spent the whole *max_tokens*: that reply was cut off at its budget, and finishes as ``length``. The route's
+    dialect *reader* splits each delta's content from any reasoning its provider streams inside it.
     """
+    reader = reader or DeltaReader()
     # Slot last handed to an index-less delta; -1 before the first.
     unindexed = -1
 
@@ -124,9 +121,6 @@ async def consume_openai(
         return unindexed
 
     saw_done = False
-    # Google streams a Gemma model's thought as content flagged thought and wrapped in ``<thought>`` tags, the closing tag leading
-    # the first unflagged delta. It is reasoning, so it must not reach the reply, or a forced call's JSON.
-    in_thought = False
     async for payload in payloads:
         if payload == "[DONE]":
             saw_done = True
@@ -158,17 +152,10 @@ async def consume_openai(
                 acc.reasoning_parts.append(delta[rc_key])
                 yield {"type": "reasoning", "delta": delta[rc_key]}
             merge_reasoning_details(acc.reasoning_details, delta.get("reasoning_details"))
-            content = delta.get("content")
-            if content and _is_google_thought(delta):
-                thought = (content if in_thought else content.removeprefix("<thought>")).removesuffix("</thought>")
-                in_thought = True
-                content = None
-                if thought:
-                    acc.reasoning_parts.append(thought)
-                    yield {"type": "reasoning", "delta": thought}
-            elif content and in_thought:
-                in_thought = False
-                content = content.removeprefix("</thought>")
+            thought, content = reader.read(delta)
+            if thought:
+                acc.reasoning_parts.append(thought)
+                yield {"type": "reasoning", "delta": thought}
             if content:
                 acc.content_parts.append(content)
                 if not forced:

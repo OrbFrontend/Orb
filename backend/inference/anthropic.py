@@ -10,6 +10,7 @@ from typing import Any
 from ..core.llm_types import CompletionDelta
 from .chat_stream import ChatStream
 from .errors import llm_stream_error
+from .ledger import LEDGER
 from .schema import strictify_schema
 
 # Anthropic rejects unknown top-level fields. These are the only user-provided extra_body keys accepted on a native Messages
@@ -19,12 +20,9 @@ EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"cache_control", "metadata", "se
 _DEFAULT_MAX_TOKENS = 4096
 
 # Sampling support is a capability of the concrete endpoint/model pair, not something that can be inferred from a provider-owned
-# model id. Send the caller's controls optimistically and remember an explicit rejection.
-_SAMPLING_UNSUPPORTED: set[tuple[str, str]] = set()
-
-# Some Messages implementations accept an older ``budget_tokens`` shape and reject adaptive thinking or
-# ``output_config.effort``. As with sampling, the modern fields go out once and an explicit rejection is remembered.
-_THINKING_UNSUPPORTED: set[tuple[str, str]] = set()
+# model id. Send the caller's controls optimistically and remember an explicit rejection in the ledger. Some Messages
+# implementations accept an older ``budget_tokens`` shape and reject adaptive thinking or ``output_config.effort``; as with
+# sampling, the modern fields go out once and an explicit rejection is remembered.
 
 
 def _text_parts(content: object) -> list[dict[str, Any]]:
@@ -186,10 +184,6 @@ def _translate_tool_choice(choice: object) -> dict[str, Any] | None:
     return None
 
 
-def _sampling_allowed(endpoint_url: str, model: str) -> bool:
-    return (endpoint_url, model) not in _SAMPLING_UNSUPPORTED
-
-
 def build_request_body(
     openai_body: Mapping[str, Any], endpoint_url: str, model: str, extra_body: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -215,13 +209,14 @@ def build_request_body(
     reasoning_on = (isinstance(reasoning, Mapping) and reasoning.get("enabled") is True) or (
         isinstance(thinking, Mapping) and thinking.get("type") == "enabled"
     )
-    if reasoning_on and (endpoint_url, model) not in _THINKING_UNSUPPORTED:
+    learned = LEDGER.peek(endpoint_url, model)
+    if reasoning_on and not learned.thinking_unsupported:
         body["thinking"] = {"type": "adaptive", "display": "summarized"}
         effort = openai_body.get("reasoning_effort")
         if effort in {"low", "medium", "high", "xhigh", "max"}:
             body["output_config"] = {"effort": effort}
 
-    if _sampling_allowed(endpoint_url, model):
+    if not learned.sampling_unsupported:
         for key in ("temperature", "top_p", "top_k"):
             value = openai_body.get(key)
             if value is not None:
@@ -246,7 +241,7 @@ def recover_thinking_error(endpoint_url: str, model: str, body: dict[str, Any], 
         return None
     if not any(marker in low for marker in ("unsupported", "not supported", "not allowed", "extra inputs")):
         return None
-    _THINKING_UNSUPPORTED.add((endpoint_url, model))
+    LEDGER.facts(endpoint_url, model).thinking_unsupported = True
     for key in present:
         body.pop(key, None)
     return f"Model {model} rejected Anthropic reasoning fields {present}; retrying without them."
@@ -262,7 +257,7 @@ def recover_sampling_error(endpoint_url: str, model: str, body: dict[str, Any], 
         return None
     if not any(marker in low for marker in ("unsupported", "not supported", "not allowed", "extra inputs")):
         return None
-    _SAMPLING_UNSUPPORTED.add((endpoint_url, model))
+    LEDGER.facts(endpoint_url, model).sampling_unsupported = True
     for key in present:
         body.pop(key, None)
     return f"Model {model} rejected Anthropic sampling fields {present}; retrying without them."

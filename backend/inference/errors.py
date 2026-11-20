@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -37,6 +37,40 @@ class EndpointConfigError(ValueError):
     """
 
 
+# What a rejection says went wrong, decided once where the error is built:
+# - ``unknown_route``: the body specifically identifies an HTTP route mismatch, so another route on the host may answer;
+# - ``unknown_model``: a 404 whose sentence names the model, so the route answered but does not serve it;
+# - ``auth``: the key was refused;
+# - ``other``: anything else, including a bare 404 that names neither.
+ErrorKind = Literal["unknown_route", "unknown_model", "auth", "other"]
+
+_ROUTE_MISMATCH_MARKERS = (
+    "cannot post /",
+    "route not found",
+    "unknown endpoint",
+    "unrecognized request url",
+    "unsupported endpoint",
+    "invalid url (post",
+)
+
+
+def classify(status: int, text: str) -> ErrorKind:
+    """The :data:`ErrorKind` of a rejection with *status* and body *text*.
+
+    The status alone never makes a route mismatch: a 400 or 404 can describe a bad model, schema, or tool choice.
+    """
+    low = text.lower()
+    native_not_found = status == 404 and "not_found_error" in low and "model" not in low
+    if native_not_found or any(marker in low for marker in _ROUTE_MISMATCH_MARKERS):
+        return "unknown_route"
+    if status in (401, 403):
+        return "auth"
+    # Google answers an unknown model with a 404 too ("Requested model not found"); the route itself was found.
+    if status == 404 and "model" in provider_sentence(text).lower():
+        return "unknown_model"
+    return "other"
+
+
 class LLMCallError(httpx.HTTPStatusError):
     """A provider rejection with the provider's own words kept alongside the status.
 
@@ -47,9 +81,19 @@ class LLMCallError(httpx.HTTPStatusError):
     stream_event = False
 
     def __init__(
-        self, message: str, *, request: httpx.Request, response: httpx.Response, sentence: str, body: str, host: str, model: str
+        self,
+        message: str,
+        *,
+        request: httpx.Request,
+        response: httpx.Response,
+        sentence: str,
+        body: str,
+        host: str,
+        model: str,
+        kind: ErrorKind = "other",
     ) -> None:
         super().__init__(message, request=request, response=response)
+        self.kind: ErrorKind = kind
         self.sentence = sentence
         self.body = body
         self.host = host
@@ -174,6 +218,7 @@ def llm_call_error(*, response: httpx.Response, body: str, url: str, model: str,
         body=clean,
         host=host,
         model=model,
+        kind=classify(response.status_code, body),
     )
 
 
@@ -188,4 +233,6 @@ def llm_stream_error(*, payload: object, url: str, model: str, api_key: str) -> 
     response = httpx.Response(502, request=request)
     error = llm_call_error(response=response, body=body, url=url, model=model, api_key=api_key)
     error.stream_event = True
+    # An in-band error is not an HTTP rejection of the route, the model, or the key.
+    error.kind = "other"
     return error

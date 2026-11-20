@@ -13,8 +13,8 @@ import pytest
 
 from backend.inference import anthropic, prompt_cache
 from backend.inference import client as llm_mod
-from backend.inference import endpoint_profiles as ep
 from backend.inference.client import LLMClient, parse_tool_calls
+from backend.inference.ledger import LEDGER
 from backend.prompting.tool_catalog import BUILTIN_TOOL_ORDER, enabled_schemas
 
 
@@ -138,7 +138,7 @@ async def _complete(client: LLMClient, model: str, choice: dict | str) -> list[d
     ],
 )
 async def test_director_writer_editor_calls_cross_protocol_boundary(provider, endpoint, model):
-    ep._RESOLVED_ROUTES.clear()
+    LEDGER.reset()
     if provider == "anthropic":
         scripts = [_anthropic_tool("direct_scene"), _anthropic_text(), _anthropic_tool("editor_apply_patch")]
     elif provider == "gemini":
@@ -182,7 +182,7 @@ async def test_director_writer_editor_calls_cross_protocol_boundary(provider, en
 @pytest.mark.parametrize("provider", ["openai", "anthropic"])
 async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider):
     """Pin object-key and tool-array order at the actual HTTP request boundary."""
-    ep._RESOLVED_ROUTES.clear()
+    LEDGER.reset()
     model = "claude-haiku-4-5" if provider == "anthropic" else "openai-model"
     endpoint = "https://api.anthropic.com/v1/messages" if provider == "anthropic" else "https://openai.test/v1/chat/completions"
     messages = [{"role": "system", "content": "system"}, {"role": "user", "content": "turn"}]
@@ -226,7 +226,7 @@ async def test_assistant_image_uses_existing_image_transport_after_its_tool_resu
     from backend.features.assistant import AssistantTool, ToolOutput, ViewContext, run_assistant
     from backend.features.assistant.contracts import NoArguments
 
-    ep._RESOLVED_ROUTES.clear()
+    LEDGER.reset()
     step = {"tool": "image", "message": "Making an image."}
     reply = {"tool": "reply", "message": "I can see the image."}
     if provider == "anthropic":
@@ -298,7 +298,7 @@ async def test_gemma_on_gemini_turns_reasoning_off_and_keeps_thoughts_out_of_the
     its thought as content flagged ``extra_content.google.thought`` inside ``<thought>`` tags."""
     from backend.inference.client import reasoning_cfg
 
-    ep._RESOLVED_ROUTES.clear()
+    LEDGER.reset()
     endpoint, model = "https://generativelanguage.googleapis.com/v1beta/openai", "gemma-4-test"
     thought = {"google": {"thought": True}}
     transport = _ScriptedTransport(
@@ -341,7 +341,7 @@ async def test_googles_bare_400_is_learned_as_a_none_refusal_only_once_the_stepp
     from backend.inference.client import reasoning_cfg
     from backend.inference.errors import LLMCallError
 
-    ep._RESOLVED_ROUTES.clear()
+    LEDGER.reset()
     endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
     bare = "Request contains an invalid argument."
     transport = _ScriptedTransport(
@@ -373,3 +373,32 @@ async def test_googles_bare_400_is_learned_as_a_none_refusal_only_once_the_stepp
 
     efforts = [request["body"].get("reasoning_effort") for request in transport.requests]
     assert efforts == ["none", "minimal", "none", "none", "none", "minimal", "minimal"]
+
+
+async def test_a_route_probed_onto_googles_surface_gets_its_dialect_on_the_first_call():
+    """The dialect follows the route being called, not the configured URL, so the call that discovers the route already speaks
+    it instead of sending the reasoning fields that surface refuses by name."""
+    from backend.inference.client import reasoning_cfg
+
+    LEDGER.reset()
+
+    class _RouteMismatch(_Refusal):
+        status_code = 404
+
+        async def aread(self):
+            return b"Cannot POST /chat/completions"
+
+    transport = _ScriptedTransport(
+        [_RouteMismatch(""), _RouteMismatch(""), _RouteMismatch(""), _RouteMismatch(""), _openai_text()]
+    )
+    client = LLMClient("https://gateway.test", "secret")
+    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport):
+        async for _ in client.complete(
+            [{"role": "user", "content": "turn"}], "gemini-probed", max_tokens=100, **reasoning_cfg(False)
+        ):
+            pass
+
+    probed = transport.requests[-1]
+    assert probed["url"] == "https://gateway.test/v1beta/openai/chat/completions"
+    assert probed["body"]["reasoning_effort"] == "none"
+    assert not {"reasoning", "thinking", "chat_template_kwargs"} & probed["body"].keys()

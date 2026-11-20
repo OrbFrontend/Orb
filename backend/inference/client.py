@@ -13,10 +13,10 @@ import httpx
 from ..core.domain_types import AgentLane
 from ..core.llm_types import CompletionDone, CompletionEvent, CompletionMessage, ParsedToolCall, ReasoningReplay
 from ..core.settings import Settings
-from . import anthropic, endpoint_profiles, gpu_swap, prompt_cache, text_completion
+from . import anthropic, endpoint_profiles, gpu_swap, prompt_cache, providers, text_completion
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
-from .errors import EndpointConfigError, LLMCallError, llm_call_error
+from .errors import EndpointConfigError, LLMCallError, classify, llm_call_error
 from .gemma_tool_format import gemma_call_json, parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
@@ -323,28 +323,23 @@ class LLMClient:
 
     def request_headers(self) -> dict:
         """The auth and extra headers every native request carries."""
-        return self._headers()
+        return self._headers_for("bearer", self.base_url)
 
-    def _headers(self) -> dict:
-        base: dict = {}
-        if self.api_key:
-            base["Authorization"] = f"Bearer {self.api_key}"
-        # HTTP header names are case-insensitive but dict keys are not, so drop a base header the configured set respells: a
-        # lowercase 'authorization' override -- the form most provider docs use -- would otherwise send the Bearer key alongside
-        # it. These ride every transport, unlike extra_body.
-        configured = {k.lower() for k in self.extra_headers}
-        headers = {k: v for k, v in base.items() if k.lower() not in configured}
-        headers.update(self.extra_headers)
-        return headers
+    def _headers_for(
+        self, auth_family: endpoint_profiles.AuthFamily, url: str, defaults: Mapping[str, str] | None = None
+    ) -> dict:
+        """Return transport auth for *url* and *defaults* with case-insensitive user overrides.
 
-    def _headers_for(self, auth_family: endpoint_profiles.AuthFamily, defaults: Mapping[str, str] | None = None) -> dict:
-        """Return transport auth and *defaults* with case-insensitive user overrides."""
+        HTTP header names are case-insensitive but dict keys are not, so a base header the configured set respells is dropped: a
+        lowercase 'authorization' override -- the form most provider docs use -- would otherwise send the key alongside it.
+        Extra headers ride every transport, unlike extra_body.
+        """
         base: dict[str, str] = dict(defaults or {})
         if self.api_key:
             if auth_family == "anthropic":
                 base["x-api-key"] = self.api_key
             else:
-                base["Authorization"] = f"Bearer {self.api_key}"
+                base.update(providers.resolve(url).auth_headers(url, self.api_key))
         if auth_family == "anthropic":
             base["anthropic-version"] = "2023-06-01"
         configured = {key.lower() for key in self.extra_headers}
@@ -369,7 +364,7 @@ class LLMClient:
                 if candidate in seen:
                     continue
                 seen.add(candidate)
-                response = await client.get(route.models_url, headers=self._headers_for(route.auth_family))
+                response = await client.get(route.models_url, headers=self._headers_for(route.auth_family, route.url))
                 if response.status_code >= 400:
                     last_response = response
                     continue
@@ -385,15 +380,12 @@ class LLMClient:
                     continue
 
                 endpoint_profiles.note_successful_route(self.base_url, "", route)
+                dialect = providers.resolve(route.url)
                 model_ids: set[str] = set()
                 for item in data:
                     model_id = item.get("id") if isinstance(item, dict) else None
                     if isinstance(model_id, str) and model_id.strip():
-                        normalized = model_id.strip()
-                        # This compatibility resource lists ids with a ``models/`` prefix that generation does not need.
-                        if normalized.startswith("models/") and endpoint_profiles.is_gemini_openai_surface(route.url):
-                            normalized = normalized.removeprefix("models/")
-                        model_ids.add(normalized)
+                        model_ids.add(dialect.normalize_model_id(model_id.strip()))
                 return sorted(model_ids, key=str.casefold)
 
         if contract_error is not None:
@@ -638,7 +630,7 @@ class LLMClient:
             if route.protocol == "openai" and self.extra_body:
                 outbound.update(self.extra_body)
                 _log_once(f"LLM extra body fields: {sorted(self.extra_body)}")
-            for action in endpoint_profiles.prepare_request_body(self.base_url, model, outbound):
+            for action in endpoint_profiles.prepare_request_body(self.base_url, model, outbound, route):
                 _log_once(f"LLM profile: {action}")
             if cache_markers:
                 outbound["messages"] = prompt_cache.mark_cache_breakpoints(outbound["messages"], cache_prefix_len)
@@ -672,7 +664,7 @@ class LLMClient:
                 auth_retried = False
                 while True:
                     outbound = _outbound_body(body, route, cache_markers=cache_markers)
-                    headers = self._headers_for(auth_family, affinity)
+                    headers = self._headers_for(auth_family, route.url, affinity)
                     # No read timeout on streaming calls: a long prefill silence
                     # is normal; abort and disconnect close the stream instead.
                     async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
@@ -686,7 +678,7 @@ class LLMClient:
                                 # Anthropic translation drops.
                                 if recovery_count < 3:
                                     fix = endpoint_profiles.recover_from_error(
-                                        self.base_url, model, outbound, resp.status_code, err_text
+                                        self.base_url, model, outbound, resp.status_code, err_text, route
                                     )
                                     if fix is None and route.protocol == "anthropic":
                                         fix = anthropic.recover_sampling_error(
@@ -714,9 +706,7 @@ class LLMClient:
                                     auth_retried = True
                                     logger.warning("LLM auth recovery: retrying %s with %s auth", route.url, auth_family)
                                     continue
-                                if route_index + 1 < len(routes) and endpoint_profiles.should_probe_route(
-                                    resp.status_code, err_text
-                                ):
+                                if route_index + 1 < len(routes) and classify(resp.status_code, err_text) == "unknown_route":
                                     logger.warning(
                                         "LLM endpoint probe: %s rejected the route; trying %s",
                                         route.url,
@@ -758,6 +748,7 @@ class LLMClient:
                                 async for event in consume_openai(
                                     payloads,
                                     acc,
+                                    reader=providers.resolve(route.url).delta_reader(),
                                     forced=forced,
                                     url=route.url,
                                     model=model,
@@ -843,7 +834,7 @@ class LLMClient:
         if chat_template_kwargs is not None:
             body["chat_template_kwargs"] = dict(chat_template_kwargs)
         async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.post(f"{server_root}/apply-template", json=body, headers=self._headers())
+            resp = await client.post(f"{server_root}/apply-template", json=body, headers=self.request_headers())
             resp.raise_for_status()
             return resp.json()["prompt"]
 
@@ -883,7 +874,9 @@ class LLMClient:
         A router's own ``/props`` carries no template, so *model* names the one to read (and loads it, as the call is about to).
         """
         async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.get(f"{server_root}/props", params={"model": model} if model else None, headers=self._headers())
+            resp = await client.get(
+                f"{server_root}/props", params={"model": model} if model else None, headers=self.request_headers()
+            )
             resp.raise_for_status()
             try:
                 data = resp.json()
@@ -933,7 +926,7 @@ class LLMClient:
         # read=None for the same reason as the chat transport: llama.cpp is silent for the whole prefill, which legitimately
         # exceeds any flat read timeout on long contexts.
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
-            async with client.stream("POST", url, json=body, headers=self._headers()) as resp:
+            async with client.stream("POST", url, json=body, headers=self.request_headers()) as resp:
                 if resp.status_code >= 400:
                     err_text = await _read_error_body(resp, url)
                     raise llm_call_error(response=resp, body=err_text, url=url, model="", api_key=self.api_key)

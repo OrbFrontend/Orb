@@ -316,3 +316,20 @@ async def test_endpoint_crud_workflow(client, db):
     # 8. Verify endpoint deleted
     endpoints2 = await client.get_json("/api/endpoints")
     assert not any(e["id"] == endpoint_id for e in endpoints2)
+
+
+async def test_saving_an_endpoint_forgets_what_was_learned_about_it(client):
+    from backend.inference import LEDGER, decisions_url
+
+    endpoint = await client.post_json("/api/endpoints", json={"url": "https://learned.test/v1", "api_key": "key"})
+    LEDGER.facts("https://learned.test/v1", "m").body_fields_refused.add("min_p")
+    LEDGER.facts(decisions_url("https://learned.test/v1")).systemone_url = "https://learned.test/v1/systemone"
+    LEDGER.facts("https://other.test/v1", "m").cache_markers_refused = True
+
+    await client.put_json(f"/api/endpoints/{endpoint['id']}", json={"completion_mode": "text"})
+    assert LEDGER.peek("https://learned.test/v1", "m").body_fields_refused == {"min_p"}
+
+    await client.put_json(f"/api/endpoints/{endpoint['id']}", json={"url": "https://learned.test/v2"})
+
+    assert [entry["endpoint_url"] for entry in LEDGER.snapshot() if "learned.test" in entry["endpoint_url"]] == []
+    assert LEDGER.peek("https://other.test/v1", "m").cache_markers_refused

@@ -1,167 +1,26 @@
-"""Translate requests for endpoint and model quirks."""
+"""Resolve endpoint routes and recover from the rejections any OpenAI-protocol provider may give.
+
+What a particular provider does differently lives in its dialect (:mod:`.providers`), resolved from the route being called.
+What each endpoint and model was seen to accept lives in the :data:`~.ledger.LEDGER`.
+"""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
+
+from . import providers
+from .ledger import LEDGER
+from .providers import Dialect, is_forced_tool_choice
 
 # Assistant-message fields that carry a model's reasoning back to it. The chat transport stores reasoning under the names the
 # provider streamed, and a replay echoes them unchanged, because servers disagree about what they read: llama.cpp reads only
 # ``reasoning_content``, vLLM only ``reasoning``, and OpenRouter also needs ``reasoning_details`` to keep signed reasoning
 # valid.
 REASONING_REPLAY_FIELDS: tuple[str, ...] = ("reasoning_content", "reasoning", "reasoning_details")
-
-# Mutates body in place. Returns a log line to surface the action, or None.
-Transform = Callable[[dict], str | None]
-
-
-def is_forced_tool_choice(tc: object) -> bool:
-    """Return ``True`` if *tc* forces a specific tool call (a dict or ``"required"``).
-
-    Single source of truth for "forced" -- used by profile coercion and the client's self-heal path.
-    """
-    return isinstance(tc, dict) or tc == "required"
-
-
-@dataclass(frozen=True)
-class ModelProfile:
-    """Per-(endpoint, model) request translation policy.
-
-    Typed knobs cover the common cases; ``custom`` is the escape hatch for
-    one-off transforms that don't yet warrant a named field.
-    """
-
-    # If False, coerce forced-function tool_choice dicts and "required" to
-    # "auto". True means the caller's value passes through unchanged.
-    allow_forced_tool_choice: bool = True
-
-    # If True, the chat transport rewrites forced-function tool calls as strict ``response_format`` structured-output requests
-    # (the chat analogue of text mode's forced grammar), guaranteeing byte-exact argument keys. Setting it also withholds
-    # ``tools`` and ``tool_choice`` from every chat request to the endpoint -- a model that can still see ``tools`` may answer
-    # with a native tool call that bypasses the schema. Opt-in per provider: only set after verifying the endpoint honors
-    # ``response_format: {"type": "json_schema", "strict": true}``.
-    structured_tool_calls: bool = False
-
-    # If True, every value except ``"auto"`` is rewritten to ``"auto"``. Some routed providers reject not only forced choices
-    # but also ``"none"``; this is deliberately separate from allow_forced_tool_choice.
-    auto_tool_choice_only: bool = False
-
-    # Bespoke transforms applied after typed knobs, in order. Each callable
-    # mutates body in place and may return a log line (or None for silent).
-    custom: tuple[Transform, ...] = field(default_factory=tuple)
-
-    def apply(self, body: dict) -> list[str]:
-        """Apply this profile to *body* in place. Returns log lines for each mutation."""
-        actions: list[str] = []
-
-        if not self.allow_forced_tool_choice:
-            tc = body.get("tool_choice")
-            if is_forced_tool_choice(tc):
-                body["tool_choice"] = "auto"
-                actions.append(f"tool_choice {tc!r} -> 'auto'")
-
-        if self.auto_tool_choice_only:
-            tc = body.get("tool_choice")
-            if tc is not None and tc != "auto":
-                body["tool_choice"] = "auto"
-                actions.append(f"tool_choice {tc!r} -> 'auto' (auto-only endpoint)")
-
-        for fn in self.custom:
-            log = fn(body)
-            if log:
-                actions.append(log)
-
-        return actions
-
-
-def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> str | None:
-    """Coerce forced ``tool_choice`` to ``"auto"`` when thinking is enabled.
-
-    DeepSeek routes any thinking-on request through reasoner semantics, which reject forced-function ``tool_choice`` (and
-    ``"required"``) even when ``model=deepseek-chat``. Coercing to ``"auto"`` lets the director/editor graceful-skip paths
-    handle any unselected tool calls.
-    """
-    thinking = body.get("thinking")
-    if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
-        return None
-    tc = body.get("tool_choice")
-    if is_forced_tool_choice(tc):
-        body["tool_choice"] = "auto"
-        return f"tool_choice {tc!r} -> 'auto' (thinking enabled)"
-    return None
-
-
-# Outer key: URL-substring (case-insensitive match; first insertion wins, so order matters if adding more specific URL prefixes
-# like "api.deepseek.com/beta" -- the more specific one must come first). Inner None key: endpoint default profile. Inner str
-# keys: exact-match per-model overrides (replace, not merge).
-PROFILES: dict[str, dict[str | None, ModelProfile]] = {
-    "api.deepseek.com": {
-        # deepseek-chat supports forced-function tool_choice in chat mode but rejects it whenever the request also carries
-        # thinking=enabled (the API silently routes thinking-on requests through reasoner semantics). The custom transform
-        # handles that conditional case.
-        None: ModelProfile(custom=(_deepseek_coerce_tool_choice_when_thinking,)),
-        # deepseek-reasoner is unconditionally thinking-on, so coerce statically. Equivalent to the conditional above for this
-        # model; kept as a static knob for clarity. Graceful-skip paths in Director/Editor handle any unselected tool calls.
-        "deepseek-reasoner": ModelProfile(allow_forced_tool_choice=False),
-    },
-    # NanoGPT is a *proxy*: each model id it fronts sits behind a different upstream engine with its own config, so no
-    # endpoint-wide statement about decoding is true of every model. Its own tool-argument decoding is unconstrained (observed:
-    # GLM-5.2 TEE mangles hyphenated argument keys under a forced call) while its documented response_format json_schema strict
-    # mode is honored by the routes that implement it -- so the opt-in here is the *optimistic default*, not a claim about the
-    # whole catalogue. An upstream that quietly ignores the schema is demoted per model on the first reply that proves it
-    # (``note_structured_output_ignored``), which is why this stays one endpoint-wide knob instead of a hand-kept model list.
-    "nano-gpt.com": {None: ModelProfile(structured_tool_calls=True)},
-}
-
-
-# This OpenAI compatibility dialect is identified by its resource shape, not a provider hostname or a model id. Any proxy
-# exposing the same path therefore receives the same request policy and catalogue normalization.
-_GEMINI_OPENAI_PATH = "/v1beta/openai"
-
-
-def is_gemini_openai_surface(url: str) -> bool:
-    """Whether *url* has the ``/v1beta/openai`` compatibility shape."""
-    parsed = _parsed_http_url(url)
-    if parsed is None:
-        return _GEMINI_OPENAI_PATH in _clean_url(url).lower()
-    path = parsed.path.rstrip("/").lower()
-    return path == _GEMINI_OPENAI_PATH or f"{_GEMINI_OPENAI_PATH}/" in f"{path}/"
-
-
-# Orb's other reasoning dialects. Google's compatibility layer refuses each by name ('Unknown name "thinking": Cannot find
-# field.'), so sending them costs one rejection per field per model before the refusal is learned.
-_GEMINI_UNREAD_REASONING_FIELDS = ("reasoning", "chat_template_kwargs", "thinking")
-
-
-def _gemini_reasoning(body: dict) -> str | None:
-    """Carry Orb's reasoning switch in ``reasoning_effort``, the one control this surface reads.
-
-    Reasoning off asks for ``none`` unless an explicit effort is set; a level the model refuses is stepped along
-    :data:`_EFFORT_FALLBACK` once learned. The other dialects are dropped up front.
-    """
-    reasoning = body.get("reasoning")
-    thinking = body.get("thinking")
-    disabled = (isinstance(reasoning, Mapping) and reasoning.get("enabled") is False) or (
-        isinstance(thinking, Mapping) and thinking.get("type") == "disabled"
-    )
-    dropped = [key for key in _GEMINI_UNREAD_REASONING_FIELDS if key in body]
-    for key in dropped:
-        body.pop(key)
-    actions: list[str] = []
-    if disabled and "reasoning_effort" not in body:
-        body["reasoning_effort"] = "none"
-        actions.append("reasoning_effort='none' (reasoning off)")
-    if dropped:
-        actions.append(f"{dropped} dropped (not read by this surface)")
-    return "; ".join(actions) or None
-
-
-# Google's OpenAI compatibility API takes ordinary OpenAI request fields, refuses unknown ones by name, and honors strict
-# json_schema output.
-_GEMINI_PROFILE = ModelProfile(structured_tool_calls=True, custom=(_gemini_reasoning,))
 
 
 Protocol = Literal["openai", "anthropic"]
@@ -177,11 +36,6 @@ class EndpointRoute:
     models_url: str
     auth_family: AuthFamily
     authoritative: bool = False
-
-
-# A successful route is remembered per configured URL and model because client
-# objects are per-turn. Stored URLs are never rewritten.
-_RESOLVED_ROUTES: dict[tuple[str, str], EndpointRoute] = {}
 
 
 def _clean_url(url: str) -> str:
@@ -236,29 +90,32 @@ def _deterministic_route(endpoint_url: str) -> EndpointRoute:
     if path.endswith("/messages"):
         return _resource_route("anthropic", clean, authoritative=True)
 
-    if is_gemini_openai_surface(clean):
+    # A provider's own OpenAI base path is as explicit as a full resource URL.
+    if providers.openai_base_dialect(clean) is not None:
         return _base_route("openai", clean, authoritative=True)
 
     return _base_route("openai", clean)
 
 
-def _resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
-    """Return the cached or deterministic route for one configured endpoint."""
-    return (
-        _RESOLVED_ROUTES.get((endpoint_url, model))
-        or _RESOLVED_ROUTES.get((endpoint_url, ""))
-        or _deterministic_route(endpoint_url)
-    )
+def _learned_route(endpoint_url: str, model: str) -> EndpointRoute | None:
+    # A successful route is remembered per configured URL and model because client objects are per-turn; a model listing
+    # remembers one for the whole endpoint. Stored URLs are never rewritten.
+    return LEDGER.peek(endpoint_url, model).route or LEDGER.peek(endpoint_url).route
+
+
+def route_for(endpoint_url: str, model: str = "") -> EndpointRoute:
+    """The route a call to this endpoint and model goes to first: the one that last succeeded, or the deterministic one."""
+    return _learned_route(endpoint_url, model) or _deterministic_route(endpoint_url)
 
 
 def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRoute]:
     """Return bounded same-host routes in request order.
 
     Explicit resource URLs win; ambiguous URLs try the configured chat route, Messages sibling and conventional host-root
-    routes, then /v1beta/openai. Probe alternatives only for recognized route-mismatch responses.
+    routes, then each provider's own OpenAI base at the root. Probe alternatives only for recognized route-mismatch responses.
     """
-    primary = _resolve_endpoint(endpoint_url, model)
-    if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES or (endpoint_url, "") in _RESOLVED_ROUTES:
+    primary = route_for(endpoint_url, model)
+    if primary.authoritative or _learned_route(endpoint_url, model) is not None:
         return [primary]
     parsed = _parsed_http_url(endpoint_url)
     if parsed is None:
@@ -269,7 +126,7 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
         _base_route("anthropic", endpoint_url),
         _base_route("openai", f"{root}/v1"),
         _base_route("anthropic", f"{root}/v1"),
-        _base_route("openai", f"{root}{_GEMINI_OPENAI_PATH}"),
+        *(_base_route("openai", f"{root}{dialect.openai_base}") for dialect in providers.DIALECTS if dialect.openai_base),
     ]
     out: list[EndpointRoute] = []
     seen: set[tuple[str, str]] = set()
@@ -283,25 +140,12 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
 
 def note_successful_route(endpoint_url: str, model: str, route: EndpointRoute) -> None:
     """Cache a route after its stream completes successfully, confirming a suspected ``reasoning_effort`` refusal it stepped past."""
-    _RESOLVED_ROUTES[(endpoint_url, model)] = route
-    _EFFORT_ACQUITTED.discard((endpoint_url, model))
-    if (level := _EFFORT_SUSPECTED.pop((endpoint_url, model), None)) is not None:
-        _REASONING_EFFORT_REFUSED.setdefault((endpoint_url, model), set()).add(level)
-
-
-def should_probe_route(status: int, text: str) -> bool:
-    """Whether an error body specifically identifies an HTTP route mismatch."""
-    low = text.lower()
-    markers = (
-        "cannot post /",
-        "route not found",
-        "unknown endpoint",
-        "unrecognized request url",
-        "unsupported endpoint",
-        "invalid url (post",
-    )
-    native_not_found = status == 404 and "not_found_error" in low and "model" not in low
-    return any(marker in low for marker in markers) or native_not_found
+    facts = LEDGER.facts(endpoint_url, model)
+    facts.route = route
+    facts.effort_acquitted = False
+    if facts.effort_suspected is not None:
+        facts.effort_refused.add(facts.effort_suspected)
+        facts.effort_suspected = None
 
 
 def auth_families(route: EndpointRoute, status: int | None = None, text: str = "") -> tuple[AuthFamily, ...]:
@@ -318,26 +162,20 @@ def auth_families(route: EndpointRoute, status: int | None = None, text: str = "
     return (primary, other)
 
 
-# (endpoint_url, model) pairs observed to answer a forced tool_choice with a different tool this session -- either a profile
-# coerced the choice to "auto" or the provider ignored it silently (OpenRouter + a thinking-on model, llama.cpp's chat endpoint,
-# ...). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
-_FORCED_CHOICE_IGNORED: set[tuple[str, str]] = set()
-
-
 def note_forced_tool_choice_ignored(endpoint_url: str, model: str) -> None:
-    """Record that *model* answered a forced tool_choice with some other tool."""
-    _FORCED_CHOICE_IGNORED.add((endpoint_url, model))
+    """Record that *model* answered a forced tool_choice with some other tool.
 
-
-# (endpoint_url, model) pairs whose reply proved the endpoint did not actually constrain decoding to the strict
-# ``response_format`` schema it was sent. A provider that *rejects* the field answers 4xx and is handled by recover_from_error;
-# one that accepts and ignores it can only be caught by reading the reply. In-memory only, like ``_FORCED_CHOICE_IGNORED``
-# above.
-_STRUCTURED_OUTPUT_IGNORED: set[tuple[str, str]] = set()
+    Either a profile coerced the choice to "auto" or the provider ignored it silently (OpenRouter with a thinking-on model,
+    llama.cpp's chat endpoint, ...).
+    """
+    LEDGER.facts(endpoint_url, model).forced_choice_ignored = True
 
 
 def note_structured_output_ignored(endpoint_url: str, model: str) -> None:
     """Record that *model* ignored a strict ``response_format`` schema.
+
+    A provider that *rejects* the field answers 4xx and is handled by recover_from_error; one that accepts and ignores it can
+    only be caught by reading the reply.
 
     Callers must only report a reply that *proves* the constraint was absent -- a completed, non-empty answer that is not the
     JSON the schema demanded, or one cut off after padding its tail with whitespace, which a model does when the strict
@@ -345,15 +183,15 @@ def note_structured_output_ignored(endpoint_url: str, model: str) -> None:
     :func:`note_forced_tool_choice_ignored`), and demoting on one would cost the endpoint its best-caching call shape over a
     flaky turn.
     """
-    _STRUCTURED_OUTPUT_IGNORED.add((endpoint_url, model))
+    LEDGER.facts(endpoint_url, model).structured_output_ignored = True
 
 
 def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mapping[str, Any] | None = None) -> bool:
     """Return whether this endpoint should honor forced tool choice."""
-    if (endpoint_url, model) in _FORCED_CHOICE_IGNORED:
+    if LEDGER.peek(endpoint_url, model).forced_choice_ignored:
         return False
     body: dict = {**(dict(params) if params else {}), "tool_choice": {"type": "function", "function": {"name": "_probe"}}}
-    prepare_request_body(endpoint_url, model, body)
+    prepare_request_body(endpoint_url, model, body, route_for(endpoint_url, model))
     return is_forced_tool_choice(body.get("tool_choice"))
 
 
@@ -365,58 +203,28 @@ def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
     schema forbids has proven its route decodes unconstrained, and :func:`note_structured_output_ignored` demotes just that pair
     for the rest of the session.
     """
-    if (endpoint_url, model) in _STRUCTURED_OUTPUT_IGNORED:
+    if LEDGER.peek(endpoint_url, model).structured_output_ignored:
         return False
-    profile = profile_for(endpoint_url, model)
+    profile = providers.resolve(route_for(endpoint_url, model).url).profile(model)
     return profile is not None and profile.structured_tool_calls
 
 
-def _is_gemini(endpoint_url: str, model: str = "") -> bool:
-    """Whether the pair is served on the ``/v1beta/openai`` surface, configured or probed there."""
-    return is_gemini_openai_surface(endpoint_url) or is_gemini_openai_surface(_resolve_endpoint(endpoint_url, model).url)
-
-
-def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
-    """Resolve (endpoint_url, model) to a ``ModelProfile``, or ``None`` for pass-through.
-
-    A blank *model* falls through to the endpoint default. An unmatched URL returns ``None`` -- the body is sent unchanged (local
-    / unknown backends).
-
-    The ``/v1beta/openai`` dialect is resolved by :func:`is_gemini_openai_surface` rather than by a ``PROFILES`` substring, so
-    every proxy mirroring the resource gets the same request policy.
-    """
-    if not endpoint_url:
-        return None
-    if _is_gemini(endpoint_url, model):
-        return _GEMINI_PROFILE
-    haystack = endpoint_url.lower()
-    for needle, models in PROFILES.items():
-        if needle in haystack:
-            if model and model in models:
-                return models[model]
-            return models.get(None)
-    return None
-
-
-# Request preparation + error recovery (the provider seam LLMClient calls)
+# Request preparation + error recovery (the seam LLMClient calls)
 #
-# ``prepare_request_body``, ``recover_from_error`` and ``recover_refused_field`` are the *entire* provider-specific surface
-# LLMClient depends on. The client stays transport-only: it builds the body, sends it, and on a >=400 asks here whether the
-# failure is a recognised quirk worth a retry. Everything that knows about a provider -- URL matching, error-text sniffing, the
-# session memory of what a model rejects -- lives here, not in llm_client.
+# ``prepare_request_body``, ``recover_from_error`` and ``recover_refused_field`` are the request side of the provider surface
+# LLMClient depends on; the stream, auth and catalogue sides are the route's dialect hooks. The client stays transport-only: it
+# builds the body, sends it, and on a >=400 asks here whether the failure is a recognised quirk worth a retry. Both functions
+# take the route being called, so a probed route gets its own dialect, while what they learn is keyed by the configured URL.
 
-# (endpoint_url, model) pairs seen to reject the tool_choice param this session. In-memory only (cleared on restart); lets later
-# calls drop it up front instead of paying the round-trip + retry again.
-_TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
-
-# Pairs observed to accept only the literal ``"auto"`` value. Unlike _TOOL_CHOICE_UNSUPPORTED, these endpoints still need the
-# field so forced and writer ``"none"`` requests are coerced rather than dropped.
-_TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
-
-# ``reasoning_effort`` levels each pair refused this session. Orb offers a superset of levels and providers validate against
-# their own, which move under us, so the refusal is learned rather than listed. Learning is per level: a refused ``xhigh`` must
-# not cost a reasoning-off call the ``none`` the same model takes.
-_REASONING_EFFORT_REFUSED: dict[tuple[str, str], set[str]] = {}
+# What a pair was seen to refuse is kept in the ledger (see ``PairFacts``): a refused tool_choice value or the whole field, each
+# refused ``reasoning_effort`` level, a disabling ``reasoning`` object on an endpoint that always reasons, replayed reasoning
+# fields, prompt-cache markers, and top-level body keys. Orb offers a superset of levels and fields and providers validate
+# against their own, which move under us, so refusals are learned rather than listed. Learning is per level and per field: a
+# refused ``xhigh`` must not cost a reasoning-off call the ``none`` the same model takes. Some providers stream reasoning and then
+# reject it on the way back (Groq refuses both ``reasoning_content`` and ``reasoning``); dropping it on every later call keeps the
+# rendered prefix the same from call to call. Prompt-cache markers turn a message's string content into a one-part text list,
+# which a strict schema can refuse without ever naming ``cache_control`` (DeepSeek documents system and assistant content as
+# string-only), so that refusal is recognized by the unmarked retry succeeding, not by the error text.
 
 # Levels from least to most reasoning. A refused level moves to the nearest level the pair has not refused, the cheaper one on a
 # tie, and never to ``none``, so an off call stays as near off as the model allows and an on call stays on. Measured on Google's
@@ -424,26 +232,11 @@ _REASONING_EFFORT_REFUSED: dict[tuple[str, str], set[str]] = {}
 # outside this list, or with nowhere left to go, is dropped and the provider default governs.
 _EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
-# A level taken as refused from Google's bare "Request contains an invalid argument.", keyed by pair. That 400 names nothing, so
-# the level is stepped past like a refusal but learned only once the stepped call succeeds; the same 400 again means the level
-# was not the cause, and it is restored and not suspected again until the pair next succeeds.
-_EFFORT_SUSPECTED: dict[tuple[str, str], str] = {}
-_EFFORT_ACQUITTED: set[tuple[str, str]] = set()
-
-# Pairs whose endpoint always reasons and refuses a request that turns reasoning off. OpenRouter answers "Reasoning is mandatory
-# for this endpoint and cannot be disabled" to a disabling ``reasoning`` object while taking the other dialects' off switches, so
-# a reasoning-off call sheds that object and runs, reasoning. A reasoning-on call keeps it, and with it ``reasoning.effort``.
-_REASONING_MANDATORY: set[tuple[str, str]] = set()
-
-# Replay fields each pair refused on an assistant message this session. Some providers stream reasoning and then reject it on
-# the way back (Groq refuses both ``reasoning_content`` and ``reasoning``), so the refusal is learned instead of listed.
-# Dropping the field on every later call keeps the rendered prefix the same from call to call.
-_REASONING_REPLAY_UNSUPPORTED: dict[tuple[str, str], set[str]] = {}
-
-# Pairs that refused the prompt-cache markers this session. The markers turn a message's string content into a one-part text
-# list, which a strict schema can refuse without ever naming ``cache_control`` (DeepSeek documents system and assistant content
-# as string-only), so the refusal is recognized by the unmarked retry succeeding, not by the error text.
-_CACHE_MARKERS_REFUSED: set[tuple[str, str]] = set()
+# A refusal that names nothing (Google's bare "Request contains an invalid argument.") only suspects the level: it is stepped past
+# like a refusal but learned only once the stepped call succeeds; the same 400 again means the level was not the cause, and it is
+# restored and not suspected again until the pair next succeeds. OpenRouter answers "Reasoning is mandatory for this endpoint and
+# cannot be disabled" to a disabling ``reasoning`` object while taking the other dialects' off switches, so a reasoning-off call
+# sheds that object and runs, reasoning. A reasoning-on call keeps it, and with it ``reasoning.effort``.
 
 _FIELD_REFUSAL_MARKERS = (
     "unsupported",
@@ -457,10 +250,9 @@ _FIELD_REFUSAL_MARKERS = (
     "unrecognized",
 )
 
-# Top-level body keys each pair refused this session. Orb forwards keys only some servers read -- the min_p/top_k/repetition
-# samplers, every reasoning dialect, the user's extra body -- and a server that validates its schema answers 400/422 naming the
-# one it does not take. Learning each refusal stands in for a hand-kept list of what every provider accepts.
-_BODY_FIELDS_REFUSED: dict[tuple[str, str], set[str]] = {}
+# Orb forwards top-level keys only some servers read -- the min_p/top_k/repetition samplers, every reasoning dialect, the user's
+# extra body -- and a server that validates its schema answers 400/422 naming the one it does not take. Learning each refusal
+# stands in for a hand-kept list of what every provider accepts.
 
 # Keys a request cannot shed and stay the request it was, so a refusal naming one is the error itself. ``max_tokens`` is the
 # visible budget setting: a refusal of it surfaces instead of the call quietly running unbounded. ``tool_choice`` has its own
@@ -472,20 +264,6 @@ _ESSENTIAL_BODY_FIELDS = frozenset({"model", "messages", "stream", "tools", "too
 _REFUSAL_WINDOW = 48
 
 _REFUSAL_RE = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(marker) for marker in _FIELD_REFUSAL_MARKERS) + r")(?!\w)")
-
-
-def _is_openrouter(endpoint_url: str) -> bool:
-    return "openrouter.ai" in endpoint_url.lower()
-
-
-def _is_tool_choice_unsupported(status: int, text: str) -> bool:
-    """Return ``True`` when the body says no ``tool_choice`` value is routed.
-
-    Matches "No endpoints found that support the provided 'tool_choice' value." -- meaning the routed provider rejects all
-    ``tool_choice`` values. Kept narrow so genuine 404s (bad model id, etc.) don't match.
-    """
-    low = text.lower()
-    return status in {400, 404} and "tool_choice" in low and "no endpoints found" in low
 
 
 def _is_tool_choice_auto_only(status: int, text: str) -> bool:
@@ -510,11 +288,6 @@ def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
     if "reasoning_effort" in low:
         return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
     return _THINKING_REFUSAL_RE.search(low) is not None
-
-
-def _is_bare_gemini_refusal(endpoint_url: str, model: str, status: int, text: str) -> bool:
-    """Google's catch-all 400, which is also all it answers ``none`` with on a model that cannot stop thinking."""
-    return status == 400 and "request contains an invalid argument" in text.lower() and _is_gemini(endpoint_url, model)
 
 
 def _settle_effort(body: dict, refused: set[str]) -> str | None:
@@ -623,60 +396,62 @@ def recover_refused_field(endpoint_url: str, model: str, body: Mapping[str, Any]
     key = _refused_body_field(body, status, text)
     if key is None:
         return None
-    _BODY_FIELDS_REFUSED.setdefault((endpoint_url, model), set()).add(key)
+    LEDGER.facts(endpoint_url, model).body_fields_refused.add(key)
     return f"Model {model} refused the {key!r} request field; retrying without it."
 
 
 def sends_cache_markers(endpoint_url: str, model: str) -> bool:
     """Whether requests to this pair still carry prompt-cache breakpoints."""
-    return (endpoint_url, model) not in _CACHE_MARKERS_REFUSED
+    return not LEDGER.peek(endpoint_url, model).cache_markers_refused
 
 
 def note_cache_markers_refused(endpoint_url: str, model: str) -> None:
     """Record that an unmarked retry succeeded where the marked request failed."""
-    _CACHE_MARKERS_REFUSED.add((endpoint_url, model))
+    LEDGER.facts(endpoint_url, model).cache_markers_refused = True
 
 
-def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:
-    """Apply the matching profile and any session-learned workarounds to *body* in place.
+def prepare_request_body(endpoint_url: str, model: str, body: dict, route: EndpointRoute) -> list[str]:
+    """Apply the route's dialect and every session-learned workaround to *body* in place.
 
     Returns log lines for each mutation (empty list if the body is unchanged).
     """
+    dialect = providers.resolve(route.url)
+    facts = LEDGER.peek(endpoint_url, model)
     actions: list[str] = []
 
-    profile = profile_for(endpoint_url, model)
+    profile = dialect.profile(model)
     if profile is not None:
         actions.extend(profile.apply(body))
+    actions.extend(dialect.prepare(body))
 
-    refused_fields = sorted(key for key in _BODY_FIELDS_REFUSED.get((endpoint_url, model), ()) if key in body)
+    refused_fields = sorted(key for key in facts.body_fields_refused if key in body)
     for key in refused_fields:
         body.pop(key)
     if refused_fields:
         actions.append(f"{refused_fields} dropped (session-learned unsupported)")
 
-    refused_efforts = _REASONING_EFFORT_REFUSED.get((endpoint_url, model), set())
-    if (suspected := _EFFORT_SUSPECTED.get((endpoint_url, model))) is not None:
-        refused_efforts = refused_efforts | {suspected}
+    refused_efforts = facts.effort_refused
+    if facts.effort_suspected is not None:
+        refused_efforts = refused_efforts | {facts.effort_suspected}
     settled = _settle_effort(body, refused_efforts)
     if settled:
         actions.append(f"{settled} (session-learned unsupported)")
 
-    if (endpoint_url, model) in _REASONING_MANDATORY and _disables_reasoning(body):
+    if facts.reasoning_mandatory and _disables_reasoning(body):
         body.pop("reasoning")
         actions.append("reasoning-off object dropped (session-learned: this endpoint always reasons)")
 
-    refused = _REASONING_REPLAY_UNSUPPORTED.get((endpoint_url, model))
-    if refused:
-        dropped = _drop_replay_fields(body, refused)
+    if facts.replay_refused:
+        dropped = _drop_replay_fields(body, facts.replay_refused)
         if dropped:
             actions.append(f"replayed reasoning {dropped} dropped (session-learned unsupported)")
 
     # A model we already learned rejects tool_choice this session: drop it up front so we skip the failing round-trip entirely.
-    if "tool_choice" in body and (endpoint_url, model) in _TOOL_CHOICE_UNSUPPORTED:
+    if "tool_choice" in body and facts.tool_choice_unsupported:
         tc = body.pop("tool_choice")
         actions.append(f"tool_choice {tc!r} dropped (session-learned unsupported)")
 
-    if "tool_choice" in body and (endpoint_url, model) in _TOOL_CHOICE_AUTO_ONLY:
+    if "tool_choice" in body and facts.tool_choice_auto_only:
         tc = body["tool_choice"]
         if tc != "auto" and tc != {"type": "auto"}:
             body["tool_choice"] = "auto"
@@ -685,14 +460,15 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     return actions
 
 
-def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> str | None:
-    """Handle a >=400 response. If a known provider quirk explains it, mutate *body* in place, record the quirk for the session,
-    and return a log line (triggering one retry). Returns ``None`` to propagate the error.
+def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str, route: EndpointRoute) -> str | None:
+    """Handle a >=400 response. If a known quirk explains it, mutate *body* in place, record the quirk for the session, and
+    return a log line (triggering one retry). Returns ``None`` to propagate the error.
 
-    Currently handles one quirk: an OpenRouter model whose routed provider rejects ``tool_choice`` entirely. Recovery is to drop
-    the param and retry; the 404 lands before any SSE event so the retry is clean. Model catalog ids are deliberately never
-    recorded here; learned capability facts expire with the backend process.
+    The shared recoveries run first; the route's dialect then handles what only its provider answers. Model catalog ids are
+    deliberately never recorded here; learned capability facts expire with the backend process.
     """
+    dialect: Dialect = providers.resolve(route.url)
+    facts = LEDGER.facts(endpoint_url, model)
     tc = body.get("tool_choice")
     low = text.lower()
     native_forced_rejected = (
@@ -703,12 +479,12 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         and any(marker in low for marker in ("not supported", "unsupported", "not allowed"))
     )
     if native_forced_rejected:
-        _TOOL_CHOICE_AUTO_ONLY.add((endpoint_url, model))
-        note_forced_tool_choice_ignored(endpoint_url, model)
+        facts.tool_choice_auto_only = True
+        facts.forced_choice_ignored = True
         body["tool_choice"] = {"type": "auto"}
         return f"Model {model} rejected forced Anthropic tool choice; retrying with auto."
     if "tool_choice" in body and _is_tool_choice_auto_only(status, text):
-        _TOOL_CHOICE_AUTO_ONLY.add((endpoint_url, model))
+        facts.tool_choice_auto_only = True
         tc = body["tool_choice"]
         body["tool_choice"] = {"type": "auto"} if isinstance(tc, dict) and "function" not in tc else "auto"
         return f"Model {model} accepts only tool_choice='auto'; retrying with auto."
@@ -717,32 +493,24 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         if not isinstance(effort, str):
             body.pop("reasoning_effort")
             return f"Model {model} rejected reasoning_effort={effort!r}; retrying without it."
-        refused = _REASONING_EFFORT_REFUSED.setdefault((endpoint_url, model), set())
-        refused.add(effort)
-        return f"Model {model} rejected reasoning_effort={effort!r}; {_settle_effort(body, refused)}, retrying."
-    if _is_bare_gemini_refusal(endpoint_url, model, status, text):
-        pair = (endpoint_url, model)
-        if pair in _EFFORT_SUSPECTED:
+        facts.effort_refused.add(effort)
+        return f"Model {model} rejected reasoning_effort={effort!r}; {_settle_effort(body, facts.effort_refused)}, retrying."
+    if dialect.suspects_effort(status, text):
+        if facts.effort_suspected is not None:
             # The stepped call failed the same way, so the level was not the cause; later attempts send it again.
-            del _EFFORT_SUSPECTED[pair]
-            _EFFORT_ACQUITTED.add(pair)
-        elif body.get("reasoning_effort") == "none" and pair not in _EFFORT_ACQUITTED:
-            _EFFORT_SUSPECTED[pair] = "none"
-            settled = _settle_effort(body, _REASONING_EFFORT_REFUSED.get(pair, set()) | {"none"})
+            facts.effort_suspected = None
+            facts.effort_acquitted = True
+        elif body.get("reasoning_effort") == "none" and not facts.effort_acquitted:
+            facts.effort_suspected = "none"
+            settled = _settle_effort(body, facts.effort_refused | {"none"})
             return f"Model {model} answered reasoning_effort='none' with a bare 400; {settled}, retrying."
     if _disables_reasoning(body) and _is_reasoning_mandatory(status, text):
-        _REASONING_MANDATORY.add((endpoint_url, model))
+        facts.reasoning_mandatory = True
         body.pop("reasoning")
         return f"Model {model} always reasons and refused a reasoning-off request; retrying without that switch."
     refused = _refused_replay_fields(body, status, text)
     if refused:
-        _REASONING_REPLAY_UNSUPPORTED.setdefault((endpoint_url, model), set()).update(refused)
+        facts.replay_refused.update(refused)
         _drop_replay_fields(body, refused)
         return f"Model {model} rejected replayed reasoning {sorted(refused)}; retrying without it."
-    if not _is_openrouter(endpoint_url):
-        return None
-    if "tool_choice" in body and _is_tool_choice_unsupported(status, text):
-        _TOOL_CHOICE_UNSUPPORTED.add((endpoint_url, model))
-        tc = body.pop("tool_choice")
-        return f"Model {model} rejected tool_choice={tc!r}; retrying without it."
-    return None
+    return dialect.recover(facts, body, status, text, model)

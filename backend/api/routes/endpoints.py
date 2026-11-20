@@ -25,12 +25,14 @@ from ...database import (
     update_model_config,
 )
 from ...inference import (
+    LEDGER,
     EndpointConfigError,
     LLMCallError,
     LLMClient,
     RetryPolicy,
     agent_client_from_settings,
     client_from_settings,
+    decisions_url,
     provider_sentence,
     reasoning_cfg,
     redact,
@@ -66,6 +68,12 @@ def public_endpoint(row: Mapping[str, Any]) -> dict[str, Any]:
 def public_settings(settings: Settings) -> dict[str, Any]:
     """Settings as responses show them, without the keys overlaid from the active endpoints; their rows carry the hints."""
     return {key: value for key, value in settings.items() if key not in ("api_key", "agent_api_key")}
+
+
+def forget_learned(url: str) -> None:
+    """Forget what was learned about an endpoint's chat and Judge routes, because a saved endpoint may now reach another server
+    or use another key."""
+    LEDGER.forget(url, decisions_url(url))
 
 
 def check_claude_endpoint(url: str, api_key: str = "", kind: EndpointKind = "chat") -> None:
@@ -203,13 +211,20 @@ async def api_update_endpoint(endpoint_id: int, data: EndpointUpdate):
         raise HTTPException(status_code=422, detail=str(e)) from e
     if not result:
         raise HTTPException(status_code=404, detail="Endpoint not found")
+    # Picking another active model saves the endpoint too; only a change to where or how it connects voids what was learned.
+    if any(result[key] != original[key] for key in ("url", "api_key", "proxy")):
+        forget_learned(original["url"])
+        forget_learned(result["url"])
     return public_endpoint(result)
 
 
 @router.delete("/api/endpoints/{endpoint_id}")
 async def api_delete_endpoint(endpoint_id: int):
+    original = await get_endpoint(endpoint_id)
     if not await delete_endpoint(endpoint_id):
         raise HTTPException(status_code=404, detail="Endpoint not found")
+    if original is not None:
+        forget_learned(original["url"])
     return {"ok": True}
 
 

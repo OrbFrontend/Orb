@@ -12,8 +12,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from . import providers
 from .client import AbortToken
 from .errors import llm_call_error
+from .ledger import LEDGER
 
 logger = logging.getLogger(__name__)
 
@@ -40,44 +42,19 @@ _ROUTE_ENDINGS = ("decisions", "systemone")
 _DERIVED_ROUTE = ("alpha", "decisions")
 _SYSTEMONE_ROUTE = ("v1", "systemone")
 
-# Derived routes that 404'd and answered on their ``/v1/systemone`` sibling instead.
-_SYSTEMONE_FALLBACKS: dict[str, str] = {}
-
-# Google AI Studio serves its decision models (``gemini-decision-1``) at ``/v1beta/decisions``. The question and answer shapes
-# are Jev's, but the situation travels as ``input`` rather than ``state`` (``state`` is refused as an unknown parameter), and the
-# key goes in ``x-goog-api-key``: Google reads a Bearer token as OAuth and refuses an API key there. The dialect is identified
-# by its version-prefixed route, so a proxy exposing the same shape gets the same request.
-_GOOGLE_VERSIONS = ("v1beta", "v1alpha")
-_GOOGLE_SUFFIXES = (*_ROUTE_SUFFIXES, "openai", "models")
-_GOOGLE_HOST = "generativelanguage.googleapis.com"
-
-
-def _google_route(netloc: str, segments: Sequence[str]) -> list[str] | None:
-    """The Google decisions route for a chat-style Google URL (``/v1beta/openai``, ``/v1beta``, or the bare host)."""
-    trimmed = list(segments)
-    while trimmed and trimmed[-1] in _GOOGLE_SUFFIXES:
-        trimmed.pop()
-    if trimmed and trimmed[-1] in _GOOGLE_VERSIONS:
-        return [*trimmed, "decisions"]
-    if not trimmed and netloc.lower() == _GOOGLE_HOST:
-        return [_GOOGLE_VERSIONS[0], "decisions"]
-    return None
-
-
-def is_google_decisions_route(url: str) -> bool:
-    """Whether *url* is a ``/v1beta/decisions``-shaped Google route."""
-    segments = [segment for segment in urlsplit(url).path.split("/") if segment]
-    return len(segments) >= 2 and segments[-1] == "decisions" and segments[-2] in _GOOGLE_VERSIONS
-
 
 def decisions_url(base_url: str) -> str:
-    """Derive the Judge route, preserving URLs that already end in ``decisions`` or ``systemone``."""
+    """Derive the Judge route, preserving URLs that already end in ``decisions`` or ``systemone``.
+
+    A provider that serves its decision models somewhere of its own (Google's ``/v1beta/decisions``) derives the route from its
+    dialect; every other URL gets the TypeSafe ``/alpha/decisions`` route.
+    """
     parts = urlsplit(base_url.strip().rstrip("/"))
     segments = [segment for segment in parts.path.split("/") if segment]
     if segments and segments[-1] in _ROUTE_ENDINGS:
         return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(segments), "", ""))
-    if (google := _google_route(parts.netloc, segments)) is not None:
-        return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(google), "", ""))
+    if (own := providers.decisions_path(parts.netloc, segments)) is not None:
+        return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(own), "", ""))
     while segments and segments[-1] in _ROUTE_SUFFIXES:
         segments.pop()
     return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join((*segments, *_DERIVED_ROUTE)), "", ""))
@@ -259,7 +236,8 @@ class DecisionClient:
         self.model = model
         self.timeout = timeout
         self.proxy = proxy or None
-        self.google = is_google_decisions_route(url)
+        # The route's dialect names the field the situation travels in and the header the key goes in.
+        self.dialect = providers.resolve(url)
 
     async def decide(
         self,
@@ -273,7 +251,7 @@ class DecisionClient:
             raise DecisionCancelled("stopped before the decision request was sent")
         body = {
             "model": self.model,
-            "input" if self.google else "state": state,
+            self.dialect.decision_state_field: state,
             "questions": {q.key: q.payload() for q in questions},
         }
         started = time.monotonic()
@@ -300,12 +278,10 @@ class DecisionClient:
 
     async def _post(self, body: bytes, timeout: float) -> Any:
         headers = {"Content-Type": "application/json"}
-        if self.api_key and self.google:
-            headers["x-goog-api-key"] = self.api_key
-        elif self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.api_key:
+            headers.update(self.dialect.auth_headers(self.url, self.api_key))
         async with httpx.AsyncClient(timeout=timeout, proxy=self.proxy) as client:
-            url = _SYSTEMONE_FALLBACKS.get(self.url, self.url)
+            url = LEDGER.peek(self.url).systemone_url or self.url
             response = await client.post(url, content=body, headers=headers)
             # A 404 on a derived route may be llama.cpp; its own answer (even a 501 for a
             # non-decision model) says more than the 404, unless it is a 404 as well.
@@ -314,7 +290,8 @@ class DecisionClient:
                 if retry.status_code != 404:
                     url, response = sibling, retry
                     if retry.status_code < 400:
-                        _SYSTEMONE_FALLBACKS[self.url] = sibling
+                        # Derived routes that 404'd and answered on their ``/v1/systemone`` sibling instead.
+                        LEDGER.facts(self.url).systemone_url = sibling
             if response.status_code >= 400:
                 logger.error("Decision HTTP %d from %s: %s", response.status_code, url, response.text)
                 raise llm_call_error(response=response, body=response.text, url=url, model=self.model, api_key=self.api_key)

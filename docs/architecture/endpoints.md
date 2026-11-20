@@ -47,6 +47,31 @@ OpenAI and Gemini routes use Bearer authentication. Native Anthropic routes use
 `x-api-key` and `anthropic-version`. Extra headers may replace those defaults
 case-insensitively.
 
+## Provider dialects
+
+A provider that speaks OpenAI's protocol with quirks of its own is a dialect in
+`inference/providers/`, one module per provider. The dialect is resolved from
+the route being called, so a route probed onto a provider's paths speaks that
+provider's dialect from its first request. Each hook defaults to plain OpenAI:
+the request policy and body rewrite, rejections only that provider gives, how
+its stream carries reasoning, the header that carries the key, catalogue id
+normalization, and where it serves the Judge. Recovery that works for any
+provider (refused body fields, replayed reasoning, cache markers, and the
+reasoning-effort ladder) is shared; a dialect only decides what else counts as
+a refusal, such as Google's bare 400. Anthropic Messages and Claude Code are
+whole protocols and stay beside the package.
+
+Everything Orb learns from responses (a route that answered, a refused field
+or level, an endpoint that always reasons) is kept in one ledger, keyed by the
+configured URL and model. Changing an endpoint's URL, key or proxy, or
+deleting it, forgets what was learned about its chat and Judge routes; picking
+another active model does not.
+
+A rejection carries a kind, set where the error is built: `unknown_route`
+when the body identifies a route mismatch, `unknown_model` for a 404 that names
+the model, `auth` for 401 and 403, and `other`. Route probing and the Judge's
+connection test both read it.
+
 ## Automatic detection and probing
 
 Explicit resource shapes are deterministic and do not probe. An ambiguous URL
@@ -71,8 +96,9 @@ text-completion calls do not enter this chat probing path.
 Probing replays the complete POST, so a first request can upload the prompt up
 to five times. Orb chooses that trade-off because native compatibility proxies
 do not expose a reliable discovery contract. A successful protocol and path is
-cached per configured URL and model for the life of the backend process;
-configured settings are never rewritten.
+cached per configured URL and model for the life of the backend process, or
+until the endpoint's URL, key or proxy changes; configured settings are never
+rewritten.
 
 A rejected `reasoning_effort` value is recovered on any OpenAI-protocol route:
 Orb offers a superset of levels, and providers validate against their own. The
