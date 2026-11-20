@@ -332,3 +332,44 @@ async def test_gemma_on_gemini_turns_reasoning_off_and_keeps_thoughts_out_of_the
     assert not any({"reasoning", "thinking", "chat_template_kwargs"} & body.keys() for body in bodies)
     assert reply["content"] == "Hi there."
     assert reply["reasoning_content"] == "plan more"
+
+
+async def test_googles_bare_400_is_learned_as_a_none_refusal_only_once_the_stepped_call_succeeds():
+    """Google answers ``none`` on a model that cannot stop thinking with only "Request contains an invalid argument.", the same
+    words it gives a request wrong for any other reason. Learning from the words alone would leave every later reasoning-off call
+    thinking."""
+    from backend.inference.client import reasoning_cfg
+    from backend.inference.errors import LLMCallError
+
+    ep._RESOLVED_ROUTES.clear()
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
+    bare = "Request contains an invalid argument."
+    transport = _ScriptedTransport(
+        [
+            # Something else is wrong with the request: the stepped call fails alike, then the unmarked retry.
+            _Refusal(bare),
+            _Refusal(bare),
+            _Refusal(bare),
+            _openai_text(),
+            # This model does refuse none: the stepped call succeeds and the step is kept.
+            _Refusal(bare),
+            _openai_text(),
+            _openai_text(),
+        ]
+    )
+    client = LLMClient(endpoint, "secret")
+    messages = [{"role": "user", "content": "turn"}]
+
+    async def run(model: str) -> None:
+        async for _ in client.complete(messages, model, max_tokens=100, **reasoning_cfg(False)):
+            pass
+
+    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport):
+        with pytest.raises(LLMCallError):
+            await run("gemini-bad-request")
+        await run("gemini-bad-request")
+        await run("gemini-lite-test")
+        await run("gemini-lite-test")
+
+    efforts = [request["body"].get("reasoning_effort") for request in transport.requests]
+    assert efforts == ["none", "minimal", "none", "none", "none", "minimal", "minimal"]

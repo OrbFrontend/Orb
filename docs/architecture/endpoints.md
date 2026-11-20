@@ -76,9 +76,11 @@ configured settings are never rewritten.
 
 A rejected `reasoning_effort` value is recovered on any OpenAI-protocol route:
 Orb offers a superset of levels, and providers validate against their own. The
-refused level is learned per model and the call moves to the nearest level that
-keeps its intent: `none` to `minimal`, `xhigh` to `high`, `low` to `medium` to
-`high`; a level with nowhere left to go is dropped. Learning is per level, so a
+refused level is learned per model and the call moves to the nearest level the
+model has not refused, along `none`, `minimal`, `low`, `medium`, `high`, `xhigh`:
+the cheaper one on a tie, and never to `none`, so an off call stays as near off
+as the model allows and an on call stays on. A level with nowhere left to go is
+dropped. Learning is per level, so a
 refused `xhigh` never costs a reasoning-off call a `none` the model takes. A
 refusal counts when the body names `reasoning_effort` as invalid or names the
 thinking budget or level it maps to as unsupported (Google's wording). Providers'
@@ -279,8 +281,12 @@ Reasoning is translated. The compatibility layer refuses Orb's `reasoning`,
 and reasoning-off calls carry `reasoning_effort: "none"` — the control the layer
 actually reads. Families that cannot disable thinking refuse that value (Gemma 4
 takes only `minimal` and `high`; Gemini 3.5 Flash-Lite answers only "Request
-contains an invalid argument.", which is read as the refusal on this surface
-for `none` alone), and the step to `minimal` is learned per model as above.
+contains an invalid argument."), and the step to `minimal` is learned per model
+as above. That bare 400 is also Google's answer to a request wrong for any other
+reason, so on this surface it only suspects `none`: the call steps past it, and
+the refusal is learned once the stepped call succeeds. If the stepped call fails
+the same way, `none` is restored and not suspected again until the model next
+succeeds.
 
 Gemma models stream their thought as `content` deltas flagged
 `extra_content.google.thought`, wrapped in `<thought>` tags. The stream parser

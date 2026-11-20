@@ -282,8 +282,11 @@ def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRout
 
 
 def note_successful_route(endpoint_url: str, model: str, route: EndpointRoute) -> None:
-    """Cache a route after its stream completes successfully."""
+    """Cache a route after its stream completes successfully, confirming a suspected ``reasoning_effort`` refusal it stepped past."""
     _RESOLVED_ROUTES[(endpoint_url, model)] = route
+    _EFFORT_ACQUITTED.discard((endpoint_url, model))
+    if (level := _EFFORT_SUSPECTED.pop((endpoint_url, model), None)) is not None:
+        _REASONING_EFFORT_REFUSED.setdefault((endpoint_url, model), set()).add(level)
 
 
 def should_probe_route(status: int, text: str) -> bool:
@@ -415,10 +418,17 @@ _TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
 # not cost a reasoning-off call the ``none`` the same model takes.
 _REASONING_EFFORT_REFUSED: dict[tuple[str, str], set[str]] = {}
 
-# Where a refused level goes next, keeping the call's intent: off stays as near off as the model allows and on stays on. Measured
-# on Google's surface 2026-11-20: Gemma 4 takes only minimal and high, Gemini 3.5 Flash-Lite refuses none, and no model takes
-# xhigh. A level with no next step is dropped and the provider default governs.
-_EFFORT_FALLBACK = {"none": "minimal", "xhigh": "high", "low": "medium", "medium": "high"}
+# Levels from least to most reasoning. A refused level moves to the nearest level the pair has not refused, the cheaper one on a
+# tie, and never to ``none``, so an off call stays as near off as the model allows and an on call stays on. Measured on Google's
+# surface 2026-11-20: Gemma 4 takes only minimal and high, Gemini 3.5 Flash-Lite refuses none, and no model takes xhigh. A level
+# outside this list, or with nowhere left to go, is dropped and the provider default governs.
+_EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh")
+
+# A level taken as refused from Google's bare "Request contains an invalid argument.", keyed by pair. That 400 names nothing, so
+# the level is stepped past like a refusal but learned only once the stepped call succeeds; the same 400 again means the level
+# was not the cause, and it is restored and not suspected again until the pair next succeeds.
+_EFFORT_SUSPECTED: dict[tuple[str, str], str] = {}
+_EFFORT_ACQUITTED: set[tuple[str, str]] = set()
 
 # Pairs whose endpoint always reasons and refuses a request that turns reasoning off. OpenRouter answers "Reasoning is mandatory
 # for this endpoint and cannot be disabled" to a disabling ``reasoning`` object while taking the other dialects' off switches, so
@@ -487,36 +497,37 @@ def _is_tool_choice_auto_only(status: int, text: str) -> bool:
 _THINKING_REFUSAL_RE = re.compile(r"thinking (?:budget|level)\b.*\bnot supported")
 
 
-def _is_reasoning_effort_rejected(endpoint_url: str, model: str, body: Mapping[str, Any], status: int, text: str) -> bool:
+def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
     """Return True when a 400 refuses the body's ``reasoning_effort`` level.
 
     Matches a body naming the field as invalid, and Google's wording for the thinking setting the level maps to ("Thinking budget
-    is not supported for this model.", "Thinking level XHIGH is not supported"). Google refuses ``none`` on a model that cannot
-    stop thinking with only its generic "Request contains an invalid argument.", so that is read as the level's refusal there
-    alone. Any other generic 400 (bad model, oversized prompt) never costs a reasoning setting the endpoint accepts.
+    is not supported for this model.", "Thinking level XHIGH is not supported"). A generic 400 (bad model, oversized prompt)
+    never costs a reasoning setting the endpoint accepts.
     """
     low = text.lower()
     if status != 400:
         return False
     if "reasoning_effort" in low:
         return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
-    if _THINKING_REFUSAL_RE.search(low):
-        return True
-    return (
-        body.get("reasoning_effort") == "none"
-        and "request contains an invalid argument" in low
-        and _is_gemini(endpoint_url, model)
-    )
+    return _THINKING_REFUSAL_RE.search(low) is not None
+
+
+def _is_bare_gemini_refusal(endpoint_url: str, model: str, status: int, text: str) -> bool:
+    """Google's catch-all 400, which is also all it answers ``none`` with on a model that cannot stop thinking."""
+    return status == 400 and "request contains an invalid argument" in text.lower() and _is_gemini(endpoint_url, model)
 
 
 def _settle_effort(body: dict, refused: set[str]) -> str | None:
     """Move the body's ``reasoning_effort`` past every level in *refused*; return a log line when it changed."""
     original = body.get("reasoning_effort")
-    effort = original
-    while isinstance(effort, str) and effort in refused:
-        effort = _EFFORT_FALLBACK.get(effort)
-    if effort == original:
+    if not isinstance(original, str) or original not in refused:
         return None
+    effort: str | None = None
+    if original in _EFFORT_LEVELS:
+        rank = _EFFORT_LEVELS.index(original)
+        # Nearest first, the cheaper level on a tie; ``none`` (index 0) is never a step.
+        steps = sorted(range(1, len(_EFFORT_LEVELS)), key=lambda index: (abs(index - rank), index))
+        effort = next((_EFFORT_LEVELS[index] for index in steps if _EFFORT_LEVELS[index] not in refused), None)
     if effort is None:
         body.pop("reasoning_effort")
         return f"reasoning_effort {original!r} dropped"
@@ -643,7 +654,10 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     if refused_fields:
         actions.append(f"{refused_fields} dropped (session-learned unsupported)")
 
-    settled = _settle_effort(body, _REASONING_EFFORT_REFUSED.get((endpoint_url, model), set()))
+    refused_efforts = _REASONING_EFFORT_REFUSED.get((endpoint_url, model), set())
+    if (suspected := _EFFORT_SUSPECTED.get((endpoint_url, model))) is not None:
+        refused_efforts = refused_efforts | {suspected}
+    settled = _settle_effort(body, refused_efforts)
     if settled:
         actions.append(f"{settled} (session-learned unsupported)")
 
@@ -698,7 +712,7 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         tc = body["tool_choice"]
         body["tool_choice"] = {"type": "auto"} if isinstance(tc, dict) and "function" not in tc else "auto"
         return f"Model {model} accepts only tool_choice='auto'; retrying with auto."
-    if "reasoning_effort" in body and _is_reasoning_effort_rejected(endpoint_url, model, body, status, text):
+    if "reasoning_effort" in body and _is_reasoning_effort_rejected(status, text):
         effort = body["reasoning_effort"]
         if not isinstance(effort, str):
             body.pop("reasoning_effort")
@@ -706,6 +720,16 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         refused = _REASONING_EFFORT_REFUSED.setdefault((endpoint_url, model), set())
         refused.add(effort)
         return f"Model {model} rejected reasoning_effort={effort!r}; {_settle_effort(body, refused)}, retrying."
+    if _is_bare_gemini_refusal(endpoint_url, model, status, text):
+        pair = (endpoint_url, model)
+        if pair in _EFFORT_SUSPECTED:
+            # The stepped call failed the same way, so the level was not the cause; later attempts send it again.
+            del _EFFORT_SUSPECTED[pair]
+            _EFFORT_ACQUITTED.add(pair)
+        elif body.get("reasoning_effort") == "none" and pair not in _EFFORT_ACQUITTED:
+            _EFFORT_SUSPECTED[pair] = "none"
+            settled = _settle_effort(body, _REASONING_EFFORT_REFUSED.get(pair, set()) | {"none"})
+            return f"Model {model} answered reasoning_effort='none' with a bare 400; {settled}, retrying."
     if _disables_reasoning(body) and _is_reasoning_mandatory(status, text):
         _REASONING_MANDATORY.add((endpoint_url, model))
         body.pop("reasoning")
