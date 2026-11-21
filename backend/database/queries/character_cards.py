@@ -47,7 +47,7 @@ async def list_character_cards() -> list[CharacterCardRow]:
     # Project sidebar metadata without heavy card bodies; the editor loads them on demand. def_chars measures description,
     # personality and mes_example for group-mode recommendations. Exclude post_history_instructions, shared by all modes.
     rows = await select_rows(
-        "SELECT c.extensions, c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+        "SELECT c.extensions, c.id, c.name, c.creator_notes, c.tags, c.creator, c.character_version, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
         "LENGTH(COALESCE(c.description, '')) + LENGTH(COALESCE(c.personality, '')) + LENGTH(COALESCE(c.mes_example, '')) AS def_chars, "
         "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
         "FROM character_cards c ORDER BY c.updated_at DESC"
