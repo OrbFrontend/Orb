@@ -31,7 +31,7 @@
   --aero-wall:url("/static/themes/assets/frutiger-aero-landscape.jpg");
   --aero-frost:url("/static/themes/assets/frutiger-aero-frost.jpg");
   --aero-milk:linear-gradient(180deg, rgba(255,255,255,0.62), rgba(255,255,255,0.76));
-  --aero-wall-w:max(100vw, calc(var(--app-height, 100dvh) * 1.7768)); --aero-z:1;
+  --aero-wall-w:max(100vw, calc(var(--app-height, 100dvh) * 1.7778)); --aero-z:1;
   --aero-wall-x:calc((100vw - var(--aero-wall-w)) / 2);
 
   --mobile-overlay-color:rgba(24,92,138,0.4) !important;
