@@ -7,12 +7,15 @@ import { api } from "./api.js";
 import {
   applyStreamEvent,
   applyVerdicts,
+  cleanSuggestions,
   decisionText,
+  defaultSuggestions,
   findProposal,
   handoffOutcome,
   isSendKey,
   MAX_ITEM_CHARS,
   newId,
+  parseSuggestions,
   parseTranscript,
   pendingProposalIds,
   reviseEntry,
@@ -35,6 +38,7 @@ import { refreshConversationMessages } from "./chat_workflow.js";
 import { refreshDocument, saveOpenDocument } from "./document.js";
 import { offsetOfPosition, serializeEditor } from "./document_editor.js";
 import { reconcileChildren } from "./dom_reconcile.js";
+import { initDragReorder } from "./drag_reorder.js";
 import { sseError } from "./errors.js";
 import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
 import { loadCharacters } from "./library_sidebar.js";
@@ -58,6 +62,8 @@ import { $, toast } from "./utils.js";
 
 // One key per chat, by the key of the character it is about.
 const LS_CHAT = "orb-assistant-chat:";
+// The reader's own suggestion lists, by view.
+const LS_SUGGESTIONS = "orb-assistant-suggestions";
 // As many chats as the server keeps conversations.
 const MAX_CHATS = 32;
 const PANEL = "assistant-panel";
@@ -96,6 +102,11 @@ let toolsRepaintHeld = false;
 const chats = new Map();
 // The chat on screen, whose items S.assistant.items is.
 let shown = null;
+// The reader's own suggestion lists by view, read once.
+let customSuggestions = null;
+// The suggestions being edited: `{ view, rows }`. The rows are what the editor was last drawn with; typing and reordering
+// save without a repaint, and anything that changes the rows reads them back off the page first.
+let suggestionEdit = null;
 // The view the empty log's suggestions were drawn for, null once the log holds entries.
 let suggestedFor = null;
 // The reader's last selection in a chat message or the document page. Typing in the panel keeps it, since that is how a
@@ -305,8 +316,14 @@ function paintLog() {
   const busy = Boolean(activeOperation());
   const view = shownView();
   suggestedFor = S.assistant.items.length ? null : view;
+  if (suggestionEdit && (S.assistant.items.length || suggestionEdit.view !== view)) suggestionEdit = null;
+  const suggestions = {
+    list: suggestionEdit ? suggestionEdit.rows : suggestionsFor(view),
+    editing: Boolean(suggestionEdit),
+    custom: view in suggestionLists(),
+  };
   // Keyed, so a stream event rebuilds only the rows it changed and a disclosure the reader opened stays open.
-  reconcileChildren(log, transcriptEntries(S.assistant.items, renderMessageHtml, { busy, suggestFor: view }));
+  reconcileChildren(log, transcriptEntries(S.assistant.items, renderMessageHtml, { busy, suggestions }));
   toEnd();
 }
 
@@ -1016,6 +1033,92 @@ function fillInput(text) {
   input.focus();
 }
 
+function suggestionLists() {
+  customSuggestions ??= parseSuggestions(stored(LS_SUGGESTIONS));
+  return customSuggestions;
+}
+
+function suggestionsFor(view) {
+  return suggestionLists()[view] ?? defaultSuggestions(view);
+}
+
+/** Keep *rows* as *view*'s suggestions; a list that matches the defaults is dropped, so it follows them. */
+function saveSuggestions(view, rows) {
+  const lists = suggestionLists();
+  const list = cleanSuggestions(rows);
+  if (JSON.stringify(list) === JSON.stringify(cleanSuggestions(defaultSuggestions(view)))) delete lists[view];
+  else lists[view] = list;
+  if (Object.keys(lists).length) store(LS_SUGGESTIONS, JSON.stringify(lists));
+  else {
+    try {
+      localStorage.removeItem(LS_SUGGESTIONS);
+    } catch {}
+  }
+  const reset = $("assistant-log")?.querySelector('[data-wf-action="assistant:suggestionsReset"]');
+  if (reset) reset.disabled = !(view in lists);
+}
+
+const suggestionBoxes = () => [...($("assistant-log")?.querySelectorAll(".asst-suggest-text") || [])];
+
+/** The editor's rows as the page holds them now, blanks included. */
+function editedRows() {
+  return suggestionBoxes().map((box) => box.value);
+}
+
+function editSuggestions() {
+  const view = shownView();
+  const rows = [...suggestionsFor(view)];
+  suggestionEdit = { view, rows: rows.length ? rows : [""] };
+  paint();
+}
+
+/** Redraw the editor with its rows changed by *change*, saving the result. */
+function changeSuggestions(change) {
+  if (!suggestionEdit) return;
+  const rows = editedRows();
+  change(rows);
+  suggestionEdit.rows = rows;
+  saveSuggestions(suggestionEdit.view, rows);
+  paint();
+}
+
+function addSuggestion() {
+  changeSuggestions((rows) => rows.push(""));
+  suggestionBoxes().at(-1)?.focus();
+}
+
+function removeSuggestion(el) {
+  const row = el.closest(".asst-suggest-row");
+  const index = [...row.parentElement.querySelectorAll(".asst-suggest-row")].indexOf(row);
+  changeSuggestions((rows) => rows.splice(index, 1));
+}
+
+function resetSuggestions() {
+  if (!suggestionEdit) return;
+  suggestionEdit.rows = [...defaultSuggestions(suggestionEdit.view)];
+  saveSuggestions(suggestionEdit.view, suggestionEdit.rows);
+  // The defaults may be the very rows the editor was drawn with, which a repaint would keep, typing and all.
+  $("assistant-log")?.querySelector(".asst-suggest-editor")?.remove();
+  paint();
+}
+
+function finishSuggestions() {
+  if (!suggestionEdit) return;
+  saveSuggestions(suggestionEdit.view, editedRows());
+  suggestionEdit = null;
+  paint();
+}
+
+function suggestionDraft(e) {
+  if (!suggestionEdit) return;
+  if (e.type === "input") saveSuggestions(suggestionEdit.view, editedRows());
+  else if (e.key === "Escape") {
+    // The edit is what Escape closes, not the panel behind it.
+    e.stopPropagation();
+    finishSuggestions();
+  }
+}
+
 /** Empty the chat on screen, here and on the server; its next request starts a conversation the server has never seen. */
 function clear() {
   if (activeOperation()) return;
@@ -1073,6 +1176,12 @@ export function initAssistant() {
     // A card's request goes back in the input, to send again for a fresh preview.
     askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),
+    editSuggestions: () => editSuggestions(),
+    suggestionDraft: (_el, e) => suggestionDraft(e),
+    suggestionAdd: () => addSuggestion(),
+    suggestionRemove: (el) => removeSuggestion(el),
+    suggestionsReset: () => resetSuggestions(),
+    suggestionsDone: () => finishSuggestions(),
     retry: (el) => {
       const item = requestOf(el);
       if (item) submit(item.text, item);
@@ -1084,6 +1193,11 @@ export function initAssistant() {
     resetInstructions: () => resetInstructions(),
   });
   const log = $("assistant-log");
+  initDragReorder(log, {
+    itemSelector: ".asst-suggest-row",
+    handleSelector: ".asst-suggest-grip",
+    onReorder: () => suggestionEdit && saveSuggestions(suggestionEdit.view, editedRows()),
+  });
   log.addEventListener("scroll", () => {
     if (!log.clientHeight) return;
     following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;

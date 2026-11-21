@@ -22,7 +22,28 @@
 @media (prefers-reduced-motion: reduce) {
   #app[data-asst-running] .asst-launch-mark, .asst-tool-running .asst-tool-name, .asst-status::before { animation: none; }
 }
-.asst-empty { font-size: 12px; color: var(--text-muted); }
+.asst-empty { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.asst-empty > span { flex: 1; min-width: 0; }
+.asst-suggest-edit { flex: none; display: flex; padding: 2px; border: 0; border-radius: 3px; background: none;
+  --ui-icon-size: 14px; color: var(--text-muted); cursor: pointer; transition: color .15s; }
+.asst-suggest-edit:hover, .asst-suggest-edit:focus-visible { color: var(--text-primary); }
+/* Editing frames the list like a request being edited: each suggestion a box of its own, the buttons below. */
+.asst-suggest-editor { display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 8px 4px;
+  border: 1px solid var(--accent-dim); border-radius: calc(var(--radius) * 2); background: var(--bg-elevated); }
+.asst-suggest-row { display: flex; align-items: flex-start; gap: 4px; }
+.asst-suggest-row.dragging { opacity: .6; }
+.asst-suggest-grip { --ui-icon-size: 14px; flex: none; display: flex; align-items: center; align-self: stretch;
+  padding: 0 2px; border: 0; border-radius: 3px; background: none; color: var(--text-muted); cursor: grab;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: pan-y; }
+.asst-suggest-grip:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.asst-suggest-grip:active { cursor: grabbing; }
+.asst-suggest-text { flex: 1; min-width: 0; min-height: 0; field-sizing: content; resize: none; padding: 7px 10px;
+  border-radius: calc(var(--radius) * 2); font-size: 12px; line-height: 1.4; }
+.asst-suggest-remove { --btn-square-size: 22px; flex: none; margin-top: 4px; color: var(--text-muted); }
+.asst-suggest-remove:hover { color: var(--red); }
+.asst-suggest-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 4px; padding-top: 8px;
+  border-top: 1px solid var(--border); }
+.asst-suggest-foot .asst-edit-actions { margin-left: auto; }
 .asst-suggestions { display: flex; flex-direction: column; gap: 6px; }
 .asst-suggestion { padding: 8px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
   font-size: 12px; line-height: 1.4; text-align: left; color: var(--text-secondary); background: var(--bg-surface);

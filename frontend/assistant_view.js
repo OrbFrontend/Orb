@@ -1,6 +1,6 @@
 // The assistant transcript as data: what may be stored, how a run's events change it,
 // and its markup. No DOM lookups and no requests, so every rule here can be tested on its own.
-import { EDIT_ICON } from "./icons.js";
+import { CLOSE_ICON, EDIT_ICON, GRIP_ICON } from "./icons.js";
 import { esc, escAttr, sentenceDiff, workflowAttachmentUrl } from "./utils.js";
 
 export const MAX_ITEM_CHARS = 8000;
@@ -780,24 +780,86 @@ const SUGGESTIONS = {
   ],
 };
 
-function emptyEntries(view) {
-  const offered = SUGGESTIONS[view] || SUGGESTIONS.library;
-  const buttons = offered
+const MAX_SUGGESTIONS = 20;
+const MAX_SUGGESTION_CHARS = 500;
+
+/** The requests *view* offers out of the box. */
+export function defaultSuggestions(view) {
+  return SUGGESTIONS[view] || SUGGESTIONS.library;
+}
+
+/** A list of suggestions as kept: trimmed, bounded, blanks dropped. */
+export function cleanSuggestions(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((text) => typeof text === "string")
+    .map((text) => text.trim().slice(0, MAX_SUGGESTION_CHARS))
+    .filter(Boolean)
+    .slice(0, MAX_SUGGESTIONS);
+}
+
+/** The reader's own lists from storage, by view; a view left out offers its defaults. */
+export function parseSuggestions(raw) {
+  let saved = null;
+  try {
+    saved = JSON.parse(raw || "null");
+  } catch {}
+  const lists = {};
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return lists;
+  for (const view of Object.keys(SUGGESTIONS)) {
+    if (Array.isArray(saved[view])) lists[view] = cleanSuggestions(saved[view]);
+  }
+  return lists;
+}
+
+function suggestionEditor(list, custom) {
+  const rows = list
     .map(
-      (text) =>
-        `<button type="button" class="asst-suggestion" data-wf-action="assistant:suggest" data-text="${escAttr(text)}">${esc(text)}</button>`,
+      (text, index) =>
+        `<div class="asst-suggest-row">` +
+        `<button type="button" class="asst-suggest-grip" title="Drag, or use the arrow keys, to reorder" ` +
+        `aria-label="Reorder this suggestion">${GRIP_ICON}</button>` +
+        `<textarea class="asst-suggest-text" data-wf-action="assistant:suggestionDraft" data-wf-on="input keydown" ` +
+        `rows="1" maxlength="${MAX_SUGGESTION_CHARS}" aria-label="Suggestion ${index + 1}" ` +
+        `placeholder="A request to offer">${esc(text)}</textarea>` +
+        `<button type="button" class="btn-icon btn-square asst-suggest-remove" data-wf-action="assistant:suggestionRemove" ` +
+        `title="Remove" aria-label="Remove this suggestion">${CLOSE_ICON}</button></div>`,
     )
     .join("");
-  return [
+  return (
+    `<div class="asst-suggest-editor" role="group" aria-label="Edit suggested requests">${rows}` +
+    `<div class="asst-suggest-foot">${button("suggestionAdd", "Add", "", { disabled: list.length >= MAX_SUGGESTIONS })}` +
+    `<div class="asst-edit-actions">${button("suggestionsReset", "Reset", "", { disabled: !custom })}` +
+    `${button("suggestionsDone", "Done", "", { accent: true })}</div></div></div>`
+  );
+}
+
+function emptyEntries({ list, editing = false, custom = false }) {
+  const edit = editing
+    ? ""
+    : `<button type="button" class="asst-suggest-edit" data-wf-action="assistant:editSuggestions" ` +
+      `title="Edit suggestions" aria-label="Edit suggestions">${EDIT_ICON}</button>`;
+  const rows = [
     {
       key: "empty",
-      html: '<div class="asst-empty">I can do most things you can from the UI, but not beyond.</div>',
-    },
-    {
-      key: "suggestions",
-      html: `<div class="asst-suggestions" role="group" aria-label="Suggested requests">${buttons}</div>`,
+      html: `<div class="asst-empty"><span>I can do most things you can from the UI, but not beyond.</span>${edit}</div>`,
     },
   ];
+  if (editing) {
+    rows.push({ key: "suggestions", html: suggestionEditor(list, custom) });
+  } else if (list.length) {
+    const buttons = list
+      .map(
+        (text) =>
+          `<button type="button" class="asst-suggestion" data-wf-action="assistant:suggest" data-text="${escAttr(text)}">${esc(text)}</button>`,
+      )
+      .join("");
+    rows.push({
+      key: "suggestions",
+      html: `<div class="asst-suggestions" role="group" aria-label="Suggested requests">${buttons}</div>`,
+    });
+  }
+  return rows;
 }
 
 // Each entry keeps one key for as long as it is in the transcript, so a repaint rebuilds only the rows that changed.
@@ -857,10 +919,14 @@ function argsHtml(args) {
  * The log's rows as `[{ key, html }]`, each one element. User text, labels, tool lines, outcomes and proposed edits are
  * escaped; only an assistant reply goes through *renderProse*, inside `.msg-body`, where no element can name an action.
  * A change's controls are drawn while this page holds its proposal, and are disabled while *busy*. An empty log
- * suggests requests for *suggestFor* (`chat`, `character`, `document` or `library`).
+ * offers *suggestions* (`{ list, editing, custom }`), or their editor while *editing*.
  */
-export function transcriptEntries(items, renderProse, { busy = false, suggestFor = "library" } = {}) {
-  if (!items.length) return emptyEntries(suggestFor);
+export function transcriptEntries(
+  items,
+  renderProse,
+  { busy = false, suggestions = { list: defaultSuggestions("library") } } = {},
+) {
+  if (!items.length) return emptyEntries(suggestions);
   let view = null;
   const rows = [];
   const lastRequest = items.findLastIndex((item) => item.kind === "user");
