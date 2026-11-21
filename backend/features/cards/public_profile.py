@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...core import agent_lane_cut_off
 from ...core.settings import Settings
 from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
@@ -182,7 +182,7 @@ async def _draft(client: LLMClient, model: str, system: str, user: str, settings
             system=system,
             user=user,
             tool=DRAFT_PROFILE_TOOL,
-            max_tokens=agent_lane_max_tokens(settings),
+            settings=settings,
             reasoning_on=False,
         )
     except ReplyCutOff:

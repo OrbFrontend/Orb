@@ -131,7 +131,6 @@ async def _forced_result(
             settings=settings,
             model_name=model_name,
             reasoning_on=reasoning_on,
-            temperature=0.2,
             offer_tools=offer_tools,
             call_id=call_id,
             raise_errors=raise_errors,

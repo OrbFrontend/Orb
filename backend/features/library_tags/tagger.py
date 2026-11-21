@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...core import agent_lane_cut_off
 from ...core.settings import Settings
 from ...inference import AbortToken, DecisionClient, DecisionQuestion, LLMClient, ReplyCutOff, forced_draft
 
@@ -188,7 +188,7 @@ async def tag_card(
             system=system,
             user=build_card_message(card),
             tool=tool,
-            max_tokens=agent_lane_max_tokens(settings),
+            settings=settings,
             reasoning_on=reasoning_on,
         )
     except ReplyCutOff:

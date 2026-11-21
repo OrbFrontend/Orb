@@ -497,7 +497,7 @@ function _stateSectionHtml(d) {
       ${select("mode", "Mode")}
       ${select("update", "Update")}
       ${select("inject", "Inject")}
-      <div class="field field-narrow" id="interactive-frag-state-max-row" style="${current.mode === "entries" ? "" : "display:none"}">
+      <div class="field field-narrow ifrag-state-max" id="interactive-frag-state-max-row" style="${current.mode === "entries" ? "" : "display:none"}">
         <label>Max entries</label>
         <input id="interactive-frag-state-max" data-state-setting="max" type="number" min="0" max="1000" step="1" value="${maxEntries || ""}" placeholder="No limit" title="The most entries the list keeps; empty is no limit"></div>
     </div>

@@ -7,8 +7,9 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..core import AssistantToolMessage, ChatMessage
+from ..core import AssistantToolMessage, ChatMessage, agent_lane_params
 from ..core.llm_types import CompletionMessage, ToolResultMessage
+from ..core.settings import Settings
 from .client import LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -57,17 +58,17 @@ def tool_result(call_id: str, content: str) -> ToolResultMessage:
 
 
 async def forced_draft(
-    client: LLMClient, model: str, *, system: str, user: str, tool: dict[str, Any], max_tokens: int, reasoning_on: bool
+    client: LLMClient, model: str, *, system: str, user: str, tool: dict[str, Any], settings: Settings, reasoning_on: bool
 ) -> dict[str, Any] | None:
     """Make one forced tool call and return its arguments, or ``None`` if absent.
 
-    Raises :class:`ReplyCutOff` when the reply stopped at *max_tokens*: arguments
+    Raises :class:`ReplyCutOff` when the reply stopped at the Agent token budget: arguments
     salvaged from a cut reply can look complete while missing their tail.
     """
     name = tool["function"]["name"]
     messages: list[ChatMessage] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     response = await forced_turn(
-        client, model, messages=messages, tools=[tool], forced=name, max_tokens=max_tokens, reasoning_on=reasoning_on
+        client, model, messages=messages, tools=[tool], forced=name, settings=settings, reasoning_on=reasoning_on
     )
     if response.get("finish_reason") == "length":
         raise ReplyCutOff
@@ -81,7 +82,7 @@ async def forced_turn(
     messages: Sequence[Mapping[str, Any]],
     tools: list[dict[str, Any]],
     forced: str,
-    max_tokens: int,
+    settings: Settings,
     reasoning_on: bool,
     one_call: bool = False,
 ) -> CompletionMessage:
@@ -96,8 +97,7 @@ async def forced_turn(
         model=model or "",
         tools=tools,
         tool_choice={"type": "function", "function": {"name": forced}},
-        temperature=0.2,
-        max_tokens=max_tokens,
+        **agent_lane_params(settings),
         **({"single_tool_call": True} if one_call else {}),
         **reasoning_cfg(reasoning_on),
     ):

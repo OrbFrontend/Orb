@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, TypedDict
 
-from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...core import agent_lane_cut_off
 from ...core.settings import Settings
 from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
@@ -143,7 +143,7 @@ async def propose_sheet_update(
 ) -> SheetUpdate | None:
     """Drain and validate one forced sheet-update call; None means no durable change.
 
-    Use the Agent token budget with fixed temperature. Reject truncated output:
+    Use the Agent lane's samplers and token budget. Reject truncated output:
     an incomplete sheet can pass shape checks while silently losing content.
     """
     try:
@@ -153,7 +153,7 @@ async def propose_sheet_update(
             system=SHEET_SYSTEM_PROMPT,
             user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
             tool=UPDATE_SHEET_TOOL,
-            max_tokens=agent_lane_max_tokens(settings),
+            settings=settings,
             # Pinned off: the task is to carry unchanged sentences forward verbatim, which thinking does not help, and reasoning
             # is spent from the same budget the restated sheet needs.
             reasoning_on=False,

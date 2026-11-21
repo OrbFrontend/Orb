@@ -101,7 +101,6 @@ async def _voice_rewrite(ctx: PostCtx, text: str, phrases: list[str], reference:
         kv_tracker=ctx.kv_tracker,
         cache_shape="format_consistency:voice_rewrite",
         reasoning_on=False,
-        temperature=0.25,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
             args = event["args"]

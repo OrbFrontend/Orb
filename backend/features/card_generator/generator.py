@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from ...core import ContentPart, WireMessage, agent_lane_cut_off, agent_lane_max_tokens, build_multimodal_content
+from ...core import ContentPart, WireMessage, agent_lane_cut_off, build_multimodal_content
 from ...core.settings import Settings
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
@@ -202,7 +202,6 @@ async def generate_card(
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": with_image(user, image)},
     ]
-    max_tokens = agent_lane_max_tokens(settings)
     corrected = False
     while True:
         response = await forced_turn(
@@ -211,7 +210,7 @@ async def generate_card(
             messages=messages,
             tools=[GENERATE_CARD_TOOL],
             forced=CARD_TOOL_NAME,
-            max_tokens=max_tokens,
+            settings=settings,
             reasoning_on=reasoning_on,
         )
         args = card_arguments(response, settings)

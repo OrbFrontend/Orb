@@ -66,6 +66,11 @@ def agent_lane_max_tokens(settings: Settings) -> int:
     return int(extract_hyperparams(settings, lane="agent").get("max_tokens") or _DEFAULT_MAX_TOKENS)
 
 
+def agent_lane_params(settings: Settings) -> dict[str, Any]:
+    """The agent lane's samplers and reply budget, for a call that sets none of its own."""
+    return {**extract_hyperparams(settings, lane="agent"), "max_tokens": agent_lane_max_tokens(settings)}
+
+
 def agent_lane_cut_off(settings: Settings) -> str:
     """The sentence for an agent-lane reply that stopped at its budget.
 

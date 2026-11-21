@@ -68,6 +68,8 @@
 .ifrag-gate-row > .field > :not(label) { grid-row: 2; align-self: start; }
 .ifrag-gate-row > .field-narrow > * { width: 88px; margin-left: 8px; box-sizing: border-box; }
 .ifrag-gate-note { margin: -6px 0 10px; }
+/* Wide enough for its "No limit" placeholder beside the spinner, at every width. */
+.ifrag-form .field-row > .field-narrow.ifrag-state-max { flex-basis: 108px; }
 
 /* ── Mobile editor ── */
 @media (max-width: 700px) {

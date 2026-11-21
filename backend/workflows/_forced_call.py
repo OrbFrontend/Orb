@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
-from ..core import AssistantToolMessage, ReasoningChannel, agent_lane_max_tokens, mark_call_start
+from ..core import AssistantToolMessage, ReasoningChannel, agent_lane_params, mark_call_start
 from ..core.llm_types import CompletionMessage
 from ..core.settings import Settings
 from ..inference import (
@@ -82,12 +82,11 @@ async def forced_tool_call(
     cache_shape: str = "",
     model_name: str | None = None,
     reasoning_on: bool = True,
-    temperature: float = 0.25,
     tools_in_prompt: bool = True,
     call_id: str | None = None,
     raise_errors: bool = False,
 ) -> AsyncIterator[dict]:
-    """Run a forced call, yielding parsed arguments with the Agent token budget and caller-defined temperature.
+    """Run a forced call, yielding parsed arguments with the Agent lane's samplers and token budget.
 
     Standalone prompt families require cache_shape; conversation extensions leave it empty. call_id includes a replayable
     assistant turn when arguments exist. Failures default to empty arguments; raise_errors preserves provider errors after
@@ -97,6 +96,7 @@ async def forced_tool_call(
     schema = tool["schema"]
     resolved_model = model_name or settings["model_name"]
     reasoning_params = reasoning_cfg(reasoning_on)
+    samplers = agent_lane_params(settings)
     # Agent-lane calls render text-mode prompts the way the turn's passes on that lane do.
     template_thinking = lane_template_thinking(
         settings.get("reasoning_enabled_passes") or {},
@@ -151,8 +151,7 @@ async def forced_tool_call(
                 model=resolved_model,
                 tools=tool_array,
                 tool_choice=tool["choice"],
-                temperature=temperature,
-                max_tokens=agent_lane_max_tokens(settings),
+                **samplers,
                 tools_in_prompt=tools_in_prompt,
                 template_thinking=template_thinking,
                 **reasoning_params,

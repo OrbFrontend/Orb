@@ -10,7 +10,7 @@ from typing import Any, Literal, TypedDict
 
 import httpx
 
-from ...core import WireMessage, agent_lane_cut_off, agent_lane_max_tokens
+from ...core import WireMessage, agent_lane_cut_off
 from ...core.llm_types import CompletionMessage
 from ...core.settings import Settings
 from ...database import LIBRARY_VIEWS, run_library_query
@@ -207,14 +207,13 @@ async def generate_deep_card(
         {"role": "system", "content": _DEEP_SYSTEM_PROMPT},
         {"role": "user", "content": with_image(f"{user}\n\n{VIEW_DOCS}\n\n{_STEP_PROTOCOL}", image)},
     ]
-    max_tokens = agent_lane_max_tokens(settings)
     # Restrict the tool list when forced choice is unreliable.
     shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(True))
 
     async def call(forced: str, transcript: list[WireMessage]) -> CompletionMessage:
         tools = TOOLS if shared_tools else [_QUERY_TOOL if forced == _QUERY else GENERATE_CARD_TOOL]
         return await forced_turn(
-            client, model, messages=transcript, tools=tools, forced=forced, max_tokens=max_tokens, reasoning_on=True
+            client, model, messages=transcript, tools=tools, forced=forced, settings=settings, reasoning_on=True
         )
 
     findings: list[str] = []
