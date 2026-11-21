@@ -520,9 +520,13 @@ decision. Nothing is applied by proposing.
 The card offers Apply & continue (Delete & continue for a deletion), Skip &
 continue, and End request. Apply uses the existing endpoint and resumes only
 after a conclusive verdict; busy or uncertain responses leave the card open
-to retry. The browser immediately sends the actual verdict or Skip decision as
-an ordinary visible request in the same session and captured view. End request
-sends the skip decision with an instruction to acknowledge and stop. No stream
+to retry. The browser immediately sends the decision as an ordinary visible
+request in the same session and captured view: one sentence per change, the
+Apply summary, why it wrote nothing, or that it was skipped. That request
+replaces the applied summary line in the log. It says nothing about continuing:
+the prompt tells the model to carry on with what the request still asks for, or
+answer in a sentence when nothing is left. End request adds "That's all for this
+request." No stream
 is held open while the user reviews, and no separate continuation store is
 needed. A new typed request takes over the checkpoint; pending proposals still
 travel with it, so feedback can revise the proposed text.

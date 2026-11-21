@@ -7,6 +7,7 @@ import { api } from "./api.js";
 import {
   applyStreamEvent,
   applyVerdicts,
+  decisionText,
   findProposal,
   handoffOutcome,
   isSendKey,
@@ -803,24 +804,34 @@ function pendingOf(el) {
     .map((entry) => ({ entry, card }));
 }
 
-/** Record what a change request settled: its summary in the transcript, and the resources it changed read again. */
-async function settled(chat, outcome, fallback) {
-  if (outcome?.summaries.length) {
-    chat.items.push({ kind: "outcome", reason: "applied", text: outcome.summaries.join(" ") });
-    trimTranscript(chat.items);
-    persist(chat);
-  }
+function logOutcome(chat, outcome) {
+  if (!outcome?.summaries.length) return;
+  chat.items.push({ kind: "outcome", reason: "applied", text: outcome.summaries.join(" ") });
+  trimTranscript(chat.items);
+  persist(chat);
+}
+
+/**
+ * Record what a change request settled: its summary in the transcript, unless the request resuming the run says it
+ * (*resuming*), and the resources it changed read again.
+ */
+async function settled(chat, outcome, fallback, resuming = false) {
+  if (!resuming) logOutcome(chat, outcome);
   await refreshResources(outcome ? outcome.resources : fallback);
 }
 
-/** Resume the same chat and captured view, with the user's decision as an ordinary, visible request. */
+/**
+ * Resume the same chat and captured view, with the user's decision as an ordinary, visible request. Returns null when
+ * nothing was sent.
+ */
 function continueProposal(chat, card, decision, end = false) {
-  if (!card || activeOperation()) return;
-  if (!requestSendPermission()) return;
+  if (!card || activeOperation()) return null;
+  if (!requestSendPermission()) return null;
   const continuing = !!card.context && !end;
   const context = card.context || captureContext();
   delete card.context;
-  const text = `${decision}\n\n${continuing ? "Continue the remaining work." : "Acknowledge this decision and end the request here."}`;
+  // The prompt says to carry on with the request or, with nothing left, answer briefly; only an end needs saying.
+  const text = continuing ? decision : `${decision} That's all for this request.`;
   const requestId = newId();
   chat.items.push({ kind: "user", text, context, requestId });
   trimTranscript(chat.items);
@@ -861,9 +872,10 @@ async function apply(el) {
       )?.results;
       applied = applyVerdicts(card, results);
       if (Array.isArray(results) && results.length && !card.proposals.some((entry) => entry.status === "pending"))
-        decision =
-          "I chose Apply. Result: " +
-          results.map((result) => `${result.verdict}: ${result.summary || result.message || ""}`).join("; ");
+        decision = decisionText(
+          entries.map(({ entry }) => entry),
+          results,
+        );
     } catch {
       card.note = "Apply did not finish. Try again.";
     }
@@ -873,6 +885,7 @@ async function apply(el) {
       chat,
       applied,
       entries.flatMap(({ entry }) => (entry.target ? [entry.target] : [])),
+      !!decision,
     );
   if (decision) {
     // A deleted target may have been the captured view itself; resume from a view the server can still resolve.
@@ -887,7 +900,12 @@ async function apply(el) {
       )
     )
       card.context = { mode: "library", label: "Library" };
-    await continueProposal(chat, card, decision);
+    const resumed = continueProposal(chat, card, decision);
+    if (!resumed) {
+      logOutcome(chat, applied);
+      paint();
+    }
+    await resumed;
   }
 }
 
@@ -920,6 +938,7 @@ function cancel(el, end = false) {
   const chat = shown;
   const entries = pendingOf(el);
   const card = entries[0]?.card;
+  const decision = decisionText(entries.map(({ entry }) => entry));
   for (const { entry } of entries) {
     entry.status = "cancelled";
     delete entry.editing;
@@ -927,12 +946,7 @@ function cancel(el, end = false) {
   }
   persist(chat);
   paint();
-  return continueProposal(
-    chat,
-    card,
-    `I chose to skip the proposal for ${entries.map(({ entry }) => entry.label + (entry.field ? ` (${entry.field})` : "")).join(", ")}. Nothing was applied.`,
-    end,
-  );
+  return continueProposal(chat, card, decision, end);
 }
 
 /** Open, keep or close the reader's own text for a pending edit, which Save then makes what Apply writes. */

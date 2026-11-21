@@ -63,11 +63,11 @@ _WRITES = (
 _PROPOSALS = (
     "\n- A tool marked [proposes] proposes an edit to existing text, or deleting something. "
     "Each proposal pauses the request immediately for the user to review. Say that you proposed it, never that it was made.\n"
-    "- The user's next message tells you whether they applied or skipped the proposal, or asks for a revision. "
-    "After Apply, continue the remaining requested work using the changed state; read changed text again if you need it. "
-    "After Skip, leave that change out "
-    "and continue; do not propose it again. If Apply failed, explain why and do not assume the change was made. "
-    "When the user asks for a revision, build on the pending proposal."
+    "- The user's next message says what became of the proposal (applied, skipped or not applied), or asks for a "
+    "revision. Then do whatever else the request still asks for, using the changed state; read changed text again if you "
+    "need it. If nothing else is left, reply in one short sentence. Never propose a skipped change again. When a change "
+    "was not applied, say why and do not assume it was made. When the user asks for a revision, build on the pending "
+    "proposal."
 )
 _HANDOFFS = (
     "\n- A tool marked [hands off] ends this request, and the chat then does the work in its own stream. Run it last, after "

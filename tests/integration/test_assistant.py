@@ -1216,7 +1216,11 @@ async def test_review_decision_resumes_the_same_conversation_with_the_actual_sta
     if decision != "skipped":
         [result] = await _apply(client, proposal["proposal_id"])
         assert result["verdict"] == decision
-    text = f"I chose {decision}. Continue the remaining work; do not repeat skipped edits or assume a failed Apply succeeded."
+    text = {
+        "applied": 'Applied the edit to the description of character "Mara".',
+        "skipped": 'Skipped the edit to the description of character "Mara".',
+        "stale": 'Did not apply the edit to the description of character "Mara": That text changed after the preview.',
+    }[decision]
     script[:] = [_call("read_character", {"fields": ["description"]}), _reply("Ready for the scenario.")]
     events = frames(await client.post_checked(RUN, json={**body, "text": text, "pending": []}))
     assert dict(events)["start"]["continued"] is True

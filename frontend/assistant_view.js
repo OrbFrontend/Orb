@@ -258,6 +258,28 @@ const edited = (entry) =>
     ? `deletion of ${entry.label}`
     : `${entry.field ? `${entry.field.toLowerCase()} of ` : ""}${entry.label}`;
 
+const change = (entry) => (entry.action === "delete" ? `deleting ${entry.label}` : `the edit to the ${edited(entry)}`);
+
+/**
+ * The user's decision on a checkpoint's *entries*, as the request that resumes the run says it: one sentence per change,
+ * from Apply's *results* where it ran (the server's summary, or why it wrote nothing), else that the user skipped it.
+ */
+export function decisionText(entries, results = []) {
+  const verdicts = new Map((Array.isArray(results) ? results : []).map((result) => [result?.proposal_id, result]));
+  return entries
+    .map((entry) => {
+      const result = verdicts.get(entry.proposalId);
+      if (!result) return `Skipped ${change(entry)}.`;
+      if (result.verdict === "applied")
+        return (
+          text(result.summary, MAX_NOTE_CHARS) ||
+          (entry.action === "delete" ? `Deleted ${entry.label}.` : `Applied ${change(entry)}.`)
+        );
+      return `Did not apply ${change(entry)}: ${text(result.message, MAX_NOTE_CHARS) || result.verdict}`;
+    })
+    .join(" ");
+}
+
 /** The view fields the server checks; the label is the browser's own and is not sent as context. */
 export function wireContext(context) {
   const out = { mode: context.mode };
