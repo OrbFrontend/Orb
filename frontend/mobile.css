@@ -49,6 +49,9 @@ html { height: 100%; }
   .char-item-actions { opacity: 1; }
   .avatar-popup { width: 100%; z-index: 120; }
   .toast-stack { left: 12px; right: 12px; bottom: 12px; max-width: none; align-items: stretch; }
+  .toast-head { align-items: flex-start; }
+  .toast-close { --ui-icon-size: 16px; min-width: 32px; min-height: 32px; margin: -8px -10px -8px 0;
+    display: inline-flex; align-items: center; justify-content: center; }
 
 }
 
