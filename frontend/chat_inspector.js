@@ -5,7 +5,9 @@ import { currentDecisionsHtml } from "./chat_decisions.js";
 import { turnLabel } from "./chat_turn.js";
 import { expressionLabels, expressionPlaybackCue } from "./expression_playback.js";
 import { syncGenerationStatusMarquee } from "./generation_status.js";
+import { cardDefTokens } from "./group_cast.js";
 import { sectionHtml } from "./inspector_section.js";
+import { worldName } from "./lorebooks.js";
 import {
   buildFeedbackHtml,
   buildStateHtml,
@@ -21,6 +23,7 @@ import {
   shownInjection,
   toolCallsHtml,
 } from "./message_inspector.js";
+import { revealSidebar, sidebarShown } from "./mobile.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { applySettings, persistSettings } from "./settings_store.js";
@@ -540,38 +543,97 @@ function expressionCharId() {
   );
 }
 
+function _portraitSection(title, rows, extra = "") {
+  const list = rows.map(([term, value]) => `<dt>${term}</dt><dd>${value}</dd>`).join("");
+  return `<section class="portrait-info-section"><div class="portrait-info-title">${title}</div>${
+    list ? `<dl class="portrait-info-rows">${list}</dl>` : ""
+  }${extra}</section>`;
+}
+
+function _portraitInfoHtml(card) {
+  let html = "";
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  const started = conv?.created_at && new Date(conv.created_at);
+  if (started && !Number.isNaN(started.getTime())) {
+    const when = started.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    html += _portraitSection("This chat", [["Started", esc(when)]]);
+  }
+  if (!card) return html;
+  const rows = [];
+  if (card.creator) rows.push(["Creator", esc(card.creator)]);
+  if (card.character_version) rows.push(["Version", esc(card.character_version)]);
+  const tokens = cardDefTokens(card);
+  if (tokens) rows.push(["Definition", `≈ ${tokens.toLocaleString()} tokens`]);
+  const world = card.world_id && worldName(card.world_id);
+  if (world) {
+    rows.push([
+      "World",
+      `<button class="portrait-info-world" data-wf-action="lorebook:open" data-world-id="${escAttr(card.world_id)}">${esc(world)}</button>`,
+    ]);
+  }
+  const tags = (card.tags || []).map((tag) => `<span class="char-tag">${esc(tag)}</span>`).join("");
+  if (rows.length || tags) html += _portraitSection("Card", rows, tags && `<div class="char-tags">${tags}</div>`);
+  return html;
+}
+
+/** Name the portrait and redraw its info when either changed. */
+function _renderPortraitInfo(img, charId) {
+  const card = charactersView().find((c) => c.id === charId);
+  const name = card?.name || "";
+  const label = $("sidebar-portrait-name");
+  if (label && label.textContent !== name) label.textContent = name;
+  img.alt = name || "Character portrait";
+  const box = $("sidebar-portrait-info");
+  const html = _portraitInfoHtml(card);
+  if (box && box._html !== html) {
+    box._html = html;
+    box.innerHTML = html;
+  }
+}
+
+/** Show *label*'s expression image, or the plain avatar for none, and caption it when the card has expressions. */
+function _showExpression(img, charId, label) {
+  const next = label ? `/api/characters/${charId}/expressions/${label}` : avatarUrl(charId, { full: true });
+  if (img._exprSrc !== next) {
+    img._exprSrc = next; // swap only on change (ETag handles caching; no ?t= flicker)
+    img.src = next;
+  }
+  const caption = $("sidebar-portrait-expression");
+  if (!caption) return;
+  const shown = Boolean(label && img._exprLabels?.length);
+  caption.textContent = shown ? label.replaceAll("_", " ") : "";
+  caption.classList.toggle("hidden", !shown);
+}
+
 async function _bindExpressionChar(img, charId) {
   img._exprCharId = charId;
   img._exprSrc = null;
   img._exprText = null;
   img._exprFullLen = 0;
   _exprLastCallAt = 0;
+  img._exprLabels = null;
+  $("sidebar-portrait-expression")?.classList.add("hidden");
+  _renderPortraitInfo(img, charId);
   const labels = await expressionLabels(charId);
-  if (img._exprCharId !== charId || document.getElementById("avatar-popup")?.classList.contains("hidden")) return;
+  if (img._exprCharId !== charId || _portraitHidden()) return;
   img._exprLabels = labels;
-  const neutral = labels.includes("neutral") ? `/api/characters/${charId}/expressions/neutral` : null;
-  img._exprSrc = neutral;
-  img.src = neutral || avatarUrl(charId, { full: true });
+  _showExpression(img, charId, labels.includes("neutral") ? "neutral" : null);
 }
 
 async function _expressionTick() {
-  const img = document.getElementById("avatar-popup-image");
-  if (!img || S.turn.expressionBuffering || document.getElementById("avatar-popup")?.classList.contains("hidden"))
-    return;
+  const img = $("sidebar-portrait-image");
+  if (!img || S.turn.expressionBuffering || _portraitHidden()) return;
   const charId = expressionCharId();
   if (!charId) return;
   if (charId !== img._exprCharId) {
     await _bindExpressionChar(img, charId);
     if (charId !== img._exprCharId) return;
   }
+  _renderPortraitInfo(img, charId);
   const cue = expressionPlaybackCue();
   if (cue) {
     if (cue.loading) return; // hold the current image rather than flash the plain avatar
-    const next = cue.label ? `/api/characters/${charId}/expressions/${cue.label}` : avatarUrl(charId, { full: true });
-    if (img._exprSrc !== next) {
-      img._exprSrc = next;
-      img.src = next;
-    }
+    _showExpression(img, charId, cue.label || null);
     return;
   }
   if (!img._exprLabels?.length) return;
@@ -607,16 +669,7 @@ async function _expressionTick() {
   if (convId !== S.activeConvId || img._exprCharId !== charId || expressionPlaybackCue() || S.turn.expressionBuffering)
     return;
   const labels = img._exprLabels || [];
-  const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
-  if (!resolved) {
-    img.src = avatarUrl(charId, { full: true }); // no matching expression -> plain avatar
-    return;
-  }
-  const next = `/api/characters/${charId}/expressions/${resolved}`;
-  if (img._exprSrc !== next) {
-    img._exprSrc = next; // swap only on change (ETag handles caching; no ?t= flicker)
-    img.src = next;
-  }
+  _showExpression(img, charId, labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null);
 }
 
 subscribe("expression-playback", () => void _expressionTick());
@@ -628,34 +681,61 @@ subscribe("settings", (patch) => {
 });
 subscribe("endpoints", () => renderInspector()); // the lane in use gates the prefill box
 
-export async function showAvatarPopup() {
+// Put the sidebar back as it was when the portrait opened over it; null when the reader already had it out.
+let _restoreSidebar = null;
+let _sidebarScrollTop = 0;
+
+function _portraitHidden() {
+  return $("sidebar-portrait")?.classList.contains("hidden") ?? true;
+}
+
+/** Toggle the character portrait, which takes over the sidebar column and follows the reply's expression. */
+export async function togglePortrait() {
   const charId = expressionCharId();
   if (!charId) return;
-  const popup = document.getElementById("avatar-popup");
-  if (!popup) return;
-  if (!popup.classList.contains("hidden")) {
-    hideAvatarPopup();
+  const portrait = $("sidebar-portrait");
+  const img = $("sidebar-portrait-image");
+  if (!portrait || !img) return;
+  if (!portrait.classList.contains("hidden")) {
+    closePortrait();
     return;
   }
-  const img = document.getElementById("avatar-popup-image");
-  if (!img) return;
   const hasExpr = charactersView().find((c) => c.id === charId)?.has_expressions;
   if (!hasExpr) img.src = avatarUrl(charId, { full: true });
-  popup.classList.remove("hidden");
+  _sidebarScrollTop = document.querySelector("#sidebar .sidebar-scroll")?.scrollTop ?? 0;
+  portrait.classList.remove("hidden");
+  _restoreSidebar = revealSidebar();
   img._exprCharId = null;
   await _bindExpressionChar(img, charId);
-  if (popup.classList.contains("hidden")) return;
+  if (_portraitHidden()) return;
   _expressionTick();
   _exprTimer = setInterval(_expressionTick, 1000);
 }
 
-function hideAvatarPopup() {
-  const popup = document.getElementById("avatar-popup");
-  if (popup) popup.classList.add("hidden");
-  const img = document.getElementById("avatar-popup-image");
+function closePortrait() {
+  const portrait = $("sidebar-portrait");
+  if (!portrait || portrait.classList.contains("hidden")) return;
+  portrait.classList.add("hidden");
+  const scroller = document.querySelector("#sidebar .sidebar-scroll");
+  if (scroller) scroller.scrollTop = _sidebarScrollTop;
+  const img = $("sidebar-portrait-image");
   if (img) img._exprCharId = null;
   clearInterval(_exprTimer);
   _exprTimer = null;
+  const restore = _restoreSidebar;
+  _restoreSidebar = null;
+  restore?.();
+}
+
+// Collapsing the sidebar or closing its drawer takes the portrait with it.
+const _appRoot = $("app");
+if (_appRoot) {
+  new MutationObserver(() => {
+    if (!_portraitHidden() && !sidebarShown()) {
+      _restoreSidebar = null;
+      closePortrait();
+    }
+  }).observe(_appRoot, { attributes: true, attributeFilter: ["class"] });
 }
 
 registerActions("inspector", {
@@ -664,10 +744,6 @@ registerActions("inspector", {
   pipelinePass: (el) => selectWorkflowPipelinePass(el.dataset.pipelineId, el.dataset.passId),
   clearDiff: () => clearRefineDiff(),
   toolsTab: (el) => setToolsTab(el.dataset.tab),
-  avatarPopup: () => showAvatarPopup(),
-  // The backdrop closes the popup; a click on the image inside it does not.
-  avatarBackdrop: (el, e) => {
-    if (e.target === el) hideAvatarPopup();
-  },
-  hideAvatar: () => hideAvatarPopup(),
+  togglePortrait: () => togglePortrait(),
+  closePortrait: () => closePortrait(),
 });

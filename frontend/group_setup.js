@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { showAvatarPopup } from "./chat_inspector.js";
+import { togglePortrait } from "./chat_inspector.js";
 import { initDragReorder } from "./drag_reorder.js";
 import {
   CONTEXT_MODES,
@@ -914,7 +914,7 @@ function onCastChipClick(memberId) {
 
 export function initGroupSetup() {
   $("chat-avatar")?.addEventListener("click", (event) => {
-    if (S.groupCast && event.target === event.currentTarget) showAvatarPopup();
+    if (S.groupCast && event.target === event.currentTarget) togglePortrait();
   });
   $("new-group-btn")?.addEventListener("click", showGroupCreate);
   $("group-search")?.addEventListener("input", (event) => {

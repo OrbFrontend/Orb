@@ -95,6 +95,11 @@ const _isWorldEnabled = (w) => S.activeConvId != null && S.activeWorldIds.has(w.
 const _worldRecencyTs = (w) => Date.parse(w.updated_at || w.created_at || "") || 0;
 const _byRecency = (a, b) => _worldRecencyTs(b) - _worldRecencyTs(a);
 
+/** The loaded World's name, or "" when it is not loaded. */
+export function worldName(worldId) {
+  return _worlds.find((w) => w.id === worldId)?.name || "";
+}
+
 // The selected character's linked World leads the panel, enabled or not.
 function _linkedWorld() {
   const worldId = S.activeCharId && charactersView().find((c) => c.id === S.activeCharId)?.world_id;

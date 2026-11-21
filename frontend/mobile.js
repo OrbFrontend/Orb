@@ -17,6 +17,7 @@ const IDS = Object.freeze({
   mobileSidebarToggle: "mobile-sidebar-toggle",
   docMobileSidebarToggle: "doc-mobile-sidebar-toggle",
   sidebar: "sidebar",
+  chatAvatar: "chat-avatar",
   toolsPanel: "tools-panel",
   toolsPanelToggle: "tools-panel-btn",
   inspector: "inspector",
@@ -35,6 +36,8 @@ const APP_STATE = Object.freeze({
   toolsOpen: "mobile-tools-open",
   inspectorOpen: "mobile-inspector-open",
   assistantOpen: "mobile-assistant-open",
+  sidebarCollapsed: "sidebar-collapsed",
+  sidebarToggled: "sidebar-toggled",
 });
 
 // A tap anywhere but the panel, one of its toggles or the header actions menu closes the panel.
@@ -193,6 +196,24 @@ function toggleMobileSidebar() {
   armMobileBackIfNeeded();
 }
 
+/** Whether the sidebar column is on screen: the open drawer when narrow, the uncollapsed column otherwise. */
+export function sidebarShown() {
+  if (isMobileSidebarViewport()) return hasAppState(APP_STATE.sidebarOpen);
+  return !hasAppState(APP_STATE.sidebarCollapsed);
+}
+
+/** Brings the sidebar on screen; returns how to put it back, or null when it was already showing. */
+export function revealSidebar() {
+  if (sidebarShown()) return null;
+  if (isMobileSidebarViewport()) {
+    toggleMobileSidebar();
+    return closeMobileSidebar;
+  }
+  setAppState(APP_STATE.sidebarToggled, true);
+  setAppState(APP_STATE.sidebarCollapsed, false);
+  return () => setAppState(APP_STATE.sidebarCollapsed, true);
+}
+
 function handleDocumentClick(event) {
   const matcher = createEventMatcher(event);
   const clickedMobileActionsMenu = matcher.hasId(IDS.mobileActionsMenu);
@@ -215,6 +236,7 @@ function handleDocumentClick(event) {
     !matcher.hasId(IDS.sidebar) &&
     !matcher.hasId(IDS.mobileSidebarToggle) &&
     !matcher.hasId(IDS.docMobileSidebarToggle) &&
+    !matcher.hasId(IDS.chatAvatar) &&
     !matcher.hasId(IDS.modalRoot) &&
     !matcher.hasId(IDS.subModalRoot) &&
     !matcher.hasId(IDS.cropModalRoot)

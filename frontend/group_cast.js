@@ -50,7 +50,7 @@ const SWAP_TOKENS_PER_MEMBER = 500;
 
 const MIN_CAST_FOR_ADVICE = 2;
 
-function cardDefTokens(card) {
+export function cardDefTokens(card) {
   const chars = Number(card?.def_chars);
   return Number.isFinite(chars) && chars > 0 ? Math.round(chars / CHARS_PER_TOKEN) : 0;
 }

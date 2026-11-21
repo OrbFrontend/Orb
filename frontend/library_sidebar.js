@@ -5,11 +5,11 @@ import { syncActivity } from "./operations.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, CHAT_AVATAR_ICON, convActivity, esc, escAttr } from "./utils.js";
 
-/** The conversation header's avatar for a card; clicking it opens the larger avatar popup. */
+/** The conversation header's avatar for a card; clicking it toggles the sidebar portrait. */
 export function chatHeaderAvatarHtml(cardId) {
   return avatarCell(avatarUrl(cardId), {
     icon: CHAT_AVATAR_ICON,
-    attrs: 'data-wf-action="inspector:avatarPopup" style="cursor:pointer"',
+    attrs: 'data-wf-action="inspector:togglePortrait" style="cursor:pointer"',
   });
 }
 

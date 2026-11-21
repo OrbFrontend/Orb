@@ -156,7 +156,7 @@ export function initUiSizing() {
 
   // -- Width: drag a panel's inner edge; double-click it to return the panel to its defaults --
   const edgeAt = (e) => {
-    if (narrow.matches || e.target.closest?.(".avatar-popup")) return null;
+    if (narrow.matches) return null;
     for (const [name, region] of Object.entries(REGIONS)) {
       if (!region.edge) continue;
       const el = [...document.querySelectorAll(region.selector)].find((p) => p.offsetWidth > 0);

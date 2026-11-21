@@ -114,13 +114,12 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .asst-compose:focus-within { box-shadow: 0 0 0 3px var(--accent-glow) !important; }
 .cb-root .cb-input { background: transparent !important; border: none !important; color: var(--ink) !important; }
 .cb-arrow { color: var(--text-secondary) !important; }
-.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, .avatar-popup-content {
+.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 14px !important;
   box-shadow: var(--shadow-pop) !important;
 }
 .cb-option.active, .cb-option:hover { background: var(--mint) !important; color: var(--ink) !important; }
 .burger-menu-item:hover { background: var(--bg-hover) !important; }
-.avatar-popup { background: rgba(96,62,38,0.55) !important; }
 .tog-slider { background: var(--bg-deep) !important; border: 2px solid var(--ink) !important;
   border-radius: 999px !important; box-shadow: none !important; }
 .tog-slider:before { width: 10px !important; height: 10px !important; left: 2px; bottom: 2px;
