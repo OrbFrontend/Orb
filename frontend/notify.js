@@ -2,6 +2,7 @@ import { CLOSE_ICON } from "./icons.js";
 
 const MAX_VISIBLE = 4; // maximum visible notifications
 const TRANSIENT_MS = 3000; // match notifications.css
+const ERROR_MS = 10000; // errors linger longer; paused while hovered or focused
 const FADE_MS = 200;
 const COPIED_MS = 1200; // copy feedback duration
 
@@ -102,6 +103,35 @@ export function toast(msg, isError = false) {
   return el;
 }
 
+function autoDismiss(el, ms) {
+  const arm = () => {
+    clearTimer(el);
+    el._toastTimer = setTimeout(() => dismiss(el), ms);
+  };
+  // Only a mouse hover or keyboard focus holds the toast: touch leaves :hover
+  // and button focus stuck, which would pin it on a phone forever.
+  let hovered = false;
+  const keyboardFocused = () => !!el.querySelector(":focus-visible");
+  const release = () => {
+    if (!hovered && !keyboardFocused()) arm();
+  };
+  el.addEventListener("pointerenter", (e) => {
+    if (e.pointerType !== "mouse") return;
+    hovered = true;
+    clearTimer(el);
+  });
+  el.addEventListener("pointerleave", (e) => {
+    if (e.pointerType !== "mouse") return;
+    hovered = false;
+    release();
+  });
+  el.addEventListener("focusin", () => {
+    if (keyboardFocused()) clearTimer(el);
+  });
+  el.addEventListener("focusout", () => setTimeout(release));
+  arm();
+}
+
 export function notifyError(headline, { sentence = "", onDetails = null } = {}) {
   const head = String(headline ?? "");
   const detail = String(sentence ?? "");
@@ -149,5 +179,7 @@ export function notifyError(headline, { sentence = "", onDetails = null } = {}) 
   );
   el.appendChild(actions);
 
-  return mount(el);
+  mount(el);
+  autoDismiss(el, ERROR_MS);
+  return el;
 }
