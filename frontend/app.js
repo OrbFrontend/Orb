@@ -18,6 +18,7 @@ import { initDocumentMode, loadDocuments } from "./document.js";
 import { renderDocAuditPane } from "./document_audit.js";
 import { handleExpressionPlaybackKey } from "./expression_playback.js";
 import { initGroupSetup } from "./group_setup.js";
+import { openImageLightbox } from "./image_lightbox.js";
 import { loadInteractiveFragments, loadMoodFragments } from "./library.js";
 // Imported for the actions it registers.
 import "./library_browser.js";
@@ -101,23 +102,7 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("click", (e) => {
   const src = e.target.closest(".workflow-artifact-image");
-  if (!src) return;
-  const box = document.createElement("div");
-  box.className = "image-lightbox";
-  const big = document.createElement("img");
-  big.src = src.src;
-  big.alt = src.alt;
-  box.appendChild(big);
-  const onKey = (ev) => {
-    if (ev.key === "Escape") close();
-  };
-  const close = () => {
-    box.remove();
-    document.removeEventListener("keydown", onKey);
-  };
-  box.addEventListener("click", close);
-  document.addEventListener("keydown", onKey);
-  document.body.appendChild(box);
+  if (src) openImageLightbox(src.src, src.alt);
 });
 
 initImageFallbacks();

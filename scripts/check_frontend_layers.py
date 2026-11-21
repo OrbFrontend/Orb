@@ -93,6 +93,7 @@ LAYERS = {
     "audio_schedule.js": 2,
     # L3 ui + audio engine.
     "modal.js": 3,
+    "image_lightbox.js": 3,
     "panels.js": 3,
     # The left sidebar sections' open states, kept in this browser.
     "sidebar_sections.js": 3,

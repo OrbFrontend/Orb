@@ -23,9 +23,21 @@
 .workflow-widget { display: contents; }
 .workflow-artifact-image { max-width: 100%; max-height: 360px; border-radius: var(--radius); display: block;
   cursor: zoom-in; }
-.image-lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.85); display: flex;
-  align-items: center; justify-content: center; cursor: zoom-out; }
-.image-lightbox img { max-width: 95vw; max-height: 95vh; border-radius: var(--radius); }
+.image-lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.85); overflow: hidden;
+  cursor: zoom-out; touch-action: none; user-select: none; }
+.image-lightbox img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0;
+  cursor: zoom-in; will-change: transform; }
+.image-lightbox img.animating { transition: transform .15s ease-out; }
+.image-lightbox.pannable img { cursor: grab; }
+.image-lightbox.dragging img { cursor: grabbing; }
+.image-lightbox-bar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex;
+  align-items: center; gap: 2px; padding: 4px; border-radius: var(--radius); background: rgba(0, 0, 0, 0.6);
+  cursor: default; }
+.image-lightbox-btn { --ui-icon-size: 16px; min-width: 32px; height: 32px; padding: 0 6px; border: none;
+  border-radius: var(--radius); background: none; color: #fff; cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; }
+.image-lightbox-btn:hover { background: rgba(255, 255, 255, 0.15); }
+.image-lightbox-zoom { min-width: 48px; }
 .workflow-artifact-link { font-size: 12px; color: var(--accent); text-decoration: none; padding: 4px 8px;
   border: 1px solid var(--border); border-radius: var(--radius); }
 .workflow-artifact-link:hover { background: var(--bg-elevated); }
