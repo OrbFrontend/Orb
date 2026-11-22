@@ -13,7 +13,7 @@ from ..core import card_description, resolve_inline
 from ..core.settings import Settings
 from ..inference import AbortToken, CachedBase, DecisionCancelled, KVCacheTracker, TextCallRecord
 from ..inference.gpu_swap import turn_hold
-from ..prompting import prefix_cache_shape, prefix_is_speaker_scoped, tail_carries_identity
+from ..prompting import prefix_cache_shape, prefix_is_speaker_scoped
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
 from .context import PipelineContext, TurnSetup, build_prefixes, enabled_moods, load_pipeline_context, prepare_turn
@@ -33,8 +33,24 @@ from .passes.judge import (
 from .passes.writer import continue_pass, raw_continue_pass
 from .persistence import consume_pipeline, conversation_log_writer
 from .predicates import agent_enabled
-from .state import SheetUpdateTurn, empty_state_report
+from .state import empty_state_report
 from .tools import DIRECTOR_LOOP_TOOL_NAMES
+from .turn_plan import (
+    ExchangeCursor,
+    advance_exchange,
+    continued_history,
+    exchange_decision_input,
+    exchange_frame,
+    exchange_history,
+    latest_user_id,
+    new_exchange_id,
+    next_turn_index,
+    place_turn,
+    plan_speaker,
+    regen_history_parent_id,
+    sibling_exchange_ids,
+    steered_history,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,54 +58,6 @@ logger = logging.getLogger(__name__)
 def _sent_as(ctx: PipelineContext) -> tuple[int | None, str | None]:
     persona = ctx.active_persona
     return (persona["id"], persona["name"]) if persona else (None, None)
-
-
-def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]:
-    """Re-key uploads into the shape history rows carry.
-
-    The wire format (``mime``/``b64``) reaches a turn straight from the browser, while ``format_message_with_attachments`` reads
-    history rows through the DB names. A later speaker in an exchange sees the user's image only as part of the replayed history
-    -- not as its own trailing attachment -- so the two spellings have to meet here or the image silently stops at the first
-    speaker.
-    """
-    out: list[dict] = []
-    for att in attachments:
-        b64 = att.get("data_b64") or att.get("b64") or ""
-        if not b64:
-            continue
-        out.append({"mime_type": att.get("mime_type") or att.get("mime") or "image/jpeg", "data_b64": b64})
-    return out
-
-
-# The largest round any strategy can legitimately schedule (``group_max_speakers`` is capped at 8). A chip-click scene can chain
-# requests without ever inserting a user row, so the lookback needs a ceiling that is not "the whole conversation".
-_ROUND_MAX_REPLIES = 8
-
-
-def _round_prefix(history: Sequence[Mapping[str, Any]], names: Mapping[str, str]) -> tuple[str, list[tuple[str, str]]]:
-    """The round already on the branch: the user's last message and every reply since.
-
-    An exchange is *request*-scoped. Under `manual` -- and for any cast-chip click on a resting scene -- one round is several
-    requests, so this request's own replies are not the round. The sheet pass would otherwise be asked "did this exchange
-    durably change Kael?" with the line that changed him in a different request, and on `handle_speak` with no user message at
-    all. This is the same round ``workflows/image_gen/subjects.py`` reads, for the same reason, and it is consulted only when
-    the request did not bring a user message of its own.
-    """
-    lines: list[tuple[str, str]] = []
-    user_message = ""
-    for row in reversed(history):
-        if row.get("role") == "user":
-            user_message = str(row.get("content") or "")
-            break
-        if row.get("role") != "assistant":
-            continue
-        content = str(row.get("content") or "")
-        if content.strip():
-            lines.append((names.get(str(row.get("speaker_member_id") or "")) or "Speaker", content))
-        if len(lines) >= _ROUND_MAX_REPLIES:
-            break
-    lines.reverse()
-    return user_message, lines
 
 
 def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str | None:
@@ -186,34 +154,6 @@ async def _run_judge(
     yield result
 
 
-def _exchange_decision_input(
-    history: Sequence[Mapping[str, Any]],
-    user_message: str,
-    parent_message_id: int | None,
-    *,
-    exchange_id: str | None,
-    steering: str = "",
-) -> tuple[Sequence[Mapping[str, Any]], str, int | None]:
-    """Return the exchange's history, request, and anchor for decision replay.
-
-    Regeneration rewinds to the exchange start. A turn without its own request
-    reuses the pending user message, and steering is appended to the request.
-    """
-    before, request, anchor = history, user_message, parent_message_id
-    if exchange_id is not None:
-        first = next((index for index, row in enumerate(history) if str(row.get("exchange_id") or "") == exchange_id), None)
-        if first is None:
-            return history, user_message, parent_message_id
-        row = history[first]
-        before = history[:first]
-        request = str(row.get("content") or "") if row.get("role") == "user" else ""
-        anchor = row.get("id") if row.get("role") == "user" else (before[-1]["id"] if before else None)
-    if not request and before and before[-1].get("role") == "user":
-        pending = before[-1]
-        before, request, anchor = before[:-1], str(pending.get("content") or ""), pending.get("id")
-    return before, "\n\n".join(part for part in (request, steering) if part), anchor
-
-
 def _committed_exchange_decisions(
     history: Sequence[Mapping[str, Any]], parent_message_id: int | None, exchange_id: str | None
 ) -> JudgeResult | None:
@@ -274,12 +214,7 @@ async def _prepare_regen_context(
     (*parent_msg* None) has neither.
     """
     from_user = parent_msg is not None and parent_msg.get("role") == "user"
-    if parent_msg is None:
-        history_parent_id: int | None = None
-    elif from_user:
-        history_parent_id = parent_msg.get("parent_id")
-    else:
-        history_parent_id = parent_msg.get("id")
+    history_parent_id = regen_history_parent_id(parent_msg)
     history = await db.get_path_to_leaf(conversation_id, history_parent_id) if history_parent_id is not None else []
     moods_before = await db.get_moods_before_turn(conversation_id, target["turn_index"] - 1)
     ctx.director["active_moods"] = enabled_moods(moods_before, ctx.mood_fragments)
@@ -487,7 +422,7 @@ async def _generate_group_exchange(
         yield {"event": "done"}
         return
 
-    decision_history, decision_request, decision_anchor = _exchange_decision_input(
+    decision_history, decision_request, decision_anchor = exchange_decision_input(
         history, user_message, parent_message_id, exchange_id=decision_exchange_id, steering=decision_steering
     )
     opened: _OpenedTurn | None = None
@@ -561,52 +496,35 @@ async def _generate_group_exchange(
     )
 
     cast_by_id = {member.member_id: member for member in ctx.cast.members}
-    # Only when this request brought no user message of its own: a `/send` starts a new round, so looking back would drag the
-    # previous one into this one's evidence. Named through `ctx.speaker_names`, which covers members the roster has since
-    # dropped -- their lines are still part of the round the sheet pass reads.
-    prior_user, prior_lines = ("", []) if user_message else _round_prefix(history, ctx.speaker_names)
+    frame = exchange_frame(
+        conversation_id=conversation_id,
+        exchange_id=exchange_id,
+        user_message=user_message,
+        attachments=attachments,
+        history=history,
+        first_turn_index=first_turn_index,
+        total=len(plan_rows),
+        context_mode=ctx.cast.context_mode,
+        sheet_updates=bool(ctx.conv.get("group_sheet_updates")),
+        speaker_names=ctx.speaker_names,
+    )
     public_plan: list[SpeakerPlanItem] = [
         {"member_id": row["id"], "card_id": row.get("character_card_id"), "name": row["display_name"], "cue": cue}
         for row, cue in plan_rows
     ]
     yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": public_plan}}
 
-    grown_history = list(history)
-    if append_user_to_history and parent_message_id is not None and user_message:
-        grown_history.append(
-            {
-                "id": parent_message_id,
-                "role": "user",
-                "content": user_message,
-                "turn_index": first_turn_index - 1,
-                "parent_id": history[-1]["id"] if history else None,
-                "speaker_member_id": None,
-                "exchange_id": exchange_id,
-                # Only the first speaker receives the uploads as its own trailing attachments; every later one has to read them
-                # off this row, or an exchange would answer an image only one member ever saw.
-                "user_attachments": _history_attachments(attachments),
-            }
-        )
-
-    # Under Classic card swap the shared setup base is the *neutral* one -- the Director ran before a speaker was known -- so even
-    # the first speaker has to rebuild its prefix around its own card. Reusing the setup base there is a correctness bug in that
-    # mode, not merely a cache miss.
-    speaker_scoped = prefix_is_speaker_scoped(ctx.cast.context_mode)
-    current_parent = parent_message_id
-    # What the exchange has actually said so far, in order: (member id, name, reply). The sheet stage is gated on this rather
-    # than on the plan -- a planned speaker that never persisted a reply left no prose, so there is nothing about it to record
-    # and nothing to bill a call for.
-    spoke: list[tuple[str, str, str]] = []
+    grown_history = exchange_history(frame, user_message_id=parent_message_id, append_user=append_user_to_history)
+    cursor = ExchangeCursor(parent_id=parent_message_id)
     for index, (row, speaker_cue) in enumerate(plan_rows):
         if ctx.client.is_aborted:
             break
         speaker = cast_by_id.get(str(row["id"]))
         if speaker is None:
             break
-        # The exchange's last planned speaker carries every once-per-exchange step:
-        # the Dynamic Worlds proposal, the sheet pass, and the after-reply state step.
-        is_final = index == len(plan_rows) - 1
-        turn_index = first_turn_index + index
+        turn = plan_speaker(
+            frame, index, grown_history=grown_history, cursor=cursor, member_id=speaker.member_id, name=speaker.name
+        )
         yield {
             "event": "speaker_start",
             "data": {
@@ -619,19 +537,11 @@ async def _generate_group_exchange(
                 "cue": speaker_cue,
             },
         }
-        if index == 0:
-            effective_message = user_message
-            pass_attachments = attachments
-            pipeline_history = history
-        else:
-            effective_message = ""
-            pass_attachments = []
-            pipeline_history = grown_history
-        if index == 0 and not speaker_scoped:
+        if turn.reuse_setup_prefix:
             prefix, agent_prefix = setup.prefix, setup.agent_prefix
         else:
             prefix, agent_prefix = build_prefixes(
-                ctx, pipeline_history, extra_system_blocks=list(setup.extra_system_blocks), speaker=speaker
+                ctx, turn.history, extra_system_blocks=list(setup.extra_system_blocks), speaker=speaker
             )
         card = await db.get_character_card(speaker.card_id) if speaker.card_id else None
         pipeline = run_pipeline(
@@ -640,8 +550,8 @@ async def _generate_group_exchange(
             ctx.director,
             ctx.mood_fragments,
             ctx.interactive_fragments,
-            effective_message,
-            attachments=pass_attachments,
+            turn.message,
+            attachments=turn.attachments,
             phrase_bank=ctx.phrase_bank,
             lorebook=setup.lorebook,
             editor_audit_history=editor_audit_history,
@@ -656,34 +566,15 @@ async def _generate_group_exchange(
             turn_scratch=setup.turn_scratch,
             kv_tracker=setup.kv_tracker,
             schema_overrides=setup.schema_overrides,
-            history=pipeline_history,
+            history=turn.history,
             world_proposal=setup.world_proposal,
-            # Once per exchange, on the last speaker: the pass reads the whole exchange, and running it per speaker would bill
-            # the same members again for the same scene with one more line in it.
-            sheet_update=(
-                SheetUpdateTurn(
-                    conversation_id=conversation_id,
-                    exchange_id=exchange_id,
-                    # This request's speakers, not the round's: `spoke` is who to propose *about*, and an earlier request
-                    # already billed a call for the members it ran. Only the evidence below widens.
-                    member_ids=(*(mid for mid, _, _ in spoke), speaker.member_id),
-                    user_message=user_message or prior_user,
-                    speaker_name=speaker.name,
-                    lines=(*prior_lines, *((name, text) for _, name, text in spoke)),
-                )
-                # The mode belongs in this condition and not only in Group settings. Under Shared and Swap a member's sheet is
-                # rendered into the *cached* body, so an applied update rebuilds the whole scene prefix -- the exact cost the
-                # opt-in is gated on avoiding. Leaving that invariant to one line of the client meant a `PUT` that changed only
-                # the mode left the pass running against the layout it was never priced for.
-                if is_final and ctx.conv.get("group_sheet_updates") and tail_carries_identity(ctx.cast.context_mode)
-                else None
-            ),
+            sheet_update=turn.sheet_update,
             speaker=speaker,
             speaker_cue=speaker_cue,
             context_mode=ctx.cast.context_mode,
             run_director=False,
             director_seed=shared,
-            run_exchange_final=is_final,
+            run_exchange_final=turn.is_final,
             state_contract=ctx.state_contract,
             judge_config=ctx.judge_config,
         )
@@ -693,9 +584,9 @@ async def _generate_group_exchange(
             pipeline,
             conversation_id,
             settings,
-            current_parent,
-            turn_index,
-            extra_on_result=conversation_log_writer(conversation_id, turn_index),
+            cursor.parent_id,
+            turn.turn_index,
+            extra_on_result=conversation_log_writer(conversation_id, turn.turn_index),
             speaker_member_id=speaker.member_id,
             exchange_id=exchange_id,
             speaker_name=speaker.name,
@@ -709,24 +600,21 @@ async def _generate_group_exchange(
             yield event
         if persisted_id is None:
             break
-        spoke.append((speaker.member_id, speaker.name, persisted_content))
+        cursor, reply_row = advance_exchange(
+            frame,
+            cursor,
+            turn,
+            message_id=persisted_id,
+            content=persisted_content,
+            member_id=speaker.member_id,
+            name=speaker.name,
+        )
         # The exchange's before-Writer state changes have now landed on its first reply. They are one update, not one per
         # speaker, so the seed stops carrying them before the next speaker copies (and re-persists) the same rows; the resulting
         # state view stays, so every speaker reads it.
         shared.state_events = []
         shared.state_report = empty_state_report()
-        grown_history.append(
-            {
-                "id": persisted_id,
-                "role": "assistant",
-                "content": persisted_content,
-                "turn_index": turn_index,
-                "parent_id": current_parent,
-                "speaker_member_id": speaker.member_id,
-                "exchange_id": exchange_id,
-            }
-        )
-        current_parent = persisted_id
+        grown_history.append(reply_row)
     yield {"event": "done"}
 
 
@@ -765,47 +653,31 @@ async def handle_turn(
 
         settings = ctx.settings
         messages = await db.get_messages(conversation_id)
-        conv = ctx.conv
-
-        history, user_msg_id = messages, None
-        user_parent_id = conv.get("active_leaf_id")
-        next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
-
-        # For /continue the user row already exists; use its turn_index.
-        user_turn = next_turn
-
-        if skip_user_persist and messages and messages[-1]["role"] == "user":
-            history, user_msg_id = messages[:-1], messages[-1]["id"]
-            user_turn = messages[-1]["turn_index"]
 
         # Branch-aware state, unlike conversation_logs: folded from the active path.
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
         await _load_fragment_state(ctx, conversation_id, messages)
 
-        exchange_id: str | None = None
-        if not skip_user_persist:
-            # Normalize frontend attachment format to DB format before persisting.
-            db_attachments = []
-            for att in attachments:
-                db_attachments.append(
-                    {
-                        "mime_type": att.get("mime", att.get("mime_type", "image/jpeg")),
-                        "data_b64": att.get("b64", att.get("data_b64", "")),
-                        "filename": att.get("filename"),
-                        "size": att.get("size"),
-                    }
-                )
-            exchange_id = str(uuid.uuid4()) if ctx.cast.grouped else None
+        placement = place_turn(
+            messages,
+            active_leaf_id=ctx.conv.get("active_leaf_id"),
+            continuing=skip_user_persist,
+            grouped=ctx.cast.grouped,
+            attachments=attachments,
+            fresh_exchange_id=str(uuid.uuid4()),
+        )
+        history, user_msg_id = placement.history, placement.user_msg_id
+        if placement.persist_user:
             persona_id, persona_name = _sent_as(ctx)
             user_msg_id, _ = await db.add_message(
                 conversation_id,
                 "user",
                 user_message,
-                next_turn,
-                parent_id=user_parent_id,
-                attachments=db_attachments,
-                exchange_id=exchange_id,
+                placement.user_turn,
+                parent_id=placement.user_parent_id,
+                attachments=placement.db_attachments,
+                exchange_id=placement.exchange_id,
                 persona_id=persona_id,
                 persona_name=persona_name,
                 advance_leaf=True,
@@ -817,12 +689,8 @@ async def handle_turn(
                 "data": {"id": user_msg_id, "content": user_message, "persona_id": persona_id, "persona_name": persona_name},
             }
 
-        asst_turn = user_turn + 1
-
         if ctx.cast.grouped:
-            if skip_user_persist:
-                exchange_id = str(messages[-1].get("exchange_id") or uuid.uuid4())
-            assert exchange_id is not None
+            assert placement.exchange_id is not None
             async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
@@ -830,8 +698,8 @@ async def handle_turn(
                 user_message=user_message,
                 attachments=attachments,
                 parent_message_id=user_msg_id,
-                first_turn_index=asst_turn,
-                exchange_id=exchange_id,
+                first_turn_index=placement.asst_turn,
+                exchange_id=placement.exchange_id,
                 pinned_speaker_id=speaker_member_id,
                 source_user_message_id=user_msg_id,
             ):
@@ -845,12 +713,12 @@ async def handle_turn(
             history=history,
             settings=settings,
             last_user_message=user_message,
-            lorebook_messages=history + [{"role": "user", "content": user_message}],
+            lorebook_messages=[*history, {"role": "user", "content": user_message}],
             user_message=user_message,
             attachments=attachments,
             user_msg_id=user_msg_id,
-            asst_turn_index=asst_turn,
-            log_turn_index=user_turn,
+            asst_turn_index=placement.asst_turn,
+            log_turn_index=placement.user_turn,
         ):
             yield event
 
@@ -871,7 +739,6 @@ async def handle_speak(
         await _load_fragment_state(ctx, conversation_id, messages)
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(messages)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(messages)
-        next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
         async for event in _generate_group_exchange(
             ctx,
             conversation_id,
@@ -879,7 +746,7 @@ async def handle_speak(
             user_message="",
             attachments=[],
             parent_message_id=ctx.conv.get("active_leaf_id"),
-            first_turn_index=next_turn,
+            first_turn_index=next_turn_index(messages),
             exchange_id=str(uuid.uuid4()),
             pinned_speaker_id=speaker_member_id,
             source_user_message_id=None,
@@ -940,7 +807,7 @@ async def handle_fork_edit(
         # Carry original attachments onto the new sibling.
         carried_atts = await db.get_user_attachments_for_message(user_msg_id)
 
-        exchange_id = str(uuid.uuid4()) if ctx.cast.grouped else None
+        exchange_id = new_exchange_id(ctx.cast.grouped, str(uuid.uuid4()))
         persona_id, persona_name = _sent_as(ctx)
         new_user_id, _ = await db.add_message(
             conversation_id,
@@ -1022,11 +889,8 @@ async def handle_regenerate(
                 yield {"event": "error", "data": "Target has no group speaker identity"}
                 return
             current_message = user_msg["content"] if user_msg.get("role") == "user" else ""
-            source_user_id = (
-                user_msg_id
-                if user_msg.get("role") == "user"
-                else next((m.get("id") for m in reversed(history) if m.get("role") == "user"), None)
-            )
+            source_user_id = user_msg_id if user_msg.get("role") == "user" else latest_user_id(history)
+            exchange_id, decision_exchange_id = sibling_exchange_ids(target, str(uuid.uuid4()))
             async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
@@ -1035,10 +899,10 @@ async def handle_regenerate(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=target["turn_index"],
-                exchange_id=str(target.get("exchange_id") or uuid.uuid4()),
+                exchange_id=exchange_id,
                 pinned_speaker_id=str(speaker_id),
                 source_user_message_id=source_user_id,
-                decision_exchange_id=str(target.get("exchange_id") or "") or None,
+                decision_exchange_id=decision_exchange_id,
             ):
                 yield event
             return
@@ -1153,9 +1017,7 @@ async def _open_continue(
 
     Yields hook events, then an ``_OpenReply``, or an ``error`` event in its place.
     """
-    path = await db.get_path_to_leaf(conversation_id, target["id"])
-    history = [*path[:-1], {**path[-1], "content": kept}]
-    last_user = next((str(m.get("content") or "") for m in reversed(history) if m.get("role") == "user"), "")
+    history, last_user = continued_history(await db.get_path_to_leaf(conversation_id, target["id"]), kept)
 
     speaker = None
     if ctx.cast.grouped and prefix_is_speaker_scoped(ctx.cast.context_mode):
@@ -1235,19 +1097,16 @@ async def _regenerate_with_steering(
 
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
 
-        # Include the original parent and target so the model sees what it wrote before being steered. In a group cascade the
-        # parent may itself be an assistant and may already be the end of ``history``.
-        extended_history = list(history)
-        if user_msg is not None and (not extended_history or extended_history[-1].get("id") != user_msg.get("id")):
-            extended_history.append(user_msg)
-        extended_history.append(target)
+        extended_history = steered_history(history, user_msg, target)
 
         if ctx.cast.grouped:
             speaker_id = target.get("speaker_member_id")
             if not speaker_id:
                 yield {"event": "error", "data": "Target has no group speaker identity"}
                 return
-            source_user_id = next((m.get("id") for m in reversed(extended_history) if m.get("role") == "user"), None)
+            source_user_id = latest_user_id(extended_history)
+            # The target's own exchange, as `handle_regenerate` does (see `sibling_exchange_ids`).
+            exchange_id, decision_exchange_id = sibling_exchange_ids(target, str(uuid.uuid4()))
             async for event in _generate_group_exchange(
                 ctx,
                 conversation_id,
@@ -1256,16 +1115,14 @@ async def _regenerate_with_steering(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=target["turn_index"],
-                # The target's own exchange, as `handle_regenerate` does: this is a sibling at the same turn index under the
-                # same parent, so it occupies the same slot in the exchange it is replacing.
-                exchange_id=str(target.get("exchange_id") or uuid.uuid4()),
+                exchange_id=exchange_id,
                 pinned_speaker_id=str(speaker_id),
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,
                 # Audit the original branch, excluding the replaced reply even when its text duplicates an older one.
                 editor_audit_history=history,
                 # Judge the original exchange input; include steering separately.
-                decision_exchange_id=str(target.get("exchange_id") or "") or None,
+                decision_exchange_id=decision_exchange_id,
                 decision_steering=steer_msg,
             ):
                 yield event
