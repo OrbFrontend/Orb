@@ -215,7 +215,7 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
     assert captured == [json.dumps(expected, separators=(",", ":"), ensure_ascii=False)]
     expected_bytes = {
         "openai": (5884, "8d9095a8793ede143d5962e1aad16155fc8a6f2e1e81f252198c4bb9c58810ab"),
-        "anthropic": (6248, "7db027e3ebc0cc1f2ebff8c5a178c299d9822eb5a5b09ae4d2cc761d3e4f856b"),
+        "anthropic": (6267, "648915b3d9fddf31ee3f4853a20d2682226641967dcd4a731654d98df54abfed"),
     }
     assert (len(captured[0]), hashlib.sha256(captured[0].encode()).hexdigest()) == expected_bytes[provider]
 
@@ -402,3 +402,23 @@ async def test_a_route_probed_onto_googles_surface_gets_its_dialect_on_the_first
     assert probed["url"] == "https://gateway.test/v1beta/openai/chat/completions"
     assert probed["body"]["reasoning_effort"] == "none"
     assert not {"reasoning", "thinking", "chat_template_kwargs"} & probed["body"].keys()
+
+
+def test_anthropic_strict_tools_stay_inside_the_request_caps():
+    """A nullable enum ships as a null branch, and a tool set over strict mode's per-request caps goes out whole without it."""
+    params = {
+        "type": "object",
+        "properties": {"kind": {"type": "string", "enum": ["all", "mood"]}, "limit": {"type": "integer", "maximum": 9}},
+        "required": ["limit"],
+    }
+    tools = [{"type": "function", "function": {"name": f"tool_{i}", "parameters": params}} for i in range(17)]
+
+    small = anthropic.build_request_body({"tools": tools[:2], "messages": []}, "https://api.anthropic.com", "claude")
+    assert all(tool["strict"] is True for tool in small["tools"])
+    assert small["tools"][0]["input_schema"]["properties"]["kind"] == {
+        "anyOf": [{"type": "string", "enum": ["all", "mood"]}, {"type": "null"}]
+    }
+
+    large = anthropic.build_request_body({"tools": tools, "messages": []}, "https://api.anthropic.com", "claude")
+    assert not any("strict" in tool for tool in large["tools"])
+    assert all(tool["input_schema"] == params for tool in large["tools"])

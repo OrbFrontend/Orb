@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 # Strip unsupported narrowing validation keywords for strict structured output. This may widen accepted values but preserves
-# parsed shape. Do not strip composition keywords; they are never emitted here. Supported constraints include enum/const,
-# bounds, pattern and format.
+# parsed shape. Do not strip composition keywords; nullable enums are emitted as anyOf. Supported constraints include
+# enum/const, bounds, pattern and format.
 _NON_STRICT_KEYWORDS = frozenset(
     {
         "contains",
@@ -39,6 +39,19 @@ _BOUND_KEYWORDS = frozenset(
 )
 
 
+def _nullable(sub: dict) -> dict:
+    property_type = sub["type"]
+    if property_type == "null" or (isinstance(property_type, list) and "null" in property_type):
+        return sub
+    if "enum" in sub or "const" in sub:
+        # Anthropic refuses enum/const beside a type list, even with null in the enum; a null branch passes everywhere.
+        description = {"description": sub["description"]} if "description" in sub else {}
+        branch = {k: v for k, v in sub.items() if k != "description"}
+        return {**description, "anyOf": [branch, {"type": "null"}]}
+    widened = [*property_type, "null"] if isinstance(property_type, list) else [property_type, "null"]
+    return {**sub, "type": widened}
+
+
 def strictify_schema(schema: dict, *, bounds: bool = True) -> dict:
     """Copy *schema* into OpenAI strict-mode shape recursively; ``bounds=False`` also drops value and size bounds."""
     dropped = _NON_STRICT_KEYWORDS if bounds else _NON_STRICT_KEYWORDS | _BOUND_KEYWORDS
@@ -50,12 +63,7 @@ def strictify_schema(schema: dict, *, bounds: bool = True) -> dict:
         for key, property_schema in properties.items():
             sub = strictify_schema(property_schema, bounds=bounds) if isinstance(property_schema, dict) else property_schema
             if key not in required and isinstance(sub, dict) and "type" in sub:
-                property_type = sub["type"]
-                if isinstance(property_type, list):
-                    property_type = property_type if "null" in property_type else [*property_type, "null"]
-                elif property_type != "null":
-                    property_type = [property_type, "null"]
-                sub = {**sub, "type": property_type}
+                sub = _nullable(sub)
             output_properties[key] = sub
         node["properties"] = output_properties
         node["required"] = list(properties.keys())

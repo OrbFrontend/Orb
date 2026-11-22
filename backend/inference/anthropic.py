@@ -18,6 +18,9 @@ from .schema import strictify_schema
 # ``cache_control`` (automatic caching) replaces Orb's breakpoints.
 EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"cache_control", "metadata", "service_tier"})
 _DEFAULT_MAX_TOKENS = 4096
+_STRICT_TOOLS = 20
+_STRICT_OPTIONAL = 24
+_STRICT_UNIONS = 16
 
 # Sampling support is a capability of the concrete endpoint/model pair, not something that can be inferred from a provider-owned
 # model id. Send the caller's controls optimistically and remember an explicit rejection in the ledger. Some Messages
@@ -138,26 +141,50 @@ def _translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | li
     return system, translated
 
 
+def _parameter_counts(node: Mapping[str, Any]) -> tuple[int, int]:
+    """Optional and union-typed parameters under *node*, as strict tool use counts them."""
+    required = set(node.get("required") or ())
+    optional = unions = 0
+    children: list[object] = [node.get("items"), *(node.get("anyOf") or ())]
+    for key, sub in (node.get("properties") or {}).items():
+        if isinstance(sub, Mapping):
+            optional += int(key not in required)
+            unions += int(isinstance(sub.get("type"), list) or "anyOf" in sub)
+            children.append(sub)
+    for child in children:
+        if isinstance(child, Mapping):
+            child_optional, child_unions = _parameter_counts(child)
+            optional += child_optional
+            unions += child_unions
+    return optional, unions
+
+
 def _translate_tools(tools: object) -> list[dict[str, Any]]:
     if not isinstance(tools, Sequence) or isinstance(tools, (str, bytes)):
         return []
+    functions = [
+        function
+        for tool in tools
+        if isinstance(tool, Mapping)
+        and isinstance(function := tool.get("function"), Mapping)
+        and isinstance(function.get("name"), str)
+    ]
+    raw = [dict(function.get("parameters") or {"type": "object", "properties": {}}) for function in functions]
+    # Strict mode closes every object, drops value and size bounds (Orb validates after the call), and shares the OpenAI
+    # strict path's nullable-optional shape. Its caps sum over every strict schema in the request; a set over any cap goes out
+    # whole without strict, so a given set always sends the same tools blob.
+    shaped = [strictify_schema(schema, bounds=False) for schema in raw]
+    counts = [_parameter_counts(schema) for schema in shaped]
+    strict = (
+        len(shaped) <= _STRICT_TOOLS
+        and sum(optional for optional, _ in counts) <= _STRICT_OPTIONAL
+        and sum(unions for _, unions in counts) <= _STRICT_UNIONS
+    )
     out: list[dict[str, Any]] = []
-    for tool in tools:
-        if not isinstance(tool, Mapping):
-            continue
-        function = tool.get("function")
-        if not isinstance(function, Mapping) or not isinstance(function.get("name"), str):
-            continue
-        translated: dict[str, Any] = {
-            "name": function["name"],
-            # ``strict`` obliges the schema to close every object and mark every property required; Orb's own tools ship partial
-            # ``required`` lists, so shape them the way the OpenAI forced path already does rather than sending a schema the API
-            # will reject. Strict mode also rejects value and size bounds, which Orb validates after the call anyway.
-            "input_schema": strictify_schema(
-                dict(function.get("parameters") or {"type": "object", "properties": {}}), bounds=False
-            ),
-            "strict": True,
-        }
+    for function, raw_schema, strict_schema in zip(functions, raw, shaped, strict=True):
+        translated: dict[str, Any] = {"name": function["name"], "input_schema": strict_schema if strict else raw_schema}
+        if strict:
+            translated["strict"] = True
         if isinstance(function.get("description"), str):
             translated["description"] = function["description"]
         out.append(translated)
