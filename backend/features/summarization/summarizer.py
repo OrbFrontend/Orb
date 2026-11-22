@@ -8,14 +8,18 @@ from ...core.settings import Settings
 from ...inference import LLMClient
 from ...prompting import build_prefix
 
-DEFAULT_SUMMARY_INSTRUCTIONS = (
-    "[OOC: Write a rich prose narrative summary of the story so far. "
-    "Preserve significant dialogue verbatim in quotes. "
-    "Record key story beats, milestones, and relationship developments. "
-    "Be thorough — this will be the sole context for the story's continuation.]"
+# No category list here ("beats, milestones, relationships"): models turn every named category into a heading. Format bans come
+# last, ahead of only the user's own instructions, which may override them.
+SUMMARY_INSTRUCTIONS = (
+    "[OOC: Pause the roleplay. Retell the story so far as a narrator would, in plain prose paragraphs, in the order it "
+    "happened. The story continues from this retelling alone, so keep who everyone is, what happened, and what is still "
+    "unresolved, and stop at the latest moment of the story. Quote dialogue word for word only where the exact words matter later.\n"
+    "No headings, lists, bold text, or labels. No title, preface, or closing note: start with the story itself.{custom}]"
 )
 
-REVISION_INSTRUCTIONS = "[OOC: Revise the summary above: {request}\nWrite out the whole revised summary, nothing else.]"
+REVISION_INSTRUCTIONS = (
+    "[OOC: Revise the retelling above: {request}\nWrite out the whole revised retelling in the same plain prose, nothing else.]"
+)
 
 
 class ConversationSummarizer:
@@ -56,9 +60,8 @@ class ConversationSummarizer:
             cast=cast,
             speaker_names=speaker_names,
         )
-        instructions = DEFAULT_SUMMARY_INSTRUCTIONS
-        if custom_instructions:
-            instructions += f"\n{custom_instructions}"
+        custom = custom_instructions.strip() if custom_instructions else ""
+        instructions = SUMMARY_INSTRUCTIONS.format(custom=f"\n{custom}" if custom else "")
         messages: list[ChatMessage] = [*prefix, {"role": "user", "content": instructions}]
         if revision:
             draft, request = revision
