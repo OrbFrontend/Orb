@@ -328,3 +328,12 @@
 }
 .phrase-regex-pattern { display: inline-block; color: var(--accent); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; max-width: 100%; }
+
+/* Compress History: the summary's takes, paged like a reply's swipes, with a one-line revision under the editor. */
+.compress-draft-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.compress-draft-head .swipe-nav { margin-left: -4px; }
+.compress-draft-meta { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.compress-revise { display: flex; gap: 8px; margin-top: 8px; }
+.compress-revise input { flex: 1; min-width: 0; }
+.compress-actions .modal-action-status { margin-right: auto; }
+.compress-actions .btn:disabled, .compress-revise .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }

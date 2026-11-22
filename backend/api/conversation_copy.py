@@ -5,6 +5,8 @@ Shared by the conversation routes and the assistant's ``checkpoint_chat``, so bo
 
 from __future__ import annotations
 
+import re
+
 from ..database import (
     add_conversation_log,
     add_message,
@@ -44,6 +46,25 @@ def checkpoint_title(conv: ConversationRow, title: str | None) -> str:
         return title.strip()
     base = conv.get("title") or conv.get("character_name") or "Conversation"
     return f"{base} (checkpoint)"
+
+
+# "Story · Part 3", or the "Story (continued) (continued)" an older build stacked up, which reads as part 3 as well.
+_PART_SUFFIX = re.compile(r"^(?P<base>.*?)(?: · Part (?P<part>\d+)|(?P<legacy>(?: \(continued\))+))$")
+
+
+def continuation_title(conv: ConversationRow) -> str:
+    """The title a compressed continuation of *conv* gets: its own with the next part number.
+
+    The source keeps its title; an unnumbered chat is part 1 by implication, so renaming it would only touch a chat the user
+    did not ask to change.
+    """
+    title = (conv.get("title") or conv.get("character_name") or "Conversation").strip()
+    match = _PART_SUFFIX.match(title)
+    part = 1
+    if match and match["base"].strip():
+        title = match["base"].strip()
+        part = int(match["part"]) if match["part"] else 1 + match["legacy"].count("(continued)")
+    return f"{title} · Part {part + 1}"
 
 
 async def checkpoint_conversation(source_cid: str, new_title: str) -> ConversationRow | None:

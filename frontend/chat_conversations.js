@@ -9,6 +9,7 @@ import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { sseError } from "./errors.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
+import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON } from "./icons.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { chatHeaderAvatarHtml, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation, renderWorldsSidebar } from "./lorebooks.js";
@@ -464,10 +465,17 @@ async function createCheckpoint() {
   }
 }
 
+// The compress dialog's takes. Each Generate, Regenerate or Revise adds one, the way a reply gains swipes, and a hand edit
+// stays on its take. They outlive the dialog: reopening it on the same history brings them back.
 let _compressKeepCount = 4;
-let _compressConvId = null;
+let _compress = null; // { cid, history, total, instructions, takes: [{ text, keep, instructions }], index }
 let _compressOperation = null;
 let _compressDialogToken = 0;
+
+// Changes whenever the active path or any message on it does, so a take is only offered back for the history it summarized.
+function compressionHistory() {
+  return (S.messages || []).map((m) => `${m.id}:${(m.content || "").length}`).join(",");
+}
 
 function showCompressModal() {
   if (!S.activeConvId) {
@@ -486,147 +494,271 @@ function showCompressModal() {
     toast("Wait for the previous summary to settle", true);
     return;
   }
-  _compressConvId = S.activeConvId;
+  const history = compressionHistory();
+  if (_compress?.cid !== S.activeConvId || _compress.history !== history) {
+    _compress = {
+      cid: S.activeConvId,
+      history,
+      total: S.messages.length,
+      instructions: "",
+      takes: [],
+      index: 0,
+    };
+  }
   _compressDialogToken++;
   _compressOperation = null;
-  const totalMsgs = (S.messages || []).length;
-  const validOptions = [2, 4, 6, 8].filter((n) => n < totalMsgs);
-  const defaultKeep = validOptions.includes(_compressKeepCount)
-    ? _compressKeepCount
-    : validOptions[validOptions.length - 1];
+  const c = _compress;
+  const validOptions = [2, 4, 6, 8].filter((n) => n < c.total);
+  const preferred = c.takes[c.index]?.keep ?? _compressKeepCount;
+  const keep = validOptions.includes(preferred) ? preferred : validOptions[validOptions.length - 1];
   showModal(`
     <h2>Compress History</h2>
     <p class="modal-subtitle">Summarize the story so far into a new conversation, carrying over the most recent messages.</p>
     <div class="field">
-      <label for="compress-instructions">Additional instructions (optional)</label>
-      <textarea id="compress-instructions" class="modal-textarea" rows="3" spellcheck="false" placeholder="e.g. Past tense, omit small talk..."></textarea>
+      <label for="compress-instructions">Instructions (optional)</label>
+      <textarea id="compress-instructions" class="modal-textarea" rows="2" spellcheck="false" placeholder="e.g. Past tense, omit small talk...">${esc(c.instructions)}</textarea>
     </div>
     <div class="field">
       <label for="compress-keep-select">Keep last</label>
-      <select id="compress-keep-select">
-        ${validOptions.map((n) => `<option value="${n}"${defaultKeep === n ? " selected" : ""}>${n} messages</option>`).join("")}
+      <select id="compress-keep-select" data-wf-action="chat-compression:keep" data-wf-on="change">
+        ${validOptions.map((n) => `<option value="${n}"${keep === n ? " selected" : ""}>${n} messages</option>`).join("")}
       </select>
-      <p class="modal-hint">${totalMsgs} messages in this conversation</p>
+      <p class="modal-hint" id="compress-split"></p>
     </div>
-    <p id="compress-status" class="modal-subtitle" style="display:none"></p>
-    <textarea id="compress-textarea" class="modal-textarea-lg" spellcheck="false" placeholder="Summary will appear here..." style="display:none"></textarea>
-    <div class="modal-actions">
+    <div class="compress-draft" id="compress-draft" hidden>
+      <div class="compress-draft-head">
+        <span class="swipe-nav">
+          <button id="compress-prev" data-wf-action="chat-compression:prev" title="Previous take" aria-label="Previous take">${CHEVRON_LEFT_ICON}</button>
+          <span class="swipe-counter" id="compress-counter"></span>
+          <button id="compress-next" data-wf-action="chat-compression:next" title="Next take" aria-label="Next take">${CHEVRON_RIGHT_ICON}</button>
+        </span>
+        <span class="compress-draft-meta" id="compress-meta"></span>
+      </div>
+      <textarea id="compress-textarea" class="modal-textarea-lg" spellcheck="false" data-wf-action="chat-compression:edit" data-wf-on="input"></textarea>
+      <div class="compress-revise">
+        <input id="compress-revise" type="text" spellcheck="false" placeholder="Revise, e.g. shorter, keep the ring scene..." data-wf-action="chat-compression:reviseKey" data-wf-on="keydown">
+        <button class="btn" id="compress-revise-btn" data-wf-action="chat-compression:revise">Revise</button>
+      </div>
+    </div>
+    <div class="modal-actions compress-actions">
+      <span id="compress-status" class="modal-action-status" role="status" aria-live="polite"></span>
       <button class="btn" data-wf-action="chat-compression:cancel">Cancel</button>
-      <button class="btn" id="compress-regen-btn" data-wf-action="chat-compression:generate" style="display:none" disabled>Regenerate</button>
-      <button class="btn btn-accent" id="compress-apply-btn" data-wf-action="chat-compression:apply" style="display:none" disabled>Create New Conversation</button>
-      <button class="btn btn-accent" id="compress-gen-btn" data-wf-action="chat-compression:generate">Generate</button>
+      <button class="btn" id="compress-gen-btn" data-wf-action="chat-compression:generate">Generate</button>
+      <button class="btn" id="compress-apply-btn" data-wf-action="chat-compression:apply">Create New Conversation</button>
     </div>`);
   setModalDismiss(cancelCompression);
+  paintCompressionTake();
+}
+
+function selectedKeep() {
+  const el = document.getElementById("compress-keep-select");
+  return el ? parseInt(el.value, 10) : _compressKeepCount;
+}
+
+function currentTake() {
+  return _compress?.takes[_compress.index] || null;
+}
+
+/** Show the current take in the editor, then the controls around it. */
+function paintCompressionTake() {
+  const take = currentTake();
+  const draft = document.getElementById("compress-draft");
+  if (draft) draft.hidden = !take;
+  const textarea = document.getElementById("compress-textarea");
+  if (textarea && take) textarea.value = take.text;
+  syncCompressionControls();
+}
+
+function syncCompressionControls() {
+  const c = _compress;
+  if (!c || !document.getElementById("compress-gen-btn")) return;
+  const op = _compressOperation;
+  const streaming = op?.kind === "compression";
+  const take = currentTake();
+  const keep = selectedKeep();
+  // A take summarizes exactly the history before its own kept tail, so it can only be applied with that tail.
+  const fits = !!take && take.keep === keep;
+
+  $("compress-split").textContent = `${c.total - keep} summarized · ${keep} kept`;
+
+  const gen = $("compress-gen-btn");
+  gen.textContent = streaming ? "Stop" : take ? "Regenerate" : "Generate";
+  gen.disabled = !!op && !streaming;
+  gen.classList.toggle("btn-accent", !streaming && !fits);
+
+  const apply = $("compress-apply-btn");
+  apply.hidden = !take;
+  apply.disabled = !!op || !fits || !take.text.trim();
+  apply.classList.toggle("btn-accent", fits);
+
+  if (!take) return;
+  $("compress-counter").textContent = `${c.index + 1}/${c.takes.length}`;
+  $("compress-prev").disabled = !!op || c.index === 0;
+  $("compress-next").disabled = !!op || c.index === c.takes.length - 1;
+  const words = take.text.trim() ? take.text.trim().split(/\s+/).length : 0;
+  const meta = [plural(words, "word"), `~${Math.round(take.text.length / 4)} tokens`];
+  if (take.keep !== keep) meta.push(`keeps ${take.keep}`);
+  $("compress-meta").textContent = meta.join(" · ");
+  $("compress-textarea").readOnly = streaming;
+  $("compress-revise").disabled = !!op;
+  $("compress-revise-btn").disabled = !!op;
+}
+
+function setCompressionStatus(text, isError = false) {
+  const el = document.getElementById("compress-status");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("is-error", isError);
+}
+
+function stepCompressionTake(delta) {
+  const c = _compress;
+  if (!c || _compressOperation) return;
+  const next = c.index + delta;
+  if (next < 0 || next >= c.takes.length) return;
+  c.index = next;
+  // Every take's keep is one of this history's options, so the select can always follow it.
+  const select = document.getElementById("compress-keep-select");
+  if (select) select.value = String(c.takes[next].keep);
+  setCompressionStatus("");
+  paintCompressionTake();
+}
+
+function editCompressionTake(el) {
+  const take = currentTake();
+  if (!take || _compressOperation) return;
+  take.text = el.value;
+  syncCompressionControls();
+}
+
+function saveCompressionInstructions() {
+  const el = document.getElementById("compress-instructions");
+  if (_compress && el) _compress.instructions = el.value;
 }
 
 function cancelCompression() {
+  saveCompressionInstructions();
   _compressDialogToken++;
   _compressOperation?.stop?.();
   closeModal();
 }
 
-async function generateCompressionSummary() {
-  const cid = _compressConvId;
-  if (_compressOperation || !cid) return;
+function generateOrStop() {
+  if (_compressOperation?.kind === "compression") {
+    _compressOperation.stop();
+    return;
+  }
+  const instructions = (document.getElementById("compress-instructions")?.value || "").trim();
+  saveCompressionInstructions();
+  _compressKeepCount = selectedKeep();
+  streamCompressionTake({ keep: _compressKeepCount, instructions });
+}
+
+function reviseCompressionTake() {
+  const take = currentTake();
+  const input = document.getElementById("compress-revise");
+  if (!take || !input || _compressOperation) return;
+  const request = input.value.trim();
+  if (!request || !take.text.trim()) {
+    input.focus();
+    return;
+  }
+  // The revision replays the take's own request, so it reads the same history and shares its prompt prefix.
+  streamCompressionTake({ keep: take.keep, instructions: take.instructions, draft: take.text, request });
+}
+
+async function streamCompressionTake({ keep, instructions, draft = null, request = null }) {
+  const c = _compress;
+  if (!c || _compressOperation) return;
+  const cid = c.cid;
   const dialog = _compressDialogToken;
   const record = beginStream("compression", { conversationId: cid }, `/conversations/${cid}/stop`);
   _compressOperation = record;
 
-  const selectEl = document.getElementById("compress-keep-select");
-  if (selectEl) _compressKeepCount = parseInt(selectEl.value, 10);
-  const customInstructions = (document.getElementById("compress-instructions")?.value || "").trim() || null;
+  const take = { text: "", keep, instructions };
+  const from = c.index;
+  c.takes.push(take);
+  c.index = c.takes.length - 1;
+  setCompressionStatus(draft ? "Revising…" : "Summarizing…");
+  paintCompressionTake();
 
-  const genBtn = document.getElementById("compress-gen-btn");
-  const regenBtn = document.getElementById("compress-regen-btn");
-  const applyBtn = document.getElementById("compress-apply-btn");
-  const statusEl = document.getElementById("compress-status");
   const textarea = document.getElementById("compress-textarea");
-
-  if (genBtn) genBtn.style.display = "none";
-  if (regenBtn) {
-    regenBtn.style.display = "";
-    regenBtn.disabled = true;
-  }
-  if (applyBtn) {
-    applyBtn.style.display = "";
-    applyBtn.disabled = true;
-  }
-  if (statusEl) {
-    statusEl.style.display = "";
-    statusEl.textContent = "Generating summary...";
-  }
-  if (textarea) {
-    textarea.style.display = "";
-    textarea.value = "";
-  }
-
-  setModalDismiss(cancelCompression);
-
-  let summaryText = "";
+  const body = { keep_count: keep, custom_instructions: instructions || null };
+  if (draft) Object.assign(body, { draft, revision: request });
+  let failed = false;
   try {
-    const body = { keep_count: _compressKeepCount, custom_instructions: customInstructions };
     for await (const { event, data } of streamEvents(record, `/conversations/${cid}/summarize`, body, "Summary")) {
       if (event === "token") {
-        summaryText += unescapeSSE(data);
-        if (textarea) textarea.value = summaryText;
+        take.text += unescapeSSE(data);
+        if (textarea?.isConnected) {
+          textarea.value = take.text;
+          textarea.scrollTop = textarea.scrollHeight;
+          syncCompressionControls();
+        }
       } else if (event === "error") {
         throw sseError(data);
       }
     }
-    if (statusEl) statusEl.textContent = "Review and edit the summary, then create the new conversation.";
   } catch (e) {
     if (e.name !== "AbortError") {
-      if (statusEl) statusEl.textContent = `Error: ${e.message}`;
-      toast(`Summary generation failed: ${e.message}`, true);
+      failed = true;
+      if (dialog === _compressDialogToken) setCompressionStatus(e.message, true);
+      else toast(`Summary failed: ${e.message}`, true);
     }
   } finally {
     // A Stop from a closed dialog still settles before this chat can summarize again.
     await settle(record);
     if (_compressOperation === record) _compressOperation = null;
+    // A stopped take keeps what it wrote; one that wrote nothing is not a take, and the view returns to the take it came from.
+    // Paging is locked while streaming, so this take is still the last one.
+    if (!take.text.trim()) {
+      c.takes.pop();
+      c.index = from;
+    }
     if (dialog === _compressDialogToken) {
-      if (regenBtn) regenBtn.disabled = false;
-      if (applyBtn) applyBtn.disabled = !summaryText.trim();
+      if (!failed) setCompressionStatus("");
+      if (draft && !failed) {
+        const input = document.getElementById("compress-revise");
+        if (input) input.value = "";
+      }
+      paintCompressionTake();
     }
   }
 }
 
 async function applyCompression() {
-  if (_compressOperation) return;
-  const cid = _compressConvId;
-  const dialogToken = _compressDialogToken;
-  const viewToken = S.conversationViewToken;
-  const textarea = document.getElementById("compress-textarea");
-  if (!textarea) return;
-  const summary = textarea.value.trim();
+  const c = _compress;
+  const take = currentTake();
+  if (_compressOperation || !c || !take || take.keep !== selectedKeep()) return;
+  const summary = take.text.trim();
   if (!summary) {
     toast("Summary is empty", true);
     return;
   }
-
-  const applyBtn = document.getElementById("compress-apply-btn");
-  const regenBtn = document.getElementById("compress-regen-btn");
-  if (applyBtn) applyBtn.disabled = true;
-  if (regenBtn) regenBtn.disabled = true;
+  const cid = c.cid;
+  const dialogToken = _compressDialogToken;
+  const viewToken = S.conversationViewToken;
   const record = begin("compression-apply", { conversationId: cid });
   _compressOperation = record;
+  setCompressionStatus("");
+  syncCompressionControls();
 
   try {
-    const result = await api.post(`/conversations/${cid}/compress`, {
-      summary,
-      keep_count: _compressKeepCount,
-    });
+    const result = await api.post(`/conversations/${cid}/compress`, { summary, keep_count: take.keep });
+    if (_compress === c) _compress = null;
     if (dialogToken === _compressDialogToken) closeModal();
     await loadConversations();
     if (dialogToken !== _compressDialogToken || !ownsView(viewToken, cid)) return;
     await selectConversation(result.new_conversation_id);
-    toast("New conversation created from compression");
+    const title = S.conversations.find((x) => x.id === result.new_conversation_id)?.title;
+    toast(title ? `Continued in ${title}` : "New conversation created from compression");
   } catch (e) {
-    toast(`Failed to apply compression: ${e.message}`, true);
-    if (applyBtn) applyBtn.disabled = false;
-    if (regenBtn) regenBtn.disabled = false;
+    if (dialogToken === _compressDialogToken) setCompressionStatus(e.message, true);
+    else toast(`Failed to apply compression: ${e.message}`, true);
   } finally {
     finish(record);
     if (_compressOperation === record) _compressOperation = null;
+    if (dialogToken === _compressDialogToken) syncCompressionControls();
   }
 }
 
@@ -725,7 +857,18 @@ registerActions("conversations", {
 });
 
 registerActions("chat-compression", {
-  generate: () => generateCompressionSummary(),
+  generate: () => generateOrStop(),
   cancel: () => cancelCompression(),
   apply: () => applyCompression(),
+  keep: () => syncCompressionControls(),
+  prev: () => stepCompressionTake(-1),
+  next: () => stepCompressionTake(1),
+  edit: (el) => editCompressionTake(el),
+  revise: () => reviseCompressionTake(),
+  reviseKey: (_el, e) => {
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      reviseCompressionTake();
+    }
+  },
 });

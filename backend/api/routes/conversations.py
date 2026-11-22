@@ -65,7 +65,7 @@ from ...prompting import (
     persona_macros,
 )
 from ...workflows.contracts import PublicEvent
-from ..conversation_copy import checkpoint_conversation, checkpoint_title, copy_member_map
+from ..conversation_copy import checkpoint_conversation, checkpoint_title, continuation_title, copy_member_map
 from ..conversation_start import start_solo_chat
 from ..deletions import delete_chat
 from ..deps import (
@@ -390,6 +390,9 @@ async def api_summarize_conversation(
     """Stream a narrative summary of the conversation history, excluding the last keep_count messages."""
     if data.keep_count not in (2, 4, 6, 8):
         raise HTTPException(status_code=400, detail="keep_count must be one of 2, 4, 6, 8")
+    draft, revision = (data.draft or "").strip(), (data.revision or "").strip()
+    if bool(draft) != bool(revision):
+        raise HTTPException(status_code=400, detail="A revision needs both the draft and what to change")
 
     messages = await get_messages(cid)
     history_slice = messages[: max(0, len(messages) - data.keep_count)]
@@ -428,6 +431,7 @@ async def api_summarize_conversation(
         custom_instructions=data.custom_instructions,
         cast=summary_cast,
         speaker_names=speaker_names,
+        revision=(draft, revision) if draft else None,
     )
 
     async def _gen() -> AsyncIterator[PublicEvent]:
@@ -456,9 +460,7 @@ async def api_compress_conversation(
     tail = messages[max(0, len(messages) - data.keep_count) :]
     summarized = messages[: len(messages) - len(tail)]
 
-    old_title = conv.get("title", "") or ""
-    new_title = f"{old_title} (continued)" if old_title else "Continued"
-    new_cid = await fork_conversation(conv, new_title)
+    new_cid = await fork_conversation(conv, continuation_title(conv))
 
     member_map = await copy_member_map(conv, cid, new_cid)
 
