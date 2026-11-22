@@ -511,6 +511,9 @@ class SceneProfileDraft(BaseModel):
 class SummarizeRequest(BaseModel):
     keep_count: int  # must be one of 2, 4, 6, 8
     custom_instructions: str | None = None
+    # A revision: the summary to rewrite and what to change. Both or neither.
+    draft: str | None = None
+    revision: str | None = None
 
 
 class CompressRequest(BaseModel):

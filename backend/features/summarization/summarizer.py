@@ -15,6 +15,8 @@ DEFAULT_SUMMARY_INSTRUCTIONS = (
     "Be thorough — this will be the sole context for the story's continuation.]"
 )
 
+REVISION_INSTRUCTIONS = "[OOC: Revise the summary above: {request}\nWrite out the whole revised summary, nothing else.]"
+
 
 class ConversationSummarizer:
     def __init__(self, client: LLMClient, settings: Settings):
@@ -35,7 +37,13 @@ class ConversationSummarizer:
         *,
         cast: TurnCast | None = None,
         speaker_names: Mapping[str, str] | None = None,
+        revision: tuple[str, str] | None = None,
     ) -> list[ChatMessage]:
+        """The summary request over *history_slice*.
+
+        *revision* is ``(draft, request)``: the draft is replayed as the model's own answer and the request asks for a rewrite of
+        it, so a revision shares the whole history prefix with the summary it revises.
+        """
         prefix = build_prefix(
             system_prompt,
             char_persona,
@@ -51,7 +59,12 @@ class ConversationSummarizer:
         instructions = DEFAULT_SUMMARY_INSTRUCTIONS
         if custom_instructions:
             instructions += f"\n{custom_instructions}"
-        return prefix + [{"role": "user", "content": instructions}]
+        messages: list[ChatMessage] = [*prefix, {"role": "user", "content": instructions}]
+        if revision:
+            draft, request = revision
+            messages.append({"role": "assistant", "content": draft})
+            messages.append({"role": "user", "content": REVISION_INSTRUCTIONS.format(request=request)})
+        return messages
 
     async def stream(self, llm_messages: Sequence[Mapping[str, Any]], model: str) -> AsyncGenerator[str, None]:
         # Writer lane: the summary is prose in the user's own preset, and it is written with the model that writes the story.
