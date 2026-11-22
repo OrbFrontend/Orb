@@ -228,3 +228,46 @@ async def test_checkpoint_accepts_custom_title(client, db):
 
 async def test_checkpoint_missing_conversation_returns_404(client, db):
     await client.post_checked("/api/conversations/no-such-conv/checkpoint", json={}, expected_status=404)
+
+
+async def _story(cid: str, title: str, turns: int = 6) -> None:
+    await dbmod.create_conversation(cid, title, "Bot", "scenario")
+    parent = None
+    for index in range(turns):
+        parent, _ = await dbmod.add_message(cid, ("user", "assistant")[index % 2], f"line {index}", index, parent_id=parent)
+    await dbmod.set_active_leaf(cid, parent)
+
+
+async def test_summary_revision_extends_the_summary_prompt(client, db, llm_mock):
+    """A revision is the summary request plus the draft and the change, so a prompt cache only processes the new tail."""
+    cid = "conv-summary-revision"
+    await _story(cid, "Story")
+    body = {"keep_count": 2, "custom_instructions": "Past tense."}
+    llm_mock.enqueue_writer("First take.")
+    await client.post_checked(f"/api/conversations/{cid}/summarize", json=body)
+    llm_mock.enqueue_writer("Second take.")
+    await client.post_checked(
+        f"/api/conversations/{cid}/summarize", json={**body, "draft": "First take, edited.", "revision": "Shorter."}
+    )
+
+    summary, revision = (call["messages"] for call in llm_mock.captured[-2:])
+    assert revision[: len(summary)] == summary
+    assert revision[len(summary)] == {"role": "assistant", "content": "First take, edited."}
+    assert revision[-1]["role"] == "user" and "Shorter." in revision[-1]["content"]
+    assert len(revision) == len(summary) + 2
+
+    await client.post_checked(
+        f"/api/conversations/{cid}/summarize", json={"keep_count": 2, "draft": "Only a draft."}, expected_status=400
+    )
+
+
+async def test_compression_numbers_the_continuation(client, db):
+    titles = []
+    for index, title in enumerate(["Lunch", "Lunch · Part 4", "Lunch (continued) (continued)"]):
+        cid = f"conv-continuation-{index}"
+        await _story(cid, title)
+        response = await client.post_json(f"/api/conversations/{cid}/compress", json={"summary": "So far.", "keep_count": 2})
+        titles.append((await dbmod.get_conversation(response["new_conversation_id"]))["title"])
+        assert (await dbmod.get_conversation(cid))["title"] == title, "the source keeps its title"
+
+    assert titles == ["Lunch · Part 2", "Lunch · Part 5", "Lunch · Part 4"]

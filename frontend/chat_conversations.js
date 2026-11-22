@@ -617,10 +617,9 @@ function stepCompressionTake(delta) {
   const next = c.index + delta;
   if (next < 0 || next >= c.takes.length) return;
   c.index = next;
+  // Every take's keep is one of this history's options, so the select can always follow it.
   const select = document.getElementById("compress-keep-select");
-  if (select && [...select.options].some((o) => o.value === String(c.takes[next].keep))) {
-    select.value = String(c.takes[next].keep);
-  }
+  if (select) select.value = String(c.takes[next].keep);
   setCompressionStatus("");
   paintCompressionTake();
 }
@@ -677,6 +676,7 @@ async function streamCompressionTake({ keep, instructions, draft = null, request
   _compressOperation = record;
 
   const take = { text: "", keep, instructions };
+  const from = c.index;
   c.takes.push(take);
   c.index = c.takes.length - 1;
   setCompressionStatus(draft ? "Revising…" : "Summarizing…");
@@ -709,10 +709,11 @@ async function streamCompressionTake({ keep, instructions, draft = null, request
     // A Stop from a closed dialog still settles before this chat can summarize again.
     await settle(record);
     if (_compressOperation === record) _compressOperation = null;
-    // A stopped take keeps what it wrote; one that wrote nothing is not a take.
+    // A stopped take keeps what it wrote; one that wrote nothing is not a take, and the view returns to the take it came from.
+    // Paging is locked while streaming, so this take is still the last one.
     if (!take.text.trim()) {
-      c.takes.splice(c.takes.indexOf(take), 1);
-      c.index = Math.max(0, c.takes.length - 1);
+      c.takes.pop();
+      c.index = from;
     }
     if (dialog === _compressDialogToken) {
       if (!failed) setCompressionStatus("");
