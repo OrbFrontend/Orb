@@ -329,23 +329,8 @@ function showCharCreateModal() {
   );
 }
 
-function _validateCharForm(prefix, { advanced = false } = {}) {
-  const checks = [
-    validate.validateCharacterName($(`${prefix}-name`).value),
-    validate.validateCharacterField($(`${prefix}-desc`).value, "Description"),
-    validate.validateCharacterField($(`${prefix}-personality`).value, "Personality"),
-    validate.validateCharacterField($(`${prefix}-scenario`).value, "Scenario"),
-    validate.validateCharacterField($(`${prefix}-first-mes`).value, "First message"),
-    validate.validateCharacterField($(`${prefix}-mes-example`).value, "Example messages"),
-  ];
-  if (advanced) {
-    checks.push(
-      validate.validateCharacterAdvancedField($(`${prefix}-sysprompt`).value, "System prompt"),
-      validate.validateCharacterAdvancedField($(`${prefix}-posthist`).value, "Post-history instructions"),
-    );
-  }
-  checks.push(validate.validateAlternateGreetings(_readAltGreetings(prefix)));
-  return checks.find((c) => !c.valid) || { valid: true };
+function _validateCharForm(prefix) {
+  return validate.validateCharacterName($(`${prefix}-name`).value);
 }
 
 function _readCharEditForm() {
@@ -560,7 +545,7 @@ function clearCharEditStatus() {
 }
 
 async function saveCharEdit(id, exportAfter = false) {
-  const validation = _validateCharForm("ce", { advanced: true });
+  const validation = _validateCharForm("ce");
   if (!validation.valid) {
     setCharEditStatus(validation.error, { error: true });
     return;
@@ -605,7 +590,7 @@ async function saveCharEdit(id, exportAfter = false) {
 }
 
 async function saveImportedChar() {
-  const validation = _validateCharForm("ce", { advanced: true });
+  const validation = _validateCharForm("ce");
   if (!validation.valid) {
     toast(validation.error, true);
     return;

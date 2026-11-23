@@ -11,10 +11,11 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ...analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from .scoring import overuse_lb, rise_z
 from .shapes import FOLDED_WARDS
 
+# A suggested pattern longer than this is too unwieldy to read and edit in the phrase bank.
+_MAX_PATTERN_CHARS = 300
 _STRICT = "strict"
 _LOOSE = "loose"
 
@@ -218,12 +219,9 @@ def _candidates(folded: list[str], terms: tuple[str, ...]) -> list[int]:
 
 
 def score_shape(shape: Shape, width: str, corpus: SentenceCorpus) -> PatternScore | None:
-    """Score the regex for *shape* exactly as it would be stored. ``None`` if it is too long to store.
-
-    The generated patterns hold only words, marks, and fixed constructs, so length is the one bank limit they can break.
-    """
+    """Score the regex for *shape* exactly as it would be stored. ``None`` if it is too long to suggest."""
     pattern = _build_regex(shape, width)
-    if len(pattern) > MAX_PHRASE_REGEX:
+    if len(pattern) > _MAX_PATTERN_CHARS:
         return None
     # The capturing copy matches exactly the sentences the stored pattern does,
     # so one search per sentence serves both the count and the fillers.

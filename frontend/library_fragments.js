@@ -80,7 +80,7 @@ function _moodFragFormHtml(d, isEdit) {
     </div>
     <div class="field-row">
       <div class="field"><label>Cooldown (turns)</label>
-        <input id="frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
+        <input id="frag-cooldown" type="number" min="0" step="1" value="${escAttr(d.cooldown_turns || 0)}"></div>
     </div>
   </div>`;
 }
@@ -389,7 +389,7 @@ function _gateRowHtml(d) {
   return `<div id="interactive-frag-gate-row" style="${GATED_FIELD_TYPES.has(d.field_type) ? "" : "display:none"}">
       <div class="field-row ifrag-gate-row">
         <div class="field"><label for="interactive-frag-gate">Run only when (asks the Judge)</label>
-          <textarea id="interactive-frag-gate" data-gate-question rows="2" maxlength="4000" placeholder="Is this reply stagnant?">${esc(d.gate_question || "")}</textarea></div>
+          <textarea id="interactive-frag-gate" data-gate-question rows="2" placeholder="Is this reply stagnant?">${esc(d.gate_question || "")}</textarea></div>
         <div class="field field-narrow" id="interactive-frag-gate-history" style="${hidden}"><label for="interactive-frag-gate-replies">History</label>
           <input id="interactive-frag-gate-replies" type="number" min="0" max="10" step="1" value="${escAttr(d.gate_replies || 0)}" title="Previous replies to send to the Judge"></div>
       </div>
@@ -539,7 +539,7 @@ function _interactiveFragFormHtml(d, isEdit) {
       <div class="field"><label>Label <span style="font-size:11px;color:var(--text-muted)">(For display only)</span></label>
         <input id="interactive-frag-label" value="${escAttr(d.label)}" placeholder="${escAttr(ex.label)}"></div>
       <div class="field field-narrow"><label>Cooldown</label>
-        <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}" title="Turns to wait before this fragment can fire again"></div>
+        <input id="interactive-frag-cooldown" type="number" min="0" step="1" value="${escAttr(d.cooldown_turns || 0)}" title="Turns to wait before this fragment can fire again"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:11px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>

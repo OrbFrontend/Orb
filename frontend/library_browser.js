@@ -19,7 +19,6 @@ import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
 import { saveSettings } from "./settings_store.js";
 import { charactersView, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convActivity, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
-import { validate } from "./validate.js";
 
 // The view toggle, in order. Manager holds auto-tagging, duplicate finding, and character card generation.
 const VIEWS = [
@@ -240,11 +239,6 @@ function setCharBrowserView(mode) {
 function onCharBrowserSearch() {
   const input = $("char-browser-search");
   const query = input.value.trim().toLowerCase();
-  const validation = validate.validateBrowseSearch(query);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
   _browserSearchQuery = query;
   applyBrowserFilter();
 }

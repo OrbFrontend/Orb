@@ -226,7 +226,7 @@ async function savePersona(personaId) {
   const name = $("persona-name-input").value.trim();
   const description = $("persona-desc-input").value.trim();
   const setActive = $("persona-active-checkbox").checked;
-  const validation = validate.validatePersona(name, description);
+  const validation = validate.validatePersona(name);
   if (!validation.valid) {
     toast(validation.error, true);
     return;

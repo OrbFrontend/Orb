@@ -174,7 +174,7 @@ async def test_a_non_image_reference_is_rejected_before_generation(client, model
     assert model == []
 
 
-@pytest.mark.parametrize("idea", ["", " \n ", "x" * 2001])
+@pytest.mark.parametrize("idea", ["", " \n "])
 async def test_invalid_idea_rejected_before_generation(client, model, idea):
     assert (await client.post("/api/library/card-generator/run", json={"idea": idea})).status_code == 422
     assert model == []

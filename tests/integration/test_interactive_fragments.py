@@ -48,13 +48,10 @@ async def test_create_interactive_fragment_with_array_type(client, db):
     assert (await client.post_json("/api/interactive-fragments", json=payload))["field_type"] == "array"
 
 
-async def test_interactive_fragment_cooldown_is_bounded(client, db):
-    for value in (-1, 51):
-        await client.post_checked(
-            "/api/interactive-fragments",
-            json={**_BASE_PAYLOAD, "id": f"invalid-{value}", "cooldown_turns": value},
-            expected_status=422,
-        )
+async def test_interactive_fragment_cooldown_rejects_negative(client, db):
+    await client.post_checked(
+        "/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "invalid", "cooldown_turns": -1}, expected_status=422
+    )
 
 
 async def test_update_interactive_fragment_persists_to_db(client, db):
@@ -188,12 +185,10 @@ async def test_gate_question_is_created_or_defaults_empty(client, db):
     assert ungated.json()["gate_question"] == ""
 
 
-async def test_gate_question_rejects_explicit_null_and_overlong_text(client, db):
+async def test_gate_question_rejects_explicit_null(client, db):
     null = await client.post("/api/interactive-fragments", json={**_GATED, "gate_question": None})
-    long = await client.post("/api/interactive-fragments", json={**_GATED, "gate_question": "x" * 4001})
 
     assert null.status_code == 422
-    assert long.status_code == 422
 
 
 async def test_gate_question_update_preserves_on_omission_or_null_and_clears_on_empty(client, db):

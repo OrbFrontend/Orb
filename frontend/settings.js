@@ -569,11 +569,11 @@ export function renderToolsPanel() {
       <div class="lg-config-row">
         <div class="lg-field">
           <label>Max words</label>
-          <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
+          <input id="lg-max-words" type="number" min="50" step="50" value="${S.lengthGuardMaxWords}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
         </div>
         <div class="lg-field">
           <label>Max paragraphs</label>
-          <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
+          <input id="lg-max-paragraphs" type="number" min="1" step="1" value="${S.lengthGuardMaxParagraphs}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
         </div>
       </div>
       <label class="lg-enforce-label" title="Always suggest max length and paragraphs to the writer.">
@@ -919,14 +919,10 @@ async function _savePhraseGroup(editId) {
     payload = { kind: "regex", pattern, variants: [] };
   } else {
     const variantInputs = document.querySelectorAll(".variant-input:not(.phrase-regex-input)");
-    const rawVariants = Array.from(variantInputs).map((input) => input.value);
-    const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
+    const variants = Array.from(variantInputs)
+      .map((input) => input.value.trim())
+      .filter((v) => v.length > 0);
 
-    const validation = validate.validatePhraseVariants(rawVariants);
-    if (!validation.valid) {
-      toast(validation.error, true);
-      return;
-    }
     if (variants.length === 0) {
       toast("At least one variant is required", true);
       return;

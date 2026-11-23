@@ -65,7 +65,7 @@ export function cardGeneratorToolHtml() {
       <div class="lib-tool-body">
         <label class="lib-manager-field">
           <span class="lib-manager-field-label">Character idea</span>
-          <textarea data-cardgen-idea rows="4" maxlength="2000" placeholder="A jaded harbour-town fence who owes everyone money…"></textarea>
+          <textarea data-cardgen-idea rows="4" placeholder="A jaded harbour-town fence who owes everyone money…"></textarea>
         </label>
         <div class="lib-manager-field">
           <label>Reference image</label>

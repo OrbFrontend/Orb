@@ -261,7 +261,7 @@ class MoodFragmentCreate(BaseModel):
     description: str
     prompt_text: str
     negative_prompt: str = ""
-    cooldown_turns: int = Field(0, ge=0, le=50)
+    cooldown_turns: int = Field(0, ge=0)
     enabled: bool = True
 
 
@@ -270,7 +270,7 @@ class MoodFragmentUpdate(BaseModel):
     description: str | None = None
     prompt_text: str | None = None
     negative_prompt: str | None = None
-    cooldown_turns: int | None = Field(None, ge=0, le=50)
+    cooldown_turns: int | None = Field(None, ge=0)
     enabled: bool | None = None
 
 
@@ -305,8 +305,8 @@ class InteractiveFragmentCreate(_DecisionFields, _StateFields):
     enabled: bool = True
     injection_label: str
     sort_order: int | None = None
-    cooldown_turns: int = Field(0, ge=0, le=50)
-    gate_question: str = Field("", max_length=4000)
+    cooldown_turns: int = Field(0, ge=0)
+    gate_question: str = ""
     gate_replies: int = Field(0, ge=0, le=10)
 
 
@@ -318,8 +318,8 @@ class InteractiveFragmentUpdate(_DecisionFields, _StateFields):
     enabled: bool | None = None
     injection_label: str | None = None
     sort_order: int | None = None
-    cooldown_turns: int | None = Field(None, ge=0, le=50)
-    gate_question: str | None = Field(None, max_length=4000)
+    cooldown_turns: int | None = Field(None, ge=0)
+    gate_question: str | None = None
     gate_replies: int | None = Field(None, ge=0, le=10)
 
 
@@ -899,7 +899,7 @@ class CardSourceLoginRequest(BaseModel):
 class CardGeneratorRunRequest(BaseModel):
     """Options for one unsaved character card draft."""
 
-    idea: str = Field(default="", max_length=2000)
+    idea: str = ""
     # A reference image the Agent model sees; the idea may be left empty when one is attached.
     image: AttachmentIn | None = None
     reasoning: bool = False

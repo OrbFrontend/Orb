@@ -38,7 +38,6 @@ import {
   setChatFollowing,
   toast,
 } from "./utils.js";
-import { validate } from "./validate.js";
 import { clearTextEffect } from "./workflow_text_effects.js";
 
 export async function loadConversations() {
@@ -801,12 +800,6 @@ async function saveTitleEdit() {
   if (!inp) return;
   const newTitle = inp.value.trim();
   if (!newTitle) {
-    cancelTitleEdit();
-    return;
-  }
-  const validation = validate.validateConversationTitle(newTitle);
-  if (!validation.valid) {
-    toast(validation.error, true);
     cancelTitleEdit();
     return;
   }

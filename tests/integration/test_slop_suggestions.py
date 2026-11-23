@@ -113,9 +113,7 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
     assert [s["label"] for s in listed["suggestions"]] == ["A beat.", "A pause."]
     beat, pause = listed["suggestions"]
 
-    await client.post_checked(
-        f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": "a" * 301}, expected_status=400
-    )
+    await client.post_checked(f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": "("}, expected_status=400)
     assert (await client.post(f"/api/phrase-bank/suggestions/{pause['id']}/dismiss", json={})).status_code == 200
     assert await bank_size() == before
 

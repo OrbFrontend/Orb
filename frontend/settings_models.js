@@ -47,10 +47,10 @@ const SETTING_FIELDS = [
   { k: "shared_system_prompt", l: "System Prompt (global)", t: "textarea" },
   { k: "system_prompt", l: "System Prompt (model)", t: "textarea" },
   { k: "temperature", l: "Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
-  { k: "max_tokens", l: "Max Tokens", t: "number", s: "64", mn: "64", mx: "32768" },
+  { k: "max_tokens", l: "Max Tokens", t: "number", s: "64", mn: "64" },
   { k: "top_p", l: "Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
   { k: "min_p", l: "Min P", t: "number", s: "0.01", mn: "0", mx: "1" },
-  { k: "top_k", l: "Top K", t: "number", s: "1", mn: "0", mx: "200" },
+  { k: "top_k", l: "Top K", t: "number", s: "1", mn: "0" },
   { k: "repetition_penalty", l: "Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
   { k: "reasoning_effort", l: "Reasoning Effort", t: "reasoning_effort" },
   { k: "extra_headers", l: "Extra Request Headers", t: "textarea", ph: "X-Provider: deepinfra" },
@@ -206,7 +206,7 @@ export function renderEndpoints() {
                 </div>
               </div>`;
     }
-    const attrs = f.s ? `step="${f.s}" min="${f.mn}" max="${f.mx}"` : "";
+    const attrs = f.s ? `step="${f.s}" min="${f.mn}"${f.mx ? ` max="${f.mx}"` : ""}` : "";
     const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : "";
     return `<div class="field"><label>${f.l}</label>
               <input type="${f.t}" value="${v}" data-key="${f.k}" ${attrs}${ph} ${save}>

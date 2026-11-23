@@ -29,10 +29,9 @@ async def test_create_duplicate_mood_fragment_returns_400(client, db):
     await client.post_checked("/api/fragments", json=payload, expected_status=400)
 
 
-async def test_mood_fragment_cooldown_is_bounded(client, db):
+async def test_mood_fragment_cooldown_rejects_negative(client, db):
     payload = {"id": "bounded", "label": "Bounded", "description": "x", "prompt_text": "x"}
-    for value in (-1, 51):
-        await client.post_checked("/api/fragments", json={**payload, "cooldown_turns": value}, expected_status=422)
+    await client.post_checked("/api/fragments", json={**payload, "cooldown_turns": -1}, expected_status=422)
 
 
 async def test_update_mood_fragment_persists_to_db(client, db):
