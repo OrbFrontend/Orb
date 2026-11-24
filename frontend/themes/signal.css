@@ -1,4 +1,4 @@
-/* Raven: a printed technical poster. Warm paper, brown-black ink, one signal red, square corners and diagonal bands.
+/* Signal: a printed technical poster. Warm paper, brown-black ink, one signal red, square corners and diagonal bands.
    Red fills carry ink text; text-weight red is the deeper --accent so it reads on paper. Static paint only. */
 :root {
   --ink:#2b2221; --ink-2:#3a302e; --ink-rule:#5a4e4b; --paper-on-ink:#d9d1c4; --muted-on-ink:#a99e92;
@@ -26,6 +26,12 @@
   --mobile-panel-shadow-right:-12px 0 30px rgba(43,34,33,0.34) !important;
   --mobile-menu-shadow:6px 6px 0 var(--sig) !important;
 }
+/* Ink-filled surfaces: children colored by the base tokens would otherwise paint ink on ink. */
+.gen-status, .toast, .cb-option.active, .cb-option:hover, .burger-menu-item:hover {
+  --text-primary:var(--paper-on-ink); --text-secondary:var(--paper-on-ink); --text-muted:var(--muted-on-ink);
+  --accent:var(--sig); --red:var(--sig); --border:var(--ink-rule); --bg-hover:var(--ink-2); }
+.toast.error { --text-primary:var(--ink); --text-secondary:var(--ink); --text-muted:var(--ink-2);
+  --accent:var(--ink); --red:var(--ink); }
 *, *::before, *::after { border-radius: 0 !important; }
 
 /* Paper with fine pinstripes and one faded red-and-ink band across the diagonal. It runs behind the message
