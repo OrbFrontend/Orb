@@ -25,7 +25,6 @@
   --mobile-overlay-color:rgba(43,34,33,0.45) !important;
   --mobile-panel-shadow-left:12px 0 30px rgba(43,34,33,0.34) !important;
   --mobile-panel-shadow-right:-12px 0 30px rgba(43,34,33,0.34) !important;
-  --mobile-menu-shadow:6px 6px 0 var(--sig) !important;
 }
 /* Ink-filled surfaces: children colored by the base tokens would otherwise paint ink on ink. */
 .gen-status, .toast, .cb-option.active, .cb-option:hover, .burger-menu-item:hover {
@@ -114,7 +113,7 @@ body { --band-red:color-mix(in srgb, var(--sig) 30%, var(--bg-deep));
   color: var(--sig) !important; box-shadow: 3px 3px 0 var(--sig) !important; }
 .btn-danger:not(:disabled):hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: var(--ink-2) !important;
   color: var(--sig-hover) !important; }
-#burger-btn, #mobile-sidebar-toggle, #mobile-chat-actions-toggle, #doc-mobile-sidebar-toggle {
+#burger-btn, #mobile-sidebar-toggle, #doc-mobile-sidebar-toggle {
   background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; color: var(--ink) !important; }
 #burger-btn:hover { background: var(--ink) !important; color: var(--paper-on-ink) !important; }
 
@@ -131,7 +130,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
   color: inherit !important; }
 ::placeholder { color: var(--text-muted) !important; }
 
-.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, #doc-prob-popup {
+.cb-dropdown, #burger-dropdown, .wf-claim-popover, #doc-prob-popup {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
   box-shadow: 6px 6px 0 var(--sig) !important; }
 .cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--ink) !important;

@@ -125,6 +125,11 @@
 .sidebar-portrait-close { --ui-icon-size: 14px; display: inline-flex; flex-shrink: 0; padding: 4px; background: none;
   border: none; border-radius: var(--radius); color: var(--text-muted); cursor: pointer; transition: color .15s; }
 .sidebar-portrait-close:hover { color: var(--text-primary); }
+.sidebar-portrait-title { display: flex; padding: 10px 8px 10px 16px; border-bottom: 1px solid var(--border); }
+.sidebar-portrait-title:empty { display: none; }
+.sidebar-portrait-title .chat-title-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.sidebar-portrait-title .chat-title { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.sidebar-portrait-title .chat-title-edit { opacity: 1; padding: 6px; }
 .sidebar-portrait-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .sidebar-portrait-body::-webkit-scrollbar { width: 0; }
 .sidebar-portrait-frame { display: flex; justify-content: center; padding: 12px 12px 0; }

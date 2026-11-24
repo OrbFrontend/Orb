@@ -5,7 +5,8 @@
   border: 1px solid var(--border); flex-shrink: 0; overflow: hidden; display: flex; align-items: center;
   justify-content: center; font-size: 14px; color: var(--text-muted); }
 .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
-#chat-header .chat-title { font-family: var(--font-prose); font-size: var(--font-prose-size); font-weight: 400;
+.chat-title-wrap { display: contents; }
+.chat-title { font-family: var(--font-prose); font-size: var(--font-prose-size); font-weight: 400;
   color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #chat-header .chat-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .chat-title-edit { opacity: 0; padding: 3px; background: none; border: none; color: var(--text-muted); flex-shrink: 0;

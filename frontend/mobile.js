@@ -11,13 +11,13 @@ const IDS = Object.freeze({
   app: "app",
   burgerButton: "burger-btn",
   burgerMenu: "burger-dropdown",
-  mobileActionsToggle: "mobile-chat-actions-toggle",
-  mobileActionsMenu: "mobile-chat-actions-menu",
   docWorkflowMobileToggle: "doc-workflow-mobile-btn",
   mobileSidebarToggle: "mobile-sidebar-toggle",
   docMobileSidebarToggle: "doc-mobile-sidebar-toggle",
   sidebar: "sidebar",
   chatAvatar: "chat-avatar",
+  chatTitle: "chat-title-wrap",
+  portraitTitle: "sidebar-portrait-title",
   toolsPanel: "tools-panel",
   toolsPanelToggle: "tools-panel-btn",
   inspector: "inspector",
@@ -40,7 +40,7 @@ const APP_STATE = Object.freeze({
   sidebarToggled: "sidebar-toggled",
 });
 
-// A tap anywhere but the panel, one of its toggles or the header actions menu closes the panel.
+// A tap anywhere but the panel or one of its toggles closes the panel.
 const MOBILE_SIDE_PANELS = Object.freeze([
   {
     elementId: IDS.toolsPanel,
@@ -80,10 +80,6 @@ function isElementOpen(id) {
   return getElement(id)?.classList.contains("open") ?? false;
 }
 
-function setElementOpen(id, open) {
-  getElement(id)?.classList.toggle("open", open);
-}
-
 function hasAppState(stateClass) {
   return getApp()?.classList.contains(stateClass) ?? false;
 }
@@ -110,15 +106,11 @@ function closeMobileSidebar() {
   setAppState(APP_STATE.sidebarOpen, false);
 }
 
-function closeMobileHeaderActions() {
-  setElementOpen(IDS.mobileActionsMenu, false);
-}
-
-function toggleMobileHeaderActions() {
-  if (!isMobileSidebarViewport()) return;
-  setElementOpen(IDS.mobileActionsMenu, !isElementOpen(IDS.mobileActionsMenu));
-  _closeBurger();
-  armMobileBackIfNeeded();
+// A phone's header has no room for the title, so it rides in the portrait the avatar opens.
+function placeChatTitle() {
+  const title = getElement(IDS.chatTitle);
+  const home = isMobileSidebarViewport() ? getElement(IDS.portraitTitle) : getElement(IDS.chatAvatar)?.parentElement;
+  if (title && home && title.parentElement !== home) home.append(title);
 }
 
 function syncMobilePanelState() {
@@ -139,10 +131,7 @@ function syncMobilePanelState() {
     anyUtilityPanelOpen ||= isOpen;
   }
 
-  if (anyUtilityPanelOpen) {
-    closeMobileSidebar();
-    closeMobileHeaderActions();
-  }
+  if (anyUtilityPanelOpen) closeMobileSidebar();
 }
 
 function closeMobileUtilityPanels() {
@@ -155,7 +144,6 @@ function hasOpenMobileOverlay() {
 
   return (
     isModalOpen() ||
-    isElementOpen(IDS.mobileActionsMenu) ||
     hasAppState(APP_STATE.sidebarOpen) ||
     MOBILE_SIDE_PANELS.some(({ elementId, appStateClass }) => isElementOpen(elementId) || hasAppState(appStateClass))
   );
@@ -171,10 +159,6 @@ function closeTopMobileOverlay() {
   if (!isMobileSidebarViewport()) return false;
 
   if (closeTopModal()) return true;
-  if (isElementOpen(IDS.mobileActionsMenu)) {
-    closeMobileHeaderActions();
-    return true;
-  }
   if (MOBILE_SIDE_PANELS.some(({ elementId }) => isElementOpen(elementId))) {
     closeMobileUtilityPanels();
     return true;
@@ -190,7 +174,6 @@ function closeTopMobileOverlay() {
 function toggleMobileSidebar() {
   if (!isMobileSidebarViewport()) return;
   closeMobileUtilityPanels();
-  closeMobileHeaderActions();
   setAppState(APP_STATE.sidebarOpen, !hasAppState(APP_STATE.sidebarOpen));
   _closeBurger();
   armMobileBackIfNeeded();
@@ -216,13 +199,7 @@ export function revealSidebar() {
 
 function handleDocumentClick(event) {
   const matcher = createEventMatcher(event);
-  const clickedMobileActionsMenu = matcher.hasId(IDS.mobileActionsMenu);
   const sidebarOpen = hasAppState(APP_STATE.sidebarOpen);
-
-  // Clicking outside the menu closes it, and so does picking one of its items.
-  if (!matcher.hasId(IDS.mobileActionsToggle) && (!clickedMobileActionsMenu || matcher.matches(".burger-menu-item"))) {
-    closeMobileHeaderActions();
-  }
 
   if (!isMobileSidebarViewport()) return;
 
@@ -247,8 +224,7 @@ function handleDocumentClick(event) {
   let closedUtilityPanel = false;
   for (const panel of MOBILE_SIDE_PANELS) {
     if (!isElementOpen(panel.elementId)) continue;
-    if (matcher.hasId(panel.elementId) || panel.toggleIds.some((id) => matcher.hasId(id)) || clickedMobileActionsMenu)
-      continue;
+    if (matcher.hasId(panel.elementId) || panel.toggleIds.some((id) => matcher.hasId(id))) continue;
 
     closeUtilityPanel(panel.elementId);
     closedUtilityPanel = true;
@@ -262,14 +238,11 @@ function handleDocumentClick(event) {
 function handleEscape(event) {
   if (event.key !== "Escape") return;
   closeMobileSidebar();
-  closeMobileHeaderActions();
 }
 
 function handleViewportChange() {
-  if (!isMobileSidebarViewport()) {
-    closeMobileSidebar();
-    closeMobileHeaderActions();
-  }
+  if (!isMobileSidebarViewport()) closeMobileSidebar();
+  placeChatTitle();
   syncMobilePanelState();
   armMobileBackIfNeeded();
 }
@@ -330,6 +303,7 @@ export function initMobileUi(deps) {
   _closeBurger = deps.closeBurger;
   trackVisualViewport();
   preventIosFocusZoom();
+  placeChatTitle();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);
@@ -377,5 +351,4 @@ export function initMobileUi(deps) {
 
 registerActions("mobile", {
   toggleSidebar: () => toggleMobileSidebar(),
-  toggleHeaderActions: () => toggleMobileHeaderActions(),
 });

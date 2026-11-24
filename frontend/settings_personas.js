@@ -51,10 +51,10 @@ export function updateUserBtn() {
         : card?.persona_lock_id
           ? CHAR_LOCK_ICON
           : PERSONA_ICON;
-  const label = `${glyph} ${displayName}`;
-  $("user-profile-btn").textContent = label;
-  const mobileBtn = $("mobile-user-profile-btn");
-  if (mobileBtn) mobileBtn.textContent = label;
+  const name = document.createElement("span");
+  name.className = "btn-label";
+  name.textContent = displayName;
+  $("user-profile-btn").replaceChildren(glyph, name);
 }
 
 function activeLockContext() {

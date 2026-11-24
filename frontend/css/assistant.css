@@ -9,10 +9,9 @@
 .asst-log > * { flex-shrink: 0; }
 /* What a closed panel still says on every button that opens it: a run going, and edits waiting for Apply. */
 #app { counter-reset: asst-pending var(--asst-pending, 0); }
-.asst-launch, #mobile-chat-actions-toggle { position: relative; }
+.asst-launch { position: relative; }
 .asst-launch-mark { display: none; position: absolute; top: -4px; right: -4px; min-width: 8px; height: 8px;
   border-radius: 999px; background: var(--accent); pointer-events: none; }
-.burger-menu-item .asst-launch-mark { position: static; margin-left: 6px; vertical-align: middle; }
 #app:is([data-asst-running], [data-asst-pending]) .asst-launch-mark { display: inline-block; }
 #app[data-asst-pending] .asst-launch-mark { min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px;
   font-weight: 600; line-height: 16px; text-align: center; color: var(--bg-primary); }

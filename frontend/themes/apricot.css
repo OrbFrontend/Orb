@@ -28,8 +28,7 @@
 :root { --frag-lane-offset: 88; }
 :root { --mobile-overlay-color:rgba(74,49,32,0.34) !important;
   --mobile-panel-shadow-left:12px 0 30px rgba(47,38,32,0.34) !important;
-  --mobile-panel-shadow-right:-12px 0 30px rgba(47,38,32,0.34) !important;
-  --mobile-menu-shadow:6px 6px 0 rgba(47,38,32,0.65) !important; }
+  --mobile-panel-shadow-right:-12px 0 30px rgba(47,38,32,0.34) !important; }
 body {
   background:
     radial-gradient(85% 62% at 12% -16%, #cfc2e8 0%, rgba(228,176,196,0.55) 40%, rgba(240,190,160,0) 74%),
@@ -90,7 +89,7 @@ body {
 .world-avatar, .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
   border: 2px solid var(--ink) !important; background: var(--bg-elevated) !important;
 }
-#mobile-sidebar-toggle, #mobile-chat-actions-toggle, #doc-mobile-sidebar-toggle {
+#mobile-sidebar-toggle, #doc-mobile-sidebar-toggle {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 999px !important;
   color: var(--ink) !important; }
 input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
@@ -114,7 +113,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .asst-compose:focus-within { box-shadow: 0 0 0 3px var(--accent-glow) !important; }
 .cb-root .cb-input { background: transparent !important; border: none !important; color: var(--ink) !important; }
 .cb-arrow { color: var(--text-secondary) !important; }
-.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover {
+.cb-dropdown, #burger-dropdown, .wf-claim-popover {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 14px !important;
   box-shadow: var(--shadow-pop) !important;
 }

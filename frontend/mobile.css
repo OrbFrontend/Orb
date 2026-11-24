@@ -1,27 +1,18 @@
 
-:root { --mobile-header-button-size: 34px; --mobile-actions-menu-min-width: 170px;
+:root { --mobile-header-button-size: 34px;
   --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px); --mobile-overlay-z: 80;
-  --mobile-sidebar-z: 90; --mobile-panel-z: 95; --mobile-menu-z: 115; --mobile-overlay-color: rgba(0, 0, 0, .45);
+  --mobile-sidebar-z: 90; --mobile-panel-z: 95; --mobile-overlay-color: rgba(0, 0, 0, .45);
   --mobile-panel-shadow-left: 10px 0 28px rgba(0, 0, 0, .45);
-  --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45); --mobile-menu-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+  --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45);
   --mobile-slide-duration: .2s ease; }
 html { height: 100%; }
-#chat-header .chat-actions { position: relative; }
-#mobile-sidebar-toggle, #mobile-chat-actions-toggle {
+#mobile-sidebar-toggle {
   --ui-icon-size: 18px; display: none; width: var(--mobile-header-button-size);
   height: var(--mobile-header-button-size); padding: 0; align-items: center; justify-content: center;
   border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border);
   color: var(--text-secondary); flex-shrink: 0; transition: all .15s;
 }
-#mobile-sidebar-toggle:hover, #mobile-chat-actions-toggle:hover {
-  background: var(--bg-hover); color: var(--text-primary);
-}
-#mobile-chat-actions-toggle { font-size: 20px; line-height: 1; }
-#mobile-chat-actions-menu { position: absolute; top: calc(100% + 6px); right: 0;
-  min-width: var(--mobile-actions-menu-min-width); background: var(--bg-elevated); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--mobile-menu-shadow); overflow: hidden; z-index: var(--mobile-menu-z);
-  display: none; }
-#mobile-chat-actions-menu.open { display: block; }
+#mobile-sidebar-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 @media (max-width: 900px) {
   #app { position: relative; }
@@ -43,8 +34,9 @@ html { height: 100%; }
     width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;
   }
   .inspector-inner, .tools-inner, .asst-inner { width: 100%; }
-  #user-profile-btn, #assistant-btn, #tools-panel-btn, #inspector-toggle { display: none; }
-  #mobile-chat-actions-toggle { display: inline-flex; }
+  #chat-header .chat-actions .btn { width: var(--mobile-header-button-size); height: var(--mobile-header-button-size);
+    padding: 0; justify-content: center; font-size: 15px; }
+  #chat-header .chat-actions .btn-label { display: none; }
   #main { width: 100%; }
   .char-item-actions { opacity: 1; }
   .toast-stack { left: 12px; right: 12px; bottom: 12px; max-width: none; align-items: stretch; }
@@ -136,7 +128,6 @@ html { height: 100%; }
   #chat-messages { padding-inline: 12px; }
   #chat-messages[data-avatars="on"] { --msg-avatar-shift: 0px; }
   #chat-header .chat-actions { gap: 4px; }
-  #chat-header .chat-actions .btn { padding-left: 7px; padding-right: 7px; }
   .modal h2 { font-size: 16px; }
 
   /* A phone is too narrow for four icon-and-label modes in a line, so each mode

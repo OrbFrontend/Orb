@@ -50,7 +50,7 @@
   background: var(--vw-corners-sm), var(--vw-selected) !important; }
 
 /* ── Pop-ups: flat fill and a brass hairline instead of a drop shadow. ── */
-.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, #doc-prob-popup, .toast {
+.cb-dropdown, #burger-dropdown, .wf-claim-popover, #doc-prob-popup, .toast {
   background: var(--bg-elevated) !important; border: 1px solid var(--vw-brass-line) !important; box-shadow: none !important; }
 .toast.error { border-color: var(--red) !important; }
 .turn-error { box-shadow: none !important; }

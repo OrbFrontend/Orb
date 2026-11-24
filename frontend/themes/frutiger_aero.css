@@ -36,8 +36,7 @@
 
   --mobile-overlay-color:rgba(24,92,138,0.4) !important;
   --mobile-panel-shadow-left:8px 0 24px rgba(12,62,100,0.38) !important;
-  --mobile-panel-shadow-right:-8px 0 24px rgba(12,62,100,0.38) !important;
-  --mobile-menu-shadow:0 6px 18px rgba(12,62,100,0.3) !important; }
+  --mobile-panel-shadow-right:-8px 0 24px rgba(12,62,100,0.38) !important; }
 
 /* Hue offset 68 keeps pass colours at least 30 degrees from the hover, gradient ends and accent. */
 :root { --frag-lane-offset: 68; }
@@ -97,11 +96,11 @@ body { background: #62c1ec var(--aero-wall) center / cover no-repeat !important;
 
 /* ── Controls ── */
 
-.btn, #burger-btn, #mobile-sidebar-toggle, #mobile-chat-actions-toggle, .tab-button {
+.btn, #burger-btn, #mobile-sidebar-toggle, .tab-button {
   background: var(--aero-gel) !important; border: 1px solid #86bfe0 !important; color: #124a6c !important;
   box-shadow: var(--aero-lip), 0 1px 2px rgba(12,62,100,0.18) !important;
   transition: border-color .12s ease, box-shadow .12s ease, color .12s ease !important; }
-.btn:hover, #burger-btn:hover, #mobile-sidebar-toggle:hover, #mobile-chat-actions-toggle:hover, .tab-button:hover {
+.btn:hover, #burger-btn:hover, #mobile-sidebar-toggle:hover, .tab-button:hover {
   background: var(--aero-gel-hover) !important; border-color: #4aa9de !important; color: #0b3f61 !important;
   box-shadow: var(--aero-lip), 0 1px 3px rgba(12,62,100,0.22), 0 0 0 2px var(--accent-glow) !important; }
 .btn:active, #burger-btn:active { background: var(--aero-gel-press) !important;
@@ -196,7 +195,7 @@ input[type="range"] { background: linear-gradient(180deg, #c9dfee, #e8f4fb) !imp
 .inspect-chip { background: rgba(255,255,255,0.7) !important; }
 .inspect-chip.active { background: var(--aero-gel-hover) !important; border-color: #4aa9de !important;
   color: #0b5f9c !important; }
-.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, #doc-prob-popup {
+.cb-dropdown, #burger-dropdown, .wf-claim-popover, #doc-prob-popup {
   background: linear-gradient(180deg, #ffffff, #f1f9fe) !important; border: 1px solid var(--aero-edge) !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.9), 0 6px 18px rgba(12,62,100,0.3) !important; }
 

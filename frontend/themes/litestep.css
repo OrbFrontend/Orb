@@ -22,7 +22,6 @@ body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%
   letter-spacing: 0; text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important; }
 #chat-header, #chat-header .chat-title, #chat-header .chat-title-edit { color: #ffffff !important; }
 #chat-header .btn, #chat-header .burger-menu-item, #chat-header #mobile-sidebar-toggle,
-#chat-header #mobile-chat-actions-toggle { color: #1a1a1a !important; }
 #sidebar-collapse-btn, #chat-header .sidebar-expand-btn { color: #d1e4fe !important; }
 :is(#sidebar-collapse-btn, #chat-header .sidebar-expand-btn):hover { color: #ffffff !important; }
 #chat-header .btn-accent, #chat-header .btn-active { color: #1a0c02 !important; }

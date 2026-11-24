@@ -102,6 +102,7 @@
         <span id="sidebar-portrait-name" class="sidebar-portrait-name"></span>
         <button class="sidebar-portrait-close" data-wf-action="inspector:closePortrait" title="Close portrait" aria-label="Close portrait"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
+      <div id="sidebar-portrait-title" class="sidebar-portrait-title"></div>
       <div class="sidebar-portrait-body">
         <div class="sidebar-portrait-frame"><img id="sidebar-portrait-image" src="" alt="Character portrait"></div>
         <div id="sidebar-portrait-expression" class="sidebar-portrait-expression hidden"></div>
@@ -120,22 +121,16 @@
         <button class="sidebar-expand-btn" data-wf-action="sidebar:toggleCollapsed" title="Expand sidebar" aria-label="Expand sidebar" aria-controls="sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 17 5-5-5-5M13 17l5-5-5-5"/></svg></button>
         <button id="mobile-sidebar-toggle" data-wf-action="mobile:toggleSidebar" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <div class="chat-avatar" id="chat-avatar">📜</div>
-        <div class="chat-title" id="chat-title-text">Select a character</div>
-        <button class="chat-title-edit" id="chat-title-edit-btn" data-wf-action="conversations:editTitle" title="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <div class="chat-title-wrap" id="chat-title-wrap">
+          <div class="chat-title" id="chat-title-text">Select a character</div>
+          <button class="chat-title-edit" id="chat-title-edit-btn" data-wf-action="conversations:editTitle" title="Edit title" aria-label="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
+        </div>
       </div>
       <div class="chat-actions">
         <button class="btn btn-sm" id="user-profile-btn" data-wf-action="personas:open" title="User profile" aria-label="User profile">👤</button>
-        <button class="btn btn-sm asst-launch" id="assistant-btn" data-wf-action="assistant:toggle" title="Assistant" aria-controls="assistant-panel">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></button>
-        <button class="btn btn-sm" id="tools-panel-btn" data-wf-action="settings:toggleToolsPanel" title="Agentic Tools & Workflows">🛠️ Workflow</button>
-        <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
-        <button id="mobile-chat-actions-toggle" data-wf-action="mobile:toggleHeaderActions" title="Quick actions" aria-label="Quick actions"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg><span class="asst-launch-mark" aria-hidden="true"></span></button>
-        <div id="mobile-chat-actions-menu">
-          <div class="burger-menu-item" id="mobile-user-profile-btn" data-wf-action="personas:open">👤 User</div>
-          <div class="burger-menu-item asst-launch" data-wf-action="assistant:toggle">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></div>
-          <div class="burger-menu-item" data-wf-action="settings:toggleToolsPanel">🛠️ Workflow</div>
-          <div class="burger-menu-item" data-chat-action="group-config" hidden>👥 Scene setup</div>
-          <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
-        </div>
+        <button class="btn btn-sm asst-launch" id="assistant-btn" data-wf-action="assistant:toggle" title="Assistant" aria-label="Assistant" aria-controls="assistant-panel">🤖<span class="btn-label">Assistant</span><span class="asst-launch-mark" aria-hidden="true"></span></button>
+        <button class="btn btn-sm" id="tools-panel-btn" data-wf-action="settings:toggleToolsPanel" title="Agentic Tools &amp; Workflows" aria-label="Workflow">🛠️<span class="btn-label">Workflow</span></button>
+        <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍<span class="btn-label">Inspector</span></button>
       </div>
     </div>
     <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
