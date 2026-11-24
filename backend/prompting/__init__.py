@@ -12,7 +12,7 @@ from .conversation import (
 )
 from .fragment_state import STATE_BLOCK_HEADING, render_state_block
 from .group_context import (
-    context_size_components,
+    largest_cast_section,
     macro_identity,
     member_macros,
     prefix_cache_shape,

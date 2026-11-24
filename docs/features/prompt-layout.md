@@ -54,3 +54,7 @@ providers that allow it.
 
 To use a different arrangement, create or copy a layout, or pick one from the
 list. The selected layout is the one chat uses.
+
+**This chat** in the character portrait shows how many tokens each switched-on
+block of the selected layout takes, in layout order, with Chat history between
+them. A group shows its largest speaker.

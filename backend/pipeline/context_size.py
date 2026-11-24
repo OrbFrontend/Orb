@@ -1,38 +1,41 @@
-"""Estimate the size of a conversation's next Writer call, broken down by prompt component."""
+"""Estimate the size of a conversation's next Writer call, broken down by prompt layout block."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any
 
 from .. import database as db
-from ..core import CardScripts, Macros, estimate_tokens, state_fragments_of
-from ..core.prompt_layout import CUSTOM_KIND, LayoutBlock
+from ..core import CardScripts, estimate_tokens, state_fragments_of
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
     compute_style_injection_block,
     conversation_macro_seed,
     conversation_sections,
-    group_context,
-    headed_scene_guidance,
+    largest_cast_section,
     macro_identity,
     persona_macros,
     render_history,
     render_state_block,
     resolve_mood_fragment_randoms,
 )
-from ..prompting.layout import section_names
+from ..prompting.layout import PrefixInputs, WriterInputs, prefix_block_texts, writer_block_texts
 from ..prompting.lorebook import compute_constant_lorebook_block
 from .context import build_lorebook_turn, resolve_card_and_persona
+from .passes.writer import speaker_frame
 from .predicates import agent_enabled
 
 
+def _row(row_id: str, label: str, kind: str, region: str, chars: int) -> dict[str, Any]:
+    return {"id": row_id, "label": label, "kind": kind, "region": region, "chars": chars, "tokens_est": estimate_tokens(chars)}
+
+
 async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
-    """Measure each component of the Writer prompt a turn in *conv* would send now.
+    """Measure each block of the active prompt layout as a turn in *conv* would render it now, plus the chat history.
 
     Reads the same rows and applies the same merges as turn loading, but builds no model client, so a conversation without a
-    configured endpoint still gets an estimate. A group's estimate is a *maximum* call, not a sum.
+    configured endpoint still gets an estimate. A group's estimate is a *maximum* call, not a sum: the largest speaker's cast
+    section and speaker frame.
     """
     cid = conv["id"]
     settings = await db.get_settings()
@@ -57,18 +60,8 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     )
     layout = await db.get_active_layout_blocks()
     card_text = char_context(settings, card, layout)
-    system_prompt = macros.resolve_message(card_text.system_prompt)
-    # The same sections the prefix renders: a group's card-derived ones are empty, the group components below stand in.
+    # The same sections the prefix renders: a group's card-derived ones are empty, the cast section stands in.
     sections = conversation_sections(settings, conv, card_text, macros, user_desc, turn_cast)
-    persona_text = "\n\n".join(filter(None, [sections.description, sections.personality]))
-    # The group breakdown follows the context mode: the shared body once, plus the largest single speaker's share of it,
-    # rendered through the same projection the prompt uses.
-    group_components: list[tuple[str, str]] = []
-    if turn_cast.grouped:
-        group_components = group_context.context_size_components(
-            turn_cast, macros, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
-        )
-    user_persona_text = f"## User: {macros.user}\n{sections.persona}" if sections.persona else ""
     # Project the history through the same macros, card scripts, and group labels used by the model-facing prefix.
     history = render_history(
         messages,
@@ -78,96 +71,73 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
         scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_scripts=await db.get_group_member_scripts(cid) if turn_cast.grouped else None,
     )
-    msg_chars = 0
+    history_chars = 0
     for message in history:
         content = message["content"]
         if isinstance(content, str):
-            msg_chars += len(content)
+            history_chars += len(content)
         else:
-            msg_chars += sum(len(part["text"]) for part in content if part["type"] == "text")
+            history_chars += sum(len(part["text"]) for part in content if part["type"] == "text")
 
-    # Director injection -- fragment {{random}} resolves against a throwaway copy of the stored choice map so the estimate
+    # Scene guidance -- fragment {{random}} resolves against a throwaway copy of the stored choice map so the estimate
     # matches the prompt bytes a real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", [])
     est_mood_frags = resolve_mood_fragment_randoms(mood_frags, active_moods, dict(director.get("macro_choices", {})))
     direct_scene_enabled = agent_enabled(settings) and bool((settings.get("enabled_tools") or {}).get("direct_scene", False))
-    inj_block = headed_scene_guidance(
+    scene_guidance = macros.resolve_message(
         compute_style_injection_block(active_moods, active_moods, est_mood_frags, director_frags, direct_scene_enabled, {})
     )
-    # The Writer's current-state block rides the same injection on every turn.
+    # The Writer's current-state block rides Scene guidance on every turn.
+    current_state = ""
     writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
     if writer_state:
         state_block = render_state_block(writer_state, await db.fold_path_state(cid, [m["id"] for m in messages]))
-        if state_block:
-            inj_block = (inj_block + "\n\n" + macros.resolve_message(state_block)).strip()
+        current_state = macros.resolve_message(state_block) if state_block else ""
 
     # The Writer's lorebook block as the turn builds it; with agentic lorebook on, the part known before the Director picks.
     lorebook = build_lorebook_turn(settings, lorebook_entries, messages, macros)
 
-    components = [
-        ("system_prompt", len(system_prompt or "")),
-        ("char_persona", len(persona_text)),
-        ("scenario", len(sections.scenario)),
-        ("mes_example", len(sections.examples)),
-        ("user_persona", len(user_persona_text)),
-        ("messages", msg_chars),
-        ("post_history", len(sections.instructions)),
-        ("director_injection", len(inj_block)),
-        ("lorebook", len(lorebook.writer_block((), macros))),
-        ("lorebook_constant", len(compute_constant_lorebook_block(lorebook_entries, macros))),
-        ("lorebook_depth", len(lorebook.depth_block)),
-    ]
+    # A group bills its largest speaker: the frame around the Writer request, and the macros the request's blocks resolve with.
+    speaker_open, speaker_close, block_macros = "", "", macros
     if turn_cast.grouped:
-        components[2:2] = [(key, len(text)) for key, text in group_components]
-    components = _apply_layout(components, layout, macros)
-    breakdown = {label: {"chars": chars, "tokens_est": estimate_tokens(chars)} for label, chars in components}
-    total_chars = sum(v["chars"] for v in breakdown.values())
+        prevent = bool(settings.get("prevent_prompt_overrides"))
+        frames = [
+            speaker_frame(member, macros, turn_cast.context_mode, prevent_prompt_overrides=prevent)
+            for member in turn_cast.members
+            if not member.muted
+        ]
+        if frames:
+            speaker_open, speaker_close, block_macros = max(frames, key=lambda frame: len(frame[0]) + len(frame[1]))
+
+    prefix = PrefixInputs(
+        main_prompt=macros.resolve_message(card_text.system_prompt),
+        cast=largest_cast_section(turn_cast, macros).lstrip("\n") if turn_cast.grouped else "",
+        constant_lore=compute_constant_lorebook_block(lorebook_entries, macros),
+        sections=sections,
+    )
+    writer = WriterInputs(
+        selected_lore=lorebook.writer_block((), macros),
+        scene_guidance=scene_guidance,
+        current_state=current_state,
+        depth_lore=lorebook.depth_block,
+        sections=sections,
+    )
+    rows = [
+        _row(block.id, block.label, block.kind, block.region, len(text))
+        for block, text in prefix_block_texts(layout, prefix, macros)
+    ]
+    rows.append(_row("history", "Chat history", "history", "history", history_chars))
+    if turn_cast.grouped:
+        rows.append(_row("speaker", "Speaker", "speaker", "writer", len(speaker_open) + len(speaker_close)))
+    rows += [
+        _row(block.id, block.label, block.kind, block.region, len(text))
+        for block, text in writer_block_texts(layout, writer, block_macros)
+    ]
+    total_chars = sum(row["chars"] for row in rows)
     return {
         "total_chars": total_chars,
         "total_tokens_est": estimate_tokens(total_chars),
-        "breakdown": breakdown,
+        "breakdown": rows,
         "message_count": len(messages),
         "estimate_kind": "maximum" if turn_cast.grouped else "single_call",
     }
-
-
-# The size row each section placeholder renders, so a section no enabled block names drops out of the estimate.
-_SECTION_ROWS: dict[str, str] = {
-    "description": "char_persona",
-    "personality": "char_persona",
-    "scenario": "scenario",
-    "examples": "mes_example",
-    "instructions": "post_history",
-    "persona": "user_persona",
-}
-
-
-# The size rows each marker renders, so a switched-off marker drops out of the estimate. The Main prompt leaves through
-# ``char_context``.
-_MARKER_ROWS: dict[str, tuple[str, ...]] = {
-    # Classic card swap appends the speaker's card to the cast; the speaker tail rides the speaker frame, not a marker.
-    "cast": ("cast_public", "cast_dossiers", "largest_active_card"),
-    "constant_lore": ("lorebook_constant",),
-    "selected_lore": ("lorebook",),
-    "depth_lore": ("lorebook_depth",),
-    "scene_guidance": ("director_injection",),
-}
-
-
-def _apply_layout(components: list[tuple[str, int]], layout: Sequence[LayoutBlock], macros: Macros) -> list[tuple[str, int]]:
-    """Zero the rows of switched-off markers and of sections no enabled block names, and bill other custom blocks above and
-    below the history."""
-    named: set[str] = set()
-    off = {row for block in layout if not block.enabled for row in _MARKER_ROWS.get(block.kind, ())}
-    custom = {"prefix": 0, "writer": 0}
-    for block in layout:
-        if block.kind != CUSTOM_KIND or not block.enabled:
-            continue
-        sections = section_names(block.content)
-        if sections:
-            named.update(_SECTION_ROWS[name] for name in sections)
-        else:
-            custom[block.region] += len(macros.resolve_message(block.content).strip())
-    off |= set(_SECTION_ROWS.values()) - named
-    rows = [(key, 0 if key in off else chars) for key, chars in components]
-    return rows + [(f"custom_{region}", chars) for region, chars in custom.items() if chars]

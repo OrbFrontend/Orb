@@ -15,13 +15,13 @@ SCENARIO = (
 FIRST_MES = "Hello! I see you're reading about neural networks too. What brings you here?"
 
 
-async def test_context_size_returns_breakdown(client):
-    """Context size endpoint returns token estimates per component.
+def _rows(data: dict) -> dict[str, dict]:
+    return {row["kind"]: row for row in data["breakdown"] if row["kind"] != "custom"}
 
-    Drives the persona through the real card -> conversation path: the card's description+personality become ``char_persona``,
-    its scenario becomes ``scenario``, and its first_mes is seeded as the opening assistant message, so the breakdown's char
-    counts must equal those source strings exactly.
-    """
+
+async def test_context_size_measures_each_layout_block_as_the_writer_receives_it(client, llm_mock):
+    """The estimate lists the active layout's blocks in order with the history between the regions, and the prefix rows add up
+    to the system message the Writer is sent."""
     card_id = await client.create(
         "/api/characters",
         json={
@@ -30,57 +30,28 @@ async def test_context_size_returns_breakdown(client):
             "personality": PERSONALITY,
             "scenario": SCENARIO,
             "first_mes": FIRST_MES,
+            "system_prompt": "Card rules. {{original}}",
         },
     )
-
-    # Create the conversation purely from the card so every persona field the breakdown reports is sourced from the card, not
-    # from conversation-level overrides.
     cid = await client.create("/api/conversations", json={"character_card_id": card_id})
-
-    # Get context size
+    active_id = (await client.get_json("/api/prompt-layouts"))["active_id"]
+    blocks = await client.get_json(f"/api/prompt-layouts/{active_id}/blocks")
     data = await client.get_json(f"/api/conversations/{cid}/context-size")
 
-    # Verify structure
-    assert "total_tokens_est" in data
-    assert "total_chars" in data
-    assert "breakdown" in data
-    assert "message_count" in data
-    # first_mes is auto-seeded as the opening assistant message.
     assert data["message_count"] == 1
+    rows = data["breakdown"]
+    regions = [row["region"] for row in rows]
+    assert regions == sorted(regions, key=["prefix", "history", "writer"].index)
+    assert [row["id"] for row in rows if row["region"] != "history"] == [block["id"] for block in blocks if block["enabled"]]
+    assert _rows(data)["history"]["chars"] == len(FIRST_MES)
+    assert data["total_chars"] == sum(row["chars"] for row in rows)
 
-    # Verify breakdown components
-    bd = data["breakdown"]
-    expected_keys = {
-        "system_prompt",
-        "char_persona",
-        "scenario",
-        "mes_example",
-        "user_persona",
-        "messages",
-        "post_history",
-        "director_injection",
-        "lorebook",
-        "lorebook_constant",
-        "lorebook_depth",
-    }
-    assert set(bd.keys()) == expected_keys
-
-    # Each component has chars and tokens_est
-    for _, val in bd.items():
-        assert "chars" in val
-        assert "tokens_est" in val
-        assert isinstance(val["chars"], int)
-        assert isinstance(val["tokens_est"], int)
-
-    # The persona fields must actually flow into the breakdown. char_persona is description and personality joined by a blank
-    # line (char_context); scenario and the seeded first_mes pass through verbatim.
-    assert bd["char_persona"]["chars"] == len(f"{DESCRIPTION}\n\n{PERSONALITY}")
-    assert bd["scenario"]["chars"] == len(SCENARIO)
-    assert bd["messages"]["chars"] == len(FIRST_MES)
-
-    # Total should be positive
-    assert data["total_tokens_est"] > 0
-    assert data["total_chars"] > 0
+    llm_mock.enqueue_writer("Hi.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Hey.", "attachments": []})).text
+    system = next(call for call in llm_mock.captured if call["pass"] == "writer")["messages"][0]
+    billed = [row["chars"] for row in rows if row["region"] == "prefix" and row["chars"]]
+    assert system["role"] == "system"
+    assert len(system["content"]) == sum(billed) + 2 * (len(billed) - 1)
 
 
 async def test_context_size_404_for_missing(client):
@@ -106,7 +77,7 @@ async def test_context_size_counts_prompt_rendered_message(client):
 
     response = await client.get_json(f"/api/conversations/{cid}/context-size")
 
-    assert response["breakdown"]["messages"]["chars"] == len(replacement)
+    assert _rows(response)["history"]["chars"] == len(replacement)
 
 
 async def test_agentic_lorebook_bills_only_what_the_writer_can_receive(client):
@@ -123,5 +94,5 @@ async def test_agentic_lorebook_bills_only_what_the_writer_can_receive(client):
     await update_settings({"agentic_lorebook_enabled": 1, "enable_agent": 1})
     agentic = await client.get_json(f"/api/conversations/{cid}/context-size")
 
-    assert substring["breakdown"]["lorebook"]["chars"] > 0
-    assert agentic["breakdown"]["lorebook"]["chars"] == 0
+    assert _rows(substring)["selected_lore"]["chars"] > 0
+    assert _rows(agentic)["selected_lore"]["chars"] == 0

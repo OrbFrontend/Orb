@@ -118,12 +118,13 @@ async def test_context_size_accounts_for_the_depth_block(client, llm_mock):
     cid = await _make_conversation(client)
 
     with_world = await client.get_json(f"/api/conversations/{cid}/context-size")
-    assert with_world["breakdown"]["lorebook_depth"]["chars"] > 0
-    assert with_world["breakdown"]["lorebook_constant"]["chars"] > 0
+    rows = {row["kind"]: row for row in with_world["breakdown"]}
+    assert rows["depth_lore"]["chars"] > 0
+    assert rows["constant_lore"]["chars"] > 0
 
     assert (await client.put(f"/api/worlds/{world_id}", json={"is_global": False})).status_code == 200
     without = await client.get_json(f"/api/conversations/{cid}/context-size")
-    assert without["breakdown"]["lorebook_depth"]["chars"] == 0
+    assert next(row for row in without["breakdown"] if row["kind"] == "depth_lore")["chars"] == 0
     assert without["total_chars"] < with_world["total_chars"]
 
 

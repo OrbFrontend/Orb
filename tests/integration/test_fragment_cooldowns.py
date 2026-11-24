@@ -110,7 +110,8 @@ async def test_disabled_direction_clears_turn_moods_and_keeps_saved_state(client
     assert data["fragment_cooldowns"] == {"stormy": 2, "trust": 1}
     assert data["tool_calls"] == []
     assert "Trust: guarded" in data["injection_block"]
-    assert estimate["breakdown"]["director_injection"]["chars"] == len(data["injection_block"])
+    billed = next(row for row in estimate["breakdown"] if row["kind"] == "scene_guidance")["chars"]
+    assert len(data["injection_block"]) <= billed < len(data["injection_block"]) + len("Steady prose.")
     writer = next(call for call in llm_mock.captured[capture_start:] if call["pass"] == "writer")
     prompt = "\n".join(str(message["content"]) for message in writer["messages"])
     assert "Trust: guarded" in prompt

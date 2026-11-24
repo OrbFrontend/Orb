@@ -411,7 +411,7 @@ async def test_switched_off_markers_leave_the_prompt_but_the_engine_lines_and_th
     log = await client.get_json(f"/api/conversations/{cid}/messages/{(await get_messages(cid))[-1]['id']}/director-log")
     assert log["injection_block"].startswith("**Scene Guidance**\n\nWrite with tension")
     breakdown = (await client.get_json(f"/api/conversations/{cid}/context-size"))["breakdown"]
-    assert breakdown["system_prompt"]["chars"] == breakdown["director_injection"]["chars"] == 0
+    assert {"main_prompt", "scene_guidance", "user_message"}.isdisjoint(row["kind"] for row in breakdown)
 
 
 async def test_description_and_personality_resolve_separately_solo_and_under_a_group_override(client):

@@ -322,9 +322,11 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
             "context_size": {
                 "messages": size["message_count"],
                 "tokens_est": size["total_tokens_est"],
-                "tokens_by_part": {
-                    part: value["tokens_est"] for part, value in size["breakdown"].items() if value["tokens_est"]
-                },
+                "tokens_by_block": [
+                    {"block": row["label"] or row["kind"], "tokens_est": row["tokens_est"]}
+                    for row in size["breakdown"]
+                    if row["tokens_est"]
+                ],
             },
         }
         return ToolOutput(data, f"Read the {view.mode} view.", {**ids, "conversation_id": conv["id"]})

@@ -256,7 +256,8 @@ async def test_group_summarize_labels_history_and_context_size_is_a_maximum(clie
 
     context = await client.get_json(f"/api/conversations/{conv['id']}/context-size")
     assert context["estimate_kind"] == "maximum"
-    assert context["breakdown"]["largest_speaker_tail"]["chars"] >= len(big.strip())
+    speaker = next(row for row in context["breakdown"] if row["kind"] == "speaker")
+    assert speaker["chars"] >= len(big.strip())
 
 
 async def test_summarizing_a_renamed_group_calls_it_by_its_current_name(client, llm_mock):
@@ -504,27 +505,17 @@ async def test_the_post_turn_steps_ride_the_exchange_base_rather_than_rebuilding
     assert all(call["messages"][0] == writer["messages"][0] for call in proposal)
 
 
-@pytest.mark.parametrize(
-    ("mode", "expected"),
-    [
-        ("private", ["cast_public", "largest_speaker_tail"]),
-        ("shared", ["cast_dossiers", "largest_speaker_tail"]),
-        ("swap", ["cast_public", "largest_active_card", "largest_speaker_tail"]),
-    ],
-)
-async def test_context_size_breakdown_follows_the_context_mode(client, mode, expected):
+@pytest.mark.parametrize(("mode", "billed"), [("private", "speaker"), ("shared", "cast"), ("swap", "cast")])
+async def test_context_size_breakdown_follows_the_context_mode(client, mode, billed):
     big = ("ARIA " * 40).strip()
     conv, _ = await _two_card_group(
         client, context_mode=mode, aria_extra={"description": big}, kael_extra={"description": "KAEL"}
     )
     breakdown = (await client.get_json(f"/api/conversations/{conv['id']}/context-size"))["breakdown"]
-    assert [key for key in expected if key in breakdown] == expected
-    # Exactly one shared-body key per mode -- a stale one would double-count.
-    assert {"cast_public", "cast_dossiers"} & set(breakdown) == {expected[0]}
+    rows = {row["kind"]: row["chars"] for row in breakdown if row["kind"] in ("cast", "speaker")}
     # The biggest card is billed once wherever the mode puts it, never summed.
-    billed = "largest_speaker_tail" if mode == "private" else ("largest_active_card" if mode == "swap" else "cast_dossiers")
-    assert breakdown[billed]["chars"] >= len(big)
-    assert breakdown["largest_speaker_tail"]["chars"] < len(big) or mode == "private"
+    assert rows[billed] >= len(big)
+    assert rows["cast" if billed == "speaker" else "speaker"] < len(big)
 
 
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])

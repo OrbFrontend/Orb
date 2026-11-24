@@ -149,7 +149,7 @@
 .portrait-info-world:hover { text-decoration: underline; }
 .portrait-info-section .char-tags { margin-top: 8px; }
 .portrait-info-context { margin-top: 8px; }
-.portrait-info-context .ctx-label { width: 96px; }
+.portrait-info-context .ctx-label { width: 120px; }
 .fragment-item { display: flex; align-items: center; justify-content: space-between; padding: 8px;
   border-radius: var(--radius); font-size: 12px; margin-bottom: 2px; cursor: pointer;
   transition: background-color .15s ease; position: relative; }

@@ -158,16 +158,40 @@ def _merge_content(head: str, content: str | list[ContentPart]) -> str | list[Co
     return [{"type": "text", "text": head}, *parts]
 
 
+def _block_text(block: LayoutBlock, inputs: PrefixInputs | WriterInputs, resolve: Callable[[str], str]) -> str:
+    if block.kind == CUSTOM_KIND:
+        return _render_block(block.content, inputs.sections, resolve)
+    return _render_marker(block, getattr(inputs, block.kind), resolve)
+
+
+def prefix_block_texts(
+    blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: Macros | None
+) -> list[tuple[LayoutBlock, str]]:
+    """Each switched-on prefix block in order, with the text it renders."""
+    resolve = _resolver(macros)
+    return [(block, _block_text(block, inputs, resolve)) for block in region_blocks(blocks, "prefix")]
+
+
+def writer_block_texts(
+    blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None
+) -> list[tuple[LayoutBlock, str]]:
+    """Each switched-on Writer-request block in order, with the text it renders; Scene guidance carries the state block."""
+    resolve = _resolver(macros._replace(seed="") if macros else None)
+    texts: list[tuple[LayoutBlock, str]] = []
+    for block in region_blocks(blocks, "writer"):
+        text = _block_text(block, inputs, resolve)
+        if block.kind == "scene_guidance" and inputs.current_state:
+            # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
+            text = _join(text, f"{_DIVIDER}{inputs.current_state}")
+        texts.append((block, text))
+    return texts
+
+
 def render_prefix(blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: Macros | None) -> list[ChatMessage]:
     """Every message before the first history row: each block a message of its role, in order, adjacent blocks of one role
     sharing a message. No message is empty."""
-    resolve = _resolver(macros)
     messages: list[ChatMessage] = []
-    for block in region_blocks(blocks, "prefix"):
-        if block.kind == CUSTOM_KIND:
-            text = _render_block(block.content, inputs.sections, resolve)
-        else:
-            text = _render_marker(block, getattr(inputs, block.kind), resolve)
+    for block, text in prefix_block_texts(blocks, inputs, macros):
         if block.kind == "main_prompt" and block.role == "system" and not messages:
             # The main prompt opens the prompt, even when empty, so the next system block keeps its separator.
             messages.append({"role": "system", "content": text})
@@ -207,7 +231,6 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
     line are user text. Custom blocks roll inline macros fresh on every build; later passes replay the built messages, so they
     read the same rolls.
     """
-    resolve = _resolver(macros._replace(seed="") if macros else None)
     pieces: list[tuple[LayoutRole, str]] = []
     holder: int | None = None
 
@@ -218,30 +241,22 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
 
     cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
     engine_lines = [line for line in (inputs.tool_notice, inputs.length_nudge, cue) if line]
-    writer_blocks = region_blocks(blocks, "writer")
+    writer_blocks = writer_block_texts(blocks, inputs, macros)
     if inputs.speaker_open:
         pieces.append(("user", inputs.speaker_open))
-    for block in writer_blocks:
+    for block, text in writer_blocks:
         if block.kind == "user_message":
             # The engine's own lines for this request lead the user's message wherever the layout places it.
             for line in engine_lines:
                 add(block.role, line)
-        if block.kind == CUSTOM_KIND:
-            text = _render_block(block.content, inputs.sections, resolve)
-            if text:
-                # The divider separates a custom block from what precedes it in the same message.
-                add(block.role, text, divided=True)
+        if not text:
             continue
-        text = _render_marker(block, getattr(inputs, block.kind), resolve)
-        if text:
-            add(block.role, text)
-            if block.kind == "user_message":
-                holder = len(pieces) - 1
-        if block.kind == "scene_guidance" and inputs.current_state:
-            # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
-            add(block.role, f"{_DIVIDER}{inputs.current_state}")
+        # The divider separates a custom block from what precedes it in the same message.
+        add(block.role, text, divided=block.kind == CUSTOM_KIND)
+        if block.kind == "user_message":
+            holder = len(pieces) - 1
     # With the User message switched off, the engine's lines still close the request as user text.
-    user_message_off = not any(block.kind == "user_message" for block in writer_blocks)
+    user_message_off = not any(block.kind == "user_message" for block, _ in writer_blocks)
     closing: list[tuple[LayoutRole, str]] = [("user", f"{line}\n\n") for line in engine_lines if user_message_off]
     if inputs.speaker_close:
         closing.append(("user", inputs.speaker_close))

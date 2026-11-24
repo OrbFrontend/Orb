@@ -23,15 +23,6 @@ def carries_public_cast(mode: GroupContextMode) -> bool:
     return mode != "shared"
 
 
-def _shared_component_key(mode: GroupContextMode) -> str:
-    """Which key the size estimator reports the shared body under.
-
-    Derived from :func:`carries_public_cast` rather than tabulated per mode, so
-    a mode cannot be measured under a heading its prefix no longer renders.
-    """
-    return "cast_public" if carries_public_cast(mode) else "cast_dossiers"
-
-
 def prefix_is_speaker_scoped(mode: GroupContextMode) -> bool:
     """True when the shared system body depends on *who* is speaking.
 
@@ -155,42 +146,11 @@ def speaker_instructions(member: CastMember, *, prevent_prompt_overrides: bool) 
     return "" if prevent_prompt_overrides else fill_original(member.post_history, "")
 
 
-def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_prompt_overrides: bool) -> list[str]:
-    """The member's own fields the trailing Writer message carries, in order.
-
-    Derived from :func:`tail_carries_identity`, so this and the tail ``writer_stage`` actually renders cannot disagree
-    about *which* fields ship -- only about the headings wrapped around them, which the size estimator does not need.
-    """
-    fields = [member.private_sheet, member.mes_example] if tail_carries_identity(mode) else []
-    fields.append(speaker_instructions(member, prevent_prompt_overrides=prevent_prompt_overrides))
-    return [field for field in fields if field]
-
-
-def context_size_components(
-    cast: TurnCast, macros: Macros | None, *, prevent_prompt_overrides: bool = False
-) -> list[tuple[str, str]]:
-    """The mode's group-specific size components as ``(key, text)`` pairs.
-
-    The estimate is a *maximum* group call, not a sum: the shared body once, plus the largest single speaker's share of it.
-    Built from the same renderers the prompt uses so the two cannot drift.
-    """
-    mode = cast.context_mode
-    roster = roster_names(cast)
-    neutral = cast._replace(speaker=None)
-    components = [(_shared_component_key(mode), render_cast_section(neutral, macros))]
-    # The shared body above covers the whole roster, muted members included -- they are in scene. The per-speaker maxima below
-    # must not: a muted member is never scheduled, so billing the exchange for a card that can never be sent overstates the
-    # call. An all-muted scene generates nothing and measures 0.
-    speakers = [member for member in cast.members if not member.muted]
-    if prefix_is_speaker_scoped(mode):
-        cards = [_render_active_card(member, macros, roster) for member in speakers]
-        components.append(("largest_active_card", max(cards, key=len, default="")))
-    tails = [
-        "\n\n".join(
-            _resolver(member_macros(macros, member, roster))(field)
-            for field in speaker_tail_fields(member, mode, prevent_prompt_overrides=prevent_prompt_overrides)
-        )
-        for member in speakers
-    ]
-    components.append(("largest_speaker_tail", max(tails, key=len, default="")))
-    return components
+def largest_cast_section(cast: TurnCast, macros: Macros | None) -> str:
+    """The cast section of the largest prefix any speaker gets: under Classic card swap, the public cast plus the largest
+    unmuted speaker's card; the shared section otherwise."""
+    neutral = render_cast_section(cast._replace(speaker=None), macros)
+    if not prefix_is_speaker_scoped(cast.context_mode):
+        return neutral
+    speakers = [render_cast_section(cast._replace(speaker=member), macros) for member in cast.members if not member.muted]
+    return max([neutral, *speakers], key=len)

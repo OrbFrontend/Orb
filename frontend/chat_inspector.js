@@ -549,16 +549,15 @@ function _portraitSection(title, rows, extra = "") {
 
 function _contextBarsHtml(size) {
   const total = size.total_tokens_est;
-  return Object.entries(size.breakdown)
-    .filter(([, part]) => part.tokens_est > 0)
-    .sort((a, b) => b[1].tokens_est - a[1].tokens_est)
-    .map(([key, part]) => {
-      const pct = ((part.tokens_est / total) * 100).toFixed(0);
-      const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return size.breakdown
+    .filter((row) => row.tokens_est > 0)
+    .map((row) => {
+      const pct = ((row.tokens_est / total) * 100).toFixed(0);
+      const label = row.label || "Untitled block";
       return `<div class="ctx-row">
-        <span class="ctx-label">${esc(label)}</span>
+        <span class="ctx-label" title="${escAttr(label)}">${esc(label)}</span>
         <span class="ctx-bar"><span class="ctx-bar-fill" style="width:${pct}%"></span></span>
-        <span class="ctx-tokens">${part.tokens_est.toLocaleString()}</span>
+        <span class="ctx-tokens">${row.tokens_est.toLocaleString()}</span>
       </div>`;
     })
     .join("");

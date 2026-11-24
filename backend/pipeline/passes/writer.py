@@ -75,7 +75,7 @@ _SHEET_FRAMING = (
 )
 
 
-def _speaker_frame(
+def speaker_frame(
     speaker: CastMember | None, macros: Macros | None, context_mode: GroupContextMode, *, prevent_prompt_overrides: bool
 ) -> tuple[str, str, Macros | None]:
     """The group speaker's opening and closing lines around the Writer request, and the macros scoped to the speaker."""
@@ -180,7 +180,7 @@ async def writer_stage(
     transport_probe: ChatMessage = {"role": "user", "content": build_multimodal_content("", attachments)}
     tools_sent = cfg.writer_lane.sends_tool_schemas([transport_probe])
 
-    speaker_open, speaker_close, block_macros = _speaker_frame(
+    speaker_open, speaker_close, block_macros = speaker_frame(
         speaker, macros, context_mode, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
     )
     inputs = WriterInputs(
