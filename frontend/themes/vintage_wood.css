@@ -27,8 +27,8 @@
   outline: 1px solid rgba(184,146,94,0.26); outline-offset: -5px; }
 /* Narration a dim parchment, dialogue a soft straw gold, asides muted tan: apart in hue and lightness, one family. */
 .message .msg-body { color: #c2b5a8 !important; }
-.message .msg-body .quoted { color: #dcc297 !important; }
-.message .msg-body em { color: #a3907f !important; }
+.message .msg-body .quoted { color: #dec4a6 !important; }
+.message .msg-body em { color: #af9e90 !important; }
 .message .msg-body .quoted em { color: inherit !important; }
 .message .msg-body pre, .message .msg-body code.inline-code { background: rgba(10,7,6,0.45) !important;
   border-color: #4a3a30 !important; }
