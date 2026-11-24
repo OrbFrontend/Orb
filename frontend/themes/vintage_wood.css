@@ -1,6 +1,95 @@
 :root { --bg-deep:#16110f; --bg-primary:#1f1815; --bg-surface:#2b211d; --bg-elevated:#382c26; --bg-hover:#473831;
   --border:#57463c; --border-light:#6e594d; --text-primary:#e6d8ce; --text-secondary:#a89a90; --text-muted:#95877e;
-  --accent:#c47647; --accent-dim:#7a4628; --accent-glow:rgba(196,118,71,0.15); --red:#9e4642;
+  --accent:#c29a66; --accent-dim:#7a5f3e; --accent-glow:rgba(194,154,102,0.14); --red:#9e4642;
   --font-prose:'Lora',Georgia,'Palatino Linotype',Palatino,serif;
   --font-ui:Optima,Candara,'Segoe UI',system-ui,sans-serif; --font-mono:'Courier New',Courier,monospace; --radius:4px;
   --font-prose-size:16px; --sidebar-width:300px; --inspector-width:340px; --tools-width:260px; }
+
+/* One brass family carries every accent: the theme accent, corner brackets, inlays, plates and selected fills.
+   Chat boxes are flat walnut with brass corner brackets; yours sit a shade darker with a faint full inlay, both 5px
+   in. No grain, bevels or shadows. Small cards use shorter arms so a one-line card's corners stay apart. */
+:root { --vw-brass:rgba(184,146,94,0.6); --vw-brass-line:rgba(184,146,94,0.4); --vw-rule:#4a382e;
+  --vw-selected:#342920; --vw-selected-hover:#3d3026; --vw-selected-rule:#57452f; --vw-label:#e3cfae;
+  --vw-h:linear-gradient(var(--vw-brass), var(--vw-brass)) no-repeat;
+  --vw-corners:
+    var(--vw-h) left 5px top 5px / 14px 1px, var(--vw-h) left 5px top 5px / 1px 14px,
+    var(--vw-h) right 5px top 5px / 14px 1px, var(--vw-h) right 5px top 5px / 1px 14px,
+    var(--vw-h) left 5px bottom 5px / 14px 1px, var(--vw-h) left 5px bottom 5px / 1px 14px,
+    var(--vw-h) right 5px bottom 5px / 14px 1px, var(--vw-h) right 5px bottom 5px / 1px 14px;
+  --vw-corners-sm:
+    var(--vw-h) left 4px top 4px / 8px 1px, var(--vw-h) left 4px top 4px / 1px 8px,
+    var(--vw-h) right 4px top 4px / 8px 1px, var(--vw-h) right 4px top 4px / 1px 8px,
+    var(--vw-h) left 4px bottom 4px / 8px 1px, var(--vw-h) left 4px bottom 4px / 1px 8px,
+    var(--vw-h) right 4px bottom 4px / 8px 1px, var(--vw-h) right 4px bottom 4px / 1px 8px; }
+.message .msg-body { border: 1px solid var(--vw-rule) !important; box-shadow: none !important;
+  background: var(--vw-corners), #2e231e !important; }
+.message.user .msg-body { background: #271e1a !important; border-color: var(--vw-rule) !important;
+  outline: 1px solid rgba(184,146,94,0.26); outline-offset: -5px; }
+/* Narration a dim parchment, dialogue a soft straw gold, asides muted tan: apart in hue and lightness, one family. */
+.message .msg-body { color: #c2b5a8 !important; }
+.message .msg-body .quoted { color: #dcc297 !important; }
+.message .msg-body em { color: #a3907f !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code { background: rgba(10,7,6,0.45) !important;
+  border-color: #4a3a30 !important; }
+.message.user .msg-edit-area textarea { background: var(--bg-deep) !important; border-color: var(--border) !important; }
+.message .msg-inspect { border-color: var(--vw-rule) !important; background: rgba(10,7,6,0.3) !important; }
+
+/* ── Panels and cards: the character box's frame, corners on the panel's own fill. ── */
+.modal, .modal-crop { border: 1px solid var(--vw-rule) !important; box-shadow: none !important;
+  background: var(--vw-corners), var(--bg-surface) !important; }
+#doc-page { border: 1px solid var(--vw-rule) !important; box-shadow: none !important;
+  background: var(--vw-corners), var(--bg-elevated) !important; }
+.lib-tool { border-color: var(--vw-rule) !important; background: var(--vw-corners), var(--bg-primary) !important; }
+.stat-card { border-color: var(--vw-rule) !important; background: var(--vw-corners-sm), var(--bg-elevated) !important; }
+.stat-card-favorite { border-color: var(--vw-selected-rule) !important; background: var(--vw-corners), var(--vw-selected) !important; }
+.stat-card-clickable:hover { border-color: var(--vw-brass) !important; transform: none !important; }
+.workflow-card, .tool-card { border-color: var(--vw-rule) !important;
+  background: var(--vw-corners-sm), var(--bg-surface) !important; }
+.tool-card.tool-on { border-color: var(--vw-selected-rule) !important;
+  background: var(--vw-corners-sm), var(--vw-selected) !important; }
+
+/* ── Pop-ups: flat fill and a brass hairline instead of a drop shadow. ── */
+.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, #doc-prob-popup, .toast {
+  background: var(--bg-elevated) !important; border: 1px solid var(--vw-brass-line) !important; box-shadow: none !important; }
+.toast.error { border-color: var(--red) !important; }
+.turn-error { box-shadow: none !important; }
+
+/* ── Fields: walnut wells; focus draws the brass line. ── */
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus, #chat-input:focus,
+.cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
+  border-color: var(--vw-brass) !important; box-shadow: none !important; }
+
+/* ── Tabs: folder tabs are walnut, the open one the selected fill with brass top corners; underline tabs a brass rule. ── */
+.tab-row { border-bottom-color: var(--vw-rule) !important; }
+.tab-button, .tab { transition: none !important; }
+.tab-button { background: var(--bg-surface) !important; border-color: var(--vw-rule) !important; box-shadow: none !important; }
+.tab-button:not(.tab-button-active):hover { background: var(--bg-elevated) !important; }
+.tab-button-active { color: var(--vw-label) !important; border-color: var(--vw-selected-rule) !important;
+  border-bottom-color: var(--bg-primary) !important; box-shadow: none !important; background:
+    var(--vw-h) left 4px top 4px / 8px 1px, var(--vw-h) left 4px top 4px / 1px 8px,
+    var(--vw-h) right 4px top 4px / 8px 1px, var(--vw-h) right 4px top 4px / 1px 8px, var(--vw-selected) !important; }
+.tabs, .lb-tabs { border-bottom-color: var(--vw-rule) !important; }
+.tab.active, .lb-tab.active { color: var(--vw-label) !important; border-bottom-color: var(--vw-brass) !important; }
+
+/* ── Buttons: flat walnut that takes a brass edge on hover; the main action is a brass plate; toggled-on is selected. ── */
+:root { --vw-plate:#b8925e; --vw-plate-hover:#c6a06b; --vw-plate-ink:#1f1510; --vw-danger:#d9806f; }
+.btn, #burger-btn { background: var(--bg-surface) !important; border: 1px solid var(--vw-rule) !important;
+  color: #d8c8bb !important; box-shadow: none !important; }
+.btn:not(:disabled):hover, #burger-btn:hover { background: var(--bg-elevated) !important;
+  border-color: var(--vw-brass) !important; color: var(--text-primary) !important; }
+.btn-accent, #send-btn, .asst-send { background: var(--vw-plate) !important; border: 1px solid var(--vw-plate) !important;
+  color: var(--vw-plate-ink) !important; font-weight: 600; }
+.btn-accent:not(:disabled):hover, #send-btn:not(:disabled):hover, .asst-send:not(:disabled):hover {
+  background: var(--vw-plate-hover) !important; border-color: var(--vw-plate-hover) !important;
+  color: var(--vw-plate-ink) !important; }
+.btn-active { background: var(--vw-selected) !important; border-color: var(--vw-brass-line) !important;
+  color: var(--vw-label) !important; }
+.btn-active:not(:disabled):hover { background: var(--vw-selected-hover) !important; border-color: var(--vw-brass) !important;
+  color: var(--vw-label) !important; }
+.btn-danger { color: var(--vw-danger) !important; }
+.btn-danger:not(:disabled):hover { background: rgba(158,70,66,0.22) !important; border-color: #a5463f !important;
+  color: var(--vw-danger) !important; }
+#stop-btn, .asst-send.asst-stop { background: #7e332e !important; border: 1px solid #a5463f !important;
+  color: #f3e2d6 !important; filter: none !important; }
+#stop-btn:hover, .asst-send.asst-stop:hover { background: #8f3b35 !important; border-color: #b8564d !important; }
