@@ -71,7 +71,7 @@ _SHEET_FRAMING = (
 
 def build_writer_content(
     lorebook_block: str,
-    inj_block: str,
+    scene_guidance: str,
     tools_sent: bool,
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
@@ -83,12 +83,16 @@ def build_writer_content(
     prevent_prompt_overrides: bool = False,
     context_mode: GroupContextMode = "private",
     *,
+    decisions: str = "",
+    current_state: str = "",
     layout: Sequence[LayoutBlock] | None = None,
     sections: SectionInputs | None = None,
 ) -> str | list[ContentPart]:
     """Build Writer user-message content.
 
-    *sections* are the prefix's card and chat sections; they render here only for blocks *layout* places below the divider.
+    *scene_guidance* is the Scene Guidance body, without its heading; *decisions* and *current_state* are the decision
+    guidance and current-state blocks, headings included. *sections* are the prefix's card and chat sections; they render
+    here only for blocks *layout* places below the divider.
     """
     speaker_open = ""
     speaker_close = ""
@@ -117,7 +121,9 @@ def build_writer_content(
         )
     inputs = WriterInputs(
         selected_lore=lorebook_block,
-        scene_guidance=inj_block,
+        decisions=decisions,
+        scene_guidance=scene_guidance,
+        current_state=current_state,
         length_nudge=writer_nudge(length_guard).strip(),
         cue=speaker_cue,
         user_message=effective_msg,
@@ -202,7 +208,7 @@ async def writer_stage(
 
     state.writer_content = build_writer_content(
         state.writer_lorebook_block,
-        state.inj_block,
+        state.scene_guidance,
         tools_sent,
         state.effective_msg,
         attachments,
@@ -210,6 +216,8 @@ async def writer_stage(
         depth_block=depth_block,
         speaker=speaker,
         speaker_cue=speaker_cue,
+        decisions=state.writer_decision_guidance,
+        current_state=state.writer_state_block,
         macros=macros,
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         context_mode=context_mode,

@@ -210,6 +210,31 @@ async def test_a_section_block_below_the_history_moves_into_the_writer_request(c
     assert "Deep woods." in writer[-1]["content"]
 
 
+async def test_scene_guidance_and_user_message_render_from_their_own_text(client, llm_mock):
+    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
+    layout_id, seeded = await _active_layout(client)
+    scene, message = seeded["scene_guidance"]["id"], seeded["user_message"]["id"]
+    # Text that drops its placeholder would silently drop the engine's part, so it is refused.
+    await client.expect("patch", f"/api/prompt-blocks/{message}", json={"content": "___\n\nNo message"}, expected_status=409)
+    await client.expect(
+        "patch", f"/api/prompt-blocks/{scene}", json={"content": "## Direction for {{char}}\n{{scene_guidance}}"}
+    )
+    await client.expect("patch", f"/api/prompt-blocks/{message}", json={"content": "___\n\n{{char}} hears:\n{{User_Message}}"})
+    cid = await _card_conversation(client)
+
+    llm_mock.enqueue_director([{"type": "function", "function": {"name": "direct_scene", "arguments": {"moods": ["tense"]}}}])
+    llm_mock.enqueue_writer("Fine.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Knock.", "attachments": []})).text
+    writer = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]["messages"][-1]["content"]
+
+    assert "## Direction for Aria\nWrite with tension" in writer
+    assert "**Scene Guidance**" not in writer
+    assert "___\n\nAria hears:\nKnock." in writer
+    # The Inspector keeps the Director's record under its own heading.
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{(await get_messages(cid))[-1]['id']}/director-log")
+    assert log["injection_block"].startswith("**Scene Guidance**\n\nWrite with tension")
+
+
 async def test_description_and_personality_resolve_separately_solo_and_under_a_group_override(client):
     fields = "{{description}}|{{personality}}"
     card = await client.post_json("/api/characters", json={"name": "Aria", "description": "Ranger.", "personality": "Wary."})

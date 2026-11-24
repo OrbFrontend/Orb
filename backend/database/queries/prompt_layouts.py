@@ -11,13 +11,17 @@ import aiosqlite
 from ...core.prompt_layout import (
     CUSTOM_KIND,
     DEFAULT_LAYOUT_ID,
+    EDITABLE_MARKERS,
+    MARKER_TEMPLATES,
     MARKERS,
     LayoutBlock,
     LayoutRegion,
     LayoutRole,
     default_layout,
     marker_block_id,
+    marker_placeholder,
     marker_region,
+    names_marker_placeholder,
 )
 from ..connection import get_db, select_rows
 from ..models import PromptBlockRow, PromptLayoutRow
@@ -190,17 +194,21 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
 
 
 async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
-    """Edit a block. A marker keeps its name, switch and side of the chat history; only the Main prompt's text is editable, and
-    only blocks above the chat history take a role."""
+    """Edit a block. A marker keeps its name, switch and side of the chat history; only the Main prompt's, Scene guidance's
+    and User message's text is editable, the last two keeping their placeholder; and only blocks above the chat history take a
+    role."""
     row = await get_prompt_block(block_id)
     if row is None:
         return None
     custom = row["kind"] == CUSTOM_KIND
     updates: dict[str, Any] = {}
     if "content" in data:
-        if not custom and row["kind"] != "main_prompt":
+        if not custom and row["kind"] not in EDITABLE_MARKERS:
             raise PromptLayoutError("A built-in block cannot be edited.")
-        updates["content"] = str(data["content"])
+        content = str(data["content"])
+        if row["kind"] in MARKER_TEMPLATES and not names_marker_placeholder(row["kind"], content):
+            raise PromptLayoutError(f"Keep {marker_placeholder(row['kind'])} in this block's text.")
+        updates["content"] = content
     if "label" in data:
         if not custom:
             raise PromptLayoutError("A built-in block keeps its name.")

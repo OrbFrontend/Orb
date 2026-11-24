@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from ..core import ChatMessage, ContentPart, Macros
 from ..core.prompt_layout import (
     CUSTOM_KIND,
+    MARKER_TEMPLATES,
     MARKERS,
     SECTION_PLACEHOLDERS,
     LayoutBlock,
@@ -17,15 +18,21 @@ from ..core.prompt_layout import (
     marker_region,
 )
 
-_SECTION_RE = re.compile(r"\{\{(" + "|".join(SECTION_PLACEHOLDERS) + r")\}\}", re.IGNORECASE)
+
+def _placeholder_re(names: Iterable[str]) -> re.Pattern[str]:
+    return re.compile(r"\{\{(" + "|".join(names) + r")\}\}", re.IGNORECASE)
+
+
+_SECTION_RE = _placeholder_re(SECTION_PLACEHOLDERS)
 _EXAMPLE_SEPARATOR = "<START>"
 _DIVIDER = "___\n\n"
 TOOL_NOTICE = "**Do not use tool or function calls this turn.**\n\n"
+# The fixed framing of each marker whose text the user does not edit.
 _MARKER_HEADS: dict[str, str] = {
     "selected_lore": _DIVIDER,
-    "scene_guidance": _DIVIDER,
+    "decisions": _DIVIDER,
+    "current_state": _DIVIDER,
     "cue": "## Your cue\n",
-    "user_message": _DIVIDER,
     "depth_lore": _DIVIDER,
 }
 
@@ -60,7 +67,9 @@ class WriterInputs:
     """Each Writer-request marker's own text, the sections for placeholder blocks, and the speaker frame around them."""
 
     selected_lore: str = ""
+    decisions: str = ""
     scene_guidance: str = ""
+    current_state: str = ""
     length_nudge: str = ""
     cue: str = ""
     user_message: str = ""
@@ -74,6 +83,15 @@ class WriterInputs:
 def marker_text(kind: str, content: str) -> str:
     """A marker's fixed framing around *content*; nothing when *content* is empty."""
     return f"{_MARKER_HEADS.get(kind, '')}{content}" if content else ""
+
+
+def _render_marker(block: LayoutBlock, value: str, resolve: Callable[[str], str]) -> str:
+    """A Writer-request marker: its own text around *value* when the user edits it, else its fixed framing."""
+    if block.kind not in MARKER_TEMPLATES:
+        return marker_text(block.kind, value)
+    if not value:
+        return ""
+    return _fill(block.content or MARKER_TEMPLATES[block.kind], {block.kind: value}, resolve)
 
 
 def _region_of(block: LayoutBlock) -> LayoutRegion:
@@ -103,11 +121,11 @@ def _sentinel(name: str) -> str:
 
 
 def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str]) -> str:
-    """Resolve *template*'s macros, then put each section in for its placeholder without a second macro pass.
+    """Resolve *template*'s macros, then put each value in for its placeholder without a second macro pass.
 
     An empty section's placeholder leaves with one blank-line separator beside it, the one before it when there is one.
     """
-    text = resolve(_SECTION_RE.sub(lambda match: _sentinel(match.group(1).lower()), template)).strip()
+    text = resolve(_placeholder_re(values).sub(lambda match: _sentinel(match.group(1).lower()), template)).strip()
     for name, value in values.items():
         sentinel = re.escape(_sentinel(name))
         if not value:
@@ -209,7 +227,7 @@ def render_writer_tail(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macr
             if text:
                 tail += f"{_DIVIDER}{text}\n\n"
             continue
-        text = marker_text(block.kind, getattr(inputs, block.kind))
+        text = _render_marker(block, getattr(inputs, block.kind), resolve)
         if text:
             tail += f"{text}\n\n"
     return tail + inputs.speaker_close

@@ -23,7 +23,12 @@ from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
 from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg
-from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
+from ....prompting import (
+    compute_style_injection_block,
+    headed_scene_guidance,
+    render_state_block,
+    resolve_mood_fragment_randoms,
+)
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
 from ...events import CoreTurnEvent, StateData
@@ -631,7 +636,7 @@ async def director_stage(
 
     scene_ids = {fragment["id"] for fragment in scene_fragments}
     scene_extra = {fid: value for fid, value in state.extra_fields.items() if fid in scene_ids}
-    state.scene_direction = macros.resolve_message(
+    state.scene_guidance = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
             # A mood suppressed by its cooldown is resting, not deliberately deactivated. Keep its negative prompt for ordinary
@@ -643,6 +648,7 @@ async def director_stage(
             scene_extra,
         )
     )
+    state.scene_direction = headed_scene_guidance(state.scene_guidance)
 
     # Multiple-entry fields updated before the Writer reflect on the scene
     # direction just set, so they need an active scene-direction step.
@@ -682,6 +688,7 @@ async def director_stage(
     # rendering as ``old -> new``.
     writer_block = render_state_block(state_contract.to_writer(), view, prior=state.state_prior)
     state_text = macros.resolve_message(writer_block) if writer_block else ""
+    state.writer_state_block = state_text
 
     def injection_block(scene_direction: str) -> str:
         block = scene_direction
@@ -695,7 +702,11 @@ async def director_stage(
     state.inj_block = injection_block(state.scene_direction)
     # The Inspector can hide the mood prompts, which the user picked and can already read. None when no mood prompt rendered.
     without_moods = injection_block(
-        macros.resolve_message(compute_style_injection_block([], [], [], scene_fragments, direct_scene_enabled, scene_extra))
+        headed_scene_guidance(
+            macros.resolve_message(
+                compute_style_injection_block([], [], [], scene_fragments, direct_scene_enabled, scene_extra)
+            )
+        )
     )
     state.inj_block_without_moods = without_moods if without_moods != state.inj_block else None
 

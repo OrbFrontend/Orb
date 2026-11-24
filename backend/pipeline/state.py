@@ -119,6 +119,8 @@ _DIRECTOR_SEED_FIELDS = (
     "inj_block",
     "inj_block_without_moods",
     "scene_direction",
+    "scene_guidance",
+    "writer_state_block",
     "writer_lorebook_block",
     "reasoning_director",
     # The exchange's before-Writer state changes and the working state they produced. The driver clears the events and report
@@ -165,6 +167,10 @@ class TurnState:
     inj_block_without_moods: str | None = None
     # Scene Direction before the state block and decision guidance are added.
     scene_direction: str = ""
+    # The Writer's three Director-stage parts, each placed by the prompt layout: the Scene Guidance body without its heading,
+    # and the current-state block (decision guidance is ``writer_decision_guidance``).
+    scene_guidance: str = ""
+    writer_state_block: str = ""
     writer_lorebook_block: str = ""
 
     resp_text: str = ""

@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from ...core.prompt_layout import CUSTOM_KIND
+from ...core.prompt_layout import CUSTOM_KIND, EDITABLE_MARKERS
 from ...core.settings import Settings
 from ...database import (
     PromptLayoutError,
@@ -26,6 +26,8 @@ from ...database import (
     update_prompt_block,
 )
 from ...pipeline.passes.editor.length_guard import writer_nudge
+from ...pipeline.passes.judge.guidance import HEADING as DECISIONS_HEADING
+from ...prompting.fragment_state import STATE_BLOCK_HEADING
 from ...prompting.layout import TOOL_NOTICE, marker_text
 from ..schemas import (
     PromptBlockCreate,
@@ -49,15 +51,15 @@ _MARKER_PLACEHOLDERS: dict[str, str] = {
     "constant_lore": "[Constant lore entries]",
     "workflow_blocks": "[Text that enabled workflows add]",
     "selected_lore": "[Lore entries chosen for this turn]",
-    "scene_guidance": "[The Director's guidance for this turn]",
+    "decisions": f"{DECISIONS_HEADING}\n\n[Guidance from this turn's decisions]",
+    "current_state": f"{STATE_BLOCK_HEADING}\n\n[Each state fragment's entries]",
     "cue": "[The Director's cue for this speaker]",
-    "user_message": "[The user's message]",
     "depth_lore": "[Depth lore entries]",
 }
 
 
 def _builtin_text(kind: str, settings: Settings) -> str:
-    """The text the engine sends for a marker, with its dynamic part as a placeholder; empty for editable blocks."""
+    """The text the engine sends for a marker, with its dynamic part in brackets; empty for blocks holding their own text."""
     if kind == "length_nudge":
         nudge = writer_nudge(
             {
@@ -72,8 +74,9 @@ def _builtin_text(kind: str, settings: Settings) -> str:
 
 
 def _block_view(row: Mapping[str, Any], settings: Settings) -> dict[str, Any]:
-    """A block row plus the built-in text a marker sends."""
-    return {**row, "builtin_text": "" if row["kind"] == CUSTOM_KIND else _builtin_text(row["kind"], settings)}
+    """A block row plus whether its text is editable and, for a marker that is not, the text it sends."""
+    editable = row["kind"] == CUSTOM_KIND or row["kind"] in EDITABLE_MARKERS
+    return {**row, "editable": editable, "builtin_text": "" if editable else _builtin_text(row["kind"], settings)}
 
 
 async def _blocks(layout_id: str) -> list[dict[str, Any]]:

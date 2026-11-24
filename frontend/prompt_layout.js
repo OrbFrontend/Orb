@@ -33,7 +33,9 @@ const CONTROLLED_BY = {
   constant_lore: "Worlds",
   workflow_blocks: "Workflows",
   selected_lore: "Worlds",
+  decisions: "Judge",
   scene_guidance: "Director",
+  current_state: "State",
   length_nudge: "Length Guard",
   cue: "Groups",
   user_message: "Always",
@@ -148,8 +150,8 @@ async function toggleBlock(id, enabled) {
   render();
 }
 
-// Custom blocks and the Main prompt hold their own text; every other built-in block shows the text the engine sends.
-const _editable = (b) => !_isMarker(b) || b.kind === "main_prompt";
+// Blocks holding their own text say so; every other built-in block shows the text the engine sends.
+const _editable = (b) => !_isMarker(b) || b.editable;
 
 function openBlock(id) {
   const b = id ? _byId(id) : { kind: "custom", label: "", content: "", role: "system", region: "writer" };

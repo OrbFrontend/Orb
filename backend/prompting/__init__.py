@@ -19,4 +19,9 @@ from .group_context import (
     render_cast_section,
     tail_carries_identity,
 )
-from .scene_direction import build_style_injection, compute_style_injection_block, resolve_mood_fragment_randoms
+from .scene_direction import (
+    build_style_injection,
+    compute_style_injection_block,
+    headed_scene_guidance,
+    resolve_mood_fragment_randoms,
+)

@@ -100,14 +100,29 @@ panel do not.
 
 A **marker** stands for an engine block: `main_prompt`, `cast`,
 `constant_lore` and `workflow_blocks` in the prefix; `selected_lore`,
-`scene_guidance`, `length_nudge`, `cue`, `user_message` and `depth_lore` in the
-Writer request. Markers cannot be switched off, deleted, or moved across the
-divider; the setting that drives each one decides whether it renders, and the
-group context mode decides what `cast` carries. The group speaker frame always
-opens the Writer request and the "write as" line always closes it; the tool
-notice renders directly before the `length_nudge` marker. The API's
-`builtin_text` field shows each engine marker's fixed framing, with its dynamic
-part as a bracketed placeholder.
+`decisions`, `scene_guidance`, `current_state`, `length_nudge`, `cue`,
+`user_message` and `depth_lore` in the Writer request. Markers cannot be
+switched off, deleted, or moved across the divider; the setting that drives
+each one decides whether it renders, and the group context mode decides what
+`cast` carries. The group speaker frame always opens the Writer request and the
+"write as" line always closes it; the tool notice renders directly before the
+`length_nudge` marker.
+
+The Director stage hands the Writer three separate parts, each its own marker:
+`decisions` (the Judge's guidance under `**Major Decisions**`),
+`scene_guidance` (the Director's mood prompts and field values) and
+`current_state` (the state block under `**Current State**`). The Inspector's
+injection block and the Director's other readers still see the three joined,
+with Scene Guidance under its fixed heading.
+
+`main_prompt`, `scene_guidance` and `user_message` hold their own text
+(`EDITABLE_MARKERS`); the API marks them `editable`. The two Writer-request ones
+start from `MARKER_TEMPLATES` and must keep their own placeholder,
+`{{scene_guidance}}` or `{{user_message}}`, which stands for the engine's part
+and is filled like a section placeholder: the text's macros resolve, then the
+value goes in literally. The block renders nothing while its value is empty, and
+its text carries its own `___` divider. Every other marker's text is fixed; the
+API's `builtin_text` field shows it, with its dynamic part in brackets.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless

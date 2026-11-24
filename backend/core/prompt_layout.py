@@ -13,7 +13,16 @@ CUSTOM_KIND = "custom"
 DEFAULT_LAYOUT_ID = "default"
 
 PREFIX_MARKERS: tuple[str, ...] = ("main_prompt", "cast", "constant_lore", "workflow_blocks")
-WRITER_MARKERS: tuple[str, ...] = ("selected_lore", "scene_guidance", "length_nudge", "cue", "user_message", "depth_lore")
+WRITER_MARKERS: tuple[str, ...] = (
+    "selected_lore",
+    "decisions",
+    "scene_guidance",
+    "current_state",
+    "length_nudge",
+    "cue",
+    "user_message",
+    "depth_lore",
+)
 MARKERS: tuple[str, ...] = PREFIX_MARKERS + WRITER_MARKERS
 MARKER_LABELS: dict[str, str] = {
     "main_prompt": "Main prompt",
@@ -21,12 +30,22 @@ MARKER_LABELS: dict[str, str] = {
     "constant_lore": "Constant lore",
     "workflow_blocks": "Workflow blocks",
     "selected_lore": "Selected lore",
+    "decisions": "Decisions",
     "scene_guidance": "Scene guidance",
+    "current_state": "Current state",
     "length_nudge": "Length nudge",
     "cue": "Speaker cue",
     "user_message": "User message",
     "depth_lore": "Depth lore",
 }
+
+# The engine markers whose text the user edits, each with the text a layout starts from. A Writer-request marker's text must
+# name its own placeholder, ``{{<kind>}}``, which stands for the engine's part; the block renders nothing while that is empty.
+MARKER_TEMPLATES: dict[str, str] = {
+    "scene_guidance": "___\n\n**Scene Guidance**\n\n{{scene_guidance}}",
+    "user_message": "___\n\n{{user_message}}",
+}
+EDITABLE_MARKERS: frozenset[str] = frozenset({"main_prompt", *MARKER_TEMPLATES})
 
 # Placeholders a block's text may name, each standing for one card or chat section.
 SECTION_PLACEHOLDERS: tuple[str, ...] = ("description", "personality", "scenario", "examples", "instructions", "persona")
@@ -74,6 +93,15 @@ def marker_block_id(layout_id: str, kind: str) -> str:
     return f"{layout_id}:{kind}"
 
 
+def marker_placeholder(kind: str) -> str:
+    """The placeholder an editable Writer-request marker's text must name."""
+    return "{{" + kind + "}}"
+
+
+def names_marker_placeholder(kind: str, text: str) -> bool:
+    return marker_placeholder(kind).lower() in text.lower()
+
+
 def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str:
     """The layout's Main prompt text; empty when the layout has none."""
     return next((block.content for block in blocks if block.kind == "main_prompt"), "")
@@ -95,7 +123,7 @@ def default_layout(layout_id: str = DEFAULT_LAYOUT_ID, main_prompt: str = "") ->
                     id=marker_block_id(layout_id, key),
                     kind=key,
                     label=MARKER_LABELS[key],
-                    content=main_prompt if key == "main_prompt" else "",
+                    content=main_prompt if key == "main_prompt" else MARKER_TEMPLATES.get(key, ""),
                     region=marker_region(key),
                     sort_order=index,
                 )

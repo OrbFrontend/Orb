@@ -16,6 +16,11 @@ placeholders that stand for the card and chat: `{{description}}`,
 `{{persona}}`. An empty placeholder is dropped with the blank line next to it,
 and a block whose placeholders are all empty is left out.
 
+**Scene guidance** and **User message** are built-in blocks you can edit. Their
+text names one placeholder, `{{scene_guidance}}` or `{{user_message}}`, which
+stands for the Director's guidance or the user's message, and must stay in the
+text. The block is left out on turns where that part is empty.
+
 Other built-in blocks show the text Orb sends, with the parts that change each
 turn in brackets. Other settings switch them on and off, as the label on the
 right says.

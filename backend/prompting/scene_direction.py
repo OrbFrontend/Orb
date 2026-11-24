@@ -7,6 +7,9 @@ from typing import Any
 
 from ..core import REPLY_EDIT_FIELD_TYPES, STATE_FIELD_TYPE, resolve_stored_random
 
+# The heading the Director's other readers see; the Writer reads the guidance under its prompt layout's Scene guidance text.
+SCENE_GUIDANCE_HEADING = "**Scene Guidance**"
+
 
 def resolve_mood_fragment_randoms(
     mood_fragments: Sequence[Mapping[str, Any]], renderable_ids: Collection[str], choices: MutableMapping[str, str]
@@ -31,7 +34,7 @@ def compute_style_injection_block(
     direct_scene_enabled: bool,
     extra_fields: dict | None = None,
 ) -> str:
-    """Compute the Scene Direction block from Director outputs.
+    """Compute the Scene Guidance body from Director outputs, without its heading.
 
     State fragments render separately, in the recipient's current-state block
     (``prompting.fragment_state``), so they never enter Scene Guidance.
@@ -64,8 +67,8 @@ def build_style_injection(
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     extra_fields: dict | None = None,
 ) -> str:
-    """Render the Scene Direction block for the Writer pass."""
-    parts = ["**Scene Guidance**"]
+    """Render the Scene Guidance body: active mood prompts, deactivated moods' negative prompts, then field values."""
+    parts: list[str] = []
     for fragment in active:
         parts.append(fragment["prompt_text"])
     for fragment in deactivated or []:
@@ -83,4 +86,9 @@ def build_style_injection(
             parts.append(label + ":\n" + "\n".join(f"- {item}" for item in value))
         else:
             parts.append(f"{label}: {value}")
-    return "\n\n".join(parts)
+    return "\n\n".join(part for part in parts if part)
+
+
+def headed_scene_guidance(body: str) -> str:
+    """*body* under the Scene Guidance heading; nothing when *body* is empty."""
+    return f"{SCENE_GUIDANCE_HEADING}\n\n{body}" if body else ""
