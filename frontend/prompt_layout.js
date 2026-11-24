@@ -253,6 +253,7 @@ registerActions("prompt-layout", {
   activate: async () => {
     try {
       await api.put("/prompt-layouts/active", { id: _viewId });
+      _activeId = _viewId;
       _setNote(PREFIX_NOTE);
       await loadPromptLayout();
     } catch (e) {

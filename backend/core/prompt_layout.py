@@ -24,9 +24,9 @@ PREFIX_MARKERS: tuple[str, ...] = (
 )
 WRITER_MARKERS: tuple[str, ...] = ("selected_lore", "scene_guidance", "length_nudge", "cue", "user_message", "depth_lore")
 MARKERS: tuple[str, ...] = PREFIX_MARKERS + WRITER_MARKERS
-# A marker gets a toggle only when no other setting already switches it.
+# A marker gets a toggle only when no other setting already switches it; the group context mode decides what ``cast`` carries.
 TOGGLEABLE_MARKERS: frozenset[str] = frozenset(
-    {"character", "cast", "scenario", "example_dialogue", "card_instructions", "user_persona"}
+    {"character", "scenario", "example_dialogue", "card_instructions", "user_persona"}
 )
 MOVABLE_MARKERS: frozenset[str] = frozenset({"card_instructions"})
 

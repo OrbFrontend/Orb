@@ -102,8 +102,8 @@ A **marker** stands for a built-in section: `main_prompt`, `character`, `cast`,
 `user_persona` and `workflow_blocks` in the prefix; `selected_lore`,
 `scene_guidance`, `length_nudge`, `cue`, `user_message` and `depth_lore` in the
 Writer request. A marker has a toggle only when no other setting already
-switches it (`character`, `cast`, `scenario`, `example_dialogue`, `card_instructions`,
-`user_persona`). Only `card_instructions` and custom blocks may cross the
+switches it (`character`, `scenario`, `example_dialogue`, `card_instructions`,
+`user_persona`); the group context mode decides what `cast` carries. Only `card_instructions` and custom blocks may cross the
 divider. The group speaker frame always opens the Writer request and the
 "write as" line always closes it; the tool notice renders directly before the
 `length_nudge` marker.
@@ -114,7 +114,8 @@ Rendering rules:
   example `## Scenario\n{{content}}`); the backend supplies only the section's
   own text. The template's macros resolve first, then `{{content}}` is
   substituted literally, with no second macro pass. A marker whose section is
-  empty renders nothing, whatever its template says.
+  empty renders nothing, whatever its template says, except that a solo
+  `character` keeps its heading when the card has no description.
 - `example_dialogue` fills its template once per `<START>` example and keeps the
   blank lines between examples. `character` carries a solo card's description;
   `cast` carries the group cast section, which has its own headings.

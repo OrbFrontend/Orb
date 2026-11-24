@@ -103,6 +103,40 @@ async def test_offturn_prefix_matches_the_turn_prefix_under_a_custom_layout(clie
     assert _wire(build_prefixes(ctx, history)[0]) == _wire(turn)
 
 
+async def test_group_offturn_prefix_matches_the_neutral_turn_prefix_under_a_custom_layout(client):
+    layout_id, _ = await _active_layout(client)
+    await _add_block(client, layout_id, content="Scene rules for {{cast}}.", region="prefix")
+    await _add_block(client, layout_id, content="Earlier, {{char}} began.", region="prefix", role="user")
+    cards = [
+        (await client.post_json("/api/characters", json={"name": name, "description": text}))["id"]
+        for name, text in (("Aria", "A tired ranger."), ("Kael", "A blunt smith."))
+    ]
+    cid = await client.create(
+        "/api/conversations",
+        json={
+            "kind": "group",
+            "title": "The Long Watch",
+            "group_context_mode": "swap",
+            "members": [{"character_card_id": card_id} for card_id in cards],
+        },
+    )
+    members = await client.get_json(f"/api/conversations/{cid}/members")
+    mid, _ = await add_message(cid, "user", "What was that noise?", 0)
+    mid, _ = await add_message(
+        cid, "assistant", "Aria lifts the lantern.", 1, parent_id=mid, speaker_member_id=members[0]["id"]
+    )
+    await set_active_leaf(cid, mid)
+
+    history = await get_messages(cid)
+    ctx = await load_pipeline_context(cid)
+    assert ctx is not None
+    turn, _ = build_prefixes(ctx, history)
+    offturn = await build_offturn_prefix(cid, history, await get_settings())
+
+    assert [m["role"] for m in turn] == ["system", "user", "assistant"]
+    assert _wire(offturn) == _wire(turn)
+
+
 def test_pre_history_assistant_block_merges_into_an_assistant_greeting():
     layout = (
         *default_layout(),

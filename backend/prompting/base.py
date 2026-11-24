@@ -124,6 +124,7 @@ def prefix_inputs(
     return PrefixInputs(
         main_prompt=system_prompt,
         character="" if grouped else resolve(char_persona),
+        character_heading=not grouped and bool(macros and macros.char),
         cast=render_cast_section(cast, macros).lstrip("\n") if cast and grouped else "",
         constant_lore=constant_lorebook_block,
         scenario=resolve(char_scenario),

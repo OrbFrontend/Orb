@@ -31,6 +31,8 @@ class PrefixInputs:
 
     main_prompt: str = ""
     character: str = ""
+    # A solo card keeps its ``character`` heading even with no description.
+    character_heading: bool = False
     cast: str = ""
     constant_lore: str = ""
     scenario: str = ""
@@ -138,6 +140,8 @@ def render_prefix(blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: M
                 pre_history.append({"role": block.role, "content": text})
             continue
         text = _render_marker(block, getattr(inputs, block.kind), resolve)
+        if block.kind == "character" and not text and inputs.character_heading:
+            text = _fill(block.content, "", resolve).rstrip("\n")
         if block.kind == "main_prompt" and not pieces:
             # The main prompt opens the system message, even when empty, so the next section keeps its separator.
             pieces.append(text)
