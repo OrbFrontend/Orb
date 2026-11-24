@@ -6,10 +6,11 @@ these functions, so an off-turn prefix cannot drift from the turn's (KV cache pr
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, NamedTuple
 
-from ..core import Macros, card_description
+from ..core import Macros, card_description, card_personality
+from ..core.prompt_layout import LayoutBlock, main_prompt_text
 from ..core.settings import Settings
 
 
@@ -41,33 +42,46 @@ def persona_macros(
     The description falls back to the global ``user_description`` setting when no persona row is active. *seed*
     (:func:`conversation_macro_seed`) keeps {{random}} in per-turn-resolved prompt fields byte-stable per conversation.
 
-    *card* is the character's, and feeds ``{{description}}``; the returned string is the *user's*. The two are unrelated despite
+    *card* is the character's, and feeds ``{{description}}`` and ``{{personality}}``; the returned string is the *user's*. The two are unrelated despite
     the shared word -- one names a card field, the other a persona row's.
     """
-    macros = Macros.from_settings(settings, char_name, persona, seed=seed, cast=cast, description=card_description(card))
+    macros = Macros.from_settings(
+        settings,
+        char_name,
+        persona,
+        seed=seed,
+        cast=cast,
+        description=card_description(card),
+        personality=card_personality(card),
+    )
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return macros, user_description
 
 
-def char_context(
-    settings: Settings, card: Mapping[str, Any] | None, shared_key: str = "shared_system_prompt"
-) -> tuple[str, str, str]:
-    """Resolve the effective system prompt, persona, and example messages.
+class CharContext(NamedTuple):
+    """The card-derived prompt fields, unresolved."""
 
-    shared_system_prompt and the model-specific system_prompt are concatenated (shared first); a character card's own
-    system_prompt, when present and not disabled by the prevent_prompt_overrides setting, replaces that combined result entirely
-    rather than appending to it.
+    system_prompt: str
+    description: str
+    personality: str
+    mes_example: str
+
+
+def char_context(settings: Settings, card: Mapping[str, Any] | None, layout: Sequence[LayoutBlock]) -> CharContext:
+    """Resolve the effective main prompt and the card's description, personality, and example messages.
+
+    The main prompt is *layout*'s Main prompt text; a character card's own system_prompt, when present and not disabled by the
+    prevent_prompt_overrides setting, replaces it.
     """
-    shared = settings.get(shared_key, "")
-    model_specific = settings.get("system_prompt", "")
-    system_prompt = f"{shared}\n\n{model_specific}" if shared and model_specific else shared or model_specific
+    system_prompt = main_prompt_text(layout)
     if not card:
-        return system_prompt, "", ""
-    char_persona = "\n\n".join(filter(None, [card.get("description", ""), card.get("personality", "")]))
+        return CharContext(system_prompt, "", "", "")
     card_system_prompt = card.get("system_prompt")
     if card_system_prompt and not settings.get("prevent_prompt_overrides"):
         system_prompt = card_system_prompt
-    return system_prompt, char_persona, card.get("mes_example", "")
+    return CharContext(
+        system_prompt, card.get("description") or "", card.get("personality") or "", card.get("mes_example") or ""
+    )
 
 
 def chat_instructions(settings: Settings, conv: Mapping[str, Any]) -> str:

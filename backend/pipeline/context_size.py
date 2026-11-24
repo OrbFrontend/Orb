@@ -7,7 +7,7 @@ from typing import Any
 
 from .. import database as db
 from ..core import CardScripts, Macros, estimate_tokens, state_fragments_of
-from ..core.prompt_layout import CUSTOM_KIND, TOGGLEABLE_MARKERS, LayoutBlock
+from ..core.prompt_layout import CUSTOM_KIND, LayoutBlock
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
@@ -20,6 +20,7 @@ from ..prompting import (
     render_state_block,
     resolve_mood_fragment_randoms,
 )
+from ..prompting.layout import section_names
 from ..prompting.lorebook import compute_constant_lorebook_block
 from .context import build_lorebook_turn, resolve_card_and_persona
 from .predicates import agent_enabled
@@ -52,9 +53,14 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     macros, user_desc = persona_macros(
         settings, macro_char, active_persona, seed=conversation_macro_seed(conv), card=card, cast=cast_names
     )
-    system_prompt, char_persona, mes_example = char_context(settings, card)
+    layout = await db.get_active_layout_blocks()
+    card_text = char_context(settings, card, layout)
+    system_prompt = macros.resolve_message(card_text.system_prompt)
+    mes_example = card_text.mes_example
 
-    persona_text = macros.resolve_message(char_persona)
+    persona_text = "\n\n".join(
+        filter(None, [macros.resolve_message(card_text.description), macros.resolve_message(card_text.personality)])
+    )
     scenario_text = macros.resolve_message(conv.get("character_scenario", "") or "")
     mes_text = macros.resolve_message(mes_example or "")
     post_text = macros.resolve_message(
@@ -123,7 +129,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     ]
     if turn_cast.grouped:
         components[2:2] = [(key, len(text)) for key, text in group_components]
-    components = _apply_layout(components, await db.get_active_layout_blocks(), macros)
+    components = _apply_layout(components, layout, macros)
     breakdown = {label: {"chars": chars, "tokens_est": estimate_tokens(chars)} for label, chars in components}
     total_chars = sum(v["chars"] for v in breakdown.values())
     return {
@@ -135,24 +141,29 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     }
 
 
-# The size rows each toggleable marker renders, so switching one off drops it from the estimate.
-_MARKER_ROWS: dict[str, frozenset[str]] = {
-    "character": frozenset({"char_persona"}),
-    "scenario": frozenset({"scenario"}),
-    "example_dialogue": frozenset({"mes_example"}),
-    "card_instructions": frozenset({"post_history"}),
-    "user_persona": frozenset({"user_persona"}),
+# The size row each section placeholder renders, so a section no enabled block names drops out of the estimate.
+_SECTION_ROWS: dict[str, str] = {
+    "description": "char_persona",
+    "personality": "char_persona",
+    "scenario": "scenario",
+    "examples": "mes_example",
+    "instructions": "post_history",
+    "persona": "user_persona",
 }
 
 
 def _apply_layout(components: list[tuple[str, int]], layout: Sequence[LayoutBlock], macros: Macros) -> list[tuple[str, int]]:
-    """Zero the rows of switched-off markers and bill custom blocks above and below the history as their own rows."""
-    off = {
-        row for block in layout if block.kind in TOGGLEABLE_MARKERS and not block.enabled for row in _MARKER_ROWS[block.kind]
-    }
+    """Zero the rows of sections no enabled block names, and bill other custom blocks above and below the history."""
+    named: set[str] = set()
     custom = {"prefix": 0, "writer": 0}
     for block in layout:
-        if block.kind == CUSTOM_KIND and block.enabled:
+        if block.kind != CUSTOM_KIND or not block.enabled:
+            continue
+        sections = section_names(block.content)
+        if sections:
+            named.update(_SECTION_ROWS[name] for name in sections)
+        else:
             custom[block.region] += len(macros.resolve_message(block.content).strip())
-    rows = [(key, 0 if key in off else chars) for key, chars in components]
+    unnamed = set(_SECTION_ROWS.values()) - named
+    rows = [(key, 0 if key in unnamed else chars) for key, chars in components]
     return rows + [(f"custom_{region}", chars) for region, chars in custom.items() if chars]

@@ -26,6 +26,20 @@ export async function loadPromptLayout() {
 const _byId = (id) => _blocks.find((b) => b.id === id);
 const _isMarker = (b) => b.kind !== "custom";
 
+// What switches each built-in block that has no toggle of its own.
+const CONTROLLED_BY = {
+  main_prompt: "Always",
+  cast: "Groups",
+  constant_lore: "Worlds",
+  workflow_blocks: "Workflows",
+  selected_lore: "Worlds",
+  scene_guidance: "Director",
+  length_nudge: "Length Guard",
+  cue: "Groups",
+  user_message: "Always",
+  depth_lore: "Worlds",
+};
+
 function _ordered(region) {
   return _blocks.filter((b) => b.region === region).sort((a, b) => a.sort_order - b.sort_order);
 }
@@ -33,10 +47,8 @@ function _ordered(region) {
 function _rowHtml(b) {
   const marker = _isMarker(b);
   const label = b.label || (marker ? b.kind : "Untitled block");
-  const role =
-    !marker && b.region === "prefix" && b.role !== "system" ? `<span class="pl-role">${esc(b.role)}</span>` : "";
-  const template = marker && b.content !== b.default_content ? `<span class="pl-role">edited</span>` : "";
-  const toggle = b.toggleable
+  const role = b.region === "prefix" && b.role !== "system" ? `<span class="pl-role">${esc(b.role)}</span>` : "";
+  const toggle = !marker
     ? `<div class="frag-toggle-wrapper">
         <label class="tog" for="pl-toggle-${escAttr(b.id)}">
           <input type="checkbox" id="pl-toggle-${escAttr(b.id)}" ${boolFlag(b.enabled) ? "checked" : ""}
@@ -44,11 +56,13 @@ function _rowHtml(b) {
           <span class="tog-slider"></span>
         </label>
       </div>`
-    : "";
-  const classes = ["fragment-item", "pl-block", marker && !b.toggleable ? "pl-fixed" : ""].filter(Boolean).join(" ");
+    : `<span class="pl-control">${esc(CONTROLLED_BY[b.kind] || "")}</span>`;
+  const classes = ["fragment-item", "pl-block", !marker && !boolFlag(b.enabled) ? "pl-off" : ""]
+    .filter(Boolean)
+    .join(" ");
   return `<div class="${classes}" data-id="${escAttr(b.id)}" data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
-      <div class="pl-name">${marker ? '<span class="pl-marker" aria-label="Built-in">◆</span>' : ""}<span class="frag-label">${esc(label)}</span>${role}${template}</div>
+      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${role}</div>
       ${toggle}
     </div>`;
 }
@@ -81,7 +95,7 @@ function render() {
     <div class="pl-blocks">
       ${_ordered("prefix").map(_rowHtml).join("")}
       <div class="fragment-item pl-divider" data-id="">
-        <div class="pl-divider-rule"><span>Writer chat history</span></div>
+        <div class="pl-divider-rule"><span>Chat history</span></div>
       </div>
       ${_ordered("writer").map(_rowHtml).join("")}
     </div>
@@ -108,8 +122,8 @@ async function saveOrder(container) {
   const crossed = [...prefix.map((id) => [id, "prefix"]), ...writer.map((id) => [id, "writer"])].filter(
     ([id, region]) => _byId(id)?.region !== region,
   );
-  if (crossed.some(([id]) => !_byId(id)?.movable)) {
-    toast("Only custom blocks and Chat instructions can cross the chat history", true);
+  if (crossed.some(([id]) => _isMarker(_byId(id) || {}))) {
+    toast("Built-in blocks stay on their side of the chat history", true);
     render();
     return;
   }
@@ -134,42 +148,47 @@ async function toggleBlock(id, enabled) {
   render();
 }
 
+// Custom blocks and the Main prompt hold their own text; every other built-in block shows the text the engine sends.
+const _editable = (b) => !_isMarker(b) || b.kind === "main_prompt";
+
 function openBlock(id) {
   const b = id ? _byId(id) : { kind: "custom", label: "", content: "", role: "system", region: "writer" };
   if (!b) return;
-  const marker = _isMarker(b);
+  const custom = !_isMarker(b);
+  const nameField = custom
+    ? `<div class="field"><label for="pl-label">Name</label><input id="pl-label" value="${escAttr(b.label)}"></div>`
+    : "";
+  const text = _editable(b) ? b.content : b.builtin_text;
   const roleField =
-    !marker && b.region === "prefix"
+    b.region === "prefix"
       ? `<div class="field"><label for="pl-role">Role</label>
           <select id="pl-role">${["system", "user", "assistant"]
             .map((r) => `<option value="${r}" ${b.role === r ? "selected" : ""}>${r}</option>`)
             .join("")}</select></div>`
       : "";
-  const body = marker
-    ? `<div class="field"><label for="pl-content">Template</label>
-        <textarea id="pl-content" rows="6">${esc(b.content)}</textarea></div>`
-    : `<div class="field"><label for="pl-label">Name</label><input id="pl-label" value="${escAttr(b.label)}"></div>
-       <div class="field"><label for="pl-content">Text</label><textarea id="pl-content" rows="8">${esc(b.content)}</textarea></div>
-       ${roleField}`;
   showModal(`
-    <h2>${marker ? esc(b.label) : id ? "Edit Block" : "New Block"}</h2>
-    ${body}
+    <h2>${custom ? (id ? "Edit Block" : "New Block") : esc(b.label)}</h2>
+    ${nameField}
+    <div class="field"><label for="pl-content">Text</label><textarea id="pl-content" rows="8"${_editable(b) ? "" : " readonly"}>${esc(text)}</textarea></div>
+    ${roleField}
     <div class="modal-actions">
-      ${id && !marker ? `<button class="btn btn-danger" data-wf-action="prompt-layout:deleteBlock" data-block-id="${escAttr(id)}">Delete</button>` : ""}
-      ${marker ? `<button class="btn" data-wf-action="prompt-layout:resetBlock" data-block-id="${escAttr(id)}">Reset</button>` : ""}
+      ${id && custom ? `<button class="btn btn-danger" data-wf-action="prompt-layout:deleteBlock" data-block-id="${escAttr(id)}">Delete</button>` : ""}
       <button class="btn" data-wf-action="modal:close">Cancel</button>
       <button class="btn btn-accent" data-wf-action="prompt-layout:saveBlock" data-block-id="${escAttr(id || "")}">${id ? "Save" : "Create"}</button>
     </div>`);
 }
 
 async function saveBlock(id) {
-  const data = { content: $("pl-content").value };
   const block = id ? _byId(id) : null;
+  const data = {};
+  if (!block || _editable(block)) data.content = $("pl-content").value;
   if (!block || !_isMarker(block)) data.label = $("pl-label").value;
   if ($("pl-role")) data.role = $("pl-role").value;
   try {
-    if (block) Object.assign(block, await api.patch(`/prompt-blocks/${id}`, data));
-    else _blocks.push(await api.post(`/prompt-layouts/${_viewId}/blocks`, data));
+    if (!block) _blocks.push(await api.post(`/prompt-layouts/${_viewId}/blocks`, data));
+    else if (Object.entries(data).some(([key, value]) => block[key] !== value))
+      Object.assign(block, await api.patch(`/prompt-blocks/${id}`, data));
+    else return closeModal();
     if ((block?.region || "writer") === "prefix") _setNote(PREFIX_NOTE);
     closeModal();
     render();
@@ -274,7 +293,4 @@ registerActions("prompt-layout", {
   toggle: (el) => toggleBlock(el.dataset.blockId, el.checked),
   saveBlock: (el) => saveBlock(el.dataset.blockId),
   deleteBlock: (el) => deleteBlock(el.dataset.blockId),
-  resetBlock: (el) => {
-    $("pl-content").value = _byId(el.dataset.blockId)?.default_content ?? "";
-  },
 });

@@ -68,7 +68,6 @@ async def _armed_conversation(client, llm_mock) -> tuple[str, str]:
             "enable_agent": True,
             "agent_same_as_writer": False,
             "agent_endpoint_id": agent_endpoint.json()["id"],
-            "agent_shared_system_prompt": "Agent-only system prompt.",
             "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
         },
     )
@@ -154,7 +153,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
         assert c["endpoint"] == "http://agent.local"
         assert c["model"] == "agent-model"
         assert c["messages"][0] == agent_pass["messages"][0]
-        assert c["messages"][0] != writer["messages"][0]
+        assert c["messages"][0] == writer["messages"][0]
         assert c["params"]["reasoning"] == {"enabled": True}
         assert c["params"]["thinking"] == {"type": "enabled"}
         blobs.add(json.dumps(c["tools"], sort_keys=True))

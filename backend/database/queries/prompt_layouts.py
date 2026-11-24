@@ -12,8 +12,6 @@ from ...core.prompt_layout import (
     CUSTOM_KIND,
     DEFAULT_LAYOUT_ID,
     MARKERS,
-    MOVABLE_MARKERS,
-    TOGGLEABLE_MARKERS,
     LayoutBlock,
     LayoutRegion,
     LayoutRole,
@@ -23,6 +21,7 @@ from ...core.prompt_layout import (
 )
 from ..connection import get_db, select_rows
 from ..models import PromptBlockRow, PromptLayoutRow
+from ..seeds import SEED_MAIN_PROMPT
 
 _REGIONS = ("prefix", "writer")
 _ROLES = ("system", "user", "assistant")
@@ -88,7 +87,7 @@ def layout_block(row: Mapping[str, Any]) -> LayoutBlock:
 async def get_active_layout_blocks() -> tuple[LayoutBlock, ...]:
     """The active layout's blocks in order; the built-in order when no layout rows exist."""
     rows = await get_prompt_blocks(await get_active_prompt_layout_id())
-    return tuple(layout_block(row) for row in rows) if rows else default_layout()
+    return tuple(layout_block(row) for row in rows) if rows else default_layout(main_prompt=SEED_MAIN_PROMPT)
 
 
 async def create_prompt_layout(name: str, copy_from: str | None = None) -> PromptLayoutRow:
@@ -108,7 +107,7 @@ async def create_prompt_layout(name: str, copy_from: str | None = None) -> Promp
             for row in source
         ]
     else:
-        blocks = list(default_layout(layout_id))
+        blocks = list(default_layout(layout_id, SEED_MAIN_PROMPT))
     async with get_db() as db:
         await db.execute("INSERT INTO prompt_layouts (id, name) VALUES (?, ?)", (layout_id, name))
         await insert_layout_blocks(db, layout_id, blocks)
@@ -191,32 +190,35 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
 
 
 async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
-    """Edit a block. A marker keeps its label and role, toggles only when no other setting switches it, and changes region
-    only when it may cross the divider."""
+    """Edit a block. A marker keeps its name, switch and side of the chat history; only the Main prompt's text is editable, and
+    only blocks above the chat history take a role."""
     row = await get_prompt_block(block_id)
     if row is None:
         return None
     custom = row["kind"] == CUSTOM_KIND
     updates: dict[str, Any] = {}
     if "content" in data:
+        if not custom and row["kind"] != "main_prompt":
+            raise PromptLayoutError("A built-in block cannot be edited.")
         updates["content"] = str(data["content"])
     if "label" in data:
         if not custom:
             raise PromptLayoutError("A built-in block keeps its name.")
         updates["label"] = str(data["label"]).strip()
     if "enabled" in data:
-        if not custom and row["kind"] not in TOGGLEABLE_MARKERS:
+        if not custom:
             raise PromptLayoutError("Another setting switches this block.")
         updates["enabled"] = 1 if data["enabled"] else 0
     if "region" in data:
         region = _clean_region(data["region"])
-        if region != row["region"] and not custom and row["kind"] not in MOVABLE_MARKERS:
+        if region != row["region"] and not custom:
             raise PromptLayoutError("This block cannot cross the chat history.")
         updates["region"] = region
     if "role" in data:
-        if not custom:
-            raise PromptLayoutError("A built-in block keeps its role.")
-        updates["role"] = _clean_role(data["role"])
+        role = _clean_role(data["role"])
+        if role != row["role"] and not custom and marker_region(row["kind"]) != "prefix":
+            raise PromptLayoutError("Roles apply only above the chat history.")
+        updates["role"] = role
     if updates:
         sets = ", ".join(f"{column} = ?" for column in updates)
         async with get_db() as db:
@@ -251,7 +253,7 @@ async def reorder_prompt_blocks(layout_id: str, prefix: Sequence[str], writer: S
     for region, ids in (("prefix", prefix), ("writer", writer)):
         for block_id in ids:
             kind = rows[block_id]["kind"]
-            if kind in MARKERS and kind not in MOVABLE_MARKERS and marker_region(kind) != region:
+            if kind in MARKERS and marker_region(kind) != region:
                 raise PromptLayoutError("This block cannot cross the chat history.")
     async with get_db() as db:
         await db.executemany(

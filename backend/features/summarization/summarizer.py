@@ -30,7 +30,7 @@ class ConversationSummarizer:
     def build_messages(
         self,
         system_prompt: str,
-        char_persona: str,
+        description: str,
         char_scenario: str,
         mes_example: str,
         post_history_instructions: str,
@@ -39,6 +39,7 @@ class ConversationSummarizer:
         user_description: str,
         custom_instructions: str | None = None,
         *,
+        personality: str = "",
         cast: TurnCast | None = None,
         speaker_names: Mapping[str, str] | None = None,
         revision: tuple[str, str] | None = None,
@@ -50,13 +51,14 @@ class ConversationSummarizer:
         """
         prefix = build_prefix(
             system_prompt,
-            char_persona,
+            description,
             char_scenario,
             mes_example,
             post_history_instructions,
             history_slice,
             macros,
             user_description,
+            personality=personality,
             cast=cast,
             speaker_names=speaker_names,
         )

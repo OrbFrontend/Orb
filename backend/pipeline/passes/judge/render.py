@@ -12,7 +12,9 @@ DECISION_RENDERER_VERSION = "1"
 _RECENT_HISTORY_DEPTH = 6
 # {{recent_history::N}} renders the last N messages instead of the default.
 _MAX_RECENT_HISTORY_DEPTH = 50
-STATE_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description"})
+STATE_MACROS = frozenset(
+    {"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description", "personality"}
+)
 TEXT_MACROS = frozenset({"user", "char", "cast"})
 # Names, resolved before inline macros as the main prompt path does, so they can
 # sit inside a {{random}} option. Message bodies are inserted after, and never can.
@@ -38,6 +40,7 @@ class DecisionSnapshot:
     char: str = ""
     cast: str = ""
     description: str | None = None
+    personality: str | None = None
     scope: str = "solo"
     anchor_message_id: int | None = None
     seed: str = ""
@@ -48,7 +51,7 @@ class DecisionSnapshot:
     def value(self, macro: str, depth: int = _RECENT_HISTORY_DEPTH) -> str | None:
         if macro == "recent_history":
             return self.recent_history(depth)
-        return self.description if macro == "description" else getattr(self, macro, None)
+        return getattr(self, macro, None)
 
     def roll_seed(self, fragment_id: str | None, field: str) -> str:
         """Seed one field's inline macros: fixed within an exchange, fresh across exchanges.
@@ -60,9 +63,9 @@ class DecisionSnapshot:
         return f"{self.seed}|{self.anchor_message_id}|{fragment_id or ''}|{field}" if self.seed else ""
 
 
-def _resolved_description(macros: Macros, description: str | None) -> str | None:
-    """Resolve *description* the way the Writer's ``{{description}}`` does."""
-    return macros._replace(description=description).resolve_message("{{description}}") if description else description
+def _resolved_field(macros: Macros, name: str, value: str | None) -> str | None:
+    """Resolve a card field the way the Writer's ``{{description}}`` or ``{{personality}}`` does."""
+    return macros._replace(**{name: value}).resolve_message(f"{{{{{name}}}}}") if value else value
 
 
 def _message_text(message: Mapping[str, Any], macros: Macros | None, scripts: Any = None) -> str:
@@ -87,6 +90,7 @@ def build_snapshot(
     scripts: Any = None,
     speaker_scripts: Mapping[str, Any] | None = None,
     description: str | None = None,
+    personality: str | None = None,
     anchor_message_id: int | None = None,
 ) -> DecisionSnapshot:
     grouped = scope == "group"
@@ -112,7 +116,8 @@ def build_snapshot(
         user=macros.user,
         char=macros.char,
         cast=macros.cast,
-        description=_resolved_description(macros, description),
+        description=_resolved_field(macros, "description", description),
+        personality=_resolved_field(macros, "personality", personality),
         scope=scope,
         anchor_message_id=anchor_message_id,
         seed=macros.seed,
@@ -125,8 +130,12 @@ def card_snapshots(snapshot: DecisionSnapshot, members: Iterable[CastMember]) ->
     for member in members:
         if member.card_id and member.card_id not in scoped:
             member_macros = Macros(user=snapshot.user, char=member.name, seed=snapshot.seed, cast=snapshot.cast)
-            description = _resolved_description(member_macros, member.private_sheet)
-            scoped[member.card_id] = replace(snapshot, char=member.name, description=description)
+            scoped[member.card_id] = replace(
+                snapshot,
+                char=member.name,
+                description=_resolved_field(member_macros, "description", member.description),
+                personality=_resolved_field(member_macros, "personality", member.personality),
+            )
     return scoped
 
 

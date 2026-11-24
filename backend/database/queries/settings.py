@@ -98,13 +98,10 @@ async def get_settings() -> Settings:
                             # A NULL sampler is an explicit instruction to omit that request key, so it replaces the
                             # fallback rather than falling through to it.
                             s[field] = mc.get(field)
-                        if mc.get("system_prompt") is not None:
-                            s["system_prompt"] = mc["system_prompt"]
 
         # Resolve agent endpoint cascade
         s["agent_same_as_writer"] = bool(s.get("agent_same_as_writer", 1))
         s["agent_endpoint_id"] = s.get("agent_endpoint_id")
-        s["agent_shared_system_prompt"] = s.get("agent_shared_system_prompt", "")
         agent_ep_id = s.get("agent_endpoint_id")
         if not s["agent_same_as_writer"] and agent_ep_id:
             agent_ep_rows = list(
@@ -148,8 +145,6 @@ async def get_settings() -> Settings:
                         ):
                             # Keep NULL as a present agent-lane override; the extractor distinguishes it from no agent config.
                             s[f"agent_{field}"] = amc.get(field)
-                        if amc.get("system_prompt") is not None:
-                            s["agent_system_prompt"] = amc["system_prompt"]
         # Transport mode defaults: no active endpoint => 'chat'; agent sharing the
         # writer endpoint inherits the writer's mode (its own overlay never ran).
         s.setdefault("completion_mode", "chat")
@@ -239,8 +234,6 @@ async def update_settings(data: dict) -> Settings:
         allowed = [
             # The connection, model name and hyperparameters are not settings columns: they are edited on the endpoint
             # (/endpoints/{id}) and its model config (/models/{id}). See SettingsUpdate for the contract.
-            "shared_system_prompt",
-            "system_prompt",
             "user_name",
             "user_description",
             "enabled_tools",
@@ -270,7 +263,6 @@ async def update_settings(data: dict) -> Settings:
             "prevent_prompt_overrides",
             "agent_same_as_writer",
             "agent_endpoint_id",
-            "agent_shared_system_prompt",
             "assistant_instructions",
             "assistant_reasoning",
             "assistant_tool_groups",

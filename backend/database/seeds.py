@@ -317,8 +317,6 @@ DEFAULT_SETTINGS: Settings = {
     # get_settings() overlays these keys from the active endpoint and model config; with no settings row at all they read as
     # the default connection.
     **DEFAULT_CONNECTION,
-    "shared_system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures.",
-    "system_prompt": "",
     "user_name": "User",
     "user_description": "",
     "enable_agent": True,
@@ -360,7 +358,6 @@ DEFAULT_SETTINGS: Settings = {
     "expression_rendering": "classic",
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
-    "agent_shared_system_prompt": "",
     "assistant_instructions": "",
     "assistant_reasoning": 0,
     "assistant_tool_groups": {},
@@ -373,6 +370,8 @@ DEFAULT_SETTINGS: Settings = {
 # Seeds are regex strings or literal-variant lists. Regexes match one sentence case-insensitively; use bounded gaps, inflection
 # suffixes and word boundaries to avoid greedy or substring overmatches.
 SEED_PROMPT_LAYOUT_NAME = "Default"
+# The Main prompt text every new prompt layout starts with.
+SEED_MAIN_PROMPT = "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures."
 
 SEED_PHRASE_BANK = [
     r"a mix(ture)? of",

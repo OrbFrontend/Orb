@@ -3,48 +3,61 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 
 from ..core import ChatMessage, ContentPart, Macros
 from ..core.prompt_layout import (
     CUSTOM_KIND,
     MARKERS,
-    MOVABLE_MARKERS,
-    TOGGLEABLE_MARKERS,
+    SECTION_PLACEHOLDERS,
     LayoutBlock,
     LayoutRegion,
     default_layout,
     marker_region,
 )
 
-_CONTENT_RE = re.compile(r"\{\{\s*content\s*\}\}", re.IGNORECASE)
-_CONTENT_SENTINEL = "\x00orb-layout-content\x00"
+_SECTION_RE = re.compile(r"\{\{(" + "|".join(SECTION_PLACEHOLDERS) + r")\}\}", re.IGNORECASE)
 _EXAMPLE_SEPARATOR = "<START>"
 _DIVIDER = "___\n\n"
-_TOOL_NOTICE = "**Do not use tool or function calls this turn.**\n\n"
+TOOL_NOTICE = "**Do not use tool or function calls this turn.**\n\n"
+_MARKER_HEADS: dict[str, str] = {
+    "selected_lore": _DIVIDER,
+    "scene_guidance": _DIVIDER,
+    "cue": "## Your cue\n",
+    "user_message": _DIVIDER,
+    "depth_lore": _DIVIDER,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class SectionInputs:
+    """The card and chat sections a block's placeholders stand for, macros resolved."""
+
+    description: str = ""
+    personality: str = ""
+    # A solo card keeps a Character block's heading even with no description or personality.
+    character_heading: bool = False
+    scenario: str = ""
+    examples: str = ""
+    instructions: str = ""
+    persona: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class PrefixInputs:
-    """Each prefix marker's own text, macros resolved; a template's ``{{content}}`` receives it."""
+    """Each prefix marker's own text, plus the sections for placeholder blocks."""
 
     main_prompt: str = ""
-    character: str = ""
-    # A solo card keeps its ``character`` heading even with no description.
-    character_heading: bool = False
     cast: str = ""
     constant_lore: str = ""
-    scenario: str = ""
-    example_dialogue: str = ""
-    card_instructions: str = ""
-    user_persona: str = ""
     workflow_blocks: str = ""
+    sections: SectionInputs = field(default_factory=SectionInputs)
 
 
 @dataclass(frozen=True, slots=True)
 class WriterInputs:
-    """Each Writer-request marker's own text, plus the speaker frame around them."""
+    """Each Writer-request marker's own text, the sections for placeholder blocks, and the speaker frame around them."""
 
     selected_lore: str = ""
     scene_guidance: str = ""
@@ -52,61 +65,85 @@ class WriterInputs:
     cue: str = ""
     user_message: str = ""
     depth_lore: str = ""
-    card_instructions: str = ""
+    sections: SectionInputs = field(default_factory=SectionInputs)
     tool_notice: bool = False
     speaker_open: str = ""
     speaker_close: str = ""
 
 
+def marker_text(kind: str, content: str) -> str:
+    """A marker's fixed framing around *content*; nothing when *content* is empty."""
+    return f"{_MARKER_HEADS.get(kind, '')}{content}" if content else ""
+
+
 def _region_of(block: LayoutBlock) -> LayoutRegion:
-    if block.kind == CUSTOM_KIND or block.kind in MOVABLE_MARKERS:
-        return block.region
-    return marker_region(block.kind)
-
-
-def _is_on(block: LayoutBlock) -> bool:
-    return block.enabled or (block.kind != CUSTOM_KIND and block.kind not in TOGGLEABLE_MARKERS)
+    return block.region if block.kind == CUSTOM_KIND else marker_region(block.kind)
 
 
 def region_blocks(blocks: Iterable[LayoutBlock], region: LayoutRegion) -> list[LayoutBlock]:
     """*region*'s enabled blocks in order, with any marker the layout lacks appended at its region's end."""
     blocks = [block for block in blocks if block.kind == CUSTOM_KIND or block.kind in MARKERS]
     present = {block.kind for block in blocks}
-    missing = [block for block in default_layout() if block.kind not in present]
+    missing = [block for block in default_layout() if block.kind != CUSTOM_KIND and block.kind not in present]
     ordered = sorted(blocks, key=lambda block: block.sort_order) + missing
-    return [block for block in ordered if _region_of(block) == region and _is_on(block)]
+    return [block for block in ordered if _region_of(block) == region and (block.enabled or block.kind != CUSTOM_KIND)]
 
 
 def _resolver(macros: Macros | None) -> Callable[[str], str]:
     return macros.resolve_message if macros else (lambda text: text)
 
 
-def _fill(template: str, content: str, resolve: Callable[[str], str]) -> str:
-    """Resolve *template*'s macros, then put *content* in for ``{{content}}`` without a second macro pass."""
-    return resolve(_CONTENT_RE.sub(_CONTENT_SENTINEL, template)).replace(_CONTENT_SENTINEL, content)
+def section_names(text: str) -> frozenset[str]:
+    """The section placeholders *text* names."""
+    return frozenset(match.group(1).lower() for match in _SECTION_RE.finditer(text))
 
 
-def _fill_examples(template: str, examples: str, resolve: Callable[[str], str]) -> str:
+def _sentinel(name: str) -> str:
+    return f"\x00orb-section-{name}\x00"
+
+
+def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str]) -> str:
+    """Resolve *template*'s macros, then put each section in for its placeholder without a second macro pass.
+
+    An empty section's placeholder leaves with one blank-line separator beside it, the one before it when there is one.
+    """
+    text = resolve(_SECTION_RE.sub(lambda match: _sentinel(match.group(1).lower()), template)).strip()
+    for name, value in values.items():
+        sentinel = re.escape(_sentinel(name))
+        if not value:
+            text = re.sub(f"\n\n{sentinel}|{sentinel}\n\n|{sentinel}", "", text)
+    for name, value in values.items():
+        text = text.replace(_sentinel(name), value)
+    return text
+
+
+def _fill_examples(template: str, values: Mapping[str, str], resolve: Callable[[str], str]) -> str:
     """Fill *template* once per ``<START>`` example, keeping the blank lines between examples."""
-    if _EXAMPLE_SEPARATOR not in examples:
-        return _fill(template, examples, resolve)
-    head, *chunks = examples.split(_EXAMPLE_SEPARATOR)
+    head, *chunks = values["examples"].split(_EXAMPLE_SEPARATOR)
     rendered = head
     for chunk in chunks:
         body = chunk.removeprefix("\n")
         example = body.rstrip("\n")
         if example:
-            rendered += _fill(template, example, resolve)
+            rendered += _fill(template, {**values, "examples": example}, resolve)
         rendered += body[len(example) :]
     return rendered
 
 
-def _render_marker(block: LayoutBlock, content: str, resolve: Callable[[str], str]) -> str:
-    if not content:
+def _render_block(content: str, sections: SectionInputs, resolve: Callable[[str], str]) -> str:
+    """A custom block's text. A block naming sections renders nothing when they are all empty, except a solo Character
+    heading."""
+    names = section_names(content)
+    if not names:
+        return resolve(content).strip()
+    values = {name: getattr(sections, name) for name in names}
+    if not any(values.values()):
+        if names & {"description", "personality"} and sections.character_heading:
+            return _fill(content, values, resolve).rstrip("\n")
         return ""
-    if block.kind == "example_dialogue":
-        return _fill_examples(block.content, content, resolve)
-    return _fill(block.content, content, resolve)
+    if _EXAMPLE_SEPARATOR in values.get("examples", ""):
+        return _fill_examples(content, values, resolve)
+    return _fill(content, values, resolve)
 
 
 def _join(head: str, tail: str) -> str:
@@ -129,24 +166,20 @@ def render_prefix(blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: M
     pre_history: list[ChatMessage] = []
     for block in region_blocks(blocks, "prefix"):
         if block.kind == CUSTOM_KIND:
-            text = resolve(block.content).strip()
-            if not text:
-                continue
-            if block.role == "system":
+            text = _render_block(block.content, inputs.sections, resolve)
+        else:
+            text = marker_text(block.kind, getattr(inputs, block.kind))
+        if block.role == "system":
+            if block.kind == "main_prompt" and not pieces:
+                # The main prompt opens the system message, even when empty, so the next section keeps its separator.
+                pieces.append(text)
+            elif text:
                 pieces.append(f"\n\n{text}" if pieces else text)
-            elif pre_history and pre_history[-1]["role"] == block.role:
+        elif text:
+            if pre_history and pre_history[-1]["role"] == block.role:
                 pre_history[-1] = {"role": block.role, "content": _join(str(pre_history[-1]["content"]), text)}
             else:
                 pre_history.append({"role": block.role, "content": text})
-            continue
-        text = _render_marker(block, getattr(inputs, block.kind), resolve)
-        if block.kind == "character" and not text and inputs.character_heading:
-            text = _fill(block.content, "", resolve).rstrip("\n")
-        if block.kind == "main_prompt" and not pieces:
-            # The main prompt opens the system message, even when empty, so the next section keeps its separator.
-            pieces.append(text)
-        elif text:
-            pieces.append(f"\n\n{text}" if pieces else text)
     return [{"role": "system", "content": "".join(pieces)}, *pre_history]
 
 
@@ -163,20 +196,20 @@ def join_history(head: Sequence[ChatMessage], history: Sequence[ChatMessage]) ->
 def render_writer_tail(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None) -> str:
     """The Writer's one user message: the speaker frame, the Writer-request blocks in order, then the closing line.
 
-    Custom blocks and templates roll inline macros fresh on every build; the Editor replays the built string, so both passes
-    read the same rolls.
+    Custom blocks roll inline macros fresh on every build; the Editor replays the built string, so both passes read the same
+    rolls.
     """
     resolve = _resolver(macros._replace(seed="") if macros else None)
     tail = inputs.speaker_open
     for block in region_blocks(blocks, "writer"):
         if block.kind == "length_nudge" and inputs.tool_notice:
-            tail += _TOOL_NOTICE
+            tail += TOOL_NOTICE
         if block.kind == CUSTOM_KIND:
-            text = resolve(block.content).strip()
+            text = _render_block(block.content, inputs.sections, resolve)
             if text:
                 tail += f"{_DIVIDER}{text}\n\n"
             continue
-        text = _render_marker(block, getattr(inputs, block.kind), resolve)
+        text = marker_text(block.kind, getattr(inputs, block.kind))
         if text:
             tail += f"{text}\n\n"
     return tail + inputs.speaker_close

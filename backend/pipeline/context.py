@@ -47,7 +47,9 @@ from ..prompting import (
     macro_identity,
     persona_macros,
     resolve_persona_id,
+    section_inputs,
 )
+from ..prompting.layout import SectionInputs
 from ..prompting.lorebook import (
     build_lorebook_catalog,
     compute_constant_lorebook_block,
@@ -67,7 +69,7 @@ from .workflow_bridge import iterate_pre_pipeline_hooks
 class PipelineContext:
     """Per-conversation data loaded once for all entry points.
 
-    Frozen field bindings still permit in-place director resets to branch state. Agent fields are None without a separate
+    Frozen field bindings still permit in-place director resets to branch state. ``agent_client`` is None without a separate
     endpoint. state_contract snapshots fragment config so concurrent settings edits cannot change the running turn.
     """
 
@@ -83,11 +85,11 @@ class PipelineContext:
     lorebook_entries: list[ActiveLorebookEntryRow]
     client: LLMClient
     system_prompt: str
-    char_persona: str
+    description: str
+    personality: str
     mes_example: str
     active_persona: UserPersonaRow | None
     agent_client: LLMClient | None
-    agent_system_prompt: str | None
     # Every World row, unfiltered. Read by the Dynamic Worlds stage, which narrows it to its mutation targets through
     # ``world_proposal_active`` -- the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
     worlds: list[WorldRow] = field(default_factory=list)
@@ -142,14 +144,11 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
     lorebook_entries = await db.get_active_lorebook_entries(world_ids)
     worlds = [world for world in await db.get_worlds() if world["id"] in world_ids]
     client = client_from_settings(settings, abort_token=abort_token)
-
-    system_prompt, char_persona, mes_example = char_context(settings, card)
-
-    agent_client = None
-    agent_system_prompt = None
-    if separate_agent_lane_configured(settings):
-        agent_client = agent_client_from_settings(settings, abort_token=abort_token)
-        agent_system_prompt, _, _ = char_context(settings, card, shared_key="agent_shared_system_prompt")
+    layout = await db.get_active_layout_blocks()
+    card_text = char_context(settings, card, layout)
+    agent_client = (
+        agent_client_from_settings(settings, abort_token=abort_token) if separate_agent_lane_configured(settings) else None
+    )
 
     return PipelineContext(
         settings=settings,
@@ -161,12 +160,12 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         phrase_bank=phrase_bank,
         lorebook_entries=lorebook_entries,
         client=client,
-        system_prompt=system_prompt,
-        char_persona=char_persona,
-        mes_example=mes_example,
+        system_prompt=card_text.system_prompt,
+        description=card_text.description,
+        personality=card_text.personality,
+        mes_example=card_text.mes_example,
         active_persona=active_persona,
         agent_client=agent_client,
-        agent_system_prompt=agent_system_prompt,
         worlds=worlds,
         cast=cast,
         speaker_scripts=speaker_scripts,
@@ -178,7 +177,7 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         judge_config=await resolve_judge_config(settings),
         state_contract=StateContract.capture(settings, split_interactive_fragments(interactive_fragments)[2]),
         defined_fragments=defined_fragments,
-        layout=await db.get_active_layout_blocks(),
+        layout=layout,
     )
 
 
@@ -252,31 +251,53 @@ async def resolve_card_and_persona(
     return card, persona
 
 
-def _build_prefix_from_ctx(
+def _ctx_macros(ctx: PipelineContext) -> tuple[Macros, str]:
+    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
+    return persona_macros(
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), card=ctx.card, cast=cast_names
+    )
+
+
+def turn_sections(ctx: PipelineContext) -> SectionInputs:
+    """The card and chat sections the turn's prefix renders, for Writer-request blocks that name them."""
+    macros, user_description = _ctx_macros(ctx)
+    return section_inputs(
+        ctx.description,
+        ctx.conv["character_scenario"],
+        ctx.mes_example,
+        chat_instructions(ctx.settings, ctx.conv),
+        macros,
+        user_description,
+        personality=ctx.personality,
+        cast=ctx.cast,
+    )
+
+
+def build_turn_prefix(
     ctx: PipelineContext,
     history: Sequence[Mapping[str, Any]],
     *,
-    system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
     speaker: CastMember | None = None,
 ) -> list[ChatMessage]:
-    """Build the LLM prefix from ctx."""
-    conv = ctx.conv
-    macro_char, cast_names = macro_identity(conv, ctx.cast)
-    macros, user_description = persona_macros(
-        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv), card=ctx.card, cast=cast_names
-    )
-    cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
+    """Build the prefix every lane of the turn shares.
 
+    *extra_system_blocks* from pre-pipeline hooks and *speaker* apply to every pass, so the Editor's lane sees the same cast as
+    the Writer it is auditing.
+    """
+    conv = ctx.conv
+    macros, user_description = _ctx_macros(ctx)
+    cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
     return build_prefix(
-        system_prompt if system_prompt is not None else ctx.system_prompt,
-        ctx.char_persona,
+        ctx.system_prompt,
+        ctx.description,
         conv["character_scenario"],
         ctx.mes_example,
         chat_instructions(ctx.settings, conv),
         history,
         macros,
         user_description,
+        personality=ctx.personality,
         constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
         extra_system_blocks=extra_system_blocks,
         cast=cast,
@@ -287,39 +308,15 @@ def _build_prefix_from_ctx(
     )
 
 
-def build_prefixes(
-    ctx: PipelineContext,
-    history: Sequence[Mapping[str, Any]],
-    *,
-    extra_system_blocks: list[str] | None = None,
-    speaker: CastMember | None = None,
-) -> tuple[list[ChatMessage], list[ChatMessage] | None]:
-    """Build the writer prefix and optional agent prefix for a turn.
-
-    Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` in single-model mode. *extra_system_blocks* from
-    pre-pipeline hooks are applied to both so the system body stays identical across all passes -- and so is *speaker*, or the
-    Editor's agent lane would see a different cast than the Writer it is auditing.
-    """
-    prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks, speaker=speaker)
-    agent_sp = ctx.agent_system_prompt
-    agent_prefix = (
-        _build_prefix_from_ctx(ctx, history, system_prompt=agent_sp, extra_system_blocks=extra_system_blocks, speaker=speaker)
-        if agent_sp is not None
-        else None
-    )
-    return prefix, agent_prefix
-
-
 @dataclass(slots=True)
 class TurnSetup:
     """Per-turn inputs produced by :func:`prepare_turn`, ready for ``run_pipeline``.
 
-    Holds the (writer, agent) prefixes with any pre-pipeline system blocks already applied, the merged tool-enable map, macros,
-    lorebook block, scratch dict, KV tracker, and dynamic-schema map.
+    Holds the shared prefix with any pre-pipeline system blocks already applied, the merged tool-enable map, macros, the
+    sections Writer-request blocks may name, lorebook block, scratch dict, KV tracker, and dynamic-schema map.
     """
 
     prefix: list[ChatMessage]
-    agent_prefix: list[ChatMessage] | None
     merged_enabled_tools: dict[str, bool]
     macros: Macros
     lorebook: LorebookTurn
@@ -327,6 +324,7 @@ class TurnSetup:
     kv_tracker: KVCacheTracker
     schema_overrides: Mapping[str, dict]
     extra_system_blocks: tuple[str, ...]
+    sections: SectionInputs = field(default_factory=SectionInputs)
     # Identity of the Worlds this turn may propose changes to; None when no enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
 
@@ -364,12 +362,10 @@ async def prepare_turn(
     lorebook_messages: Sequence[Mapping[str, Any]],
 ) -> AsyncIterator[PublicTurnEvent | TurnSetup]:
     """Load and freeze per-turn context."""
-    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
-    macros, _ = persona_macros(
-        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), card=ctx.card, cast=cast_names
-    )
+    macro_char, _ = macro_identity(ctx.conv, ctx.cast)
+    macros, _ = _ctx_macros(ctx)
 
-    prefix_base, agent_prefix_base = build_prefixes(ctx, history)
+    prefix_base = build_turn_prefix(ctx, history)
 
     turn_scratch: dict = {}
     kv_tracker = KVCacheTracker(conversation_id=conversation_id)
@@ -431,13 +427,12 @@ async def prepare_turn(
 
     extras = accumulators["extras"]
     if extras:
-        prefix, agent_prefix = build_prefixes(ctx, history, extra_system_blocks=extras)
+        prefix = build_turn_prefix(ctx, history, extra_system_blocks=extras)
     else:
-        prefix, agent_prefix = prefix_base, agent_prefix_base
+        prefix = prefix_base
 
     yield TurnSetup(
         prefix=prefix,
-        agent_prefix=agent_prefix,
         merged_enabled_tools=accumulators["merged_enabled_tools"],
         macros=macros,
         lorebook=lorebook,
@@ -445,5 +440,6 @@ async def prepare_turn(
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
         extra_system_blocks=tuple(extras),
+        sections=turn_sections(ctx),
         world_proposal=world_proposal,
     )

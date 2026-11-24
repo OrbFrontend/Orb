@@ -61,7 +61,15 @@ from .locks import (
     workflow_state_lock,
     world_apply_lock,
 )
-from .macros import Macros, card_description, has_inline_macros, outside_literals, resolve_inline, resolve_stored_random
+from .macros import (
+    Macros,
+    card_description,
+    card_personality,
+    has_inline_macros,
+    outside_literals,
+    resolve_inline,
+    resolve_stored_random,
+)
 from .reasoning import CALL_BREAK, ReasoningChannel, joined_delta, mark_call_start, reasoning_delta_event
 from .text_segmentation import ends_with_sentence_terminator, find_quote_spans, remove_quoted_spans, split_sentences
 from .utils import (

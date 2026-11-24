@@ -147,7 +147,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     # is the step's trailing, exactly as it is during a live turn.
     parent_id = user_msg.get("parent_id")
     history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
-    prefix = await build_offturn_prefix(conversation_id, history, settings, lane="agent")
+    prefix = await build_offturn_prefix(conversation_id, history, settings)
     if not prefix:
         raise db.OverlayStateConflict("cannot re-evaluate: the Agent context is unavailable")
 

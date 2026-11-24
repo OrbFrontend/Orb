@@ -44,11 +44,11 @@ async def create_endpoint(url: str, api_key: str = "", kind: EndpointKind = "cha
             assert created is not None
             return created
         cur_w = await db.execute(
-            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, 'default', '', 0.8, 0.0, 40, 0.95, 1.0, 4096, 'writer')",
+            "INSERT INTO model_configs (endpoint_id, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, 'default', 0.8, 0.0, 40, 0.95, 1.0, 4096, 'writer')",
             (endpoint_id,),
         )
         cur_a = await db.execute(
-            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, 'default', '', 0.8, 0.0, 40, 0.95, 1.0, 4096, 'agent')",
+            "INSERT INTO model_configs (endpoint_id, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, 'default', 0.8, 0.0, 40, 0.95, 1.0, 4096, 'agent')",
             (endpoint_id,),
         )
         await db.execute(
@@ -100,11 +100,10 @@ async def get_model_configs(endpoint_id: int) -> list[ModelConfigRow]:
 async def create_model_config(endpoint_id: int, data: dict) -> ModelConfigRow:
     async with get_db() as db:
         cur = await db.execute(
-            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role, reasoning_effort, reasoning_effort_param, reasoning_effort_value, extra_headers, extra_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO model_configs (endpoint_id, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role, reasoning_effort, reasoning_effort_param, reasoning_effort_value, extra_headers, extra_body) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 endpoint_id,
                 data.get("model_name", "default"),
-                data.get("system_prompt", ""),
                 data.get("temperature", 0.8),
                 data.get("min_p", 0.0),
                 data.get("top_k", 40),
@@ -128,7 +127,6 @@ async def update_model_config(config_id: int, data: dict) -> ModelConfigRow | No
     async with get_db() as db:
         allowed = [
             "model_name",
-            "system_prompt",
             "temperature",
             "min_p",
             "top_k",

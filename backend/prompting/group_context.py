@@ -68,14 +68,14 @@ def macro_identity(conv: Mapping[str, Any], cast: TurnCast) -> tuple[str, str]:
 
 
 def member_macros(macros: Macros | None, member: CastMember, roster: str) -> Macros | None:
-    """Scope char and description macros to a member's name and effective sheet.
+    """Scope char, description and personality macros to a member.
 
-    Preserve user and seed for byte-stable resolution. Group description includes
-    personality and honours scene overrides, unlike the solo card-field macro.
+    Preserve user and seed for byte-stable resolution. A scene sheet override stands in for the description and empties the
+    personality.
     """
     if macros is None:
         return None
-    return macros._replace(char=member.name, cast=roster, description=member.private_sheet)
+    return macros._replace(char=member.name, cast=roster, description=member.description, personality=member.personality)
 
 
 def _resolver(macros: Macros | None):

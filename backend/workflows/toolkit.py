@@ -34,7 +34,7 @@ from ..core import (
     workflow_config_lock,
     workflow_state_lock,
 )
-from ..core.domain_types import AgentLane, CastMember, TurnCast
+from ..core.domain_types import CastMember, TurnCast
 from ..core.settings import Settings
 from ..core.text_segmentation import (
     CLOSE_QUOTES,
@@ -69,7 +69,6 @@ from ..database import (
     resolve_cast,
 )
 from ..inference import local_ml as _local_ml
-from ..inference import separate_agent_lane_configured as _separate_agent_lane_configured
 from ..prompting import build_prefix as _build_prefix
 from ..prompting import char_context as _char_context
 from ..prompting import chat_instructions as _chat_instructions
@@ -439,10 +438,8 @@ async def conversation_macros(conversation_id: str, settings: Settings, *, seed:
     return macros
 
 
-async def build_offturn_prefix(conversation_id: str, history, settings: Settings, *, lane: AgentLane = "writer") -> list[Any]:
-    """Build the character and persona prefix for an off-turn call."""
-    if lane not in ("writer", "agent"):
-        raise ValueError(f"unknown off-turn model lane {lane!r}")
+async def build_offturn_prefix(conversation_id: str, history, settings: Settings) -> list[Any]:
+    """Build the character and persona prefix for an off-turn call; every model lane shares it."""
     conv = await get_conversation(conversation_id)
     if conv is None:
         return []
@@ -452,21 +449,21 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
     # replayed reply is attributed to the member who wrote it. Resolved through the same reader the turn uses, against the
     # *neutral* base (no speaker) -- which is the base the Director runs on in every mode, Classic card swap included.
     turn_cast = await resolve_cast(conv)
-    system_prompt, char_persona, mes_example = _char_context(settings, card)
-    if lane == "agent" and _separate_agent_lane_configured(settings):
-        system_prompt, _, _ = _char_context(settings, card, shared_key="agent_shared_system_prompt")
+    layout = await get_active_layout_blocks()
+    card_text = _char_context(settings, card, layout)
     macros, user_description = await _turn_macros(conv, settings, card, turn_cast)
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
     return _build_prefix(
-        system_prompt,
-        char_persona,
+        card_text.system_prompt,
+        card_text.description,
         conv.get("character_scenario", ""),
-        mes_example,
+        card_text.mes_example,
         _chat_instructions(settings, conv),
         history,
         macros,
         user_description,
+        personality=card_text.personality,
         constant_lorebook_block=_compute_constant_lorebook_block(
             await get_active_lorebook_entries(await get_effective_world_ids(conversation_id)), macros
         ),
@@ -474,5 +471,5 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
         speaker_names=speaker_names,
         scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_scripts=speaker_scripts,
-        layout=await get_active_layout_blocks(),
+        layout=layout,
     )

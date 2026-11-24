@@ -9,14 +9,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import database as db
-from ..core import card_description, resolve_inline
+from ..core import card_description, card_personality, resolve_inline
 from ..core.settings import Settings
 from ..inference import AbortToken, CachedBase, DecisionCancelled, KVCacheTracker, TextCallRecord
 from ..inference.gpu_swap import turn_hold
-from ..prompting import chat_instructions, prefix_cache_shape, prefix_is_speaker_scoped
+from ..prompting import prefix_cache_shape, prefix_is_speaker_scoped
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
-from .context import PipelineContext, TurnSetup, build_prefixes, enabled_moods, load_pipeline_context, prepare_turn
+from .context import PipelineContext, TurnSetup, build_turn_prefix, enabled_moods, load_pipeline_context, prepare_turn
 from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
 from .failures import STAGE_JUDGE, STAGE_SAVE, STAGE_WRITER, describe_failure, mark_stage, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
@@ -128,6 +128,7 @@ async def _run_judge(
         scripts=ctx.card_scripts,
         speaker_scripts=ctx.speaker_scripts,
         description=None if ctx.cast.grouped else card_description(ctx.card),
+        personality=None if ctx.cast.grouped else card_personality(ctx.card),
         anchor_message_id=anchor_message_id,
     )
     turn = JudgeTurn(
@@ -361,7 +362,6 @@ async def _generate_reply(
         lorebook=setup.lorebook,
         editor_audit_history=editor_audit_history,
         agent_client=ctx.agent_client,
-        agent_prefix=setup.agent_prefix,
         macros=setup.macros,
         conversation_id=conversation_id,
         character_id=ctx.conv.get("character_card_id"),
@@ -377,7 +377,7 @@ async def _generate_reply(
         state_contract=ctx.state_contract,
         judge_config=ctx.judge_config,
         layout=ctx.layout,
-        chat_instructions=chat_instructions(settings, ctx.conv),
+        sections=setup.sections,
     )
     async for event in consume_pipeline(
         pipeline,
@@ -455,7 +455,6 @@ async def _generate_group_exchange(
         macros=setup.macros,
         client=ctx.client,
         agent_client=ctx.agent_client,
-        agent_prefix=setup.agent_prefix,
         prefix=setup.prefix,
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
@@ -540,11 +539,9 @@ async def _generate_group_exchange(
             },
         }
         if turn.reuse_setup_prefix:
-            prefix, agent_prefix = setup.prefix, setup.agent_prefix
+            prefix = setup.prefix
         else:
-            prefix, agent_prefix = build_prefixes(
-                ctx, turn.history, extra_system_blocks=list(setup.extra_system_blocks), speaker=speaker
-            )
+            prefix = build_turn_prefix(ctx, turn.history, extra_system_blocks=list(setup.extra_system_blocks), speaker=speaker)
         card = await db.get_character_card(speaker.card_id) if speaker.card_id else None
         pipeline = run_pipeline(
             ctx.client,
@@ -558,7 +555,6 @@ async def _generate_group_exchange(
             lorebook=setup.lorebook,
             editor_audit_history=editor_audit_history,
             agent_client=ctx.agent_client,
-            agent_prefix=agent_prefix,
             macros=setup.macros,
             conversation_id=conversation_id,
             character_id=speaker.card_id,
@@ -580,7 +576,7 @@ async def _generate_group_exchange(
             state_contract=ctx.state_contract,
             judge_config=ctx.judge_config,
             layout=ctx.layout,
-            chat_instructions=chat_instructions(settings, ctx.conv),
+            sections=setup.sections,
         )
         persisted_id: int | None = None
         persisted_content = ""
@@ -1041,7 +1037,7 @@ async def _open_continue(
     assert setup is not None
     prefix = setup.prefix
     if speaker is not None:
-        prefix, _ = build_prefixes(ctx, history, extra_system_blocks=list(setup.extra_system_blocks) or None, speaker=speaker)
+        prefix = build_turn_prefix(ctx, history, extra_system_blocks=list(setup.extra_system_blocks) or None, speaker=speaker)
     *base_prefix, open_reply = prefix
     if open_reply["role"] != "assistant" or not isinstance(open_reply["content"], str):
         yield {"event": "error", "data": "This reply cannot be continued as text"}
@@ -1056,7 +1052,6 @@ async def _open_continue(
         macros=setup.macros,
         client=ctx.client,
         agent_client=ctx.agent_client,
-        agent_prefix=setup.agent_prefix,
         prefix=base_prefix,
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,

@@ -23,7 +23,7 @@ from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
-from ...prompting.layout import WriterInputs, render_writer_tail
+from ...prompting.layout import SectionInputs, WriterInputs, render_writer_tail
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
 from .editor.length_guard import LengthGuard, writer_nudge
@@ -84,11 +84,11 @@ def build_writer_content(
     context_mode: GroupContextMode = "private",
     *,
     layout: Sequence[LayoutBlock] | None = None,
-    card_instructions: str = "",
+    sections: SectionInputs | None = None,
 ) -> str | list[ContentPart]:
     """Build Writer user-message content.
 
-    *card_instructions* is the chat's raw instruction text; it renders here only when *layout* moves it below the divider.
+    *sections* are the prefix's card and chat sections; they render here only for blocks *layout* places below the divider.
     """
     speaker_open = ""
     speaker_close = ""
@@ -122,7 +122,7 @@ def build_writer_content(
         cue=speaker_cue,
         user_message=effective_msg,
         depth_lore=depth_block,
-        card_instructions=macros.resolve_message(card_instructions) if macros else card_instructions,
+        sections=sections or SectionInputs(),
         tool_notice=tools_sent,
         speaker_open=speaker_open,
         speaker_close=speaker_close,
@@ -185,7 +185,7 @@ async def writer_stage(
     macros: Macros | None = None,
     context_mode: GroupContextMode = "private",
     layout: Sequence[LayoutBlock] | None = None,
-    chat_instructions: str = "",
+    sections: SectionInputs | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Input-prep + writer pass + event translation.
 
@@ -214,7 +214,7 @@ async def writer_stage(
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         context_mode=context_mode,
         layout=layout,
-        card_instructions=chat_instructions,
+        sections=sections,
     )
     state.writer_call = TextCallRecord()
     label_buffer = ""

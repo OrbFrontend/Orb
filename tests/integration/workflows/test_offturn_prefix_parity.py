@@ -2,7 +2,7 @@
 
 Off-turn workflow calls (image_gen's analyze/compose, and anything else built on ``build_offturn_prefix``) ride the llama.cpp
 server's cached KV for the whole conversation prefix. That only works if the toolkit builder and the pipeline's
-``build_prefixes`` produce **byte-identical** messages for the same conversation state -- one diverging byte evicts the cache for
+``build_turn_prefix`` produce **byte-identical** messages for the same conversation state -- one diverging byte evicts the cache for
 the off-turn call and again for the next chat turn. This test seeds every prefix-shaping input (card-bound conversation, active
 persona, macros, post-history instructions, constant + keyword lorebook entries) and compares the two builders' output
 serialized, which is exactly the equality the server's prefix matcher sees.
@@ -24,7 +24,8 @@ from backend.database import (
     set_active_leaf,
     update_settings,
 )
-from backend.pipeline.context import build_prefixes, load_pipeline_context
+from backend.database.seeds import SEED_MAIN_PROMPT
+from backend.pipeline.context import build_turn_prefix, load_pipeline_context
 from backend.workflows.toolkit import build_offturn_prefix
 
 
@@ -64,9 +65,8 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
 
     ctx = await load_pipeline_context(conv_id)
     assert ctx is not None
-    pipeline_prefix, _ = build_prefixes(ctx, history)
+    pipeline_prefix = build_turn_prefix(ctx, history)
     offturn_prefix = await build_offturn_prefix(conv_id, history, settings)
-    single_agent_prefix = await build_offturn_prefix(conv_id, history, settings, lane="agent")
 
     # Guard against a vacuous pass: the fixture must actually exercise the
     # constant-lorebook and persona sections of the system body.
@@ -77,29 +77,24 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     assert pipeline_prefix[-1]["content"] == "She looks up from the counter."
 
     assert _serialize(offturn_prefix) == _serialize(pipeline_prefix)
-    assert _serialize(single_agent_prefix) == _serialize(pipeline_prefix)
 
-    # Dual-model mode substitutes only the agent system prompt; every other
-    # prefix-shaping byte must still match the pipeline's own agent builder.
+    # A separate Agent lane reads the same prefix; with overrides off the layout's Main prompt replaces the card's.
     endpoint = await client.post_json("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
     await update_settings(
         {
             "agent_same_as_writer": 0,
             "agent_endpoint_id": endpoint["id"],
-            "agent_shared_system_prompt": "Agent-only system prompt.",
             "prevent_prompt_overrides": 1,
         }
     )
-    dual_settings = await get_settings()
     dual_ctx = await load_pipeline_context(conv_id)
-    assert dual_ctx is not None
-    dual_writer_prefix, dual_agent_prefix = build_prefixes(dual_ctx, history)
-    assert dual_agent_prefix is not None
-    offturn_agent_prefix = await build_offturn_prefix(conv_id, history, dual_settings, lane="agent")
+    assert dual_ctx is not None and dual_ctx.agent_client is not None
+    dual_prefix = build_turn_prefix(dual_ctx, history)
+    offturn_dual_prefix = await build_offturn_prefix(conv_id, history, await get_settings())
 
-    assert _serialize(offturn_agent_prefix) == _serialize(dual_agent_prefix)
-    assert _serialize(offturn_agent_prefix) != _serialize(dual_writer_prefix)
-    assert offturn_agent_prefix[0]["content"].startswith("Agent-only system prompt.")
+    assert _serialize(offturn_dual_prefix) == _serialize(dual_prefix)
+    assert _serialize(dual_prefix) != _serialize(pipeline_prefix)
+    assert dual_prefix[0]["content"].startswith(dual_ctx.system_prompt) and dual_ctx.system_prompt == SEED_MAIN_PROMPT
 
 
 @pytest.mark.parametrize("context_mode", ["private", "shared", "swap"])
@@ -143,7 +138,7 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     history = await get_messages(conv_id)
     ctx = await load_pipeline_context(conv_id)
     assert ctx is not None
-    pipeline_prefix, _ = build_prefixes(ctx, history)
+    pipeline_prefix = build_turn_prefix(ctx, history)
 
     # Guard against a vacuous pass: the fixture must exercise the group shape.
     body = pipeline_prefix[0]["content"]
@@ -152,4 +147,3 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     assert {"role": "assistant", "content": "Aria: Aria lifts the torch."} in pipeline_prefix
 
     assert _serialize(await build_offturn_prefix(conv_id, history, settings)) == _serialize(pipeline_prefix)
-    assert _serialize(await build_offturn_prefix(conv_id, history, settings, lane="agent")) == _serialize(pipeline_prefix)

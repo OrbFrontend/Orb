@@ -31,6 +31,9 @@ class CastMember(NamedTuple):
     # In scene but never scheduled to speak. Muted members still contribute their identity to the shared body -- the cast has to
     # know they are there -- but they can never be the *active* speaker, so they are excluded from per-speaker maxima.
     muted: bool = False
+    # {{description}} and {{personality}}: the card's fields, or the scene sheet override and nothing when one is set.
+    description: str = ""
+    personality: str = ""
 
 
 class TurnCast(NamedTuple):

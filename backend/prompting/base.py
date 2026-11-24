@@ -8,7 +8,7 @@ from typing import Any
 from ..core import CardScripts, ChatMessage, ContentPart, Macros, TurnCast
 from ..core.prompt_layout import LayoutBlock, default_layout
 from .group_context import render_cast_section
-from .layout import PrefixInputs, join_history, render_prefix
+from .layout import PrefixInputs, SectionInputs, join_history, render_prefix
 
 
 def format_message_with_attachments(
@@ -104,40 +104,70 @@ def render_history(
     return processed_messages
 
 
-def prefix_inputs(
-    system_prompt: str,
-    char_persona: str,
+def section_inputs(
+    description: str,
     char_scenario: str,
     mes_example: str = "",
     post_history_instructions: str = "",
     macros: Macros | None = None,
     user_description: str = "",
     *,
+    personality: str = "",
+    cast: TurnCast | None = None,
+) -> SectionInputs:
+    """The card and chat sections layout placeholders stand for, macros resolved; a group's card sections are empty."""
+    resolve = macros.resolve_message if macros else (lambda text: text)
+    grouped = bool(cast and cast.grouped)
+    user_desc = resolve(user_description)
+    return SectionInputs(
+        description="" if grouped else resolve(description),
+        personality="" if grouped else resolve(personality),
+        character_heading=not grouped and bool(macros and macros.char),
+        scenario=resolve(char_scenario),
+        examples="" if grouped else resolve(mes_example),
+        instructions=resolve(post_history_instructions),
+        persona=user_desc if user_desc.strip() else "",
+    )
+
+
+def prefix_inputs(
+    system_prompt: str,
+    description: str,
+    char_scenario: str,
+    mes_example: str = "",
+    post_history_instructions: str = "",
+    macros: Macros | None = None,
+    user_description: str = "",
+    *,
+    personality: str = "",
     constant_lorebook_block: str = "",
     extra_system_blocks: Sequence[str] | None = None,
     cast: TurnCast | None = None,
 ) -> PrefixInputs:
-    """Each prefix marker's own text, macros resolved."""
+    """Each prefix marker's own text and the sections, macros resolved."""
     resolve = macros.resolve_message if macros else (lambda text: text)
     grouped = bool(cast and cast.grouped)
-    user_desc = resolve(user_description)
     return PrefixInputs(
-        main_prompt=system_prompt,
-        character="" if grouped else resolve(char_persona),
-        character_heading=not grouped and bool(macros and macros.char),
+        main_prompt=resolve(system_prompt),
         cast=render_cast_section(cast, macros).lstrip("\n") if cast and grouped else "",
         constant_lore=constant_lorebook_block,
-        scenario=resolve(char_scenario),
-        example_dialogue="" if grouped else resolve(mes_example),
-        card_instructions=resolve(post_history_instructions),
-        user_persona=user_desc if user_desc.strip() else "",
         workflow_blocks="\n\n".join(extra_system_blocks or []),
+        sections=section_inputs(
+            description,
+            char_scenario,
+            mes_example,
+            post_history_instructions,
+            macros,
+            user_description,
+            personality=personality,
+            cast=cast,
+        ),
     )
 
 
 def build_prefix(
     system_prompt: str,
-    char_persona: str,
+    description: str,
     char_scenario: str,
     mes_example: str = "",
     post_history_instructions: str = "",
@@ -145,6 +175,7 @@ def build_prefix(
     macros: Macros | None = None,
     user_description: str = "",
     *,
+    personality: str = "",
     constant_lorebook_block: str = "",
     extra_system_blocks: list[str] | None = None,
     cast: TurnCast | None = None,
@@ -155,16 +186,18 @@ def build_prefix(
 ) -> list[ChatMessage]:
     """Build the system message, the layout's pre-history messages, and the rendered history.
 
-    *layout* defaults to :func:`default_layout`, the built-in order.
+    *system_prompt* is the raw Main prompt text; its macros resolve here. *layout* defaults to :func:`default_layout`, the
+    built-in order.
     """
     inputs = prefix_inputs(
         system_prompt,
-        char_persona,
+        description,
         char_scenario,
         mes_example,
         post_history_instructions,
         macros,
         user_description,
+        personality=personality,
         constant_lorebook_block=constant_lorebook_block,
         extra_system_blocks=extra_system_blocks,
         cast=cast,

@@ -58,27 +58,33 @@ def _sub_cast(text: str, cast_names: str) -> str:
     return _outside_literals(text, lambda value: re.sub(r"\{\{cast\}\}", lambda _m: cast_names, value, flags=re.IGNORECASE))
 
 
-_DESCRIPTION_RE = re.compile(r"\{\{description\}\}", re.IGNORECASE)
+_CARD_FIELD_RE = re.compile(r"\{\{(description|personality)\}\}", re.IGNORECASE)
 
 
-def _sub_description(text: str, description: str) -> str:
-    """Substitute the character description literally, dropping nested {{description}}.
-
-    An empty description leaves the macro unresolved for a later pass.
-    """
-    if not text or not isinstance(text, str) or not description:
+def _sub_card_fields(text: str, description: str, personality: str) -> str:
+    """Substitute {{description}} and {{personality}} literally in one pass, each value dropping its own nested macro; an empty
+    field resolves to nothing."""
+    if not text or not isinstance(text, str):
         return text or ""
-    value = _DESCRIPTION_RE.sub("", description)
-    return _outside_literals(text, lambda t: _DESCRIPTION_RE.sub(lambda _m: value, t))
+    values = {
+        name: re.sub(rf"\{{\{{{name}\}}\}}", "", value, flags=re.IGNORECASE)
+        for name, value in (("description", description), ("personality", personality))
+    }
+
+    def one(match: re.Match) -> str:
+        return values[match.group(1).lower()]
+
+    return _outside_literals(text, lambda t: _CARD_FIELD_RE.sub(one, t))
 
 
 def card_description(card: Mapping[str, Any] | None) -> str:
-    """The ``{{description}}`` value for a solo conversation.
-
-    The card's own ``description`` field, alone -- not the ``description`` + ``personality`` join that ``char_context``
-    builds for the persona block. The macro is named after the field, so it carries the field.
-    """
+    """The ``{{description}}`` value for a solo conversation: the card's ``description`` field alone."""
     return str((card or {}).get("description") or "").strip()
+
+
+def card_personality(card: Mapping[str, Any] | None) -> str:
+    """The ``{{personality}}`` value for a solo conversation: the card's ``personality`` field alone."""
+    return str((card or {}).get("personality") or "").strip()
 
 
 _COMMENT_BODY = r"\{\{//(?:\{\{[^{}]*\}\}|(?!\}\})[\s\S])*\}\}"
@@ -239,9 +245,9 @@ def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
 
 
 class Macros(NamedTuple):
-    """Resolve description, names, cast and inline macros for a turn.
+    """Resolve description, personality, names, cast and inline macros for a turn.
 
-    Expand description first so its own macros resolve. A conversation seed keeps
+    Expand the card fields first so their own macros resolve. A conversation seed keeps
     random/roll results stable across prompt rebuilds; an empty seed rolls fresh.
     """
 
@@ -249,10 +255,11 @@ class Macros(NamedTuple):
     char: str
     seed: str = ""
     cast: str = ""
-    # {{description}}: the character's own description prose, from :func:`card_description` solo and from the member's sheet in
-    # a group (``prompting.group_context.member_macros``). Unlike the three above it is a body of text, not a name -- see
-    # :func:`_sub_description`.
+    # {{description}} and {{personality}}: the card's own fields, from :func:`card_description` and :func:`card_personality` solo
+    # and from the member in a group (``prompting.group_context.member_macros``). Unlike the three above they are bodies of
+    # text, not names -- see :func:`_sub_card_fields`.
     description: str = ""
+    personality: str = ""
 
     @classmethod
     def from_settings(
@@ -263,21 +270,23 @@ class Macros(NamedTuple):
         seed: str = "",
         cast: str = "",
         description: str = "",
+        personality: str = "",
     ) -> Macros:
         user = active_persona.get("name", "User") if active_persona else settings.get("user_name", "User")
-        return cls(user=user, char=char_name, seed=seed, cast=cast, description=description)
+        return cls(user=user, char=char_name, seed=seed, cast=cast, description=description, personality=personality)
 
     def resolve_message(self, text: str) -> str:
-        """Full macro resolution ({{description}}, {{user}}/{{char}}, {{cast}} + inline).
+        """Full macro resolution ({{description}}, {{personality}}, {{user}}/{{char}}, {{cast}} + inline).
 
         Names go in before inline macros, so any of them can be a {{random}} option.
         """
-        named = _sub_cast(_sub(_sub_description(text, self.description), self.user, self.char), self.cast)
+        named = _sub_cast(_sub(_sub_card_fields(text, self.description, self.personality), self.user, self.char), self.cast)
         return _resolve_inline(named, seed=self.seed)
 
     def resolve_prompt(self, text: str) -> str:
-        """Only substitution -- {{description}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""
-        return _sub_cast(resolve_prompt(_sub_description(text, self.description), self.user, self.char), self.cast)
+        """Only substitution -- {{description}}, {{personality}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""
+        fields = _sub_card_fields(text, self.description, self.personality)
+        return _sub_cast(resolve_prompt(fields, self.user, self.char), self.cast)
 
     def _resolve_prompt_on_message(self, msg: Mapping[str, Any]) -> dict:
         """Apply prompt-level resolution (substitution only) to a single message dict."""

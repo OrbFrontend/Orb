@@ -440,7 +440,7 @@ async def _generate_fresh(
     history = _cut(_history_through(history if history is not None else ctx.history, int(message["id"])), excerpt)
     picked = excerpt["text"] if excerpt else ""
     if prefix is None:
-        prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
+        prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings)
     macros = await conversation_macros(ctx.conversation_id, ctx.settings, seed="")
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     if reference is not None:
@@ -680,7 +680,7 @@ async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> Workf
         history = _history_through(ctx.history, mid)
     except (ValueError, WorkflowInputError) as exc:
         return _failed_stream(str(exc))
-    prefix = await build_offturn_prefix(ctx.conversation_id, _cut(history, excerpt), ctx.settings, lane="agent")
+    prefix = await build_offturn_prefix(ctx.conversation_id, _cut(history, excerpt), ctx.settings)
     existing = await message_workflow_attachment_ids(mid, WORKFLOW_ID)
 
     async def stream() -> AsyncIterator[PublicEvent]:

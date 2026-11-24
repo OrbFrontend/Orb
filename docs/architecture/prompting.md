@@ -88,8 +88,9 @@ tail rather than the shared prefix, so it may pass `seed=""` and roll
 
 A prompt layout is an ordered list of blocks around a fixed **Chat history**
 divider. `core/prompt_layout.py` holds the vocabulary (block shape, marker ids,
-the built-in blocks and their templates); `prompting/layout.py` renders it. Chat mode reads the
-active layout; Document mode and the Assistant panel do not.
+section placeholders, and the blocks a new layout seeds); `prompting/layout.py`
+renders it. Chat mode reads the active layout; Document mode and the Assistant
+panel do not.
 
 - **Prefix** blocks (above the divider) build the system message and optional
   pre-history messages. Every pass and off-turn workflow call reads them.
@@ -97,34 +98,66 @@ active layout; Document mode and the Assistant panel do not.
   message. The Editor replays that message; the Director never sees it.
   Continue sends no Writer request, so these blocks do not steer it.
 
-A **marker** stands for a built-in section: `main_prompt`, `character`, `cast`,
-`constant_lore`, `scenario`, `example_dialogue`, `card_instructions`,
-`user_persona` and `workflow_blocks` in the prefix; `selected_lore`,
+A **marker** stands for an engine block: `main_prompt`, `cast`,
+`constant_lore` and `workflow_blocks` in the prefix; `selected_lore`,
 `scene_guidance`, `length_nudge`, `cue`, `user_message` and `depth_lore` in the
-Writer request. A marker has a toggle only when no other setting already
-switches it (`character`, `scenario`, `example_dialogue`, `card_instructions`,
-`user_persona`); the group context mode decides what `cast` carries. Only `card_instructions` and custom blocks may cross the
-divider. The group speaker frame always opens the Writer request and the
-"write as" line always closes it; the tool notice renders directly before the
-`length_nudge` marker.
+Writer request. Markers cannot be switched off, deleted, or moved across the
+divider; the setting that drives each one decides whether it renders, and the
+group context mode decides what `cast` carries. The group speaker frame always
+opens the Writer request and the "write as" line always closes it; the tool
+notice renders directly before the `length_nudge` marker. The API's
+`builtin_text` field shows each engine marker's fixed framing, with its dynamic
+part as a bracketed placeholder.
+
+The **Main prompt** marker holds the system prompt text in its `content`. A
+character card's own `system_prompt` replaces that text unless
+`prevent_prompt_overrides` is set (`prompting.char_context`). Either text
+resolves macros with the conversation's seed, as prefix custom blocks do, but
+keeps its whitespace, so text without macros keeps its bytes. Every lane,
+including a separate Agent lane, off-turn calls, and the summarizer read the
+active layout's Main prompt.
+
+Every other block is a **custom block**, including the Character, Scenario,
+Example dialogue, Chat instructions and User persona blocks a new layout seeds
+(`SECTION_BLOCKS` in `core/prompt_layout.py`). A custom block may be edited,
+switched off, deleted, or moved to either side of the divider. Its text may
+name section placeholders:
+
+| Placeholder | Section |
+|---|---|
+| `{{description}}` | A solo card's description; empty in a group, where `cast` carries the cards |
+| `{{personality}}` | A solo card's personality; empty in a group |
+| `{{scenario}}` | The chat's scenario |
+| `{{examples}}` | A solo card's example dialogue; empty in a group |
+| `{{instructions}}` | The chat's instructions; empty under `prevent_prompt_overrides` |
+| `{{persona}}` | The user persona's description |
+
+`{{description}}` and `{{personality}}` are also general macros carrying the
+same card fields; inside layout blocks they are sections, so they stay empty in
+a group. The other placeholders do not resolve outside layout blocks.
 
 Rendering rules:
 
-- A marker's `content` is its template, seeded from `MARKER_TEMPLATES` (for
-  example `## Scenario\n{{content}}`); the backend supplies only the section's
-  own text. The template's macros resolve first, then `{{content}}` is
-  substituted literally, with no second macro pass. A marker whose section is
-  empty renders nothing, whatever its template says, except that a solo
-  `character` keeps its heading when the card has no description.
-- `example_dialogue` fills its template once per `<START>` example and keeps the
-  blank lines between examples. `character` carries a solo card's description;
-  `cast` carries the group cast section, which has its own headings.
-- Enabled `system` blocks join, in order, into one system message with the
-  built-in separators. `user` and `assistant` prefix blocks become messages
-  between the system message and history; adjacent messages with the same role,
-  including the first history row, merge with a blank line.
-- The Writer request is always one user message. Custom blocks there use the
-  `___` divider, as lore does, and roles do not apply.
+- Section values arrive macro-resolved (`prompting.section_inputs`). A block's
+  own macros resolve first, then each placeholder is substituted literally, with
+  no second macro pass. An empty section's placeholder leaves with one
+  blank-line separator beside it, the one before it when there is one, so the
+  seeded Character block reads `heading\ndescription\n\npersonality` with
+  either field missing cleanly. A block naming placeholders renders nothing
+  while all of them are empty, except that a solo Character block keeps its
+  heading. A block naming none renders like any custom block.
+- A block naming `{{examples}}` is filled once per `<START>` example and keeps
+  the blank lines between examples.
+- Every block above the divider has a role. Enabled `system` blocks join, in
+  order, into one system message with the built-in separators; the Main prompt
+  opens it even when empty while its role is `system`. `user` and `assistant`
+  blocks, markers included, become messages between the system message and
+  history; adjacent messages with the same role, including the first history
+  row, merge with a blank line.
+- The Writer request is always one user message, so roles do not apply below
+  the divider. Custom blocks there use the `___` divider, as lore does. Section
+  values reach the Writer through `TurnSetup.sections`, built from the same
+  inputs as the prefix.
 - Prefix blocks resolve with the conversation's macro seed, so their bytes are
   stable across builds. Writer-request blocks roll inline macros fresh each time
   the request is built; the Editor replays the built string, so both passes read
@@ -132,8 +165,9 @@ Rendering rules:
 
 Every turn and off-turn builder renders the same active layout:
 `load_pipeline_context` reads it once into `PipelineContext.layout`, and
-`toolkit.build_offturn_prefix` reads it from `database/`. The summarizer always
-uses the built-in order.
+`toolkit.build_offturn_prefix` reads it from `database/`. Every lane of a turn
+shares one prefix (`pipeline.context.build_turn_prefix`). The summarizer uses
+the built-in order with the active layout's Main prompt text.
 
 The HTTP surface lives in `api/routes/prompt_layouts.py`:
 
@@ -144,5 +178,5 @@ The HTTP surface lives in `api/routes/prompt_layouts.py`:
 | `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the active or last layout) |
 | `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
-| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block, or delete a custom block |
+| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block (custom blocks fully; markers above the divider take a role, the Main prompt its text), or delete a custom block |
 | `PUT /api/prompt-layouts/{id}/order` | Place every block: `{prefix: [...ids], writer: [...ids]}` |

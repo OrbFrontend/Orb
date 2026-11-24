@@ -98,14 +98,7 @@ async def test_selection_extends_the_director_prefix_and_omits_constants_from_it
     )
     if separate_agent:
         endpoint_id = await client.create("/api/endpoints", json={"name": "Agent", "url": "http://agent.local/v1"})
-        await client.put_checked(
-            "/api/settings",
-            json={
-                "agent_same_as_writer": False,
-                "agent_endpoint_id": endpoint_id,
-                "agent_shared_system_prompt": "Coordinate the scene.",
-            },
-        )
+        await client.put_checked("/api/settings", json={"agent_same_as_writer": False, "agent_endpoint_id": endpoint_id})
     cid = await _scene(client, "solo")
 
     for text in ("We travel to Natlan.", "We continue through Natlan."):
@@ -141,10 +134,7 @@ async def test_selection_extends_the_director_prefix_and_omits_constants_from_it
         assert selector["tools"] == director["tools"]
         assert selector["messages"][:-1] == director["messages"][:-1]
         assert director["messages"][0] == editor["messages"][0]
-        if separate_agent:
-            assert "Coordinate the scene." in selector["messages"][0]["content"]
-        else:
-            assert editor["messages"][0] == writer["messages"][0]
+        assert editor["messages"][0] == writer["messages"][0]
         assert "The moon is shattered." in writer["messages"][0]["content"]
         assert editor["messages"][1 : len(writer["messages"])] == writer["messages"][1:]
         assert "Append a health bar." in writer["messages"][-1]["content"]

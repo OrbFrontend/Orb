@@ -29,7 +29,6 @@ def resolve_pipeline_config(
     macros: Macros,
     client: LLMClient,
     agent_client: LLMClient | None,
-    agent_prefix: list[ChatMessage] | None,
     prefix: list[ChatMessage],
     phrase_bank: list[PhraseGroup] | None,
     schema_overrides: Mapping[str, dict],
@@ -83,7 +82,7 @@ def resolve_pipeline_config(
         agent_lane = ModelLane(
             client=agent_client,
             base=CachedBase(
-                prefix=tuple(agent_prefix or prefix),
+                prefix=tuple(prefix),
                 tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
                 model=settings.get("agent_model_name", settings["model_name"]),
                 resolve=macros.resolve_prompt_messages,

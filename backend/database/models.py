@@ -358,7 +358,6 @@ class ModelConfigRow(TypedDict):
     id: int
     endpoint_id: int
     model_name: str
-    system_prompt: str
     temperature: float | None
     min_p: float | None
     top_k: int | None

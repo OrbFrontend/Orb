@@ -93,7 +93,6 @@ def _resolve(settings, enabled_tools):
         macros=_StubMacros(),
         client=LLMClient("http://localhost:9999"),
         agent_client=None,
-        agent_prefix=None,
         prefix=[{"role": "system", "content": "x"}],
         phrase_bank=None,
         schema_overrides={},

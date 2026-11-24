@@ -23,6 +23,7 @@ from ...database import (
     delete_group_family,
     fold_path_state,
     fork_conversation,
+    get_active_layout_blocks,
     get_character_card,
     get_conversation,
     get_conversation_logs,
@@ -410,7 +411,8 @@ async def api_summarize_conversation(
     # Resolve the same effective persona the chat would use (conversation/character
     # lock overrides the global active persona) so a summary stays consistent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
-    system_prompt, char_persona, mes_example = char_context(settings, card)
+    # The built-in order, but the active layout's Main prompt text.
+    card_text = char_context(settings, card, await get_active_layout_blocks())
     macros, user_description = persona_macros(
         settings, char_name, active_persona, seed=conversation_macro_seed(conv), card=card, cast=cast_names
     )
@@ -420,15 +422,16 @@ async def api_summarize_conversation(
     client = client_from_settings(settings, abort_token=abort_token)
     summarizer = ConversationSummarizer(client, settings)
     llm_messages = summarizer.build_messages(
-        system_prompt,
-        char_persona,
+        card_text.system_prompt,
+        card_text.description,
         conv.get("character_scenario", "") or "",
-        mes_example,
+        card_text.mes_example,
         ("" if settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", "")),
         history_slice,
         macros,
         user_description,
         custom_instructions=data.custom_instructions,
+        personality=card_text.personality,
         cast=summary_cast,
         speaker_names=speaker_names,
         revision=(draft, revision) if draft else None,

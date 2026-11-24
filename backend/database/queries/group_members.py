@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from typing import cast as typed_cast
 
-from ...core import CardScripts, CastMember, GroupContextMode, TurnCast
+from ...core import CardScripts, CastMember, GroupContextMode, TurnCast, card_description, card_personality
 from ..connection import immediate_tx, select_rows
 from ..models import ConversationRow, GroupMemberRow
 from .character_cards import get_character_card, render_public_profile
@@ -126,6 +126,8 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
             private_sheet=resolve_private_sheet(card),
             mes_example=str((card or {}).get("mes_example") or ""),
             post_history=str((card or {}).get("post_history_instructions") or ""),
+            description=card_description(card),
+            personality=card_personality(card),
         )
         return TurnCast(False, (member,), member)
 
@@ -134,6 +136,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
     for member in members:
         card_id = member.get("character_card_id")
         card = await get_character_card(card_id) if card_id else None
+        override = member.get("card_sheet_override")
         resolved.append(
             CastMember(
                 member_id=member["id"],
@@ -142,10 +145,12 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 name=member["display_name"],
                 kind=member["member_kind"],
                 public_profile=_public_profile(card, member.get("public_profile_override")),
-                private_sheet=resolve_private_sheet(card, member.get("card_sheet_override")),
+                private_sheet=resolve_private_sheet(card, override),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
                 muted=bool(member.get("muted")),
+                description=card_description(card) if override is None else override,
+                personality=card_personality(card) if override is None else "",
             )
         )
     speaker = next((m for m in resolved if m.member_id == speaker_member_id), None)

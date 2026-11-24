@@ -13,8 +13,8 @@ from .schema import CREATE_TABLES_SQL
 from .seeds import (
     DEFAULT_CONNECTION,
     DEFAULT_ENABLED_TOOLS,
-    DEFAULT_SETTINGS,
     SEED_INTERACTIVE_FRAGMENTS,
+    SEED_MAIN_PROMPT,
     SEED_MOOD_FRAGMENTS,
     SEED_PHRASE_BANK,
     SEED_PROMPT_LAYOUT_NAME,
@@ -105,11 +105,7 @@ async def reset_to_defaults() -> None:
 
 
 async def _seed_settings(db) -> None:
-    s = DEFAULT_SETTINGS
-    await db.execute(
-        "INSERT INTO settings (id, shared_system_prompt, system_prompt, enabled_tools) VALUES (1, ?, ?, ?)",
-        (s["shared_system_prompt"], s["system_prompt"], json.dumps(DEFAULT_ENABLED_TOOLS)),
-    )
+    await db.execute("INSERT INTO settings (id, enabled_tools) VALUES (1, ?)", (json.dumps(DEFAULT_ENABLED_TOOLS),))
 
 
 async def _seed_default_persona(db) -> None:
@@ -130,7 +126,7 @@ async def _seed_default_endpoint(db) -> None:
     config_ids = []
     for role in ("writer", "agent"):
         config = await db.execute(
-            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO model_configs (endpoint_id, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 endpoint_id,
                 c["model_name"],
@@ -186,4 +182,4 @@ async def _seed_phrase_bank(db) -> None:
 
 async def _seed_prompt_layouts(db) -> None:
     await db.execute("INSERT INTO prompt_layouts (id, name) VALUES (?, ?)", (DEFAULT_LAYOUT_ID, SEED_PROMPT_LAYOUT_NAME))
-    await insert_layout_blocks(db, DEFAULT_LAYOUT_ID, default_layout())
+    await insert_layout_blocks(db, DEFAULT_LAYOUT_ID, default_layout(main_prompt=SEED_MAIN_PROMPT))

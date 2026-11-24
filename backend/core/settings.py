@@ -36,8 +36,6 @@ class _SettingsBase(ConnectionSettings):
     on Settings.
     """
 
-    shared_system_prompt: ReadOnly[str]
-    system_prompt: ReadOnly[str]  # the active Writer model config's system_prompt replaces the column's value
     user_name: ReadOnly[str]
     user_description: ReadOnly[str]
     enable_agent: ReadOnly[int]
@@ -61,7 +59,6 @@ class _SettingsBase(ConnectionSettings):
     expression_rendering: ReadOnly[str]
     prevent_prompt_overrides: ReadOnly[int]
     agent_same_as_writer: ReadOnly[bool]
-    agent_shared_system_prompt: ReadOnly[str]
     assistant_instructions: ReadOnly[str]  # empty is the assistant's built-in opening
     assistant_reasoning: ReadOnly[int]
     # Decoded by get_settings(); assistant tool group on/off by group id, missing key => on, so a new group needs no migration.
@@ -138,4 +135,3 @@ class Settings(_SettingsBase, total=False):
     agent_top_p: ReadOnly[float | None]
     agent_repetition_penalty: ReadOnly[float | None]
     agent_max_tokens: ReadOnly[int | None]
-    agent_system_prompt: ReadOnly[str]

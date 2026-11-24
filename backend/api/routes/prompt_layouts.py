@@ -7,7 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from ...core.prompt_layout import CUSTOM_KIND, MARKER_TEMPLATES, MOVABLE_MARKERS, TOGGLEABLE_MARKERS
+from ...core.prompt_layout import CUSTOM_KIND
+from ...core.settings import Settings
 from ...database import (
     PromptLayoutError,
     create_prompt_block,
@@ -17,12 +18,15 @@ from ...database import (
     get_active_prompt_layout_id,
     get_prompt_blocks,
     get_prompt_layout,
+    get_settings,
     list_prompt_layouts,
     rename_prompt_layout,
     reorder_prompt_blocks,
     set_active_prompt_layout,
     update_prompt_block,
 )
+from ...pipeline.passes.editor.length_guard import writer_nudge
+from ...prompting.layout import TOOL_NOTICE, marker_text
 from ..schemas import (
     PromptBlockCreate,
     PromptBlockOrder,
@@ -39,19 +43,42 @@ def _refused(error: PromptLayoutError) -> HTTPException:
     return HTTPException(status_code=409, detail=str(error))
 
 
-def _block_view(row: Mapping[str, Any]) -> dict[str, Any]:
-    """A block row plus what the editor may do with it."""
-    custom = row["kind"] == CUSTOM_KIND
-    return {
-        **row,
-        "toggleable": custom or row["kind"] in TOGGLEABLE_MARKERS,
-        "movable": custom or row["kind"] in MOVABLE_MARKERS,
-        "default_content": MARKER_TEMPLATES.get(row["kind"], ""),
-    }
+# What an engine marker's dynamic part stands for, shown in its fixed framing.
+_MARKER_PLACEHOLDERS: dict[str, str] = {
+    "cast": "[The group's cast and each member's sheet]",
+    "constant_lore": "[Constant lore entries]",
+    "workflow_blocks": "[Text that enabled workflows add]",
+    "selected_lore": "[Lore entries chosen for this turn]",
+    "scene_guidance": "[The Director's guidance for this turn]",
+    "cue": "[The Director's cue for this speaker]",
+    "user_message": "[The user's message]",
+    "depth_lore": "[Depth lore entries]",
+}
+
+
+def _builtin_text(kind: str, settings: Settings) -> str:
+    """The text the engine sends for a marker, with its dynamic part as a placeholder; empty for editable blocks."""
+    if kind == "length_nudge":
+        nudge = writer_nudge(
+            {
+                "enforce": True,
+                "max_words": int(settings.get("length_guard_max_words", 240)),
+                "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
+            }
+        )
+        return f"[When the request carries tool schemas]\n{TOOL_NOTICE}{nudge.strip()}"
+    placeholder = _MARKER_PLACEHOLDERS.get(kind)
+    return marker_text(kind, placeholder) if placeholder else ""
+
+
+def _block_view(row: Mapping[str, Any], settings: Settings) -> dict[str, Any]:
+    """A block row plus the built-in text a marker sends."""
+    return {**row, "builtin_text": "" if row["kind"] == CUSTOM_KIND else _builtin_text(row["kind"], settings)}
 
 
 async def _blocks(layout_id: str) -> list[dict[str, Any]]:
-    return [_block_view(row) for row in await get_prompt_blocks(layout_id)]
+    settings = await get_settings()
+    return [_block_view(row, settings) for row in await get_prompt_blocks(layout_id)]
 
 
 @router.get("/api/prompt-layouts")
@@ -106,7 +133,7 @@ async def api_list_prompt_blocks(layout_id: str):
 @router.post("/api/prompt-layouts/{layout_id}/blocks")
 async def api_create_prompt_block(layout_id: str, data: PromptBlockCreate):
     try:
-        return _block_view(await create_prompt_block(layout_id, data.model_dump()))
+        return _block_view(await create_prompt_block(layout_id, data.model_dump()), await get_settings())
     except LookupError:
         raise HTTPException(status_code=404, detail="Prompt layout not found") from None
     except PromptLayoutError as error:
@@ -116,12 +143,12 @@ async def api_create_prompt_block(layout_id: str, data: PromptBlockCreate):
 @router.put("/api/prompt-layouts/{layout_id}/order")
 async def api_reorder_prompt_blocks(layout_id: str, data: PromptBlockOrder):
     try:
-        rows = await reorder_prompt_blocks(layout_id, data.prefix, data.writer)
+        await reorder_prompt_blocks(layout_id, data.prefix, data.writer)
     except LookupError:
         raise HTTPException(status_code=404, detail="Prompt layout not found") from None
     except PromptLayoutError as error:
         raise _refused(error) from None
-    return [_block_view(row) for row in rows]
+    return await _blocks(layout_id)
 
 
 @router.patch("/api/prompt-blocks/{block_id}")
@@ -132,7 +159,7 @@ async def api_update_prompt_block(block_id: str, data: PromptBlockUpdate):
         raise _refused(error) from None
     if row is None:
         raise HTTPException(status_code=404, detail="Prompt block not found")
-    return _block_view(row)
+    return _block_view(row, await get_settings())
 
 
 @router.delete("/api/prompt-blocks/{block_id}")

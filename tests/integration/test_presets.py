@@ -160,11 +160,11 @@ async def test_export_strips_api_keys_by_default(client, db_path):
 
 async def test_export_without_configs_scrubs_keys(client, db_path):
     await _set_active_endpoint_key(client, "sk-secret")
-    await client.put_checked("/api/settings", json={"system_prompt": "private"})
+    await client.put_checked("/api/settings", json={"user_description": "private"})
     name = (await client.post_json("/api/presets/export", json={"domains": ["characters"]}))["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
     assert conn.execute("SELECT COUNT(*) FROM endpoints").fetchone()[0] == 0
-    assert conn.execute("SELECT system_prompt FROM settings WHERE id=1").fetchone()[0] == ""
+    assert conn.execute("SELECT user_description FROM settings WHERE id=1").fetchone()[0] == ""
 
 
 # -- snapshot / restore -----------------------------------------------------

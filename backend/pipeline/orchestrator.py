@@ -12,6 +12,7 @@ from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
 from ..prompting import prefix_cache_shape
+from ..prompting.layout import SectionInputs
 from .config import resolve_pipeline_config, split_interactive_fragments
 from .events import CoreTurnEvent, PipelineEvent, PublicTurnEvent, ResultEvent
 from .failures import (
@@ -135,7 +136,6 @@ async def run_pipeline(
     phrase_bank: list[PhraseGroup] | None = None,
     editor_audit_history: Sequence[Mapping[str, Any]] | None = None,
     agent_client: LLMClient | None = None,
-    agent_prefix: list[ChatMessage] | None = None,
     macros: Macros | None = None,
     conversation_id: str | None = None,
     character_id: str | None = None,
@@ -160,7 +160,7 @@ async def run_pipeline(
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
     layout: Sequence[LayoutBlock] | None = None,
-    chat_instructions: str = "",
+    sections: SectionInputs | None = None,
 ) -> AsyncIterator[PipelineEvent]:
     """Run the director -> writer -> editor passes for one turn.
 
@@ -186,7 +186,6 @@ async def run_pipeline(
         macros=macros,
         client=client,
         agent_client=agent_client,
-        agent_prefix=agent_prefix,
         prefix=prefix,
         phrase_bank=phrase_bank,
         schema_overrides=schema_overrides,
@@ -245,7 +244,7 @@ async def run_pipeline(
             macros=macros,
             context_mode=context_mode,
             layout=layout,
-            chat_instructions=chat_instructions,
+            sections=sections,
         ),
     ):
         yield ev

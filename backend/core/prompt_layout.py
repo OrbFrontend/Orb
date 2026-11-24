@@ -1,7 +1,8 @@
-"""The prompt layout's vocabulary: block shape, marker ids, and the built-in blocks every layout starts from."""
+"""The prompt layout's vocabulary: block shape, marker ids, section placeholders, and the blocks every layout starts from."""
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -11,34 +12,13 @@ LayoutRole = Literal["system", "user", "assistant"]
 CUSTOM_KIND = "custom"
 DEFAULT_LAYOUT_ID = "default"
 
-PREFIX_MARKERS: tuple[str, ...] = (
-    "main_prompt",
-    "character",
-    "cast",
-    "constant_lore",
-    "scenario",
-    "example_dialogue",
-    "card_instructions",
-    "user_persona",
-    "workflow_blocks",
-)
+PREFIX_MARKERS: tuple[str, ...] = ("main_prompt", "cast", "constant_lore", "workflow_blocks")
 WRITER_MARKERS: tuple[str, ...] = ("selected_lore", "scene_guidance", "length_nudge", "cue", "user_message", "depth_lore")
 MARKERS: tuple[str, ...] = PREFIX_MARKERS + WRITER_MARKERS
-# A marker gets a toggle only when no other setting already switches it; the group context mode decides what ``cast`` carries.
-TOGGLEABLE_MARKERS: frozenset[str] = frozenset(
-    {"character", "scenario", "example_dialogue", "card_instructions", "user_persona"}
-)
-MOVABLE_MARKERS: frozenset[str] = frozenset({"card_instructions"})
-
 MARKER_LABELS: dict[str, str] = {
     "main_prompt": "Main prompt",
-    "character": "Character",
     "cast": "Group cast",
     "constant_lore": "Constant lore",
-    "scenario": "Scenario",
-    "example_dialogue": "Example dialogue",
-    "card_instructions": "Chat instructions",
-    "user_persona": "User persona",
     "workflow_blocks": "Workflow blocks",
     "selected_lore": "Selected lore",
     "scene_guidance": "Scene guidance",
@@ -48,25 +28,30 @@ MARKER_LABELS: dict[str, str] = {
     "depth_lore": "Depth lore",
 }
 
-# Each marker's seeded template; ``{{content}}`` is the section's own text and a marker with no text renders nothing.
-_DIVIDED = "___\n\n{{content}}"
-MARKER_TEMPLATES: dict[str, str] = {
-    "main_prompt": "{{content}}",
-    "character": "## Character: {{char}}\n{{content}}",
-    "cast": "{{content}}",
-    "constant_lore": "{{content}}",
-    "scenario": "## Scenario\n{{content}}",
-    "example_dialogue": "## Example Dialogue\n{{content}}",
-    "card_instructions": "## Additional Instructions\n{{content}}",
-    "user_persona": "## User: {{user}}\n{{content}}",
-    "workflow_blocks": "{{content}}",
-    "selected_lore": _DIVIDED,
-    "scene_guidance": _DIVIDED,
-    "length_nudge": "{{content}}",
-    "cue": "## Your cue\n{{content}}",
-    "user_message": _DIVIDED,
-    "depth_lore": _DIVIDED,
-}
+# Placeholders a block's text may name, each standing for one card or chat section.
+SECTION_PLACEHOLDERS: tuple[str, ...] = ("description", "personality", "scenario", "examples", "instructions", "persona")
+
+# The section blocks every new layout seeds: (id suffix, label, text).
+SECTION_BLOCKS: tuple[tuple[str, str, str], ...] = (
+    ("character", "Character", "## Character: {{char}}\n{{description}}\n\n{{personality}}"),
+    ("scenario", "Scenario", "## Scenario\n{{scenario}}"),
+    ("example_dialogue", "Example dialogue", "## Example Dialogue\n{{examples}}"),
+    ("card_instructions", "Chat instructions", "## Additional Instructions\n{{instructions}}"),
+    ("user_persona", "User persona", "## User: {{user}}\n{{persona}}"),
+)
+
+_SEED_ORDER: tuple[str, ...] = (
+    "main_prompt",
+    "character",
+    "cast",
+    "constant_lore",
+    "scenario",
+    "example_dialogue",
+    "card_instructions",
+    "user_persona",
+    "workflow_blocks",
+    *WRITER_MARKERS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,16 +74,30 @@ def marker_block_id(layout_id: str, kind: str) -> str:
     return f"{layout_id}:{kind}"
 
 
-def default_layout(layout_id: str = DEFAULT_LAYOUT_ID) -> tuple[LayoutBlock, ...]:
-    """The built-in blocks: every marker in order with its seeded template."""
-    return tuple(
-        LayoutBlock(
-            id=marker_block_id(layout_id, kind),
-            kind=kind,
-            label=MARKER_LABELS[kind],
-            content=MARKER_TEMPLATES[kind],
-            region=marker_region(kind),
-            sort_order=index,
-        )
-        for index, kind in enumerate(MARKERS)
-    )
+def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str:
+    """The layout's Main prompt text; empty when the layout has none."""
+    return next((block.content for block in blocks if block.kind == "main_prompt"), "")
+
+
+def default_layout(layout_id: str = DEFAULT_LAYOUT_ID, main_prompt: str = "") -> tuple[LayoutBlock, ...]:
+    """The starting blocks: every marker and section block in the built-in order, the Main prompt holding *main_prompt*."""
+    sections = {key: (label, text) for key, label, text in SECTION_BLOCKS}
+    blocks: list[LayoutBlock] = []
+    for index, key in enumerate(_SEED_ORDER):
+        if key in sections:
+            label, text = sections[key]
+            blocks.append(
+                LayoutBlock(id=marker_block_id(layout_id, key), kind=CUSTOM_KIND, label=label, content=text, sort_order=index)
+            )
+        else:
+            blocks.append(
+                LayoutBlock(
+                    id=marker_block_id(layout_id, key),
+                    kind=key,
+                    label=MARKER_LABELS[key],
+                    content=main_prompt if key == "main_prompt" else "",
+                    region=marker_region(key),
+                    sort_order=index,
+                )
+            )
+    return tuple(blocks)

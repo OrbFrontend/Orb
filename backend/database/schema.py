@@ -5,9 +5,6 @@ import re
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    shared_system_prompt TEXT NOT NULL DEFAULT '',
-    -- Read only while no Writer model config is active; the active config's system_prompt replaces it otherwise.
-    system_prompt TEXT NOT NULL DEFAULT '',
     user_name TEXT NOT NULL DEFAULT 'User',
     user_description TEXT NOT NULL DEFAULT '',
     enabled_tools TEXT NOT NULL DEFAULT '{}',
@@ -37,7 +34,6 @@ CREATE TABLE IF NOT EXISTS settings (
     prevent_prompt_overrides INTEGER NOT NULL DEFAULT 0,
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
-    agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
     assistant_instructions TEXT NOT NULL DEFAULT '',
     assistant_reasoning INTEGER NOT NULL DEFAULT 0,
     assistant_tool_groups TEXT NOT NULL DEFAULT '{}',
@@ -335,7 +331,6 @@ CREATE TABLE IF NOT EXISTS model_configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
     model_name TEXT NOT NULL,
-    system_prompt TEXT NOT NULL DEFAULT '',
     -- NULL means omit the field from provider requests and use its default.
     temperature REAL DEFAULT 0.8,
     min_p REAL DEFAULT 0.0,
