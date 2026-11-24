@@ -42,12 +42,11 @@ from ..inference import (
 from ..prompting import (
     build_prefix,
     char_context,
-    chat_instructions,
     conversation_macro_seed,
+    conversation_sections,
     macro_identity,
     persona_macros,
     resolve_persona_id,
-    section_inputs,
 )
 from ..prompting.layout import SectionInputs
 from ..prompting.lorebook import (
@@ -85,9 +84,9 @@ class PipelineContext:
     lorebook_entries: list[ActiveLorebookEntryRow]
     client: LLMClient
     system_prompt: str
-    description: str
-    personality: str
-    mes_example: str
+    # The conversation's macros, and the card and chat sections layout blocks name, resolved through them.
+    macros: Macros
+    sections: SectionInputs
     active_persona: UserPersonaRow | None
     agent_client: LLMClient | None
     # Every World row, unfiltered. Read by the Dynamic Worlds stage, which narrows it to its mutation targets through
@@ -146,6 +145,10 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
     client = client_from_settings(settings, abort_token=abort_token)
     layout = await db.get_active_layout_blocks()
     card_text = char_context(settings, card, layout)
+    macro_char, cast_names = macro_identity(conv, cast)
+    macros, user_description = persona_macros(
+        settings, macro_char, active_persona, seed=conversation_macro_seed(conv), card=card, cast=cast_names
+    )
     agent_client = (
         agent_client_from_settings(settings, abort_token=abort_token) if separate_agent_lane_configured(settings) else None
     )
@@ -161,9 +164,8 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         lorebook_entries=lorebook_entries,
         client=client,
         system_prompt=card_text.system_prompt,
-        description=card_text.description,
-        personality=card_text.personality,
-        mes_example=card_text.mes_example,
+        macros=macros,
+        sections=conversation_sections(settings, conv, card_text, macros, user_description, cast),
         active_persona=active_persona,
         agent_client=agent_client,
         worlds=worlds,
@@ -251,28 +253,6 @@ async def resolve_card_and_persona(
     return card, persona
 
 
-def _ctx_macros(ctx: PipelineContext) -> tuple[Macros, str]:
-    macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
-    return persona_macros(
-        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), card=ctx.card, cast=cast_names
-    )
-
-
-def turn_sections(ctx: PipelineContext) -> SectionInputs:
-    """The card and chat sections the turn's prefix renders, for Writer-request blocks that name them."""
-    macros, user_description = _ctx_macros(ctx)
-    return section_inputs(
-        ctx.description,
-        ctx.conv["character_scenario"],
-        ctx.mes_example,
-        chat_instructions(ctx.settings, ctx.conv),
-        macros,
-        user_description,
-        personality=ctx.personality,
-        cast=ctx.cast,
-    )
-
-
 def build_turn_prefix(
     ctx: PipelineContext,
     history: Sequence[Mapping[str, Any]],
@@ -283,20 +263,13 @@ def build_turn_prefix(
 
     *speaker* applies to every pass, so the Editor's lane sees the same cast as the Writer it is auditing.
     """
-    conv = ctx.conv
-    macros, user_description = _ctx_macros(ctx)
     cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
     return build_prefix(
         ctx.system_prompt,
-        ctx.description,
-        conv["character_scenario"],
-        ctx.mes_example,
-        chat_instructions(ctx.settings, conv),
+        ctx.sections,
         history,
-        macros,
-        user_description,
-        personality=ctx.personality,
-        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
+        ctx.macros,
+        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, ctx.macros),
         cast=cast,
         speaker_names=ctx.speaker_names,
         scripts=ctx.card_scripts,
@@ -309,8 +282,8 @@ def build_turn_prefix(
 class TurnSetup:
     """Per-turn inputs produced by :func:`prepare_turn`, ready for ``run_pipeline``.
 
-    Holds the shared prefix, the merged tool-enable map, macros, the
-    sections Writer-request blocks may name, lorebook block, scratch dict, KV tracker, and dynamic-schema map.
+    Holds the shared prefix, the merged tool-enable map, macros, lorebook block, scratch dict, KV tracker, and dynamic-schema
+    map.
     """
 
     prefix: list[ChatMessage]
@@ -320,7 +293,6 @@ class TurnSetup:
     turn_scratch: dict
     kv_tracker: KVCacheTracker
     schema_overrides: Mapping[str, dict]
-    sections: SectionInputs = field(default_factory=SectionInputs)
     # Identity of the Worlds this turn may propose changes to; None when no enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
 
@@ -358,9 +330,8 @@ async def prepare_turn(
     lorebook_messages: Sequence[Mapping[str, Any]],
 ) -> AsyncIterator[PublicTurnEvent | TurnSetup]:
     """Load and freeze per-turn context."""
-    macro_char, _ = macro_identity(ctx.conv, ctx.cast)
-    macros, _ = _ctx_macros(ctx)
-
+    macros = ctx.macros
+    macro_char = macros.char
     prefix_base = build_turn_prefix(ctx, history)
 
     turn_scratch: dict = {}
@@ -429,6 +400,5 @@ async def prepare_turn(
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
-        sections=turn_sections(ctx),
         world_proposal=world_proposal,
     )

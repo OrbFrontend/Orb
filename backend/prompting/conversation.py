@@ -9,9 +9,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple
 
-from ..core import Macros, card_description, card_personality, fill_original
+from ..core import Macros, TurnCast, card_description, card_personality, fill_original
 from ..core.prompt_layout import LayoutBlock, main_prompt_text
 from ..core.settings import Settings
+from .layout import SectionInputs
 
 
 def resolve_persona_id(conv: Mapping[str, Any], card: Mapping[str, Any] | None, settings: Settings) -> int | None:
@@ -89,3 +90,26 @@ def chat_instructions(settings: Settings, conv: Mapping[str, Any]) -> str:
     if settings.get("prevent_prompt_overrides"):
         return ""
     return fill_original(str(conv.get("post_history_instructions", "") or ""), "")
+
+
+def conversation_sections(
+    settings: Settings,
+    conv: Mapping[str, Any],
+    card_text: CharContext,
+    macros: Macros,
+    user_description: str,
+    cast: TurnCast | None = None,
+) -> SectionInputs:
+    """The card and chat sections layout placeholders stand for, macros resolved; a group's card sections are empty."""
+    resolve = macros.resolve_message
+    solo = not (cast and cast.grouped)
+    persona = resolve(user_description)
+    return SectionInputs(
+        description=resolve(card_text.description) if solo else "",
+        personality=resolve(card_text.personality) if solo else "",
+        character_heading=solo and bool(macros.char),
+        scenario=resolve(conv.get("character_scenario") or ""),
+        examples=resolve(card_text.mes_example) if solo else "",
+        instructions=resolve(chat_instructions(settings, conv)),
+        persona=persona if persona.strip() else "",
+    )

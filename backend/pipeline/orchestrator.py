@@ -27,7 +27,7 @@ from .failures import (
 )
 from .passes.director import apply_state_step_result, cooldown, director_stage, state_event_payload
 from .passes.editor import editor_stage
-from .passes.judge import JudgeConfig, JudgeResult
+from .passes.judge import JudgeConfig, JudgeResult, headed_decisions
 from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
@@ -117,7 +117,7 @@ async def run_director_stage(
             macros=macros,
             speaker_keys=speaker_keys,
             director_decision_guidance=state.director_decision_guidance,
-            writer_decision_guidance=state.writer_decision_guidance,
+            writer_decision_guidance=headed_decisions(state.writer_decisions),
         ):
             yield ev
     except Exception as exc:

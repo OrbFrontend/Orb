@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, NotRequired, TypedDict
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
+from ..core.prompt_layout import LayoutRegion, LayoutRole
 
 
 # A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the two ``{"kind": ...}`` dicts; the bare
@@ -556,8 +557,8 @@ class PromptBlockRow(TypedDict):
     kind: str
     label: str
     content: str
-    role: str
-    region: str
+    role: LayoutRole
+    region: LayoutRegion
     sort_order: int
     enabled: int
 

@@ -11,9 +11,9 @@ from ..core.prompt_layout import CUSTOM_KIND, LayoutBlock
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
-    chat_instructions,
     compute_style_injection_block,
     conversation_macro_seed,
+    conversation_sections,
     group_context,
     headed_scene_guidance,
     macro_identity,
@@ -58,27 +58,17 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     layout = await db.get_active_layout_blocks()
     card_text = char_context(settings, card, layout)
     system_prompt = macros.resolve_message(card_text.system_prompt)
-    mes_example = card_text.mes_example
-
-    persona_text = "\n\n".join(
-        filter(None, [macros.resolve_message(card_text.description), macros.resolve_message(card_text.personality)])
-    )
-    scenario_text = macros.resolve_message(conv.get("character_scenario", "") or "")
-    mes_text = macros.resolve_message(mes_example or "")
-    post_text = macros.resolve_message(chat_instructions(settings, conv))
+    # The same sections the prefix renders: a group's card-derived ones are empty, the group components below stand in.
+    sections = conversation_sections(settings, conv, card_text, macros, user_desc, turn_cast)
+    persona_text = "\n\n".join(filter(None, [sections.description, sections.personality]))
     # The group breakdown follows the context mode: the shared body once, plus the largest single speaker's share of it,
     # rendered through the same projection the prompt uses.
     group_components: list[tuple[str, str]] = []
     if turn_cast.grouped:
-        # The card-derived halves are replaced by the group components below; `post_text` is the *scene's* directive, which
-        # `build_prefix` still renders into the shared body for a group, so it keeps being billed.
-        persona_text = ""
-        mes_text = ""
         group_components = group_context.context_size_components(
             turn_cast, macros, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
         )
-    resolved_user_desc = macros.resolve_message(user_desc)
-    user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
+    user_persona_text = f"## User: {macros.user}\n{sections.persona}" if sections.persona else ""
     # Project the history through the same macros, card scripts, and group labels used by the model-facing prefix.
     history = render_history(
         messages,
@@ -117,11 +107,11 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     components = [
         ("system_prompt", len(system_prompt or "")),
         ("char_persona", len(persona_text)),
-        ("scenario", len(scenario_text)),
-        ("mes_example", len(mes_text)),
+        ("scenario", len(sections.scenario)),
+        ("mes_example", len(sections.examples)),
         ("user_persona", len(user_persona_text)),
         ("messages", msg_chars),
-        ("post_history", len(post_text)),
+        ("post_history", len(sections.instructions)),
         ("director_injection", len(inj_block)),
         ("lorebook", len(lorebook.writer_block((), macros))),
         ("lorebook_constant", len(compute_constant_lorebook_block(lorebook_entries, macros))),

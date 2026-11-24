@@ -158,7 +158,7 @@ def speaker_instructions(member: CastMember, *, prevent_prompt_overrides: bool) 
 def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_prompt_overrides: bool) -> list[str]:
     """The member's own fields the trailing Writer message carries, in order.
 
-    Derived from :func:`tail_carries_identity`, so this and the tail ``build_writer_content`` actually renders cannot disagree
+    Derived from :func:`tail_carries_identity`, so this and the tail ``writer_stage`` actually renders cannot disagree
     about *which* fields ship -- only about the headings wrapped around them, which the size estimator does not need.
     """
     fields = [member.private_sheet, member.mes_example] if tail_carries_identity(mode) else []

@@ -62,6 +62,7 @@ from ...pipeline import estimate_context_size, remap_decision_anchors, resolve_c
 from ...prompting import (
     char_context,
     conversation_macro_seed,
+    conversation_sections,
     macro_identity,
     persona_macros,
 )
@@ -423,15 +424,10 @@ async def api_summarize_conversation(
     summarizer = ConversationSummarizer(client, settings)
     llm_messages = summarizer.build_messages(
         card_text.system_prompt,
-        card_text.description,
-        conv.get("character_scenario", "") or "",
-        card_text.mes_example,
-        ("" if settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", "")),
+        conversation_sections(settings, conv, card_text, macros, user_description, summary_cast),
         history_slice,
         macros,
-        user_description,
         custom_instructions=data.custom_instructions,
-        personality=card_text.personality,
         cast=summary_cast,
         speaker_names=speaker_names,
         revision=(draft, revision) if draft else None,

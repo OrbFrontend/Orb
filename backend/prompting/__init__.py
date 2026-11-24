@@ -1,11 +1,12 @@
 """Deterministic, provider-independent model-facing construction."""
 
-from .base import build_prefix, format_message_with_attachments, group_speaker_label, render_history, section_inputs
+from .base import build_prefix, format_message_with_attachments, group_speaker_label, render_history
 from .conversation import (
     CharContext,
     char_context,
     chat_instructions,
     conversation_macro_seed,
+    conversation_sections,
     persona_macros,
     resolve_persona_id,
 )

@@ -109,6 +109,15 @@ function _setNote(text) {
   if (_viewId === _activeId) _note = text;
 }
 
+// Runs *fn*, showing a refused request as a toast.
+async function _attempt(fn) {
+  try {
+    await fn();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 async function saveOrder(container) {
   const prefix = [];
   const writer = [];
@@ -117,32 +126,24 @@ async function saveOrder(container) {
     if (row.classList.contains("pl-divider")) below = true;
     else (below ? writer : prefix).push(row.dataset.id);
   }
-  const crossed = [...prefix.map((id) => [id, "prefix"]), ...writer.map((id) => [id, "writer"])].filter(
-    ([id, region]) => _byId(id)?.region !== region,
-  );
-  if (crossed.some(([id]) => _isMarker(_byId(id) || {}))) {
-    toast("Built-in blocks stay on their side of the chat history", true);
-    render();
-    return;
-  }
-  if (crossed.some(([, region]) => region === "prefix")) _setNote(PREFIX_NOTE);
-  try {
+  const prefixChanged =
+    _ordered("prefix")
+      .map((b) => b.id)
+      .join() !== prefix.join();
+  await _attempt(async () => {
     _blocks = await api.put(`/prompt-layouts/${_viewId}/order`, { prefix, writer });
-  } catch (e) {
-    toast(e.message, true);
-  }
+    if (prefixChanged) _setNote(PREFIX_NOTE);
+  });
   render();
 }
 
 async function toggleBlock(id, enabled) {
   const block = _byId(id);
   if (!block) return;
-  try {
+  await _attempt(async () => {
     Object.assign(block, await api.patch(`/prompt-blocks/${id}`, { enabled }));
     if (block.region === "prefix") _setNote(PREFIX_NOTE);
-  } catch (e) {
-    toast(e.message, true);
-  }
+  });
   render();
 }
 
@@ -182,31 +183,28 @@ async function saveBlock(id) {
   if (!block || _editable(block)) data.content = $("pl-content").value;
   if (!block || !_isMarker(block)) data.label = $("pl-label").value;
   if ($("pl-role")) data.role = $("pl-role").value;
-  try {
+  await _attempt(async () => {
     if (!block) _blocks.push(await api.post(`/prompt-layouts/${_viewId}/blocks`, data));
     else if (Object.entries(data).some(([key, value]) => block[key] !== value))
       Object.assign(block, await api.patch(`/prompt-blocks/${id}`, data));
     else return closeModal();
-    if ((block?.region || "writer") === "prefix") _setNote(PREFIX_NOTE);
+    if (block?.region === "prefix") _setNote(PREFIX_NOTE);
     closeModal();
     render();
-  } catch (e) {
-    toast(e.message, true);
-  }
+  });
 }
 
 function deleteBlock(id) {
   const block = _byId(id);
-  confirmDelete("Block", `Delete "${esc(block?.label || "Untitled block")}"?`, async () => {
-    try {
+  confirmDelete("Block", `Delete "${esc(block?.label || "Untitled block")}"?`, () =>
+    _attempt(async () => {
       await api.del(`/prompt-blocks/${id}`);
       _blocks = _blocks.filter((b) => b.id !== id);
+      if (block?.region === "prefix") _setNote(PREFIX_NOTE);
       closeModal();
       render();
-    } catch (e) {
-      toast(e.message, true);
-    }
-  });
+    }),
+  );
 }
 
 function nameModal(title, value, action) {
@@ -221,45 +219,42 @@ function nameModal(title, value, action) {
   );
 }
 
-async function createLayout(copyFrom) {
+// Saves the name modal through *save*, then reloads the layouts.
+async function saveName(save) {
   const name = $("pl-layout-name").value.trim();
   if (!name) return toast("A layout needs a name", true);
-  try {
-    const layout = await api.post("/prompt-layouts", { name, copy_from: copyFrom });
-    _viewId = layout.id;
-    _note = "";
+  await _attempt(async () => {
+    await save(name);
     closeModal();
     await loadPromptLayout();
-  } catch (e) {
-    toast(e.message, true);
-  }
+  });
 }
 
-async function renameLayout() {
-  const name = $("pl-layout-name").value.trim();
-  if (!name) return toast("A layout needs a name", true);
-  try {
-    await api.patch(`/prompt-layouts/${_viewId}`, { name });
-    closeModal();
-    await loadPromptLayout();
-  } catch (e) {
-    toast(e.message, true);
-  }
-}
+const createLayout = (copyFrom) =>
+  saveName(async (name) => {
+    _viewId = (await api.post("/prompt-layouts", { name, copy_from: copyFrom })).id;
+    _note = "";
+  });
 
 const _viewed = () => _layouts.find((l) => l.id === _viewId);
 
 function deleteLayout() {
-  confirmDelete("Layout", `Delete "${esc(_viewed()?.name || "")}" and its blocks?`, async () => {
-    try {
+  confirmDelete("Layout", `Delete "${esc(_viewed()?.name || "")}" and its blocks?`, () =>
+    _attempt(async () => {
       await api.del(`/prompt-layouts/${_viewId}`);
       _viewId = _activeId;
       await loadPromptLayout();
-    } catch (e) {
-      toast(e.message, true);
-    }
-  });
+    }),
+  );
 }
+
+const activateLayout = () =>
+  _attempt(async () => {
+    await api.put("/prompt-layouts/active", { id: _viewId });
+    _activeId = _viewId;
+    _setNote(PREFIX_NOTE);
+    await loadPromptLayout();
+  });
 
 registerActions("prompt-layout", {
   view: async (el) => {
@@ -267,22 +262,13 @@ registerActions("prompt-layout", {
     _note = "";
     await loadPromptLayout();
   },
-  activate: async () => {
-    try {
-      await api.put("/prompt-layouts/active", { id: _viewId });
-      _activeId = _viewId;
-      _setNote(PREFIX_NOTE);
-      await loadPromptLayout();
-    } catch (e) {
-      toast(e.message, true);
-    }
-  },
+  activate: () => activateLayout(),
   new: () => nameModal("New Layout", "", "createNew"),
   duplicate: () => nameModal("Copy Layout", `${_viewed()?.name || "Layout"} copy`, "createCopy"),
   rename: () => nameModal("Rename Layout", _viewed()?.name || "", "saveName"),
   createNew: () => createLayout(null),
   createCopy: () => createLayout(_viewId),
-  saveName: () => renameLayout(),
+  saveName: () => saveName((name) => api.patch(`/prompt-layouts/${_viewId}`, { name })),
   delete: () => deleteLayout(),
   add: () => openBlock(null),
   open: (el, e) => {

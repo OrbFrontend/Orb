@@ -172,10 +172,6 @@ class JudgeResult:
         return decision_guidance_block(self.evaluations, "director")
 
     @property
-    def writer_guidance(self) -> str:
-        return decision_guidance_block(self.evaluations, "writer")
-
-    @property
     def writer_lines(self) -> str:
         return decision_guidance_lines(self.evaluations, "writer")
 
@@ -191,7 +187,6 @@ class JudgeResult:
         state.decision_evaluations = envelope(self.evaluations, self.skipped)
         state.decision_cooldowns = dict(self.cooldowns)
         state.director_decision_guidance = self.director_guidance
-        state.writer_decision_guidance = self.writer_guidance
         state.writer_decisions = self.writer_lines
 
 

@@ -649,7 +649,7 @@ async def director_stage(
             scene_extra,
         )
     )
-    state.scene_direction = headed_scene_guidance(state.scene_guidance)
+    scene_direction = headed_scene_guidance(state.scene_guidance)
 
     # Multiple-entry fields updated before the Writer reflect on the scene
     # direction just set, so they need an active scene-direction step.
@@ -664,7 +664,7 @@ async def director_stage(
             view=view,
             placement="before_writer",
             known_ids=offered_state_ids(cfg.agent_lane.base),
-            scene_direction=state.scene_direction,
+            scene_direction=scene_direction,
             decision_guidance=director_decision_guidance,
             user_message=state.user_message,
             kv_tracker=kv_tracker,
@@ -700,7 +700,7 @@ async def director_stage(
             block = (writer_decision_guidance + "\n\n" + block).strip()
         return block
 
-    state.inj_block = injection_block(state.scene_direction)
+    state.inj_block = injection_block(scene_direction)
     # The Inspector can hide the mood prompts, which the user picked and can already read. None when no mood prompt rendered.
     without_moods = injection_block(
         headed_scene_guidance(

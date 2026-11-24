@@ -169,9 +169,10 @@ a group. The other placeholders do not resolve outside layout blocks.
 
 Rendering rules:
 
-- Section values arrive macro-resolved (`prompting.section_inputs`). A block's
-  own macros resolve first, then each placeholder is substituted literally, with
-  no second macro pass. An empty section's placeholder leaves with one
+- Section values arrive macro-resolved from `prompting.conversation_sections`,
+  the one builder every prefix, the Writer request and the size estimate read.
+  A block's own macros resolve first, then each placeholder is substituted
+  literally, with no second macro pass. An empty section's placeholder leaves with one
   blank-line separator beside it, the one before it when there is one, so the
   seeded Character block reads `heading\ndescription\n\npersonality` with
   either field missing cleanly. A block naming placeholders renders nothing
@@ -187,8 +188,8 @@ Rendering rules:
   row, merge with a blank line.
 - The Writer request is always one user message, so roles do not apply below
   the divider. Custom blocks there use the `___` divider, as lore does. Section
-  values reach the Writer through `TurnSetup.sections`, built from the same
-  inputs as the prefix.
+  values reach the Writer through `PipelineContext.sections`, the same values
+  the prefix renders.
 - Prefix blocks resolve with the conversation's macro seed, so their bytes are
   stable across builds. Writer-request blocks roll inline macros fresh each time
   the request is built; the Editor replays the built string, so both passes read
@@ -209,5 +210,5 @@ The HTTP surface lives in `api/routes/prompt_layouts.py`:
 | `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the active or last layout) |
 | `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
-| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block (custom blocks fully; markers above the divider take a role, the Main prompt its text), or delete a custom block |
+| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its text when editable, and its role above the divider; roles apply only above it), or delete a custom block; a refused edit is a 409 |
 | `PUT /api/prompt-layouts/{id}/order` | Place every block: `{prefix: [...ids], writer: [...ids]}` |

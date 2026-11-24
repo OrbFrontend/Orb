@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any, cast
 
 import aiosqlite
@@ -13,22 +14,16 @@ from ...core.prompt_layout import (
     DEFAULT_LAYOUT_ID,
     EDITABLE_MARKERS,
     MARKER_TEMPLATES,
-    MARKERS,
     LayoutBlock,
-    LayoutRegion,
-    LayoutRole,
     default_layout,
     marker_block_id,
     marker_placeholder,
-    marker_region,
     names_marker_placeholder,
 )
 from ..connection import get_db, select_rows
 from ..models import PromptBlockRow, PromptLayoutRow
 from ..seeds import SEED_MAIN_PROMPT
 
-_REGIONS = ("prefix", "writer")
-_ROLES = ("system", "user", "assistant")
 _BLOCK_COLUMNS = "id, layout_id, kind, label, content, role, region, sort_order, enabled"
 
 
@@ -73,17 +68,15 @@ async def get_prompt_block(block_id: str) -> PromptBlockRow | None:
     return cast(PromptBlockRow, dict(rows[0])) if rows else None
 
 
-def layout_block(row: Mapping[str, Any]) -> LayoutBlock:
-    region = row["region"] if row["region"] in _REGIONS else marker_region(row["kind"])
-    role = row["role"] if row["role"] in _ROLES else "system"
+def layout_block(row: PromptBlockRow) -> LayoutBlock:
     return LayoutBlock(
         id=row["id"],
         kind=row["kind"],
         label=row["label"],
         content=row["content"],
-        role=cast(LayoutRole, role),
-        region=cast(LayoutRegion, region),
-        sort_order=int(row["sort_order"]),
+        role=row["role"],
+        region=row["region"],
+        sort_order=row["sort_order"],
         enabled=bool(row["enabled"]),
     )
 
@@ -94,8 +87,8 @@ async def get_active_layout_blocks() -> tuple[LayoutBlock, ...]:
     return tuple(layout_block(row) for row in rows) if rows else default_layout(main_prompt=SEED_MAIN_PROMPT)
 
 
-async def create_prompt_layout(name: str, copy_from: str | None = None) -> PromptLayoutRow:
-    """A new layout seeded with the built-in order, or a copy of *copy_from*'s blocks."""
+async def create_prompt_layout(name: str, copy_from: str | None = None) -> PromptLayoutRow | None:
+    """A new layout seeded with the built-in order, or a copy of *copy_from*'s blocks; None when *copy_from* is missing."""
     name = name.strip()
     if not name:
         raise PromptLayoutError("A layout needs a name.")
@@ -103,10 +96,11 @@ async def create_prompt_layout(name: str, copy_from: str | None = None) -> Promp
     if copy_from is not None:
         source = await get_prompt_blocks(copy_from)
         if not source:
-            raise PromptLayoutError("The layout to copy does not exist.")
+            return None
         blocks = [
-            layout_block(
-                {**row, "id": marker_block_id(layout_id, row["kind"]) if row["kind"] != CUSTOM_KIND else uuid.uuid4().hex}
+            replace(
+                layout_block(row),
+                id=uuid.uuid4().hex if row["kind"] == CUSTOM_KIND else marker_block_id(layout_id, row["kind"]),
             )
             for row in source
         ]
@@ -151,24 +145,11 @@ async def set_active_prompt_layout(layout_id: str) -> bool:
     return True
 
 
-def _clean_role(role: Any) -> str:
-    if role not in _ROLES:
-        raise PromptLayoutError("Role must be system, user or assistant.")
-    return str(role)
-
-
-def _clean_region(region: Any) -> str:
-    if region not in _REGIONS:
-        raise PromptLayoutError("Region must be prefix or writer.")
-    return str(region)
-
-
-async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> PromptBlockRow:
-    """A custom block at the end of its region; the Writer request unless *data* says otherwise."""
+async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
+    """A custom block at the end of the layout; only a block above the chat history keeps its role. None when the layout is
+    missing."""
     if await get_prompt_layout(layout_id) is None:
-        raise LookupError(layout_id)
-    region = _clean_region(data.get("region", "writer"))
-    role = _clean_role(data.get("role", "system")) if region == "prefix" else "system"
+        return None
     block_id = uuid.uuid4().hex
     async with get_db() as db:
         rows = list(
@@ -179,54 +160,42 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
         block = LayoutBlock(
             id=block_id,
             kind=CUSTOM_KIND,
-            label=str(data.get("label", "")).strip(),
-            content=str(data.get("content", "")),
-            role=cast(LayoutRole, role),
-            region=cast(LayoutRegion, region),
+            label=data["label"].strip(),
+            content=data["content"],
+            role=data["role"] if data["region"] == "prefix" else "system",
+            region=data["region"],
             sort_order=int(rows[0]["top"]) + 1,
-            enabled=bool(data.get("enabled", True)),
+            enabled=data["enabled"],
         )
         await insert_layout_blocks(db, layout_id, [block])
         await db.commit()
-    row = await get_prompt_block(block_id)
-    assert row is not None
-    return row
+    return await get_prompt_block(block_id)
 
 
 async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
-    """Edit a block. A marker keeps its name, switch and side of the chat history; only the Main prompt's, Scene guidance's
-    and User message's text is editable, the last two keeping their placeholder; and only blocks above the chat history take a
-    role."""
+    """Edit a block's label, text, role or switch. A marker keeps its name and switch, only an editable marker's text changes,
+    keeping its placeholder, and only a block above the chat history takes a role. :func:`reorder_prompt_blocks` moves blocks."""
     row = await get_prompt_block(block_id)
     if row is None:
         return None
-    custom = row["kind"] == CUSTOM_KIND
-    updates: dict[str, Any] = {}
+    kind = row["kind"]
+    custom = kind == CUSTOM_KIND
     if "content" in data:
-        if not custom and row["kind"] not in EDITABLE_MARKERS:
+        if not custom and kind not in EDITABLE_MARKERS:
             raise PromptLayoutError("A built-in block cannot be edited.")
-        content = str(data["content"])
-        if row["kind"] in MARKER_TEMPLATES and not names_marker_placeholder(row["kind"], content):
-            raise PromptLayoutError(f"Keep {marker_placeholder(row['kind'])} in this block's text.")
-        updates["content"] = content
-    if "label" in data:
-        if not custom:
-            raise PromptLayoutError("A built-in block keeps its name.")
-        updates["label"] = str(data["label"]).strip()
-    if "enabled" in data:
-        if not custom:
-            raise PromptLayoutError("Another setting switches this block.")
-        updates["enabled"] = 1 if data["enabled"] else 0
-    if "region" in data:
-        region = _clean_region(data["region"])
-        if region != row["region"] and not custom:
-            raise PromptLayoutError("This block cannot cross the chat history.")
-        updates["region"] = region
-    if "role" in data:
-        role = _clean_role(data["role"])
-        if role != row["role"] and not custom and marker_region(row["kind"]) != "prefix":
-            raise PromptLayoutError("Roles apply only above the chat history.")
-        updates["role"] = role
+        if kind in MARKER_TEMPLATES and not names_marker_placeholder(kind, data["content"]):
+            raise PromptLayoutError(f"Keep {marker_placeholder(kind)} in this block's text.")
+    if not custom and "label" in data:
+        raise PromptLayoutError("A built-in block keeps its name.")
+    if not custom and "enabled" in data:
+        raise PromptLayoutError("Another setting switches this block.")
+    if "role" in data and data["role"] != row["role"] and row["region"] != "prefix":
+        raise PromptLayoutError("Roles apply only above the chat history.")
+    updates = {column: data[column] for column in ("label", "content", "role", "enabled") if column in data}
+    if "label" in updates:
+        updates["label"] = updates["label"].strip()
+    if "enabled" in updates:
+        updates["enabled"] = int(updates["enabled"])
     if updates:
         sets = ", ".join(f"{column} = ?" for column in updates)
         async with get_db() as db:
@@ -250,26 +219,22 @@ async def delete_prompt_block(block_id: str) -> bool:
     return True
 
 
-async def reorder_prompt_blocks(layout_id: str, prefix: Sequence[str], writer: Sequence[str]) -> list[PromptBlockRow]:
-    """Place every block of the layout: *prefix* ids above the chat history, *writer* ids below, each in order."""
+async def reorder_prompt_blocks(layout_id: str, prefix: Sequence[str], writer: Sequence[str]) -> list[PromptBlockRow] | None:
+    """Place every block of the layout: *prefix* ids above the chat history, *writer* ids below, each in order. None when the
+    layout is missing."""
     rows = {row["id"]: row for row in await get_prompt_blocks(layout_id)}
     if not rows:
-        raise LookupError(layout_id)
-    placed = [*prefix, *writer]
-    if len(placed) != len(set(placed)) or set(placed) != set(rows):
+        return None
+    placed = [*(("prefix", block_id) for block_id in prefix), *(("writer", block_id) for block_id in writer)]
+    ids = [block_id for _, block_id in placed]
+    if len(ids) != len(set(ids)) or set(ids) != set(rows):
         raise PromptLayoutError("The order must list every block of the layout exactly once.")
-    for region, ids in (("prefix", prefix), ("writer", writer)):
-        for block_id in ids:
-            kind = rows[block_id]["kind"]
-            if kind in MARKERS and marker_region(kind) != region:
-                raise PromptLayoutError("This block cannot cross the chat history.")
+    if any(rows[block_id]["kind"] != CUSTOM_KIND and rows[block_id]["region"] != region for region, block_id in placed):
+        raise PromptLayoutError("This block cannot cross the chat history.")
     async with get_db() as db:
         await db.executemany(
             "UPDATE prompt_blocks SET sort_order = ?, region = ? WHERE id = ?",
-            [
-                (index, region, block_id)
-                for index, (region, block_id) in enumerate([("prefix", i) for i in prefix] + [("writer", i) for i in writer])
-            ],
+            [(index, region, block_id) for index, (region, block_id) in enumerate(placed)],
         )
         await db.commit()
     return await get_prompt_blocks(layout_id)

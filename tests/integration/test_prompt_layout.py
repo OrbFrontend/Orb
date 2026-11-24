@@ -14,7 +14,15 @@ from backend.database import (
     set_active_leaf,
 )
 from backend.pipeline.context import build_turn_prefix, load_pipeline_context
-from backend.prompting import build_prefix, char_context, chat_instructions, member_macros, persona_macros
+from backend.prompting import (
+    build_prefix,
+    char_context,
+    chat_instructions,
+    conversation_sections,
+    member_macros,
+    persona_macros,
+)
+from backend.prompting.layout import SectionInputs
 from backend.workflows.toolkit import build_offturn_prefix
 
 _LONG_DRAFT = "word " * 60
@@ -153,7 +161,7 @@ def test_pre_history_assistant_block_merges_into_an_assistant_greeting():
         LayoutBlock(id="b", kind="custom", content="Two", role="assistant", sort_order=21),
     )
     history = [{"role": "assistant", "content": "Greeting"}, {"role": "user", "content": "Hi"}]
-    prefix = build_prefix("Sys", "", "", messages=history, macros=Macros("U", "C", seed="s"), layout=layout)
+    prefix = build_prefix("Sys", SectionInputs(), history, Macros("U", "C", seed="s"), layout=layout)
 
     assert [m["role"] for m in prefix] == ["system", "assistant", "user"]
     assert prefix[1]["content"] == "One\n\nTwo\n\nGreeting"
@@ -175,8 +183,10 @@ def test_a_section_block_renders_nothing_while_its_sections_are_empty():
     macros = Macros("U", "C", seed="s")
     layout = (*default_layout(), LayoutBlock(id="x", kind="custom", content="Where: {{scenario}}{{persona}}", sort_order=30))
 
-    assert build_prefix("Sys", "", "", macros=macros, layout=layout) == build_prefix("Sys", "", "", macros=macros)
-    filled = build_prefix("Sys", "", "Dunes {{char}}", macros=macros, layout=layout)[0]["content"]
+    empty = SectionInputs()
+    assert build_prefix("Sys", empty, macros=macros, layout=layout) == build_prefix("Sys", empty, macros=macros)
+    sections = conversation_sections({}, {"character_scenario": "Dunes {{char}}"}, char_context({}, None, layout), macros, "")
+    filled = build_prefix("Sys", sections, macros=macros, layout=layout)[0]["content"]
     assert filled.endswith("\n\nWhere: Dunes C")
 
 

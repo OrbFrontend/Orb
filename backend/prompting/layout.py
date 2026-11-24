@@ -15,7 +15,6 @@ from ..core.prompt_layout import (
     LayoutBlock,
     LayoutRegion,
     default_layout,
-    marker_region,
 )
 
 
@@ -85,17 +84,13 @@ def _render_marker(block: LayoutBlock, value: str, resolve: Callable[[str], str]
     return _fill(block.content or MARKER_TEMPLATES[block.kind], {block.kind: value}, resolve)
 
 
-def _region_of(block: LayoutBlock) -> LayoutRegion:
-    return block.region if block.kind == CUSTOM_KIND else marker_region(block.kind)
-
-
 def region_blocks(blocks: Iterable[LayoutBlock], region: LayoutRegion) -> list[LayoutBlock]:
     """*region*'s enabled blocks in order, with any marker the layout lacks appended at its region's end."""
     blocks = [block for block in blocks if block.kind == CUSTOM_KIND or block.kind in MARKERS]
     present = {block.kind for block in blocks}
     missing = [block for block in default_layout() if block.kind != CUSTOM_KIND and block.kind not in present]
     ordered = sorted(blocks, key=lambda block: block.sort_order) + missing
-    return [block for block in ordered if _region_of(block) == region and (block.enabled or block.kind != CUSTOM_KIND)]
+    return [block for block in ordered if block.region == region and (block.enabled or block.kind != CUSTOM_KIND)]
 
 
 def _resolver(macros: Macros | None) -> Callable[[str], str]:

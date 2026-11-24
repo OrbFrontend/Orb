@@ -71,8 +71,8 @@ from ..database import (
 from ..inference import local_ml as _local_ml
 from ..prompting import build_prefix as _build_prefix
 from ..prompting import char_context as _char_context
-from ..prompting import chat_instructions as _chat_instructions
 from ..prompting import conversation_macro_seed as _conversation_macro_seed
+from ..prompting import conversation_sections as _conversation_sections
 from ..prompting import macro_identity as _macro_identity
 from ..prompting import persona_macros as _persona_macros
 from ..prompting import resolve_persona_id as _resolve_persona_id
@@ -452,14 +452,9 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
     speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
     return _build_prefix(
         card_text.system_prompt,
-        card_text.description,
-        conv.get("character_scenario", ""),
-        card_text.mes_example,
-        _chat_instructions(settings, conv),
+        _conversation_sections(settings, conv, card_text, macros, user_description, turn_cast),
         history,
         macros,
-        user_description,
-        personality=card_text.personality,
         constant_lorebook_block=_compute_constant_lorebook_block(
             await get_active_lorebook_entries(await get_effective_world_ids(conversation_id)), macros
         ),

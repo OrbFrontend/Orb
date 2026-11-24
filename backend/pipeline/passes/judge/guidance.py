@@ -24,5 +24,9 @@ def decision_guidance_lines(evaluations: Sequence[Mapping[str, Any]], target: Li
 
 def decision_guidance_block(evaluations: Sequence[Mapping[str, Any]], target: Literal["director", "writer"]) -> str:
     """*target*'s guidance lines under the Major Decisions heading; nothing when there are none."""
-    lines = decision_guidance_lines(evaluations, target)
+    return headed_decisions(decision_guidance_lines(evaluations, target))
+
+
+def headed_decisions(lines: str) -> str:
+    """*lines* under the Major Decisions heading; nothing when there are none."""
     return f"{HEADING}\n\n{lines}" if lines else ""

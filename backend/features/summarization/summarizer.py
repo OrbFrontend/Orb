@@ -7,6 +7,7 @@ from ...core import ChatMessage, Macros, TurnCast, extract_hyperparams
 from ...core.settings import Settings
 from ...inference import LLMClient
 from ...prompting import build_prefix
+from ...prompting.layout import SectionInputs
 
 # No category list here ("beats, milestones, relationships"): models turn every named category into a heading. Format bans come
 # last, ahead of only the user's own instructions, which may override them.
@@ -30,16 +31,11 @@ class ConversationSummarizer:
     def build_messages(
         self,
         system_prompt: str,
-        description: str,
-        char_scenario: str,
-        mes_example: str,
-        post_history_instructions: str,
+        sections: SectionInputs,
         history_slice: Sequence[Mapping[str, Any]],
         macros: Macros,
-        user_description: str,
         custom_instructions: str | None = None,
         *,
-        personality: str = "",
         cast: TurnCast | None = None,
         speaker_names: Mapping[str, str] | None = None,
         revision: tuple[str, str] | None = None,
@@ -49,19 +45,7 @@ class ConversationSummarizer:
         *revision* is ``(draft, request)``: the draft is replayed as the model's own answer and the request asks for a rewrite of
         it, so a revision shares the whole history prefix with the summary it revises.
         """
-        prefix = build_prefix(
-            system_prompt,
-            description,
-            char_scenario,
-            mes_example,
-            post_history_instructions,
-            history_slice,
-            macros,
-            user_description,
-            personality=personality,
-            cast=cast,
-            speaker_names=speaker_names,
-        )
+        prefix = build_prefix(system_prompt, sections, history_slice, macros, cast=cast, speaker_names=speaker_names)
         custom = custom_instructions.strip() if custom_instructions else ""
         instructions = SUMMARY_INSTRUCTIONS.format(custom=f"\n{custom}" if custom else "")
         messages: list[ChatMessage] = [*prefix, {"role": "user", "content": instructions}]

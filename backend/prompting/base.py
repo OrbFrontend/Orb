@@ -104,76 +104,12 @@ def render_history(
     return processed_messages
 
 
-def section_inputs(
-    description: str,
-    char_scenario: str,
-    mes_example: str = "",
-    post_history_instructions: str = "",
-    macros: Macros | None = None,
-    user_description: str = "",
-    *,
-    personality: str = "",
-    cast: TurnCast | None = None,
-) -> SectionInputs:
-    """The card and chat sections layout placeholders stand for, macros resolved; a group's card sections are empty."""
-    resolve = macros.resolve_message if macros else (lambda text: text)
-    grouped = bool(cast and cast.grouped)
-    user_desc = resolve(user_description)
-    return SectionInputs(
-        description="" if grouped else resolve(description),
-        personality="" if grouped else resolve(personality),
-        character_heading=not grouped and bool(macros and macros.char),
-        scenario=resolve(char_scenario),
-        examples="" if grouped else resolve(mes_example),
-        instructions=resolve(post_history_instructions),
-        persona=user_desc if user_desc.strip() else "",
-    )
-
-
-def prefix_inputs(
-    system_prompt: str,
-    description: str,
-    char_scenario: str,
-    mes_example: str = "",
-    post_history_instructions: str = "",
-    macros: Macros | None = None,
-    user_description: str = "",
-    *,
-    personality: str = "",
-    constant_lorebook_block: str = "",
-    cast: TurnCast | None = None,
-) -> PrefixInputs:
-    """Each prefix marker's own text and the sections, macros resolved."""
-    resolve = macros.resolve_message if macros else (lambda text: text)
-    grouped = bool(cast and cast.grouped)
-    return PrefixInputs(
-        main_prompt=resolve(system_prompt),
-        cast=render_cast_section(cast, macros).lstrip("\n") if cast and grouped else "",
-        constant_lore=constant_lorebook_block,
-        sections=section_inputs(
-            description,
-            char_scenario,
-            mes_example,
-            post_history_instructions,
-            macros,
-            user_description,
-            personality=personality,
-            cast=cast,
-        ),
-    )
-
-
 def build_prefix(
     system_prompt: str,
-    description: str,
-    char_scenario: str,
-    mes_example: str = "",
-    post_history_instructions: str = "",
+    sections: SectionInputs,
     messages: Sequence[Mapping[str, Any]] | None = None,
     macros: Macros | None = None,
-    user_description: str = "",
     *,
-    personality: str = "",
     constant_lorebook_block: str = "",
     cast: TurnCast | None = None,
     speaker_names: Mapping[str, str] | None = None,
@@ -183,20 +119,14 @@ def build_prefix(
 ) -> list[ChatMessage]:
     """Build the system message, the layout's pre-history messages, and the rendered history.
 
-    *system_prompt* is the raw Main prompt text; its macros resolve here. *layout* defaults to :func:`default_layout`, the
-    built-in order.
+    *system_prompt* is the raw Main prompt text; its macros resolve here. *sections* arrive resolved
+    (``prompting.conversation_sections``). *layout* defaults to :func:`default_layout`, the built-in order.
     """
-    inputs = prefix_inputs(
-        system_prompt,
-        description,
-        char_scenario,
-        mes_example,
-        post_history_instructions,
-        macros,
-        user_description,
-        personality=personality,
-        constant_lorebook_block=constant_lorebook_block,
-        cast=cast,
+    inputs = PrefixInputs(
+        main_prompt=macros.resolve_message(system_prompt) if macros else system_prompt,
+        cast=render_cast_section(cast, macros).lstrip("\n") if cast and cast.grouped else "",
+        constant_lore=constant_lorebook_block,
+        sections=sections,
     )
     head = render_prefix(layout if layout is not None else default_layout(), inputs, macros)
     history = render_history(

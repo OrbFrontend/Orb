@@ -377,7 +377,7 @@ async def _generate_reply(
         state_contract=ctx.state_contract,
         judge_config=ctx.judge_config,
         layout=ctx.layout,
-        sections=setup.sections,
+        sections=ctx.sections,
     )
     async for event in consume_pipeline(
         pipeline,
@@ -576,7 +576,7 @@ async def _generate_group_exchange(
             state_contract=ctx.state_contract,
             judge_config=ctx.judge_config,
             layout=ctx.layout,
-            sections=setup.sections,
+            sections=ctx.sections,
         )
         persisted_id: int | None = None
         persisted_content = ""

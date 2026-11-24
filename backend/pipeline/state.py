@@ -114,12 +114,10 @@ _DIRECTOR_SEED_FIELDS = (
     "decision_evaluations",
     "decision_cooldowns",
     "director_decision_guidance",
-    "writer_decision_guidance",
     "writer_decisions",
     "selected_lorebook_entries",
     "inj_block",
     "inj_block_without_moods",
-    "scene_direction",
     "scene_guidance",
     "writer_state_block",
     "writer_lorebook_block",
@@ -162,14 +160,11 @@ class TurnState:
     decision_evaluations: dict = field(default_factory=dict)
     decision_cooldowns: dict[str, int] = field(default_factory=dict)
     director_decision_guidance: str = ""
-    writer_decision_guidance: str = ""
     # The Writer's decision lines without their heading, which its prompt layout's Decisions text places.
     writer_decisions: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     inj_block_without_moods: str | None = None
-    # Scene Direction before the state block and decision guidance are added.
-    scene_direction: str = ""
     # The Writer's other two Director-stage parts, each placed by the prompt layout: the Scene Guidance body without its
     # heading, and the current-state block.
     scene_guidance: str = ""

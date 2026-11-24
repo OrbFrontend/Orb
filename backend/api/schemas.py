@@ -275,7 +275,6 @@ class PromptBlockUpdate(BaseModel):
     label: str | None = None
     content: str | None = None
     role: Literal["system", "user", "assistant"] | None = None
-    region: Literal["prefix", "writer"] | None = None
     enabled: bool | None = None
 
 
