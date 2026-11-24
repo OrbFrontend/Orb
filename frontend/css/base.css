@@ -14,7 +14,7 @@ body { font-family: var(--font-ui); background: var(--bg-deep); color: var(--tex
 
 :where(
   .inspect-chip, .frag-type-badge, .persona-active-badge, .lb-unsaved-badge, .lb-tab-badge, .world-pending,
-  .cast-manage-badge, .cast-row-summary-badge, .lib-dupe-mark, .lib-dupe-reason, .lib-dupe-chip
+  .cast-manage-badge, .cast-row-summary-badge, .lib-dupe-mark, .lib-dupe-reason, .lib-dupe-chip, .pl-clock
 ) {
   display: inline-block; text-box: trim-both cap alphabetic; vertical-align: calc((var(--host-cap) - 1cap) / 2);
 }
@@ -22,7 +22,7 @@ body { font-family: var(--font-ui); background: var(--bg-deep); color: var(--tex
   :has(
     > :is(
       .inspect-chip, .frag-type-badge, .persona-active-badge, .lb-unsaved-badge, .lb-tab-badge, .world-pending,
-      .cast-manage-badge, .cast-row-summary-badge, .lib-dupe-mark, .lib-dupe-reason, .lib-dupe-chip
+      .cast-manage-badge, .cast-row-summary-badge, .lib-dupe-mark, .lib-dupe-reason, .lib-dupe-chip, .pl-clock
     )
   )
 ) {

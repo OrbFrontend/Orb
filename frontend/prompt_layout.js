@@ -1,7 +1,7 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { initDragReorder } from "./drag_reorder.js";
-import { GRIP_ICON } from "./icons.js";
+import { GRIP_ICON, ROLE_ICONS } from "./icons.js";
 import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { $, boolFlag, esc, escAttr, toast } from "./utils.js";
 
@@ -60,12 +60,13 @@ function _ordered(region) {
 function _rowHtml(b) {
   const label = b.label || "Untitled block";
   const builtIn = _isMarker(b) ? `<span class="frag-type-badge" title="Built-in block">B</span>` : "";
-  const role = b.role !== _defaultRole(b.region) ? `<span class="pl-role">${esc(b.role)}</span>` : "";
-  const clock = b.clock ? `<span class="pl-role pl-clock" title="${escAttr(CLOCK_NOTE)}">clock</span>` : "";
+  const role = `<span class="pl-role-icon pl-role-${escAttr(b.role)}" role="img" title="Sent as ${escAttr(b.role)}" aria-label="Role: ${escAttr(b.role)}">${ROLE_ICONS[b.role] || ""}</span>`;
+  const clock = b.clock ? `<span class="pl-clock" title="${escAttr(CLOCK_NOTE)}">clock</span>` : "";
   const classes = ["fragment-item", "pl-block", boolFlag(b.enabled) ? "" : "pl-off"].filter(Boolean).join(" ");
   return `<div class="${classes}" data-id="${escAttr(b.id)}" data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
-      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${builtIn}${role}${clock}</div>
+      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${builtIn}${clock}</div>
+      ${role}
       <div class="frag-toggle-wrapper">
         <label class="tog" for="pl-toggle-${escAttr(b.id)}">
           <input type="checkbox" id="pl-toggle-${escAttr(b.id)}" ${boolFlag(b.enabled) ? "checked" : ""}
