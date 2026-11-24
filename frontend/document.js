@@ -468,7 +468,7 @@ function renameDocument(id) {
       title: "Rename document",
       message: "",
       confirmText: "Save",
-      confirmClass: "",
+      confirmClass: "btn-accent",
       extraHtml: `<div class="field"><input id="doc-rename-input" type="text" autofocus maxlength="200" value="${escAttr(doc.title)}" style="width:100%;padding:8px"></div>`,
     },
     async () => {

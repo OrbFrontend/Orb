@@ -52,11 +52,12 @@ function _ordered(region) {
 
 function _rowHtml(b) {
   const label = b.label || "Untitled block";
+  const builtIn = _isMarker(b) ? `<span class="frag-type-badge" title="Built-in block">B</span>` : "";
   const role = b.role !== _defaultRole(b.region) ? `<span class="pl-role">${esc(b.role)}</span>` : "";
   const classes = ["fragment-item", "pl-block", boolFlag(b.enabled) ? "" : "pl-off"].filter(Boolean).join(" ");
   return `<div class="${classes}" data-id="${escAttr(b.id)}" data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
-      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${role}</div>
+      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${builtIn}${role}</div>
       <div class="frag-toggle-wrapper">
         <label class="tog" for="pl-toggle-${escAttr(b.id)}">
           <input type="checkbox" id="pl-toggle-${escAttr(b.id)}" ${boolFlag(b.enabled) ? "checked" : ""}
@@ -136,7 +137,7 @@ function openBlock(id) {
     : "";
   const about = BUILT_IN[b.kind];
   const aboutField = about
-    ? `<p class="pl-about">${esc(about.about)}</p><div class="field"><label>Source</label>${esc(about.source)}</div>`
+    ? `<p class="modal-subtitle pl-about">${esc(about.about)}</p><div class="field"><label>Source</label><div class="pl-source">${esc(about.source)}</div></div>`
     : "";
   const textField =
     b.editable || !id
