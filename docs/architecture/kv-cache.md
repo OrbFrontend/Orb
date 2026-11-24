@@ -380,6 +380,19 @@ thinking flag, so its first bytes match the lane's other calls. The prompt it
 sent before the reply becomes the reply's record, so later continues on it send
 the same bytes.
 
+## A summary extends the turn that followed its history
+
+Compress History summarizes the history before the kept messages, which is the
+history the turn after it was built on. The summary call rebuilds that turn's
+Writer lane with `pipeline.context.offturn_config`: the neutral prefix the
+Director reads (the scene's own group context mode, no swapped-in card), the
+shared tool blob under `tool_choice="none"`, and the Writer's reasoning setup.
+Only its request is new. In a solo chat with two kept messages, the summarized
+history ends where the latest turn's request began, the position that turn
+cached; with more kept, it ends where an earlier turn's request began.
+Pre-pipeline hooks do not run, so a hook that adds a tool would put the summary
+on its own lane.
+
 ## Providers that cache only where asked
 
 llama.cpp, DeepSeek, OpenAI, and most routed open models reuse any matching

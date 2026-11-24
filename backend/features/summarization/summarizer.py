@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Mapping, Sequence
-from typing import Any
+from collections.abc import AsyncIterator, Sequence
 
-from ...core import ChatMessage, Macros, TurnCast, extract_hyperparams
+from ...core import ChatMessage, extract_hyperparams
 from ...core.settings import Settings
-from ...inference import LLMClient
-from ...prompting import build_prefix
-from ...prompting.layout import SectionInputs
+from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
+from ...prompting.layout import TOOL_NOTICE
 
 # No category list here ("beats, milestones, relationships"): models turn every named category into a heading. Format bans come
 # last, ahead of only the user's own instructions, which may override them.
@@ -23,41 +21,49 @@ REVISION_INSTRUCTIONS = (
 )
 
 
-class ConversationSummarizer:
-    def __init__(self, client: LLMClient, settings: Settings):
-        self.client = client
-        self.settings = settings
+def summary_request(
+    custom_instructions: str | None = None, *, revision: tuple[str, str] | None = None, tool_notice: bool = False
+) -> list[ChatMessage]:
+    """The messages after the history the summary is written from.
 
-    def build_messages(
-        self,
-        system_prompt: str,
-        sections: SectionInputs,
-        history_slice: Sequence[Mapping[str, Any]],
-        macros: Macros,
-        custom_instructions: str | None = None,
-        *,
-        cast: TurnCast | None = None,
-        speaker_names: Mapping[str, str] | None = None,
-        revision: tuple[str, str] | None = None,
-    ) -> list[ChatMessage]:
-        """The summary request over *history_slice*.
+    *revision* is ``(draft, request)``: the draft is replayed as the model's own answer and the request asks for a rewrite of
+    it, so a revision shares the whole history prefix with the summary it revises. *tool_notice* leads the request when the call
+    carries the turn's tool schemas, as it does the Writer's.
+    """
+    custom = custom_instructions.strip() if custom_instructions else ""
+    instructions = SUMMARY_INSTRUCTIONS.format(custom=f"\n{custom}" if custom else "")
+    if tool_notice:
+        instructions = f"{TOOL_NOTICE}\n\n{instructions}"
+    messages: list[ChatMessage] = [{"role": "user", "content": instructions}]
+    if revision:
+        draft, request = revision
+        messages.append({"role": "assistant", "content": draft})
+        messages.append({"role": "user", "content": REVISION_INSTRUCTIONS.format(request=request)})
+    return messages
 
-        *revision* is ``(draft, request)``: the draft is replayed as the model's own answer and the request asks for a rewrite of
-        it, so a revision shares the whole history prefix with the summary it revises.
-        """
-        prefix = build_prefix(system_prompt, sections, history_slice, macros, cast=cast, speaker_names=speaker_names)
-        custom = custom_instructions.strip() if custom_instructions else ""
-        instructions = SUMMARY_INSTRUCTIONS.format(custom=f"\n{custom}" if custom else "")
-        messages: list[ChatMessage] = [*prefix, {"role": "user", "content": instructions}]
-        if revision:
-            draft, request = revision
-            messages.append({"role": "assistant", "content": draft})
-            messages.append({"role": "user", "content": REVISION_INSTRUCTIONS.format(request=request)})
-        return messages
 
-    async def stream(self, llm_messages: Sequence[Mapping[str, Any]], model: str) -> AsyncGenerator[str, None]:
-        # Writer lane: the summary is prose in the user's own preset, and it is written with the model that writes the story.
-        params = extract_hyperparams(self.settings)
-        async for chunk in self.client.complete(llm_messages, model, **params):
-            if chunk["type"] == "content":
-                yield chunk["delta"]
+async def stream_summary(
+    client: LLMClient,
+    base: CachedBase,
+    settings: Settings,
+    request: Sequence[ChatMessage],
+    *,
+    reasoning_on: bool,
+    reasoning_prefill: str = "",
+    kv_tracker: KVCacheTracker | None = None,
+) -> AsyncIterator[str]:
+    """Stream the summary as a Writer call extending *base*, the turn's Writer base over the summarized history, so the call
+    reads that turn's cached prefix and only *request* is new."""
+    async for item in base.complete(
+        client,
+        label="summary",
+        trailing=request,
+        tool_choice="none" if base.tools else None,
+        kv_tracker=kv_tracker,
+        **reasoning_cfg(reasoning_on, reasoning_prefill),
+        **extract_hyperparams(settings),
+    ):
+        if item["type"] == "done":
+            return
+        if item["type"] == "content":
+            yield item["delta"]

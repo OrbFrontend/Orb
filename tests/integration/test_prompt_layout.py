@@ -459,22 +459,26 @@ async def test_the_main_prompt_resolves_macros_and_keeps_its_bytes_without_them(
     assert _wire(await build_offturn_prefix(cid, history, await get_settings())) == _wire(turn)
 
 
-async def test_summary_ignores_the_active_layout(client, llm_mock):
-    cid = "layout-summary"
-    await create_conversation(cid, "Story", "Bot", "scenario", post_history_instructions="Keep it short.")
-    parent = None
-    for index in range(6):
-        parent, _ = await add_message(cid, ("user", "assistant")[index % 2], f"line {index}", index, parent_id=parent)
-    await set_active_leaf(cid, parent)
-    body = {"keep_count": 2}
-
-    llm_mock.enqueue_writer("Default take.")
-    await client.post_checked(f"/api/conversations/{cid}/summarize", json=body)
+async def test_the_summary_extends_the_turn_prefix(client, llm_mock):
+    await client.put_checked(
+        "/api/settings",
+        json={"enable_agent": True, "length_guard_enabled": True, "length_guard_max_words": 5},
+    )
     layout_id, seeded = await _active_layout(client)
-    await _add_block(client, layout_id, content="Never summarized.", region="prefix", role="user")
+    await _add_block(client, layout_id, content="House rules.", region="prefix", role="user")
     await client.expect("patch", f"/api/prompt-blocks/{seeded['Scenario']['id']}", json={"enabled": False})
-    llm_mock.enqueue_writer("Custom take.")
-    await client.post_checked(f"/api/conversations/{cid}/summarize", json=body)
+    cid = await _card_conversation(client)
+    llm_mock.enqueue_writer(_LONG_DRAFT)
+    llm_mock.enqueue_editor(None)
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Hi", "attachments": []})).text
+    writer = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]
 
-    default_call, custom_call = (call["messages"] for call in llm_mock.captured[-2:])
-    assert _wire(custom_call) == _wire(default_call)
+    llm_mock.enqueue_writer("The story so far.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/summarize", json={"keep_count": 2})).text
+    summary = llm_mock.captured[-1]
+
+    # The summary is the turn's own prefix and history up to the kept messages, then only its request.
+    shared = len(summary["messages"]) - 1
+    assert _wire(summary["messages"][:shared]) == _wire(writer["messages"][:shared])
+    assert _wire(summary.get("tools") or []) == _wire(writer.get("tools") or [])
+    assert "Deep woods." not in summary["messages"][0]["content"]

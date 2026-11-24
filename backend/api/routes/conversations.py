@@ -23,7 +23,6 @@ from ...database import (
     delete_group_family,
     fold_path_state,
     fork_conversation,
-    get_active_layout_blocks,
     get_character_card,
     get_conversation,
     get_conversation_logs,
@@ -35,7 +34,6 @@ from ...database import (
     get_messages_decisions,
     get_settings,
     get_sheet_proposals,
-    get_speaker_names,
     get_state_events_for_messages,
     get_user_persona,
     get_world,
@@ -45,7 +43,6 @@ from ...database import (
     mark_orphaned_changesets_stale,
     reject_sheet_proposal,
     render_public_profile,
-    resolve_cast,
     set_active_leaf,
     set_conversation_world,
     snapshot_state_to_message,
@@ -56,15 +53,13 @@ from ...database import (
 )
 from ...database.models import ConversationRow
 from ...features.cards import draft_scene_profile
-from ...features.summarization import ConversationSummarizer
-from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
-from ...pipeline import estimate_context_size, remap_decision_anchors, resolve_card_and_persona
-from ...prompting import (
-    char_context,
-    conversation_macro_seed,
-    conversation_sections,
-    macro_identity,
-    persona_macros,
+from ...features.summarization import stream_summary, summary_request
+from ...inference import AbortToken, KVCacheTracker, agent_lane_from_settings, client_from_settings
+from ...pipeline import (
+    estimate_context_size,
+    load_pipeline_context,
+    offturn_config,
+    remap_decision_anchors,
 )
 from ...workflows.contracts import PublicEvent
 from ..conversation_copy import checkpoint_conversation, checkpoint_title, continuation_title, copy_member_map
@@ -402,39 +397,30 @@ async def api_summarize_conversation(
     if not history_slice:
         raise HTTPException(status_code=400, detail="Not enough messages to summarize")
 
-    settings = await get_settings()
-    # The one place the group context mode deliberately does *not* apply. Compression is scene-wide narration, so it always
-    # reads the public-cast projection: paying for every dossier -- or swapping in one arbitrary card the summary is not written
-    # from -- buys nothing and inflates the single longest call in the app.
-    summary_cast = (await resolve_cast(conv))._replace(context_mode="private")
-    char_name, cast_names = macro_identity(conv, summary_cast)
-    char_name = char_name or "Character"
-    # Resolve the same effective persona the chat would use (conversation/character
-    # lock overrides the global active persona) so a summary stays consistent.
-    card, active_persona = await resolve_card_and_persona(conv, settings)
-    # The built-in order, but the active layout's Main prompt text.
-    card_text = char_context(settings, card, await get_active_layout_blocks())
-    macros, user_description = persona_macros(
-        settings, char_name, active_persona, seed=conversation_macro_seed(conv), card=card, cast=cast_names
-    )
-    speaker_names = await get_speaker_names(cid) if summary_cast.grouped else {}
-
     abort_token = AbortToken()
-    client = client_from_settings(settings, abort_token=abort_token)
-    summarizer = ConversationSummarizer(client, settings)
-    llm_messages = summarizer.build_messages(
-        card_text.system_prompt,
-        conversation_sections(settings, conv, card_text, macros, user_description, summary_cast),
-        history_slice,
-        macros,
-        custom_instructions=data.custom_instructions,
-        cast=summary_cast,
-        speaker_names=speaker_names,
+    ctx = await load_pipeline_context(cid, abort_token=abort_token)
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    # The turn that followed the summarized history built this prefix, tool blob and Writer lane, so the summary reads its
+    # cached prefix and only the request is new.
+    cfg = offturn_config(ctx, history_slice)
+    lane = cfg.writer_lane
+    request_messages = summary_request(
+        data.custom_instructions,
         revision=(draft, revision) if draft else None,
+        tool_notice=lane.sends_tool_schemas([{"role": "user", "content": ""}]),
     )
 
     async def _gen() -> AsyncIterator[PublicEvent]:
-        async for delta in summarizer.stream(llm_messages, settings.get("model_name", "")):
+        async for delta in stream_summary(
+            lane.client,
+            lane.base,
+            ctx.settings,
+            request_messages,
+            reasoning_on=cfg.writer_reasoning_on,
+            reasoning_prefill=cfg.writer_reasoning_prefill,
+            kv_tracker=KVCacheTracker(conversation_id=cid),
+        ):
             yield {"event": "token", "data": delta}
         yield {"event": "done", "data": ""}
 

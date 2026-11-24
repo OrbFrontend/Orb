@@ -55,12 +55,12 @@ from ..prompting.lorebook import (
     compute_depth_lorebook_block,
     compute_lorebook_injection_block,
 )
-from .config import build_writer_tools_blob, split_interactive_fragments
+from .config import build_writer_tools_blob, resolve_pipeline_config, split_interactive_fragments
 from .events import PublicTurnEvent
 from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .passes.state import StateContract
 from .predicates import agent_enabled, world_proposal_active
-from .state import BranchBaseline, LorebookTurn, WorldProposalTurn
+from .state import BranchBaseline, LorebookTurn, PipelineConfig, WorldProposalTurn
 from .workflow_bridge import iterate_pre_pipeline_hooks
 
 
@@ -320,6 +320,50 @@ def build_lorebook_turn(
     )
 
 
+def _proposal_world_ids(ctx: PipelineContext, settings: Settings) -> tuple[str, ...]:
+    # Resolved before the tools blob is built: enabling propose_world_changes is what emits its schema into the shared per-turn
+    # blob, so the decision has to be made once, up front, and hold for every cached call in the turn.
+    return tuple(str(w["id"]) for w in ctx.worlds if world_proposal_active(w, agent_on=agent_enabled(settings)))
+
+
+def turn_tools(ctx: PipelineContext, settings: Settings) -> tuple[dict[str, bool], Mapping[str, dict]]:
+    """The turn's tool map before pre-pipeline hooks extend it, and the schema overrides of its shared blob."""
+    # When the agent is off, all tools are force-disabled.
+    enabled_tools_setting = settings.get("enabled_tools") or {}
+    if agent_enabled(settings):
+        enabled_tools = dict(enabled_tools_setting)
+    else:
+        enabled_tools = {k: False for k in enabled_tools_setting}
+    # Builds direct_scene plus the fragment-driven Editor and state tools from every defined fragment; must be called once so
+    # all passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
+    overrides, enabled_tools = build_writer_tools_blob(
+        settings,
+        ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
+        enabled_tools,
+        # Offered on the setting, not on this turn's entries, so adding the first pickable entry leaves the blob alone.
+        agentic_lorebook=agent_enabled(settings) and bool(settings.get("agentic_lorebook_enabled", 0)),
+        dynamic_world=bool(_proposal_world_ids(ctx, settings)),
+        grouped=ctx.cast.grouped,
+    )
+    return enabled_tools, MappingProxyType(overrides)
+
+
+def offturn_config(ctx: PipelineContext, history: Sequence[Mapping[str, Any]]) -> PipelineConfig:
+    """The config a turn after *history* would run with, built without its pre-pipeline hooks: the neutral prefix the Director
+    reads, the shared tool blob, and the lanes, so an off-turn call extends that turn's cached prefix."""
+    enabled_tools, schema_overrides = turn_tools(ctx, ctx.settings)
+    return resolve_pipeline_config(
+        ctx.settings,
+        enabled_tools,
+        macros=ctx.macros,
+        client=ctx.client,
+        agent_client=ctx.agent_client,
+        prefix=build_turn_prefix(ctx, history),
+        phrase_bank=ctx.phrase_bank,
+        schema_overrides=schema_overrides,
+    )
+
+
 async def prepare_turn(
     ctx: PipelineContext,
     conversation_id: str,
@@ -336,18 +380,9 @@ async def prepare_turn(
 
     turn_scratch: dict = {}
     kv_tracker = KVCacheTracker(conversation_id=conversation_id)
-    # Built once; when the agent is off, all tools are force-disabled.
-    enabled_tools_setting = settings.get("enabled_tools") or {}
-    if agent_enabled(settings):
-        enabled_tools_pre_merge = dict(enabled_tools_setting)
-    else:
-        enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
-
     lorebook = build_lorebook_turn(settings, ctx.lorebook_entries, lorebook_messages, macros)
 
-    # Resolved before the tools blob is built: enabling propose_world_changes is what emits its schema into the shared per-turn
-    # blob, so the decision has to be made once, up front, and hold for every cached call in the turn.
-    proposal_world_ids = tuple(str(w["id"]) for w in ctx.worlds if world_proposal_active(w, agent_on=agent_enabled(settings)))
+    proposal_world_ids = _proposal_world_ids(ctx, settings)
     world_proposal = (
         WorldProposalTurn(
             world_ids=proposal_world_ids,
@@ -360,18 +395,7 @@ async def prepare_turn(
         else None
     )
 
-    # Builds direct_scene plus the fragment-driven Editor and state tools from every defined fragment; must be called once so
-    # all passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
-    overrides, enabled_tools_pre_merge = build_writer_tools_blob(
-        settings,
-        ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
-        enabled_tools_pre_merge,
-        # Offered on the setting, not on this turn's entries, so adding the first pickable entry leaves the blob alone.
-        agentic_lorebook=agent_enabled(settings) and bool(settings.get("agentic_lorebook_enabled", 0)),
-        dynamic_world=world_proposal is not None,
-        grouped=ctx.cast.grouped,
-    )
-    schema_overrides = MappingProxyType(overrides)
+    enabled_tools_pre_merge, schema_overrides = turn_tools(ctx, settings)
     accumulators = {"merged_enabled_tools": dict(enabled_tools_pre_merge)}
 
     # Pre-pipeline hooks may extend the tool map.

@@ -22,8 +22,9 @@ A take is written for the number of kept messages it was made with. Changing
 **Keep last** afterwards disables **Create New Conversation** until you switch
 back or regenerate.
 
-Revise rewrites the current take, edits included, against the same history, so a
-backend with a prompt cache only processes the new request.
+Generate reads the chat the way its turns do, so a backend with a prompt cache
+reuses what the chat already processed. Revise rewrites the current take, edits
+included, against the same history, so it only processes the new request.
 
 ## Titles
 

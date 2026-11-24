@@ -229,8 +229,9 @@ Rendering rules:
 Every turn and off-turn builder renders the same active layout:
 `load_pipeline_context` reads it once into `PipelineContext.layout`, and
 `toolkit.build_offturn_prefix` reads it from `database/`. Every lane of a turn
-shares one prefix (`pipeline.context.build_turn_prefix`). The summarizer uses
-the built-in order with the active layout's Main prompt text.
+shares one prefix (`pipeline.context.build_turn_prefix`). The summarizer reads
+the same neutral prefix over the summarized history
+(`pipeline.context.offturn_config`), so it renders the active layout too.
 
 The HTTP surface lives in `api/routes/prompt_layouts.py`:
 
