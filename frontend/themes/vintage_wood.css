@@ -25,10 +25,10 @@
   background: var(--vw-corners), #2e231e !important; }
 .message.user .msg-body { background: #271e1a !important; border-color: var(--vw-rule) !important;
   outline: 1px solid rgba(184,146,94,0.26); outline-offset: -5px; }
-/* Narration a dim parchment, dialogue a soft straw gold, asides muted tan: apart in hue and lightness, one family. */
-.message .msg-body { color: #c2b5a8 !important; }
-.message .msg-body .quoted { color: #dec4a6 !important; }
-.message .msg-body em { color: #af9e90 !important; }
+/* Narration near-white, dialogue brass gold, asides muted tan. */
+.message .msg-body { color: #ede7e1 !important; }
+.message .msg-body .quoted { color: #e3b56e !important; }
+.message .msg-body em { color: #a8988b !important; }
 .message .msg-body .quoted em { color: inherit !important; }
 .message .msg-body pre, .message .msg-body code.inline-code { background: rgba(10,7,6,0.45) !important;
   border-color: #4a3a30 !important; }
