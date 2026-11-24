@@ -154,8 +154,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 }
 
 #chat-input-area { background: var(--bg-primary) !important; border-top: 2px solid var(--ink) !important; }
-.attachment-preview { background: var(--bg-elevated) !important; border: 1px solid var(--border) !important;
-  border-radius: 12px !important; }
 .group-speaking-plan { background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
   border-radius: 14px !important; box-shadow: var(--shadow-card) !important; }
 @media (min-width: 901px) { .group-speaking-plan { margin-bottom: 12px; } }

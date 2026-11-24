@@ -236,8 +236,7 @@
   border: 1px solid var(--border); border-radius: var(--radius); min-width: 160px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .4); z-index: 50; overflow: hidden; display: none; }
 #burger-dropdown.open { display: block; }
-.attachment-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 12px;
-  background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); max-height: 200px;
+.attachment-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; max-height: 200px;
   overflow-y: auto; }
 .attachment-preview:empty { display: none; }
 .msg-image-embed { margin: 6px 0; }
@@ -260,6 +259,8 @@
 
 @media (max-width: 900px) { .msg-image { max-width: 100%; } }
 
+.attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.message.user .attachments { justify-content: flex-end; }
 .attachment-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; max-width: 300px; }
 .attachment-item img { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; }

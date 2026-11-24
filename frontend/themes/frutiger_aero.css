@@ -223,7 +223,7 @@ input[type="range"] { background: linear-gradient(180deg, #c9dfee, #e8f4fb) !imp
 .msg-toolbar .msg-btn-del, .msg-toolbar .msg-btn-del:hover { color: var(--red) !important; }
 .typing-indicator { background: rgba(255,255,255,0.93) !important; border-color: rgba(40,122,176,0.55) !important; }
 .turn-error { background: rgba(255,241,236,0.95) !important; }
-.attachment-preview, .group-speaking-plan { background: rgba(255,255,255,0.9) !important; }
+.group-speaking-plan { background: rgba(255,255,255,0.9) !important; }
 
 /* ── Windows ── */
 
