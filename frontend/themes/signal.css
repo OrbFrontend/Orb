@@ -2,7 +2,8 @@
    Red fills carry ink text; text-weight red is the deeper --accent so it reads on paper. Static paint only. */
 :root {
   --ink:#2b2221; --ink-2:#3a302e; --ink-rule:#5a4e4b; --paper-on-ink:#d9d1c4; --muted-on-ink:#a99e92;
-  --sig:#ff5442; --sig-hover:#ff7062; --sig-tint:#efcdc3; --quote:#952416; --narration:#675c57;
+  --sig:#ff5442; --sig-hover:#ff7062; --sig-tint:#efcdc3; --quote:#861e12; --narration:#564b47;
+  --msg-paper:#efebe3; --msg-ink:#211918;
   --shadow-hard:3px 3px 0 var(--ink); --shadow-pop:8px 8px 0 var(--sig);
 
   --bg-deep:#cbc2b3; --bg-primary:#d9d1c4; --bg-surface:#e3ddd2; --bg-elevated:#ebe6dc; --bg-hover:#cfc6b8;
@@ -152,9 +153,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 
 .message .msg-role { color: var(--text-muted) !important; letter-spacing: .24em !important; font-weight: 600 !important; }
 .message.user .msg-role { color: var(--accent) !important; }
-.message .msg-body { background: var(--bg-surface) !important; border: 1px solid var(--ink) !important;
+.message .msg-body { background: var(--msg-paper) !important; color: var(--msg-ink); border: 1px solid var(--ink) !important;
   box-shadow: inset 4px 0 0 var(--ink) !important; }
-.message.user .msg-body { background: color-mix(in srgb, var(--sig) 12%, var(--bg-surface)) !important;
+.message.user .msg-body { background: color-mix(in srgb, var(--sig) 10%, var(--msg-paper)) !important;
   border-color: var(--ink) !important; box-shadow: inset -4px 0 0 var(--sig) !important; }
 .message.user .msg-edit-area textarea { background: var(--bg-elevated) !important; }
 .message .msg-body .quoted { color: var(--quote) !important; }
