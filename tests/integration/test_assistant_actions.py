@@ -94,6 +94,29 @@ async def test_set_chat_world_sets_an_explicit_state_keeps_other_choices_and_rep
         await document["set_chat_world"].run(document["set_chat_world"].arguments(world_id=library["world"], attached=True))
 
 
+async def test_set_character_world_replaces_another_link_and_unlinks_only_its_own(client, library, db):
+    card, chat = library["card"], library["chat"]
+    await client.put_checked(f"/api/characters/{card}", json={"world_id": library["elsewhere"]})
+    tool = (await _tools(mode="chat", conversation_id=chat))["set_character_world"]
+
+    async def link():
+        return (await db.one("SELECT world_id FROM character_cards WHERE id = ?", (card,)))[0]
+
+    linked = await tool.run(tool.arguments(world_id=library["world"], linked=True))
+    assert linked.data["changed"] is True and linked.data["replaced"] == "Inland"
+    assert linked.committed == ({"kind": "character_world", "character_id": card, "world_id": library["world"]},)
+    assert await link() == library["world"]
+    assert library["world"] in (await client.get_json(f"/api/conversations/{chat}/worlds"))["world_ids"]
+    again = await tool.run(tool.arguments(world_id=library["world"], linked=True))
+    assert again.data["changed"] is False and again.committed == ()
+
+    await client.put_checked(f"/api/characters/{card}", json={"world_id": library["elsewhere"]})
+    kept = await tool.run(tool.arguments(world_id=library["world"], linked=False))
+    assert kept.data["changed"] is False and await link() == library["elsewhere"], "only a link to the named world is cleared"
+    unlinked = await tool.run(tool.arguments(world_id=library["elsewhere"], linked=False))
+    assert unlinked.data["changed"] is True and await link() is None
+
+
 @pytest.mark.parametrize(
     "name,arguments",
     [

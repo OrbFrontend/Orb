@@ -74,6 +74,7 @@ CATEGORIES: tuple[ToolCategory, ...] = (
                 "set_world",
                 "set_lore_entry",
                 "set_chat_world",
+                "set_character_world",
                 "edit_lore_entry",
                 "delete_world",
                 "delete_lore_entry",

@@ -18,7 +18,7 @@ group covers and it tells you which one to turn on.
 |---|---|
 | Characters and personas | Cards and personas: read, create, edit, delete a character, switch persona |
 | Chats and messages | Read, edit, and delete messages; start, copy, rename, delete, and branch chats; regenerate, rewrite, continue, send |
-| Worlds and lore | Worlds and lore entries, and which worlds a chat uses |
+| Worlds and lore | Worlds and lore entries, which worlds a chat uses, and which world a character links to |
 | Fragments | Mood and interactive fragments |
 | Settings and phrase bank | Pipeline switches, Length Guard limits, banned phrases |
 | Documents | Read, create, and edit documents |

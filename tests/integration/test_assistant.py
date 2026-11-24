@@ -168,7 +168,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the three media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 64 and enum[-6:] == [
+    assert len(enum) == 65 and enum[-6:] == [
         "illustrate_reply",
         "generate_speech",
         "list_image_styles",

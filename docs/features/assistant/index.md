@@ -37,7 +37,7 @@ mark while one runs and counts the changes waiting for your review.
 |---|---|---|
 | Characters and personas | Read, create, and edit cards (description, greetings, tags…) and personas; switch the active persona; delete a character | "Tighten this character's description." |
 | Chats and messages | Read and search a chat, edit or delete messages, start, rename, copy, and delete chats, find and show a branch, lock a persona to a chat; regenerate, rewrite, or continue a reply, or send your next message | "Help me find a lost chat branch." |
-| Worlds and lore | Create worlds and entries, edit entries, set keywords and switches, attach a world to a chat, delete worlds and entries; list the entries in effect for a chat | "Update the active lorebooks based on how the story has progressed." |
+| Worlds and lore | Create worlds and entries, edit entries, set keywords and switches, attach a world to a chat, link characters to a world, delete worlds and entries; list the entries in effect for a chat | "Update the active lorebooks based on how the story has progressed." |
 | Fragments | Read, create, and edit mood and interactive fragments, including decisions | "Add a decision fragment: does she trust him yet?" |
 | Settings and phrase bank | Read the pipeline switches; turn the Director, Output Auditor, Length Guard, Agentic Lorebook, and workflows on or off; set Length Guard limits; add and delete banned phrases | "Turn off the Director for now." |
 | Documents | Read, create, and edit documents | "Tighten the passage I selected." |

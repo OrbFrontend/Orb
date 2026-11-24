@@ -16,6 +16,7 @@ The assistant changes some things straight away and asks you before others.
 - Length Guard limits, a lore entry's switches and keywords, a world's name and
   flags, a fragment's settings and order;
 - the active persona, and a chat's title, locked persona, and worlds;
+- which lorebook a character is linked to;
 - copying a chat, showing another branch, adding a banned phrase;
 - images and speech.
 

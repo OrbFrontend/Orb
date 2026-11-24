@@ -25,7 +25,7 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/tools/fragments.py` | The fragment creates and setters, the stage each fragment type runs in and where Required applies, and the names, projections and checks the fragment reads, edits and deletes share |
 | `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The seven edit tools; the six delete tools; the proposal store, Apply, Undo and Revise |
 | `backend/features/assistant/tools/web.py` | The web search through the user's SearXNG server, and the page reader with its text extraction and private-address refusal |
-| `backend/features/assistant/tools/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools and what counts as a saved render |
+| `backend/features/assistant/tools/actions.py`, `media.py` | Creates, chat starts and settings, a character's world link, chat actions and handoffs; the media tools and what counts as a saved render |
 | `backend/api/assistant/` | The binding: `host.py` implements the host over the API, pipeline, workflow and peer-feature code; `__init__.py` binds `build_tools`, Apply, Undo and Revise to it |
 | `backend/api/assistant/media.py` | A media render as a workflow job: the on-demand dispatch, its event stream, Stop |
 | `backend/api/conversation_start.py` | The solo-chat writer the conversation route and `start_chat` share |
@@ -298,7 +298,7 @@ throughout.
 | Class | Tools | Behaviour |
 |---|---|---|
 | read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_image_styles`, `view_image`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `create_document`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
+| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `create_document`, `set_chat_world`, `set_character_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_document`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
@@ -312,7 +312,7 @@ switching one off removes a whole subject:
 |---|---|
 | Characters and personas (`characters`) | `list_characters`, `read_character`, `list_personas`, `create_character`, `create_persona`, `set_active_persona`, `edit_character`, `edit_persona`, `delete_character` |
 | Chats and messages (`chats`) | `read_messages`, `read_chat_state`, `start_chat`, `set_chat`, `checkpoint_chat`, `switch_branch`, `edit_message`, `delete_chat`, `delete_message`, and the five handoffs |
-| Worlds and lore (`lore`) | `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `create_world`, `create_lore_entry`, `set_world`, `set_lore_entry`, `set_chat_world`, `edit_lore_entry`, `delete_world`, `delete_lore_entry` |
+| Worlds and lore (`lore`) | `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `create_world`, `create_lore_entry`, `set_world`, `set_lore_entry`, `set_chat_world`, `set_character_world`, `edit_lore_entry`, `delete_world`, `delete_lore_entry` |
 | Fragments (`fragments`) | The fragment reads, creates, setters and edits |
 | Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
 | Documents (`documents`) | `list_documents`, `read_document`, `create_document`, `edit_document` |
@@ -426,9 +426,14 @@ settles whole through a Stop or a dropped connection, because a cancelled await
 proves nothing about whether SQLite committed. A `mutation` event names what
 committed only after the commit. An identical non-idempotent write is not made
 twice in one request; the refusal tells the model it already happened. Toggles,
-setters, chat settings, chat-world choices and branch selection set an explicit
-state and may repeat; each writes only the fields that differ from what is
-stored, and a write that changes nothing commits nothing.
+setters, chat settings, chat-world choices, character-world links and branch
+selection set an explicit state and may repeat; each writes only the fields that
+differ from what is stored, and a write that changes nothing commits nothing.
+
+`set_character_world` writes a card's `world_id`, the one world a character
+links to, one character a call. Linking replaces another link, and the result
+names the world it replaced; `linked: false` clears only a link to the named
+world. `list_characters` and `read_character` show the linked world.
 
 Creates go through each resource's own schema and writer with server-generated
 ids, and a narrow text-only schema: no image, URL, extension or embedded book.

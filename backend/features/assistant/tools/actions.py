@@ -1,5 +1,5 @@
 """The assistant's actions: new lore entries, characters, worlds, personas, documents and chats, a chat's worlds, title and persona,
-checkpoints, branch selection, and handoffs to the chat's own stream or to the browser.
+the world a character links to, checkpoints, branch selection, and handoffs to the chat's own stream or to the browser.
 
 Creates are additive and go through each resource's own schema and writer, with server-generated ids. Chat mutations take the
 chat's lane through the host's admission, read their target again once admitted, and hold the lane only
@@ -26,9 +26,11 @@ from ....database import (
     get_active_path,
     get_conversation,
     get_effective_world_ids,
+    get_world,
     get_worlds,
     set_conversation_world,
     switch_to_branch,
+    update_character_card,
     update_conversation,
 )
 from ....database.models import ConversationRow
@@ -37,6 +39,7 @@ from .host import AssistantHost, ChatUnavailable
 from .targets import (
     ID_CHARS,
     cast_of,
+    character_field,
     character_of,
     chat_field,
     chat_id,
@@ -130,6 +133,12 @@ class _DocumentCreate(ToolArguments):
     content: str = _text(_DOCUMENT_CHARS, "The document's text.")
 
     _blank = field_validator("title")(not_blank)
+
+
+class _CharacterWorld(ToolArguments):
+    character_id: str = character_field()
+    world_id: str = world_field()
+    linked: bool = Field(description="true to link the character to the world, false to remove its link to it.")
 
 
 class _ChatWorld(ToolArguments):
@@ -338,6 +347,34 @@ def build_action_tools(view: ViewContext, host: AssistantHost) -> list[Assistant
         )
         committed = ({"kind": "chat_worlds", "conversation_id": cid, "world_id": world["id"]},) if attached != before else ()
         return ToolOutput(data, summary, {"conversation_id": cid, "world_id": world["id"]}, committed=committed)
+
+    @tools.add(
+        "write",
+        _CharacterWorld,
+        "Link a character to a world (lorebook): every chat with them uses it unless that chat turns it off. A character "
+        "links to one world, so linking replaces any other link.",
+        idempotent=True,
+    )
+    async def set_character_world(args: _CharacterWorld) -> ToolOutput:
+        card = await character_of(args.character_id, view)
+        world = await world_of(args.world_id, view)
+        card_id, wid, before = str(card.get("id")), world["id"], card.get("world_id")
+        wanted = wid if args.linked else (None if before == wid else before)
+        if wanted != before:
+            await update_character_card(card_id, {"world_id": wanted})
+        data: dict[str, Any] = {"world": clip(world["name"], _NAME_CHARS), "changed": wanted != before}
+        previous = await get_world(before) if args.linked and before and before != wid else None
+        if previous:
+            data["replaced"] = clip(previous["name"], _NAME_CHARS)
+        if args.linked and world["is_global"]:
+            data["note"] = "This world is global, so every chat already uses it unless that chat turns it off."
+        state = "linked to" if args.linked else "not linked to"
+        summary = (
+            f"{'Now' if wanted != before else 'Already'}: {quoted(card.get('name'))} {state} world {quoted(world['name'])}."
+        )
+        ids = {"character_id": card_id, "world_id": wid}
+        committed = ({"kind": "character_world", **ids},) if wanted != before else ()
+        return ToolOutput(data, summary, ids, committed=committed)
 
     @tools.add("write", _Checkpoint, "Copy a chat's kept branch into a new, separate chat. The chat in view is not switched.")
     async def checkpoint_chat(args: _Checkpoint) -> ToolOutput:

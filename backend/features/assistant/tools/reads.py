@@ -23,6 +23,7 @@ from ....database import (
     get_settings,
     get_speaker_names,
     get_user_personas,
+    get_world,
     get_worlds,
     list_character_cards,
     run_library_query,
@@ -330,12 +331,14 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
 
     @tools.add("read", _ListArgs, "Search character cards by name, creator or tag.")
     async def list_characters(args: _ListArgs) -> ToolOutput:
+        worlds = {world["id"]: world["name"] for world in await get_worlds()}
         rows = [
             _filled(
                 id=card.get("id"),
                 name=clip(card.get("name"), _QUERY_CHARS),
                 tags=[clip(tag, 60) for tag in (card.get("tags") or [])[:12]],
                 creator=clip(card.get("creator"), 80),
+                world=clip(worlds.get(card.get("world_id") or ""), _QUERY_CHARS),
                 creator_notes=clip(card.get("creator_notes"), _PREVIEW_CHARS),
             )
             for card in await list_character_cards()
@@ -360,9 +363,11 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         meta: dict[str, Any] = {"name": clip(card.get("name"), _QUERY_CHARS)}
         if not named or "tags" in args.fields:
             # The card's head: with every field, or asked for by name. A page of one field carries only the name.
+            linked = await get_world(world_id) if (world_id := card.get("world_id")) else None
             meta.update(
                 _filled(
                     creator=clip(card.get("creator"), 80),
+                    world=clip(linked["name"] if linked else "", _QUERY_CHARS),
                     tags=[clip(tag, 60) for tag in (card.get("tags") or [])[:20]],
                     alternate_greeting_count=len(card.get("alternate_greetings") or []),
                 )

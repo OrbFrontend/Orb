@@ -351,6 +351,14 @@ const REFRESHERS = {
           },
         ]
       : ["characters", loadCharacters],
+  // The linked world leads the sidebar, and chats with these characters may now use it.
+  character_world: () => [
+    "character_world",
+    async () => {
+      await loadCharacters();
+      await Promise.all([loadWorlds(), refreshChatWorlds(S.activeConvId)]);
+    },
+  ],
   persona: () => ["personas", loadPersonas],
   mood_fragment: () => ["mood_fragments", loadMoodFragments],
   // Its loader also reads the open chat's state again, which a state fragment's change can alter.
