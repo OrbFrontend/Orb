@@ -36,8 +36,6 @@ class SettingsUpdate(_PartialUpdate):
     # repetition_penalty, max_tokens) are NOT on this contract: they live on the active endpoint and its model_config, edited
     # via /endpoints/{id} and /models/{id}, and get_settings() overlays them for reads. The frontend still includes them in its
     # /settings PUT payload; extra fields are ignored (default Pydantic behavior), mirroring completion_mode.
-    shared_system_prompt: str | None = None
-    system_prompt: str | None = None
     user_name: str | None = None
     user_description: str | None = None
     enabled_tools: dict[str, bool] | None = None
@@ -69,7 +67,6 @@ class SettingsUpdate(_PartialUpdate):
     prevent_prompt_overrides: bool | None = None
     agent_same_as_writer: bool | None = None
     agent_endpoint_id: int | None = None
-    agent_shared_system_prompt: str | None = None
     assistant_instructions: str | None = Field(default=None, max_length=MAX_ITEM_CHARS)
     assistant_reasoning: bool | None = None
     # Group id -> on; a missing id is on. Ids the server does not know are kept and ignored.
@@ -203,7 +200,6 @@ class ModelConfigCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     model_name: str
-    system_prompt: str = ""
     # ``null`` is deliberate: it means omit this key from the provider request
     # and let that endpoint apply its own default.  The numeric defaults still
     # apply when a field is absent while creating a config.
@@ -229,7 +225,6 @@ class ModelConfigUpdate(_PartialUpdate):
     nullable_fields = frozenset({"temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens"})
 
     model_name: str | None = None
-    system_prompt: str | None = None
     temperature: float | None = None
     min_p: float | None = None
     top_k: int | None = None
@@ -253,6 +248,39 @@ class ModelConfigUpdate(_PartialUpdate):
     @classmethod
     def _validate_extra_body(cls, v: str | None) -> str | None:
         return v if v is None else _check_extra_body(v)
+
+
+class PromptLayoutCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    copy_from: str | None = None
+
+
+class PromptLayoutRename(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class PromptLayoutActive(BaseModel):
+    id: str
+
+
+class PromptBlockCreate(BaseModel):
+    label: str = ""
+    content: str = ""
+    # None takes the region's default role.
+    role: Literal["system", "user", "assistant"] | None = None
+    region: Literal["prefix", "writer"] = "writer"
+
+
+class PromptBlockUpdate(BaseModel):
+    label: str | None = None
+    content: str | None = None
+    role: Literal["system", "user", "assistant"] | None = None
+    enabled: bool | None = None
+
+
+class PromptBlockOrder(BaseModel):
+    prefix: list[str]
+    writer: list[str]
 
 
 class MoodFragmentCreate(BaseModel):

@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from .. import database as db
+from ..core import ChatMessage
 from ..core.settings import Settings
 from ..database.models import WorldRow
 from ..features.lorebook import dynamic_enabled, split_by_world
@@ -60,10 +61,10 @@ async def world_proposal_stage(
         return
 
     yield {"event": "step_start", "data": {"step": "world_changes"}}
-    writer_msg = state.writer_content or state.user_message
+    writer_request: list[ChatMessage] = state.writer_request or [{"role": "user", "content": state.user_message}]
     # The steered paths hand the writer an OOC instruction; the step must judge what the user actually said instead (see
     # build_world_change_prompt). Compared against ``state.user_message`` -- always the writer's *text* input -- rather than
-    # ``writer_content``, which is a multimodal parts list on a turn carrying attachments and would read as unsteered.
+    # the Writer request, whose messages carry the layout's blocks and any attachments.
     steered = state.user_message.strip() != turn.user_message.strip()
 
     result = None
@@ -75,7 +76,7 @@ async def world_proposal_stage(
             entries=entries,
             worlds=worlds,
             reply_text=state.resp_text,
-            writer_user_msg=writer_msg,
+            writer_request=writer_request,
             original_user_message=turn.user_message if steered else "",
             exchange_text=f"{turn.user_message}\n{state.resp_text}",
             kv_tracker=kv_tracker,
@@ -147,7 +148,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     # is the step's trailing, exactly as it is during a live turn.
     parent_id = user_msg.get("parent_id")
     history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
-    prefix = await build_offturn_prefix(conversation_id, history, settings, lane="agent")
+    prefix = await build_offturn_prefix(conversation_id, history, settings)
     if not prefix:
         raise db.OverlayStateConflict("cannot re-evaluate: the Agent context is unavailable")
 
@@ -180,7 +181,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
         entries=entries,
         worlds=[world],
         reply_text=assistant_msg["content"],
-        writer_user_msg=user_msg["content"],
+        writer_request=[{"role": "user", "content": user_msg["content"]}],
         exchange_text=f"{user_msg['content']}\n{assistant_msg['content']}",
         reasoning_on=reasoning_on,
     ):

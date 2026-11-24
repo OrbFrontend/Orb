@@ -86,7 +86,7 @@ async def _run_pre_hooks(
             client=client,
             kv_tracker=KVCacheTracker(),
             schema_overrides={},
-            accumulators={"merged_enabled_tools": {}, "extras": []} if accumulators is None else accumulators,
+            accumulators={"merged_enabled_tools": {}} if accumulators is None else accumulators,
         )
     ]
 
@@ -151,52 +151,32 @@ def _yielding(*events):
 
 
 @pytest.mark.parametrize(
-    "hook_events,tools,merged,extras,forwarded",
+    "hook_events,tools,merged,forwarded",
     [
-        ([], {"a": True}, {"a": True}, [], []),
+        ([], {"a": True}, {"a": True}, []),
         # Only true entries merge in; false entries are not added.
         (
             [{"type": "enable_tools", "tools": {"direct_scene": True, "editor_rewrite": False}}],
             {"editor_apply_patch": True},
             {"editor_apply_patch": True, "direct_scene": True},
             [],
-            [],
         ),
-        ([{"type": "enable_tools", "tools": {"direct_scene"}}], {}, {"direct_scene": True}, [], []),
-        ([{"type": "enable_tools", "tools": {"not_a_real_tool": True}}], {}, {}, [], []),
-        (
-            [{"type": "system_prompt", "block": b} for b in ("   ", "", "real")],
-            {},
-            {},
-            ["real"],
-            [],
-        ),
+        ([{"type": "enable_tools", "tools": {"direct_scene"}}], {}, {"direct_scene": True}, []),
+        ([{"type": "enable_tools", "tools": {"not_a_real_tool": True}}], {}, {}, []),
         (
             [{"event": "custom_sse", "data": {"hello": "world"}}],
             {},
             {},
-            [],
             [{"event": "custom_sse", "data": {"hello": "world"}}],
         ),
     ],
 )
-async def test_pre_pipeline_iter_accumulates_hook_events(hook_events, tools, merged, extras, forwarded):
-    accumulators = {"merged_enabled_tools": dict(tools), "extras": []}
+async def test_pre_pipeline_iter_accumulates_hook_events(hook_events, tools, merged, forwarded):
+    accumulators = {"merged_enabled_tools": dict(tools)}
     with register_for_test(make_workflow("tw_pre", pre_pipeline=_yielding(*hook_events))):
         events = await _run_pre_hooks(accumulators, enabled_tools=tools)
     assert events == forwarded
     assert accumulators["merged_enabled_tools"] == merged
-    assert accumulators["extras"] == extras
-
-
-async def test_pre_pipeline_iter_system_prompt_collected_in_subscription_order():
-    # Equal priorities (both default 0) preserve registration order.
-    w_a = make_workflow("w_a", pre_pipeline=_yielding({"type": "system_prompt", "block": "block-a"}))
-    w_b = make_workflow("w_b", pre_pipeline=_yielding({"type": "system_prompt", "block": "block-b"}))
-    accumulators = {"merged_enabled_tools": {}, "extras": []}
-    with register_for_test(w_a), register_for_test(w_b):
-        await _run_pre_hooks(accumulators)
-    assert accumulators["extras"] == ["block-a", "block-b"]
 
 
 _MALFORMED_EVENTS = [
@@ -293,16 +273,16 @@ async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues()
 
     async def hook_b(pre_ctx):
         survived.append("b_ran")
-        yield {"type": "system_prompt", "block": "still here"}
+        yield {"type": "enable_tools", "tools": {"direct_scene"}}
 
-    accumulators = {"merged_enabled_tools": {}, "extras": []}
+    accumulators = {"merged_enabled_tools": {}}
     with (
         register_for_test(make_workflow("w_crash", pre_pipeline=crasher)),
         register_for_test(make_workflow("w_survive", pre_pipeline=hook_b)),
     ):
         await _run_pre_hooks(accumulators)
     assert survived == ["b_ran"]
-    assert accumulators["extras"] == ["still here"]
+    assert accumulators["merged_enabled_tools"] == {"direct_scene": True}
 
 
 # -- _stage_workflow_attachment ------------------------------------------
@@ -440,7 +420,7 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
 
     with register_for_test(make_workflow("scratch", pre_pipeline=pre_hook, post_pipeline=post_hook)):
         turn_scratch: dict = {}
-        accumulators = {"merged_enabled_tools": {}, "extras": []}
+        accumulators = {"merged_enabled_tools": {}}
         await _run_pre_hooks(accumulators, turn_scratch=turn_scratch, client=client)
         await _run_with_writer(
             _writer("ok"),

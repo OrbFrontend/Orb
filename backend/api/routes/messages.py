@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core.macros import Macros, card_description, resolve_inline
+from ...core.macros import Macros, card_description, card_personality, resolve_inline
 from ...core.settings import Settings
 from ...database import (
     get_changesets_for_messages,
@@ -443,7 +443,13 @@ async def api_autocomplete(
         char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
         summary_source = (card or {}).get("description") or ""
 
-    macros = Macros(user=user_name, char=char_name, cast=cast_names, description=card_description(card))
+    macros = Macros(
+        user=user_name,
+        char=char_name,
+        cast=cast_names,
+        description=card_description(card),
+        personality=card_personality(card),
+    )
     messages = await get_messages(cid)
     recent = [
         {

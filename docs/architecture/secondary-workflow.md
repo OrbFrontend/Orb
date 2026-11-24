@@ -223,8 +223,7 @@ framework.
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
 
 Every context, and every control-event `type` a hook yields (`EV_ENABLE_TOOLS`,
-`EV_SYSTEM_PROMPT`, `EV_DRAFT_REPLACED`, `EV_ATTACH_ARTIFACT`,
-`EV_SET_MESSAGE_STATE`), is a toolkit export, so a plug-in annotates its hooks
+`EV_DRAFT_REPLACED`, `EV_ATTACH_ARTIFACT`, `EV_SET_MESSAGE_STATE`), is a toolkit export, so a plug-in annotates its hooks
 without reaching past the toolkit. Both `subscription` and `subscribe` are
 typed per hook type: Pyright rejects a hook whose signature does not fit its
 slot, such as a post hook that returns instead of yielding. The host's
@@ -243,11 +242,11 @@ untyped plug-ins and drops malformed events.
 ```python
 from collections.abc import AsyncIterator
 
-from ..toolkit import EV_SYSTEM_PROMPT, PreCtx, PreEvent
+from ..toolkit import EV_ENABLE_TOOLS, PreCtx, PreEvent
 
 
 async def pre_pipeline(ctx: PreCtx) -> AsyncIterator[PreEvent]:
-    yield {"type": EV_SYSTEM_PROMPT, "block": "A workflow instruction."}
+    yield {"type": EV_ENABLE_TOOLS, "tools": {"my_tool"}}
 ```
 
 Context collections are annotated as read-only mappings and tuples, and
@@ -300,7 +299,7 @@ persist assistant message, state, and attachments
 SSE done
 ```
 
-Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
+Pre-hooks can enable tools or emit public events. Post-hooks
 can replace the draft, set message state, stage attachments, or emit public
 events. Hooks run in subscription priority order, and equal priorities run in
 registration order. Format Consistency repairs voice and markup first; Prose

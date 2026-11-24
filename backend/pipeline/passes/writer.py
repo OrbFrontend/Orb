@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 from ...core import (
     CastMember,
     ChatMessage,
-    ContentPart,
     GroupContextMode,
     Macros,
     build_multimodal_content,
@@ -19,12 +18,21 @@ from ...core import (
     resolve_inline,
 )
 from ...core.llm_types import ContentDelta, ReasoningDelta
+from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
-from ...prompting import member_macros, tail_carries_identity
+from ...prompting import member_macros, speaker_instructions, tail_carries_identity
+from ...prompting.layout import (
+    TOOL_NOTICE,
+    SectionInputs,
+    WriterInputs,
+    WriterRequest,
+    prefill_start,
+    render_writer_request,
+)
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
-from .editor.length_guard import LengthGuard, writer_nudge
+from .editor.length_guard import writer_nudge
 
 if TYPE_CHECKING:
     from ..state import PipelineConfig, TurnState
@@ -67,64 +75,47 @@ _SHEET_FRAMING = (
 )
 
 
-def build_writer_content(
-    lorebook_block: str,
-    inj_block: str,
-    tools_sent: bool,
-    effective_msg: str,
-    attachments: Sequence[Mapping[str, Any]] | None,
-    length_guard: LengthGuard | None,
-    depth_block: str = "",
-    speaker: CastMember | None = None,
-    speaker_cue: str = "",
-    macros: Macros | None = None,
-    prevent_prompt_overrides: bool = False,
-    context_mode: GroupContextMode = "private",
-) -> str | list[ContentPart]:
-    """Build Writer user-message content."""
-    tail = ""
-    if speaker is not None:
-        speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
-        resolve = speaker_macros.resolve_message if speaker_macros else (lambda text: text)
-        tail += f"## You are writing as {speaker.name}\n"
-        if tail_carries_identity(context_mode):
-            if speaker.private_sheet:
-                tail += f"{_SHEET_FRAMING}\n"
-                tail += resolve(speaker.private_sheet) + "\n\n"
-            if speaker.mes_example:
-                example = resolve(speaker.mes_example)
-                tail += (
-                    example.replace("<START>", "## Example Dialogue")
-                    if "<START>" in example
-                    else f"## Example Dialogue\n{example}"
-                )
-                tail += "\n\n"
-        if speaker.post_history and not prevent_prompt_overrides:
-            tail += f"## Additional Instructions\n{resolve(speaker.post_history)}\n\n"
-    if lorebook_block:
-        tail += "___\n\n" + lorebook_block + "\n\n"
-    if inj_block:
-        tail += "___\n\n" + inj_block + "\n\n"
-    if tools_sent:
-        tail += "**Do not use tool or function calls this turn.**\n\n"
-    tail += writer_nudge(length_guard)
-    if speaker_cue:
-        tail += f"## Your cue\n{speaker_cue}\n\n"
-    if effective_msg:
-        tail += "___\n\n" + effective_msg + "\n\n"
-    if depth_block:
-        tail += "___\n\n" + depth_block + "\n\n"
-    if speaker is not None:
-        tail += f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
+def _speaker_frame(
+    speaker: CastMember | None, macros: Macros | None, context_mode: GroupContextMode, *, prevent_prompt_overrides: bool
+) -> tuple[str, str, Macros | None]:
+    """The group speaker's opening and closing lines around the Writer request, and the macros scoped to the speaker."""
+    if speaker is None:
+        return "", "", macros
+    speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
+    resolve = speaker_macros.resolve_message if speaker_macros else (lambda text: text)
+    opening = f"## You are writing as {speaker.name}\n"
+    if tail_carries_identity(context_mode):
+        if speaker.private_sheet:
+            opening += f"{_SHEET_FRAMING}\n{resolve(speaker.private_sheet)}\n\n"
+        if speaker.mes_example:
+            example = resolve(speaker.mes_example)
+            heading = "## Example Dialogue"
+            opening += (example.replace("<START>", heading) if "<START>" in example else f"{heading}\n{example}") + "\n\n"
+    if instructions := speaker_instructions(speaker, prevent_prompt_overrides=prevent_prompt_overrides):
+        opening += f"## Additional Instructions\n{resolve(instructions)}\n\n"
+    closing = f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
+    return opening, closing, speaker_macros
 
-    return build_multimodal_content(tail, attachments)
+
+def _with_attachments(request: WriterRequest, attachments: Sequence[Mapping[str, Any]]) -> list[ChatMessage]:
+    """*request*'s messages, the turn's attachments on its anchor message, or on a user message of their own when no user
+    message can carry them, ahead of any trailing assistant text the reply continues."""
+    messages = list(request.messages)
+    if not attachments:
+        return messages
+    if request.attach_to is None:
+        cut = prefill_start([message["role"] for message in messages])
+        return [*messages[:cut], {"role": "user", "content": build_multimodal_content("", attachments)}, *messages[cut:]]
+    anchor = messages[request.attach_to]
+    messages[request.attach_to] = {"role": "user", "content": build_multimodal_content(str(anchor["content"]), attachments)}
+    return messages
 
 
 async def writer_pass(
     client: LLMClient,
     base: CachedBase,
     settings: Settings,
-    content: str | list[ContentPart],
+    request: Sequence[ChatMessage],
     *,
     kv_tracker: KVCacheTracker | None = None,
     reasoning_on: bool = True,
@@ -133,10 +124,10 @@ async def writer_pass(
 ) -> AsyncIterator[ContentDelta | ReasoningDelta]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
-    *content* is the writer's user-message body, prebuilt by ``build_writer_content`` and shared with the editor. The tool blob
-    comes from *base* so it stays byte-identical with the director and editor passes.
+    *request* is the Writer's messages after history, prebuilt by :func:`writer_stage` and replayed by the later passes. The
+    tool blob comes from *base* so it stays byte-identical with the director and editor passes.
     """
-    trailing: list[ChatMessage] = [{"role": "user", "content": content}]
+    trailing = list(request)
 
     hyperparams = extract_hyperparams(settings)
     logger.info(
@@ -173,10 +164,12 @@ async def writer_stage(
     speaker_cue: str = "",
     macros: Macros | None = None,
     context_mode: GroupContextMode = "private",
+    layout: Sequence[LayoutBlock] | None = None,
+    sections: SectionInputs | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Input-prep + writer pass + event translation.
 
-    Builds ``state.writer_content`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
+    Builds ``state.writer_request`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
     :func:`writer_pass` translating ``content``->``token`` and ``reasoning``->``reasoning`` events, and accumulates the writer's
     wall time into the Inspector breakdown.
     """
@@ -187,20 +180,25 @@ async def writer_stage(
     transport_probe: ChatMessage = {"role": "user", "content": build_multimodal_content("", attachments)}
     tools_sent = cfg.writer_lane.sends_tool_schemas([transport_probe])
 
-    state.writer_content = build_writer_content(
-        state.writer_lorebook_block,
-        state.inj_block,
-        tools_sent,
-        state.effective_msg,
-        attachments,
-        cfg.length_guard,
-        depth_block=depth_block,
-        speaker=speaker,
-        speaker_cue=speaker_cue,
-        macros=macros,
-        prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
-        context_mode=context_mode,
+    speaker_open, speaker_close, block_macros = _speaker_frame(
+        speaker, macros, context_mode, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
     )
+    inputs = WriterInputs(
+        selected_lore=state.writer_lorebook_block,
+        decisions=state.writer_decisions,
+        scene_guidance=state.scene_guidance,
+        current_state=state.writer_state_block,
+        tool_notice=TOOL_NOTICE if tools_sent else "",
+        length_nudge=writer_nudge(cfg.length_guard).strip(),
+        cue=speaker_cue,
+        user_message=state.effective_msg,
+        depth_lore=depth_block,
+        sections=sections or SectionInputs(),
+        speaker_open=speaker_open,
+        speaker_close=speaker_close,
+    )
+    request = render_writer_request(layout if layout is not None else default_layout(), inputs, block_macros)
+    state.writer_request = _with_attachments(request, attachments)
     state.writer_call = TextCallRecord()
     label_buffer = ""
     label_pending = speaker is not None
@@ -213,7 +211,7 @@ async def writer_stage(
             cfg.writer_lane.client,
             cfg.writer_lane.base,
             settings,
-            state.writer_content,
+            state.writer_request,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.writer_reasoning_on,
             reasoning_prefill=cfg.writer_reasoning_prefill,

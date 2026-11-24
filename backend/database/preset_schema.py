@@ -24,6 +24,7 @@ DOMAIN_ROOTS: dict[str, str] = {
     "settings": "configs",
     "endpoints": "configs",
     "user_personas": "configs",
+    "prompt_layouts": "configs",
 }
 
 # Excluded tables whose rows an install derives from its own data and rebuilds on its own: the suggestion miner's output and
@@ -48,10 +49,8 @@ EXCLUDED_TABLES: frozenset[str] = (
 SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("settings", "user_name"): "User",
     ("settings", "user_description"): "",
-    ("settings", "system_prompt"): "",
-    ("settings", "shared_system_prompt"): "",
-    ("settings", "agent_shared_system_prompt"): "",
     ("settings", "assistant_instructions"): "",
+    ("prompt_blocks", "content"): "",
     ("endpoints", "api_key"): "",
     ("endpoints", "proxy"): "",
     # Free-form and user-supplied, so its contents are unknown and may be sensitive; declared secret alongside endpoints.proxy.

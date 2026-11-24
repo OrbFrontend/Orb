@@ -60,9 +60,9 @@ only to that character's replies. Group style instructions apply to everyone.
 
 The [pinned persona](persona-pinning.md) applies to the whole group chat.
 [Macros](macros.md) expand `{{cast}}` to the roster names and `{{char}}` to the
-group title outside a member's card text. `{{description}}` is the speaking
-member's sheet -- its scene override when one is set -- since a scene has no
-single card to read a description from.
+group title outside a member's card text. `{{description}}` and
+`{{personality}}` are the speaking member's card fields. A member with a scene
+sheet uses the sheet as `{{description}}` and has no `{{personality}}`.
 
 ## Public profiles and scene sheets
 

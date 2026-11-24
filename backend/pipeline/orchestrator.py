@@ -7,10 +7,12 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateFragment, StateView, carry_events
+from ..core.prompt_layout import LayoutBlock
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
 from ..prompting import prefix_cache_shape
+from ..prompting.layout import SectionInputs
 from .config import resolve_pipeline_config, split_interactive_fragments
 from .events import CoreTurnEvent, PipelineEvent, PublicTurnEvent, ResultEvent
 from .failures import (
@@ -25,7 +27,7 @@ from .failures import (
 )
 from .passes.director import apply_state_step_result, cooldown, director_stage, state_event_payload
 from .passes.editor import editor_stage
-from .passes.judge import JudgeConfig, JudgeResult
+from .passes.judge import JudgeConfig, JudgeResult, headed_decisions
 from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
@@ -115,7 +117,7 @@ async def run_director_stage(
             macros=macros,
             speaker_keys=speaker_keys,
             director_decision_guidance=state.director_decision_guidance,
-            writer_decision_guidance=state.writer_decision_guidance,
+            writer_decision_guidance=headed_decisions(state.writer_decisions),
         ):
             yield ev
     except Exception as exc:
@@ -134,7 +136,6 @@ async def run_pipeline(
     phrase_bank: list[PhraseGroup] | None = None,
     editor_audit_history: Sequence[Mapping[str, Any]] | None = None,
     agent_client: LLMClient | None = None,
-    agent_prefix: list[ChatMessage] | None = None,
     macros: Macros | None = None,
     conversation_id: str | None = None,
     character_id: str | None = None,
@@ -158,6 +159,8 @@ async def run_pipeline(
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
+    layout: Sequence[LayoutBlock] | None = None,
+    sections: SectionInputs | None = None,
 ) -> AsyncIterator[PipelineEvent]:
     """Run the director -> writer -> editor passes for one turn.
 
@@ -183,7 +186,6 @@ async def run_pipeline(
         macros=macros,
         client=client,
         agent_client=agent_client,
-        agent_prefix=agent_prefix,
         prefix=prefix,
         phrase_bank=phrase_bank,
         schema_overrides=schema_overrides,
@@ -241,6 +243,8 @@ async def run_pipeline(
             speaker_cue=speaker_cue,
             macros=macros,
             context_mode=context_mode,
+            layout=layout,
+            sections=sections,
         ),
     ):
         yield ev
@@ -486,7 +490,7 @@ async def _after_reply_state_stage(
             # No decision guidance: it directs the Writer, rides the replayed
             # Writer message already, and the reply is the only record now.
             reply_text=state.resp_text,
-            writer_user_msg=state.writer_content,
+            writer_request=state.writer_request,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.editor_reasoning_on,
             reasoning_prefill=cfg.editor_reasoning_prefill,

@@ -301,6 +301,19 @@ That shared beginning is why a long conversation does not require a complete
 prefill on every call. A group exchange follows the same rule as speakers add
 their replies; lore activation itself remains frozen until the next exchange.
 
+## Prompt layout regions
+
+The prompt layout's divider is a cost boundary. A block above it is part of the
+shared prefix, so toggling or editing it moves bytes before the history and the
+next call re-reads the chat. On llama.cpp (Qwen3.8 27B and Gemma 4 31B, one
+slot) that happens once: the first call after the change (the Director) reads
+the prefix uncached, and the Writer and Editor reuse it. A block below the
+divider is part of the Writer's request, so it costs its own tokens on every
+turn and nothing more: a ~500-token block added about that much uncached prefill
+to each Writer call, and the Editor's first call still reused the whole Writer
+request. On providers that keep a separate cache per `tool_choice`, a prefix edit
+is re-read once per lane instead.
+
 ## Batch lanes
 
 A few passes are not conversation turns at all: the library auto-tagger sends one
@@ -366,6 +379,19 @@ prefix with the reply as an open assistant turn. That render uses the lane's
 thinking flag, so its first bytes match the lane's other calls. The prompt it
 sent before the reply becomes the reply's record, so later continues on it send
 the same bytes.
+
+## A summary extends the turn that followed its history
+
+Compress History summarizes the history before the kept messages, which is the
+history the turn after it was built on. The summary call rebuilds that turn's
+Writer lane with `pipeline.context.offturn_config`: the neutral prefix the
+Director reads (the scene's own group context mode, no swapped-in card), the
+shared tool blob under `tool_choice="none"`, and the Writer's reasoning setup.
+Only its request is new. In a solo chat with two kept messages, the summarized
+history ends where the latest turn's request began, the position that turn
+cached; with more kept, it ends where an earlier turn's request began.
+Pre-pipeline hooks do not run, so a hook that adds a tool would put the summary
+on its own lane.
 
 ## Providers that cache only where asked
 

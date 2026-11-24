@@ -11,7 +11,6 @@ from typing import Any
 
 from ....core import (
     ChatMessage,
-    ContentPart,
     StateFragment,
     StateOp,
     StateRejection,
@@ -23,6 +22,7 @@ from ....core.llm_types import CompletionMessage
 from ....core.settings import Settings
 from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
+from ....prompting.layout import replay_reply
 from ....prompting.tool_schemas import UPDATE_STATE_CHOICE, build_state_tool
 from ...timing import timed_events
 from .prompts import AliasedEntry, build_state_request, entry_aliases
@@ -140,7 +140,7 @@ async def state_step(
     decision_guidance: str = "",
     user_message: str = "",
     reply_text: str | None = None,
-    writer_user_msg: str | list[ContentPart] | None = None,
+    writer_request: Sequence[ChatMessage] = (),
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -176,8 +176,7 @@ async def state_step(
         if placement == "after_reply":
             # Replay the Writer exchange so each call extends the warm Writer prefix.
             trailing: list[ChatMessage] = [
-                {"role": "user", "content": writer_user_msg or ""},
-                {"role": "assistant", "content": reply_text or ""},
+                *replay_reply(writer_request, reply_text or ""),
                 {"role": "user", "content": request},
             ]
         else:

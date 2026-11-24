@@ -369,6 +369,8 @@ SIGNATURE_TABLES = frozenset(
         "mood_fragments",
         "interactive_fragments",
         "documents",
+        "prompt_layouts",
+        "prompt_blocks",
     }
 )
 
@@ -474,6 +476,10 @@ def _signature(path: str) -> dict:
             "fragments": q("SELECT id, label FROM mood_fragments"),
             "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
             "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
+            "prompt_layouts": q("SELECT id, name FROM prompt_layouts"),
+            "prompt_blocks": q(
+                "SELECT id, layout_id, kind, label, content, role, region, sort_order, enabled FROM prompt_blocks"
+            ),
         }
     finally:
         conn.close()
@@ -554,7 +560,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     # configs touch, plus a phrase-bank row (surrogate full-replace path) and a
     # mood fragment (stable upsert) so those domains carry real data round-trip.
-    await client.put("/api/settings", json={"user_name": "Ada", "system_prompt": "keep me"})
+    await client.put("/api/settings", json={"user_name": "Ada", "user_description": "keep me"})
     with closing(sqlite3.connect(path)) as seed:
         seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
         # A dismissed suggestion is a phrase-bank decision and must come back; a

@@ -29,7 +29,7 @@ from .drafting import (
     tool_result,
 )
 from .endpoint_profiles import honors_forced_tool_choice, note_forced_tool_choice_ignored
-from .errors import EndpointConfigError, LLMCallError, provider_sentence, redact
+from .errors import EndpointConfigError, LLMCallError, PromptShapeError, provider_sentence, redact
 from .jev import (
     MAX_QUESTION_BYTES,
     MAX_QUESTIONS_PER_REQUEST,

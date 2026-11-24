@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ..database import PromptLayoutError
 from ..inference import DecisionTransportError, EndpointConfigError
 from ..inference.claude_code import ClaudeCodeError
 from ..pipeline.events import FailureData, FailureEvent
@@ -80,6 +81,10 @@ def register_error_handlers(app: FastAPI) -> None:
         logger.error("%s %s failed", request.method, request.url.path, exc_info=exc)
         return JSONResponse(status_code=500, content={"detail": "Something went wrong inside Orb; see server logs."})
 
+    async def refused_edit(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     for error_type in API_PASSTHROUGH_ERRORS[1:]:
         app.add_exception_handler(error_type, expected_failure)
+    app.add_exception_handler(PromptLayoutError, refused_edit)
     app.add_exception_handler(Exception, unexpected_failure)

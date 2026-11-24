@@ -9,9 +9,11 @@ from backend.database import (
     add_phrase_group,
     get_interactive_fragments,
     get_messages,
+    get_settings,
     set_active_leaf,
     update_settings,
 )
+from backend.workflows.toolkit import build_offturn_prefix
 
 
 async def _card(client, name: str, **extra) -> str:
@@ -526,16 +528,17 @@ async def test_context_size_breakdown_follows_the_context_mode(client, mode, exp
 
 
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])
-async def test_compression_prompts_stay_on_the_public_cast_projection(client, llm_mock, mode):
-    """Compression is scene-wide narration: no dossiers, and no arbitrary swapped-in card."""
+async def test_compression_reads_the_neutral_turn_prefix(client, llm_mock, mode):
+    """Compression extends the scene's neutral turn prefix, the one the Director caches: no arbitrary swapped-in card."""
     conv, members = await _two_card_group(client, context_mode=mode)
     await _chain(conv["id"], [row[:3] for row in _five_lines(members)])
     llm_mock.enqueue_writer("A summary.")
     await client.post_checked(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})
-    system = str(llm_mock.captured[-1]["messages"][0]["content"])
-    assert "### Aria" in system and "### Kael" in system
-    assert "ARIA PRIVATE" not in system and "KAEL PRIVATE" not in system
-    assert "## Character dossier" not in system
+    sent = llm_mock.captured[-1]["messages"]
+    prefix = await build_offturn_prefix(conv["id"], (await get_messages(conv["id"]))[:-2], await get_settings())
+    assert json.dumps(sent[: len(prefix)]) == json.dumps(prefix)
+    if mode == "swap":
+        assert "ARIA PRIVATE" not in str(sent[0]["content"]) and "KAEL PRIVATE" not in str(sent[0]["content"])
 
 
 # -- The scene-local sheet override ------------------------------------------

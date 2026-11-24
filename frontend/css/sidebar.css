@@ -206,3 +206,28 @@
   #app.sidebar-toggled #sidebar { transition: width .25s, min-width .25s; }
   #app.sidebar-collapsed .sidebar-expand-btn { display: inline-flex; flex-shrink: 0; }
 }
+
+/* Prompt Layout: blocks above the divider build the shared prefix, blocks below build the Writer's request. */
+#prompt-layout-list .fragment-item { padding-left: 2px; }
+.pl-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.pl-header .theme-select { font-size: 12px; padding: 5px 10px; color: var(--text-primary); }
+.pl-header-actions { display: flex; gap: 8px; }
+.pl-header-actions .btn { flex: 1; justify-content: center; padding-left: 6px; padding-right: 6px; }
+.pl-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.pl-name .frag-label { flex: 0 1 auto; padding-right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-off :is(.pl-name, .pl-role-icon) { opacity: 0.55; }
+.modal p.pl-about { margin-bottom: 10px; }
+.pl-source { font-size: 13px; }
+/* Every row shows its role as an icon in one column beside the toggle. */
+.pl-role-icon { --pl-role: var(--text-muted); --ui-icon-size: 14px; flex: 0 0 auto; display: flex; margin-left: 8px;
+  color: var(--pl-role); }
+.pl-role-user { --pl-role: var(--accent); }
+.pl-role-assistant { --pl-role: color-mix(in srgb, var(--accent) 45%, var(--text-primary)); }
+.pl-clock { font-size: 11px; color: var(--warning, #c8a84b); border: 1px solid currentColor; border-radius: 4px;
+  padding: 3px 4px; }
+.fragment-item.pl-divider { display: block; cursor: default; padding: 6px 4px 4px; margin: 4px 0; }
+.fragment-item.pl-divider:hover { background: none; }
+.pl-divider-rule { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-secondary); }
+.pl-divider-rule::before, .pl-divider-rule::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.pl-header-actions .btn:disabled { opacity: 0.45; cursor: default; }

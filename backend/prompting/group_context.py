@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ..core import CastMember, GroupContextMode, Macros, TurnCast
+from ..core import CastMember, GroupContextMode, Macros, TurnCast, fill_original
 
 CAST_HEADING = "## Cast"
 DOSSIER_HEADING = "## Character dossier: "
@@ -68,14 +68,14 @@ def macro_identity(conv: Mapping[str, Any], cast: TurnCast) -> tuple[str, str]:
 
 
 def member_macros(macros: Macros | None, member: CastMember, roster: str) -> Macros | None:
-    """Scope char and description macros to a member's name and effective sheet.
+    """Scope char, description and personality macros to a member.
 
-    Preserve user and seed for byte-stable resolution. Group description includes
-    personality and honours scene overrides, unlike the solo card-field macro.
+    Preserve user and seed for byte-stable resolution. A scene sheet override stands in for the description and empties the
+    personality.
     """
     if macros is None:
         return None
-    return macros._replace(char=member.name, cast=roster, description=member.private_sheet)
+    return macros._replace(char=member.name, cast=roster, description=member.description, personality=member.personality)
 
 
 def _resolver(macros: Macros | None):
@@ -150,15 +150,19 @@ def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
     return "".join(parts)
 
 
+def speaker_instructions(member: CastMember, *, prevent_prompt_overrides: bool) -> str:
+    """The member card's post-history instructions as the trailing Writer message carries them; empty when overrides are off."""
+    return "" if prevent_prompt_overrides else fill_original(member.post_history, "")
+
+
 def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_prompt_overrides: bool) -> list[str]:
     """The member's own fields the trailing Writer message carries, in order.
 
-    Derived from :func:`tail_carries_identity`, so this and the tail ``build_writer_content`` actually renders cannot disagree
+    Derived from :func:`tail_carries_identity`, so this and the tail ``writer_stage`` actually renders cannot disagree
     about *which* fields ship -- only about the headings wrapped around them, which the size estimator does not need.
     """
     fields = [member.private_sheet, member.mes_example] if tail_carries_identity(mode) else []
-    if not prevent_prompt_overrides:
-        fields.append(member.post_history)
+    fields.append(speaker_instructions(member, prevent_prompt_overrides=prevent_prompt_overrides))
     return [field for field in fields if field]
 
 

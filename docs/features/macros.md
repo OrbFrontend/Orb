@@ -27,10 +27,12 @@ spaces and line breaks, but not `::` or `}}`. Macro names ignore case.
 In group chats, `{{char}}` uses the group title outside a member's card text;
 `{{cast}}` lists the cast names.
 
-## `{{description}}`
+## `{{description}}` and `{{personality}}`
 
-Inserts the full **Description** field, without **Personality**. In group chats,
-it uses the speaking member's sheet.
+`{{description}}` inserts the card's **Description** field and `{{personality}}`
+its **Personality** field, each on its own. In group chats they use the speaking
+member's card; when that member has a scene sheet, `{{description}}` is the sheet
+and `{{personality}}` is empty.
 
 If the description is `{{char}} distrusts {{user}}.`, then:
 
@@ -38,9 +40,9 @@ If the description is `{{char}} distrusts {{user}}.`, then:
 |---|---|
 | `Background: {{description}}` | `Background: Mara distrusts Alex.` |
 
-The chat bubble still shows `{{description}}`. If no description is available,
-the macro stays unchanged. Avoid inserting the whole field where it is already
-included in the prompt.
+The chat bubble still shows the macro. If a field is empty, its macro sends
+nothing. Avoid inserting a whole field where it is already included in the
+prompt.
 
 ## Author notes and line breaks
 

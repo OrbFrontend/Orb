@@ -82,7 +82,8 @@ Inspector reports why.
 
 The **Situation** template is the context sent to the Judge. It supports
 `{{last_message}}`, `{{last_assistant_message}}`, `{{recent_history}}`,
-`{{user}}`, `{{char}}`, `{{cast}}`, and `{{description}}` in solo chats.
+`{{user}}`, `{{char}}`, `{{cast}}`, and, in solo chats, `{{description}}` and
+`{{personality}}`.
 `{{recent_history}}` contains up to the last six completed user and assistant
 messages. To send a different number of messages, add a count from 1 to 50:
 `{{recent_history::10}}`. The count is in messages, not exchanges. For
@@ -93,8 +94,9 @@ described below.
 
 Question instructions, outcome descriptions, and guidance support `{{user}}`,
 `{{char}}`, and `{{cast}}`. A group decision from a character card uses that
-character as `{{char}}` and its scene sheet as `{{description}}`. Macros inside
-the description resolve the same way they do for the Writer.
+character as `{{char}}` and that character's `{{description}}` and
+`{{personality}}`, as [Macros](macros.md) describes for group chats. Macros
+inside those fields resolve the same way they do for the Writer.
 
 ### Inline macros
 
@@ -114,7 +116,7 @@ fresh rolls. All decisions in an exchange share the rolls in their Situation.
 Rolls in instructions, criteria, and guidance are separate for each decision.
 You can use `{{user}}`, `{{char}}`, and `{{cast}}` inside a `random` or
 `pick` option. Situation values such as `{{last_message}}`, `{{recent_history}}`,
-and `{{description}}` must stay outside those options.
+`{{description}}` and `{{personality}}` must stay outside those options.
 
 `{{time}}` and `{{date}}` use the current clock, so they can change the Judge's
 input between regenerations. For example, a Situation containing `{{time}}` may

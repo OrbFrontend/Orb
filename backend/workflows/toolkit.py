@@ -34,7 +34,7 @@ from ..core import (
     workflow_config_lock,
     workflow_state_lock,
 )
-from ..core.domain_types import AgentLane, CastMember, TurnCast
+from ..core.domain_types import CastMember, TurnCast
 from ..core.settings import Settings
 from ..core.text_segmentation import (
     CLOSE_QUOTES,
@@ -46,6 +46,7 @@ from ..core.text_segmentation import (
     strip_protected_markup,
 )
 from ..database import (
+    get_active_layout_blocks,
     get_active_lorebook_entries,
     get_character_avatar,
     get_character_card,
@@ -68,10 +69,10 @@ from ..database import (
     resolve_cast,
 )
 from ..inference import local_ml as _local_ml
-from ..inference import separate_agent_lane_configured as _separate_agent_lane_configured
 from ..prompting import build_prefix as _build_prefix
 from ..prompting import char_context as _char_context
 from ..prompting import conversation_macro_seed as _conversation_macro_seed
+from ..prompting import conversation_sections as _conversation_sections
 from ..prompting import macro_identity as _macro_identity
 from ..prompting import persona_macros as _persona_macros
 from ..prompting import resolve_persona_id as _resolve_persona_id
@@ -92,7 +93,6 @@ from .contracts import (
     EV_DRAFT_REPLACED,
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
-    EV_SYSTEM_PROMPT,
     AttachArtifactEvent,
     DraftReplacedEvent,
     EnableToolsEvent,
@@ -112,7 +112,6 @@ from .contracts import (
     StandaloneCtx,
     StandaloneReference,
     StandaloneResult,
-    SystemPromptEvent,
     ToolSpec,
     UploadCtx,
     WorkflowEventStream,
@@ -145,7 +144,6 @@ __all__ = [
     "EV_DRAFT_REPLACED",
     "EV_ENABLE_TOOLS",
     "EV_SET_MESSAGE_STATE",
-    "EV_SYSTEM_PROMPT",
     "AttachArtifactEvent",
     "DraftReplacedEvent",
     "EnableToolsEvent",
@@ -154,7 +152,6 @@ __all__ = [
     "PublicEvent",
     "Settings",
     "SetMessageStateEvent",
-    "SystemPromptEvent",
     "ExportCtx",
     "ExportedFile",
     "HookType",
@@ -437,10 +434,8 @@ async def conversation_macros(conversation_id: str, settings: Settings, *, seed:
     return macros
 
 
-async def build_offturn_prefix(conversation_id: str, history, settings: Settings, *, lane: AgentLane = "writer") -> list[Any]:
-    """Build the character and persona prefix for an off-turn call."""
-    if lane not in ("writer", "agent"):
-        raise ValueError(f"unknown off-turn model lane {lane!r}")
+async def build_offturn_prefix(conversation_id: str, history, settings: Settings) -> list[Any]:
+    """Build the character and persona prefix for an off-turn call; every model lane shares it."""
     conv = await get_conversation(conversation_id)
     if conv is None:
         return []
@@ -450,21 +445,16 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
     # replayed reply is attributed to the member who wrote it. Resolved through the same reader the turn uses, against the
     # *neutral* base (no speaker) -- which is the base the Director runs on in every mode, Classic card swap included.
     turn_cast = await resolve_cast(conv)
-    system_prompt, char_persona, mes_example = _char_context(settings, card)
-    if lane == "agent" and _separate_agent_lane_configured(settings):
-        system_prompt, _, _ = _char_context(settings, card, shared_key="agent_shared_system_prompt")
+    layout = await get_active_layout_blocks()
+    card_text = _char_context(settings, card, layout)
     macros, user_description = await _turn_macros(conv, settings, card, turn_cast)
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
     return _build_prefix(
-        system_prompt,
-        char_persona,
-        conv.get("character_scenario", ""),
-        mes_example,
-        "" if settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", ""),
+        card_text.system_prompt,
+        _conversation_sections(settings, conv, card_text, macros, user_description, turn_cast),
         history,
         macros,
-        user_description,
         constant_lorebook_block=_compute_constant_lorebook_block(
             await get_active_lorebook_entries(await get_effective_world_ids(conversation_id)), macros
         ),
@@ -472,4 +462,5 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
         speaker_names=speaker_names,
         scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_scripts=speaker_scripts,
+        layout=layout,
     )

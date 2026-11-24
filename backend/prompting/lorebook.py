@@ -9,9 +9,10 @@ from typing import Any
 from ..core import Macros
 
 LOREBOOK_SCAN_DEPTH = 6
+LOREBOOK_HEADING = "**Lorebook**"
 
-# The heading Agent-managed lore renders under, in every block. Kept distinct from the authored heading so the model (and the
-# user reading a prompt dump) can always tell established lore from state the roleplay itself produced.
+# The heading the World-change catalog lists Agent-managed lore under, apart from authored lore, since only it can be rewritten.
+# The prompt's lorebook blocks render both layers in one section.
 DYNAMIC_SECTION_TITLE = "Dynamic World State"
 
 
@@ -217,12 +218,10 @@ def select_active_entries(
     return [e for e in candidates if _fold_name(e) in director_named]
 
 
-def _render_section(entries: Sequence[Mapping[str, Any]], resolve, header: str) -> list[str]:
-    """Render one layer's entries under *header*, or nothing when it is empty."""
-    if not entries:
-        return []
-    matched = sorted(entries, key=lambda e: (-e.get("priority", 100), e.get("sort_order", 0), e.get("id", 0)))
-    parts = [header]
+def _render_entries(entries: Sequence[Mapping[str, Any]], resolve) -> list[str]:
+    """Render *entries*, authored before dynamic, skipping any that render blank."""
+    matched = sorted(entries, key=lambda e: (is_dynamic(e), -e.get("priority", 100), e.get("sort_order", 0), e.get("id", 0)))
+    parts: list[str] = []
     for entry in matched:
         name = resolve(entry.get("name", ""))
         content = resolve(entry.get("content", ""))
@@ -230,32 +229,24 @@ def _render_section(entries: Sequence[Mapping[str, Any]], resolve, header: str) 
             parts.append(f"{name}: {content}")
         elif content:
             parts.append(content)
-    # A section whose every entry rendered blank contributes no header either.
-    return parts if len(parts) > 1 else []
+    return parts
 
 
-def render_lorebook_block(
-    entries: Sequence[Mapping[str, Any]],
-    macros: Macros | None = None,
-    *,
-    header: str = "**Lorebook**",
-    dynamic_header: str = f"**{DYNAMIC_SECTION_TITLE}**",
-) -> str:
-    """Render already-selected lorebook entries into a *header*-titled block.
+def render_lorebook_block(entries: Sequence[Mapping[str, Any]], macros: Macros | None = None) -> str:
+    """Render already-selected lorebook entries, without a heading: the prompt layout's lore blocks frame them.
 
-    The single rendering point for every activation path. Authored entries come first under *header*; Agent-managed ones follow
-    under *dynamic_header*, so the model reads established lore before the state the roleplay has since produced. Within each
-    section entries are sorted by priority DESC, then sort_order ASC, id ASC (the canonical lorebook order, so the block bytes
-    are stable across turns regardless of input order -- KV cache); names and content are macro-resolved. Returns ``""`` when
-    *entries* is empty.
+    The single rendering point for every activation path. Authored and Agent-managed entries share one list, authored first,
+    so the model reads established lore before the state the roleplay has since produced. Within each layer entries are sorted
+    by priority DESC, then sort_order ASC, id ASC (the canonical lorebook order, so the block bytes are stable across turns
+    regardless of input order -- KV cache); names and content are macro-resolved. Returns ``""`` when nothing renders.
     """
-    if not entries:
-        return ""
-
     resolve = macros.resolve_message if macros else (lambda t: t)
-    parts = _render_section([e for e in entries if not is_dynamic(e)], resolve, header)
-    parts += _render_section([e for e in entries if is_dynamic(e)], resolve, dynamic_header)
-    return "\n\n".join(parts)
+    return "\n\n".join(_render_entries(entries, resolve))
+
+
+def headed_lorebook(body: str) -> str:
+    """*body* under the Lorebook heading the Director reads; nothing when *body* is empty."""
+    return f"{LOREBOOK_HEADING}\n\n{body}" if body else ""
 
 
 def compute_lorebook_block(
@@ -266,7 +257,7 @@ def compute_lorebook_block(
     director_selected: Sequence[str] | None = None,
     macros: Macros | None = None,
 ) -> str:
-    """Select entries by the active mode and render the ``**Lorebook**`` block.
+    """Select entries by the active mode and render them.
 
     The shared core behind both named entry points below.
     """
@@ -305,13 +296,11 @@ def compute_agentic_lorebook_block(
 def compute_constant_lorebook_block(entries: Sequence[Mapping[str, Any]], macros: Macros | None = None) -> str:
     """Render constant lorebook entries for the prompt prefix."""
     prefix_bound = [e for e in select_effective_entries(entries) if e.get("constant") and not e.get("at_depth")]
-    return render_lorebook_block(prefix_bound, macros, header="## Lorebook", dynamic_header=f"## {DYNAMIC_SECTION_TITLE}")
+    return render_lorebook_block(prefix_bound, macros)
 
 
 def compute_depth_lorebook_block(entries: Sequence[Mapping[str, Any]], macros: Macros | None = None) -> str:
     """Render depth-positioned lorebook entries for the prompt tail."""
     depth_bound = [e for e in select_effective_entries(entries) if e.get("constant") and e.get("at_depth")]
     fresh = macros._replace(seed="") if macros else None
-    return render_lorebook_block(
-        depth_bound, fresh, header="**Lorebook (Depth)**", dynamic_header=f"**{DYNAMIC_SECTION_TITLE} (Depth)**"
-    )
+    return render_lorebook_block(depth_bound, fresh)

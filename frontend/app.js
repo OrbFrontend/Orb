@@ -29,6 +29,7 @@ import { initMobileUi } from "./mobile.js";
 import { isUtilityPanelOpen, restoreUtilityPanel } from "./panels.js";
 // Imported for the actions it registers.
 import "./presets.js";
+import { loadPromptLayout } from "./prompt_layout.js";
 import { initTheme, initThemeList, loadSettings, renderToolsPanel } from "./settings.js";
 import { restoreSections, toggleSection } from "./sidebar_sections.js";
 // Imported for the actions it registers.
@@ -168,6 +169,7 @@ async function initAll() {
             throw e;
           }
         }),
+        startupStep("load prompt layout", loadPromptLayout),
         startupStep("load documents", loadDocuments),
         // Workflow modules register UI in the order they evaluate, so they still evaluate one at a time in manifest
         // order; the preload above has their entry files in flight already.

@@ -125,3 +125,23 @@ async def test_context_size_accounts_for_the_depth_block(client, llm_mock):
     without = await client.get_json(f"/api/conversations/{cid}/context-size")
     assert without["breakdown"]["lorebook_depth"]["chars"] == 0
     assert without["total_chars"] < with_world["total_chars"]
+
+
+async def test_the_layouts_lore_text_frames_constant_and_depth_lore(client, llm_mock):
+    await _import_v20(client)
+    await client.expect(
+        "patch", "/api/prompt-blocks/default:constant_lore", json={"content": "## World of {{char}}\n{{constant_lore}}"}
+    )
+    await client.expect("patch", "/api/prompt-blocks/default:depth_lore", json={"content": "___\n\nRules:\n{{depth_lore}}"})
+    await client.expect(
+        "patch", "/api/prompt-blocks/default:depth_lore", json={"content": "___\n\nRules only"}, expected_status=409
+    )
+    cid = await _make_conversation(client)
+
+    llm_mock.enqueue_writer("The blade lands.")
+    await _send(client, cid, "I attack the ghoul.")
+    call = _writer_calls(llm_mock)[-1]
+
+    assert "## World of Aria\nCanon: The moon is shattered." in call["messages"][0]["content"]
+    assert "___\n\nRules:\nV20 Rules: <v20>" in _tail_text(call)
+    assert "Lorebook" not in call["messages"][0]["content"] + _tail_text(call)

@@ -10,8 +10,6 @@ import { $, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 const MODEL_HYPERPARAM_KEYS = [
-  "shared_system_prompt",
-  "system_prompt",
   "temperature",
   "max_tokens",
   "top_p",
@@ -44,8 +42,6 @@ const SETTING_FIELDS = [
     ],
   },
   { k: "proxy", l: "Proxy", t: "text", ph: "socks5://127.0.0.1:1080" },
-  { k: "shared_system_prompt", l: "System Prompt (global)", t: "textarea" },
-  { k: "system_prompt", l: "System Prompt (model)", t: "textarea" },
   { k: "temperature", l: "Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
   { k: "max_tokens", l: "Max Tokens", t: "number", s: "64", mn: "64" },
   { k: "top_p", l: "Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
@@ -63,7 +59,6 @@ const SETTING_FIELDS = [
 ];
 
 const FIELD_GROUPS = [
-  { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
   {
     l: "Sampling",
     keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"],
@@ -71,11 +66,9 @@ const FIELD_GROUPS = [
   { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
 ];
 
-const AGENT_MODEL_HYPERPARAM_KEYS = MODEL_HYPERPARAM_KEYS.filter((key) => key !== "system_prompt").map(
-  (key) => `agent_${key}`,
-);
+const AGENT_MODEL_HYPERPARAM_KEYS = MODEL_HYPERPARAM_KEYS.map((key) => `agent_${key}`);
 
-const AGENT_SETTING_FIELDS = SETTING_FIELDS.filter((field) => field.k !== "system_prompt").map((field) => ({
+const AGENT_SETTING_FIELDS = SETTING_FIELDS.map((field) => ({
   ...field,
   k: `agent_${field.k}`,
   l: `Agent ${field.l}`,
@@ -134,19 +127,13 @@ export function renderEndpoints() {
   function renderField(f, isAgent) {
     const prefix = isAgent ? "agent_" : "";
     const cliSelected = S.settings[`${prefix}endpoint_url`] === CLAUDE_CODE_ENDPOINT;
-    if (
-      cliSelected &&
-      ![`${prefix}endpoint_url`, `${prefix}model_name`, `${prefix}shared_system_prompt`, "system_prompt"].includes(f.k)
-    )
-      return "";
+    if (cliSelected && ![`${prefix}endpoint_url`, `${prefix}model_name`].includes(f.k)) return "";
     const v = S.settings[f.k] ?? "";
     const save = `data-wf-action="${isAgent ? "models:saveAgent" : "models:save"}" data-wf-on="change"`;
     if (f.t === "textarea") {
-      const rows = f.k === "system_prompt" || f.k === "agent_system_prompt" ? ' rows="2"' : "";
-      const cls = f.k === "system_prompt" || f.k === "shared_system_prompt" ? " ep-chat-only" : "";
       const ph = f.ph ? ` placeholder="${escAttr(f.ph)}"` : "";
-      return `<div class="field${cls}"><label>${f.l}</label>
-                <textarea data-key="${f.k}"${rows}${ph} ${save}>${v}</textarea>
+      return `<div class="field"><label>${f.l}</label>
+                <textarea data-key="${f.k}"${ph} ${save}>${v}</textarea>
               </div>`;
     }
     if (f.t === "api_key") {
@@ -225,8 +212,8 @@ export function renderEndpoints() {
     for (const g of FIELD_GROUPS) {
       const members = g.keys.map((k) => byKey.get(p + k)).filter(Boolean);
       if (!members.length) continue;
-      if (cliSelected && g.l !== "Prompts") continue;
-      html += `<details class="ep-group${g.cls || ""}">
+      if (cliSelected) continue;
+      html += `<details class="ep-group">
         <summary>${g.l}</summary>
         ${members.map((f) => renderField(f, isAgent)).join("")}
       </details>`;
@@ -1175,7 +1162,6 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
     const mc = await api.post(`/endpoints/${S[ctx.endpointIdKey]}/models`, {
       role: ctx.role,
       model_name: modelName,
-      system_prompt: get("system_prompt", ""),
       temperature: get("temperature", 0.8),
       min_p: get("min_p", 0),
       top_k: get("top_k", 40),

@@ -8,11 +8,12 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...core import ChatMessage, ContentPart, extract_hyperparams
+from ...core import ChatMessage, extract_hyperparams
 from ...core.llm_types import CompletionMessage, ParsedToolCall
 from ...core.settings import Settings
 from ...features.lorebook import build_world_change_catalog, parse_proposal_call, validate_proposal
 from ...inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
+from ...prompting.layout import replay_reply
 from ...prompting.tool_schemas import PROPOSE_WORLD_CHANGES_CHOICE, PROPOSE_WORLD_CHANGES_TOOL
 from .world_change_prompt import build_world_change_prompt
 
@@ -47,7 +48,7 @@ async def world_change_step(
     entries: Sequence[Mapping[str, Any]],
     worlds: Sequence[Mapping[str, Any]] = (),
     reply_text: str,
-    writer_user_msg: str | list[ContentPart] | None = None,
+    writer_request: Sequence[ChatMessage] = (),
     original_user_message: str = "",
     exchange_text: str = "",
     kv_tracker=None,
@@ -63,8 +64,7 @@ async def world_change_step(
         catalog, original_user_message=original_user_message, reasoning_on=reasoning_on, tool_schema=PROPOSE_WORLD_CHANGES_TOOL
     )
     trailing: list[ChatMessage] = [
-        {"role": "user", "content": writer_user_msg or ""},
-        {"role": "assistant", "content": reply_text},
+        *replay_reply(writer_request, reply_text),
         {"role": "user", "content": request},
     ]
     hyperparams = extract_hyperparams(settings, lane="agent")

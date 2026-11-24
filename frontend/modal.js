@@ -51,6 +51,20 @@ function focusModal(modal) {
   (controls.find((el) => el.hasAttribute("autofocus")) || controls[0] || modal).focus();
 }
 
+const TEXT_INPUT =
+  'input:not([type]), input[type="text"], input[type="search"], input[type="password"], input[type="number"], input[type="url"], input[type="email"]';
+
+// Enter in a narrow modal's text field presses its one accent action, unless the field handles its own keys.
+function enterSubmit(modal, e) {
+  const field = e.target;
+  if (e.defaultPrevented || e.repeat || e.isComposing || e.keyCode === 229) return null;
+  if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
+  if (!modal.classList.contains("modal-narrow") || !modal.contains(field) || !field.matches?.(TEXT_INPUT)) return null;
+  if ((field.dataset.wfOn || "").split(/\s+/).includes("keydown")) return null;
+  const accents = modal.querySelectorAll(".modal-actions .btn-accent");
+  return accents.length === 1 && !accents[0].disabled ? accents[0] : null;
+}
+
 function syncModalLayers() {
   const top = topModal();
   for (const id of MODAL_ROOTS) {
@@ -68,6 +82,12 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     e.preventDefault();
     closeTopModal();
+  } else if (e.key === "Enter") {
+    const submit = enterSubmit(modal, e);
+    if (submit) {
+      e.preventDefault();
+      submit.click();
+    }
   } else if (e.key === "Tab") {
     const controls = modalControls(modal);
     const first = controls[0];

@@ -95,7 +95,7 @@ async def test_create_model_config_persists_to_db(client, db):
     # Create a model config for this endpoint
     resp = await client.post_json(
         f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "test-model-1", "system_prompt": "You are a test model.", "temperature": 0.7, "max_tokens": 2048},
+        json={"model_name": "test-model-1", "temperature": 0.7, "max_tokens": 2048},
     )
     data = resp
     assert "id" in data
@@ -105,11 +105,8 @@ async def test_create_model_config_persists_to_db(client, db):
     assert data["max_tokens"] == 2048
 
     # Verify directly in the DB
-    row = await db.one(
-        "SELECT model_name, system_prompt, temperature, max_tokens FROM model_configs WHERE id = ?", (data["id"],)
-    )
+    row = await db.one("SELECT model_name, temperature, max_tokens FROM model_configs WHERE id = ?", (data["id"],))
     assert row["model_name"] == "test-model-1"
-    assert row["system_prompt"] == "You are a test model."
     assert row["temperature"] == 0.7
     assert row["max_tokens"] == 2048
 

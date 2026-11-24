@@ -63,9 +63,12 @@ The following rules apply in every mode:
   scene's own post-history instructions are shared by every speaker.
 - `{{cast}}` is always the roster. `{{char}}` is the group title outside member
   card text and the member's name inside that member's context.
-- `{{description}}` scopes with `{{char}}`: inside a member's context it is that
-  member's `private_sheet` (the scene override when set, else the card join),
-  and outside it there is no single card to read, so it stays unresolved.
+- `{{description}}` and `{{personality}}` scope with `{{char}}`: inside a
+  member's context they are `CastMember.description` and
+  `CastMember.personality`, the card's fields, or the scene override and
+  nothing when `card_sheet_override` is set. Outside it there is no single card
+  to read, so they resolve to nothing. `private_sheet` and everything that renders
+  it are separate from these macros.
 - Card-linked Worlds and card fragments are scene-wide. Context mode does not
   make lore private.
 

@@ -29,9 +29,10 @@ if TYPE_CHECKING:
 # Pure filter/patch helpers live in the analysis layer (analysis/patching.py) so non-pipeline consumers (Document mode) can
 # share them; re-imported here under their original names so this module's surface is unchanged.
 from ....analysis.patching import PatchError, PatchErrorKind, apply_id_patches, filter_audit_report_to_text
-from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams, reasoning_delta_event
+from ....core import AssistantToolMessage, ChatMessage, WireMessage, extract_hyperparams, reasoning_delta_event
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
+from ....prompting.layout import replay_reply
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
 from .length_guard import LengthGuard, evaluate_length_guard
@@ -154,7 +155,7 @@ async def editor_pass(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
     audit_context_msgs: list[str] | None = None,
-    writer_user_msg: str | list[ContentPart] | None = None,
+    writer_request: Sequence[ChatMessage] | None = None,
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     reply_edit_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
@@ -169,9 +170,11 @@ async def editor_pass(
     produced; the later sub-steps still run on the best draft reached.
     """
     t0 = time.monotonic()
-    # Every sub-step replays the Writer's exact last message, so each extends the writer's KV-cached prefix instead of forking
+    # Every sub-step replays the Writer's exact messages, so each extends the writer's KV-cached prefix instead of forking
     # off the bare base.prefix. They also share the editor's reasoning toggle: they are sub-steps, not separate passes.
-    writer_msg = writer_user_msg if writer_user_msg is not None else effective_msg
+    writer_msg: Sequence[ChatMessage] = (
+        writer_request if writer_request is not None else [{"role": "user", "content": effective_msg}]
+    )
 
     if audit_enabled:
         yield {"type": "step", "step": "output_auditor"}
@@ -189,7 +192,7 @@ async def editor_pass(
                 phrase_bank,
                 audit_enabled,
                 length_guard,
-                writer_user_msg=writer_msg,
+                writer_request=writer_msg,
                 kv_tracker=kv_tracker,
                 reasoning_on=reasoning_on,
                 reasoning_prefill=reasoning_prefill,
@@ -223,7 +226,7 @@ async def editor_pass(
                         final_text,
                         settings,
                         subject_history,
-                        writer_user_msg=writer_msg,
+                        writer_request=writer_msg,
                         kv_tracker=kv_tracker,
                         reasoning_on=reasoning_on,
                         reasoning_prefill=reasoning_prefill,
@@ -254,7 +257,7 @@ async def editor_pass(
                 final_text,
                 settings,
                 reply_edit_fragments,
-                writer_user_msg=writer_msg,
+                writer_request=writer_msg,
                 effective_msg=effective_msg,
                 judge_config=judge_config,
                 recent_replies=_baseline_window(base, audit_context_msgs),
@@ -284,7 +287,7 @@ async def editor_pass(
                         final_text,
                         settings,
                         feedback_fragments,
-                        writer_user_msg=writer_msg,
+                        writer_request=writer_msg,
                         kv_tracker=kv_tracker,
                         reasoning_on=reasoning_on,
                         reasoning_prefill=reasoning_prefill,
@@ -405,7 +408,7 @@ async def editor_stage(
                 reasoning_on=cfg.editor_reasoning_on,
                 reasoning_prefill=cfg.editor_reasoning_prefill,
                 audit_context_msgs=editor_audit_msgs,
-                writer_user_msg=state.writer_content,
+                writer_request=state.writer_request,
                 reply_edit_fragments=reply_edit_fragments if reply_edits_needed else None,
                 feedback_fragments=feedback_fragments if feedback_needed else None,
                 judge_config=judge_config,
@@ -467,7 +470,7 @@ async def _run_edit_loop(
     audit_enabled: bool,
     length_guard: LengthGuard | None,
     *,
-    writer_user_msg: str | list[ContentPart],
+    writer_request: Sequence[ChatMessage],
     kv_tracker: KVCacheTracker | None = None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -476,7 +479,7 @@ async def _run_edit_loop(
     """Run the edit loop with optional audit and length guard.
 
     Yield reasoning, whole draft_update snapshots after mutations, failure on a failed iteration, then done with the final
-    draft/debug/elapsed. Stopped turns retain completed draft updates. *writer_user_msg* is the Writer's exact last user message,
+    draft/debug/elapsed. Stopped turns retain completed draft updates. *writer_request* is the Writer's exact messages after history,
     replayed so the editor extends the Writer's KV-cached prefix.
     """
     t0 = time.monotonic()
@@ -522,7 +525,7 @@ async def _run_edit_loop(
         yield _editor_done_event(None, loop.debug_parts, t0)
         return
 
-    loop.start(writer_user_msg)
+    loop.start(writer_request)
     async for event in loop.run():
         yield event
 
@@ -630,11 +633,10 @@ class _EditLoop:
             return f"{self.report.total_issues} issue(s), none addressable"
         return ""
 
-    def start(self, writer_user_msg: str | list[ContentPart]) -> None:
+    def start(self, writer_request: Sequence[ChatMessage]) -> None:
         """Open the replay buffer: the Writer's request, its draft, and the first edit request."""
         self.trailing = [
-            {"role": "user", "content": writer_user_msg},
-            {"role": "assistant", "content": self.draft},
+            *replay_reply(writer_request, self.draft),
             {"role": "user", "content": self.request.prompt},
         ]
         self.rules_shown = set(self.request.ruled) if self.request.ruled is not None else None

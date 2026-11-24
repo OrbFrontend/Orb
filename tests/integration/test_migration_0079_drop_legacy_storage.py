@@ -43,13 +43,13 @@ def test_drops_the_columns_keeps_the_row_and_reruns_as_a_no_op():
     conn = sqlite3.connect(":memory:")
     conn.execute(table_create_sql("settings"))
     _add_legacy_columns(conn)
-    conn.execute("INSERT INTO settings (id, system_prompt, user_name) VALUES (1, 'model prompt', 'Ada')")
+    conn.execute("INSERT INTO settings (id, user_description, user_name) VALUES (1, 'A visitor', 'Ada')")
 
     _migration.migrate(conn)
     _migration.migrate(conn)
 
     assert not _columns(conn) & _LEGACY_NAMES
-    assert conn.execute("SELECT system_prompt, user_name FROM settings").fetchone() == ("model prompt", "Ada")
+    assert conn.execute("SELECT user_description, user_name FROM settings").fetchone() == ("A visitor", "Ada")
 
 
 @pytest.mark.parametrize("action", ["apply", "restore"])

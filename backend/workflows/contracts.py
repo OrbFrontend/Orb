@@ -32,7 +32,6 @@ def readonly_view(obj: Any) -> Any:
 # the seam owns its contract, so the bridge and any workflow import the same names instead of duplicating bare string literals.
 # The string values are the stable wire shape.
 EV_ENABLE_TOOLS: Final = "enable_tools"  # pre-pipeline
-EV_SYSTEM_PROMPT: Final = "system_prompt"  # pre-pipeline
 EV_DRAFT_REPLACED: Final = "draft_replaced"  # post-pipeline
 EV_ATTACH_ARTIFACT: Final = "attach_artifact"  # post-pipeline
 EV_SET_MESSAGE_STATE: Final = "set_message_state"  # post-pipeline
@@ -50,11 +49,6 @@ class EnableToolsEvent(TypedDict):
     tools: set[str] | frozenset[str] | dict[str, Literal[True]]
 
 
-class SystemPromptEvent(TypedDict):
-    type: Literal["system_prompt"]
-    block: str
-
-
 class DraftReplacedEvent(TypedDict):
     type: Literal["draft_replaced"]
     draft: str
@@ -70,7 +64,7 @@ class SetMessageStateEvent(TypedDict):
     state: dict[str, Any]
 
 
-PreEvent = PublicEvent | EnableToolsEvent | SystemPromptEvent
+PreEvent = PublicEvent | EnableToolsEvent
 PostEvent = PublicEvent | DraftReplacedEvent | AttachArtifactEvent | SetMessageStateEvent
 
 

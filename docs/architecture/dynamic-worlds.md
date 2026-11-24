@@ -38,7 +38,9 @@ pool. It:
 2. removes authored rows hidden by a live `replace` or `suppress`;
 3. removes `suppress` markers from the rendered result.
 
-Dynamic entries follow authored entries under `Dynamic World State`. They use
+In the prompt, dynamic entries share the lorebook section with authored ones,
+following them. The proposal catalog still lists them under their own
+`Dynamic World State` heading, since only they can be rewritten. They use
 the normal lorebook activation rules: `constant` for always-known facts and
 keywords for local state. When Agentic Lorebook is active, Director selection
 replaces keyword activation for dynamic entries as well as authored ones.

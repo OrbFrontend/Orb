@@ -409,12 +409,7 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
         f"/api/models/{agent_endpoint.json()['agent_active_model_config_id']}", json={"model_name": "regen-agent-model"}
     )
     await client.put_checked(
-        "/api/settings",
-        json={
-            "agent_same_as_writer": False,
-            "agent_endpoint_id": agent_endpoint.json()["id"],
-            "agent_shared_system_prompt": "Regeneration agent system.",
-        },
+        "/api/settings", json={"agent_same_as_writer": False, "agent_endpoint_id": agent_endpoint.json()["id"]}
     )
 
     aid = await _attach(mid, style_id="realistic", prompt="stale")
@@ -432,7 +427,6 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
     assert "doorway" in metadata["prompt"] and "anime illustration" in metadata["prompt"]
     assert captured["client"].base_url == "http://regen-agent.local"
     assert captured["model_name"] == "regen-agent-model"
-    assert captured["prefix"][0]["content"].startswith("Regeneration agent system.")
     assert captured["reasoning_on"] is False
 
 

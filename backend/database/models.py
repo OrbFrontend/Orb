@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, NotRequired, TypedDict
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
+from ..core.prompt_layout import LayoutRegion, LayoutRole
 
 
 # A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the two ``{"kind": ...}`` dicts; the bare
@@ -358,7 +359,6 @@ class ModelConfigRow(TypedDict):
     id: int
     endpoint_id: int
     model_name: str
-    system_prompt: str
     temperature: float | None
     min_p: float | None
     top_k: int | None
@@ -540,6 +540,27 @@ class InteractiveFragmentRow(TypedDict):
     gate_question: str
     # Recast and rewrite only; previous replies the gate shows the Judge (0 = draft alone).
     gate_replies: int
+
+
+class PromptLayoutRow(TypedDict):
+    """A row from ``prompt_layouts``."""
+
+    id: str
+    name: str
+
+
+class PromptBlockRow(TypedDict):
+    """A row from ``prompt_blocks``: a marker (``kind`` is its id) or a custom block (``kind`` is ``'custom'``)."""
+
+    id: str
+    layout_id: str
+    kind: str
+    label: str
+    content: str
+    role: LayoutRole
+    region: LayoutRegion
+    sort_order: int
+    enabled: int
 
 
 class MoodFragmentRow(TypedDict):

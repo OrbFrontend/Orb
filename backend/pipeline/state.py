@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
-from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
+from ..core import ChatMessage, Macros, StateView, joined_delta
 from ..core.llm_types import ParsedToolCall
 from ..database.models import DirectorStateRow, GenerationTimingRow
 from ..inference import CachedBase, LLMClient, TextCallRecord
@@ -114,11 +114,12 @@ _DIRECTOR_SEED_FIELDS = (
     "decision_evaluations",
     "decision_cooldowns",
     "director_decision_guidance",
-    "writer_decision_guidance",
+    "writer_decisions",
     "selected_lorebook_entries",
     "inj_block",
     "inj_block_without_moods",
-    "scene_direction",
+    "scene_guidance",
+    "writer_state_block",
     "writer_lorebook_block",
     "reasoning_director",
     # The exchange's before-Writer state changes and the working state they produced. The driver clears the events and report
@@ -159,19 +160,23 @@ class TurnState:
     decision_evaluations: dict = field(default_factory=dict)
     decision_cooldowns: dict[str, int] = field(default_factory=dict)
     director_decision_guidance: str = ""
-    writer_decision_guidance: str = ""
+    # The Writer's decision lines without their heading, which its prompt layout's Decisions text places.
+    writer_decisions: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     inj_block_without_moods: str | None = None
-    # Scene Direction before the state block and decision guidance are added.
-    scene_direction: str = ""
+    # The Writer's other two Director-stage parts, each placed by the prompt layout: the Scene Guidance body without its
+    # heading, and the current-state block.
+    scene_guidance: str = ""
+    writer_state_block: str = ""
     writer_lorebook_block: str = ""
 
     resp_text: str = ""
     # Post-Editor text retained before secondary workflows change the visible
     # reply. ``writer_draft`` is the legacy persistence/API name for this source.
     writer_draft: str = ""
-    writer_content: str | list[ContentPart] = ""
+    # The Writer's messages after history, replayed verbatim by the passes that follow it.
+    writer_request: list[ChatMessage] = field(default_factory=list)
     # What the Writer's text-mode call sent and streamed back, for Continue.
     writer_call: TextCallRecord | None = None
     reasoning_director: str = ""
@@ -254,7 +259,7 @@ class LorebookTurn:
 
     entries: Sequence[Mapping[str, Any]]
     agentic: bool
-    block: str = ""  # Director-facing lore context in substring mode.
+    block: str = ""  # Lore context in substring mode, without a heading: the Director's and the Writer's.
     catalog: str = ""  # Director-facing pick catalog in agentic mode.
     # Frozen so replayed prompts see the same macro values.
     depth_block: str = ""
