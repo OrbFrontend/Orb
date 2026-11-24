@@ -137,7 +137,7 @@ export function visibleGroups(families, { query = "", expanded = false } = {}) {
   const q = query.trim().toLowerCase();
   if (q) {
     const match = ({ root, shown }) =>
-      (root.title || "").toLowerCase().includes(q) ||
+      [root.title, shown.title].some((title) => (title || "").toLowerCase().includes(q)) ||
       (shown.group_member_names || []).some((name) => (name || "").toLowerCase().includes(q));
     return { shown: families.filter(match), hidden: 0 };
   }

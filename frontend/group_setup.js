@@ -761,7 +761,7 @@ export function consumeSpeakerOverride(state = S) {
 let _groupSearch = "";
 let _groupsExpanded = false;
 
-function _groupItemHtml({ rootId, root, shown, open, members }) {
+function _groupItemHtml({ rootId, shown, open, members }) {
   const names = (shown.group_member_names || []).filter(Boolean);
   const memberLine = names.length ? names.join(" · ") : "No active cast members";
   const cardIds = shown.group_card_ids || [];
@@ -785,10 +785,10 @@ function _groupItemHtml({ rootId, root, shown, open, members }) {
   return `<div class="group-chat-item${open ? " active" : ""}">
       <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(shown.id)}" title="${escAttr(title)}">
         <span class="group-chat-avatar-stack chat-activity" data-activity="${escAttr(rootId)}" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
-        <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
+        <span class="group-chat-details"><span class="group-chat-title">${esc(shown.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
         ${countBadge}
       </button>
-      <button type="button" class="btn-icon group-chat-delete" data-group-delete-root-id="${escAttr(rootId)}" title="Delete group" aria-label="Delete group ${escAttr(root.title)}">${CLOSE_ICON}</button>
+      <button type="button" class="btn-icon group-chat-delete" data-group-delete-root-id="${escAttr(rootId)}" title="Delete group" aria-label="Delete group ${escAttr(shown.title)}">${CLOSE_ICON}</button>
     </div>`;
 }
 
@@ -827,6 +827,7 @@ function syncGroupActivity() {
   syncActivity("#group-chat-list [data-activity]", (conv) => conv.kind === "group" && groupRootId(conv));
 }
 subscribe("operations", syncGroupActivity);
+subscribe("conversations", renderGroupList);
 
 async function fetchSheetProposals(cid) {
   try {

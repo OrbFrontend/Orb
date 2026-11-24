@@ -47,7 +47,6 @@ export async function loadConversations() {
   const active = S.conversations.find((c) => c.id === S.activeConvId);
   if (active) setChatTitle(active.title || active.character_name || "");
   notify("conversations");
-  renderGroupList();
 }
 
 document.addEventListener("group-created", async (event) => {
@@ -815,6 +814,7 @@ async function saveTitleEdit() {
     const updated = await api.put(`/conversations/${S.activeConvId}`, { title: newTitle });
     const conv = S.conversations.find((c) => c.id === S.activeConvId);
     if (conv) conv.title = updated.title;
+    notify("conversations");
     const div = document.createElement("div");
     div.className = "chat-title";
     div.id = "chat-title-text";
