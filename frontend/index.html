@@ -102,7 +102,13 @@
         <span id="sidebar-portrait-name" class="sidebar-portrait-name"></span>
         <button class="sidebar-portrait-close" data-wf-action="inspector:closePortrait" title="Close portrait" aria-label="Close portrait"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
-      <div id="sidebar-portrait-title" class="sidebar-portrait-title"></div>
+      <div id="sidebar-portrait-title" class="sidebar-portrait-title">
+        <div class="chat-title-wrap" id="chat-title-wrap">
+          <div class="chat-title" id="chat-title-text">Select a character</div>
+          <button class="chat-title-btn" id="chat-title-edit-btn" data-wf-action="conversations:editTitle" title="Edit title" aria-label="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button class="chat-title-btn" id="chat-title-ai-btn" data-wf-action="conversations:aiTitle" title="Title with AI" aria-label="Title with AI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M10 6c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z" fill="currentColor"/><path d="M19 2v6M16 5h6"/></svg></button>
+        </div>
+      </div>
       <div class="sidebar-portrait-body">
         <div class="sidebar-portrait-frame"><img id="sidebar-portrait-image" src="" alt="Character portrait"></div>
         <div id="sidebar-portrait-expression" class="sidebar-portrait-expression hidden"></div>
@@ -121,10 +127,7 @@
         <button class="sidebar-expand-btn" data-wf-action="sidebar:toggleCollapsed" title="Expand sidebar" aria-label="Expand sidebar" aria-controls="sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 17 5-5-5-5M13 17l5-5-5-5"/></svg></button>
         <button id="mobile-sidebar-toggle" data-wf-action="mobile:toggleSidebar" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
         <div class="chat-avatar" id="chat-avatar">📜</div>
-        <div class="chat-title-wrap" id="chat-title-wrap">
-          <div class="chat-title" id="chat-title-text">Select a character</div>
-          <button class="chat-title-edit" id="chat-title-edit-btn" data-wf-action="conversations:editTitle" title="Edit title" aria-label="Edit title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
-        </div>
+        <button class="chat-title chat-header-title" id="chat-header-title" data-wf-action="inspector:togglePortrait" title="Show chat details">Select a character</button>
       </div>
       <div class="chat-actions">
         <button class="btn btn-sm" id="user-profile-btn" data-wf-action="personas:open" title="User profile" aria-label="User profile">👤</button>

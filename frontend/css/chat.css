@@ -5,14 +5,16 @@
   border: 1px solid var(--border); flex-shrink: 0; overflow: hidden; display: flex; align-items: center;
   justify-content: center; font-size: 14px; color: var(--text-muted); }
 .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.chat-title-wrap { display: contents; }
 .chat-title { font-family: var(--font-prose); font-size: var(--font-prose-size); font-weight: 400;
   color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-header-title { background: none; border: none; padding: 0; min-width: 0; text-align: left; cursor: pointer; }
+.chat-header-title:hover { color: var(--text-primary); }
+@media (max-width: 900px) { .chat-header-title { display: none; } }
 #chat-header .chat-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.chat-title-edit { opacity: 0; padding: 3px; background: none; border: none; color: var(--text-muted); flex-shrink: 0;
-  cursor: pointer; border-radius: 4px; display: flex; align-items: center; transition: opacity .15s, color .15s; }
-.chat-title-area:hover .chat-title-edit { opacity: 1; }
-.chat-title-edit:hover { color: var(--text-primary); background: var(--bg-hover); }
+.chat-title-btn { padding: 6px; background: none; border: none; color: var(--text-muted); flex-shrink: 0;
+  cursor: pointer; border-radius: 4px; display: flex; align-items: center; transition: color .15s; }
+.chat-title-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.chat-title-btn:disabled { opacity: .5; cursor: progress; }
 .chat-title-input { font-family: var(--font-prose); font-size: var(--font-prose-size); font-weight: 400;
   color: var(--text-secondary); background: var(--bg-primary); border: 1px solid var(--accent-dim);
   border-radius: var(--radius); padding: 2px 8px; min-width: 0; flex: 1; outline: none; }

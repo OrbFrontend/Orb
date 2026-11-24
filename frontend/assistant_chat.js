@@ -233,7 +233,9 @@ function capturePage() {
   }
   const conv = S.conversations.find((item) => item.id === S.activeConvId);
   if (conv) {
-    const kind = conv.kind === "group" ? "Group chat" : "Chat";
+    // A solo chat's title is often its numbered default, which says nothing about whose chat it is.
+    const kind =
+      conv.kind === "group" ? "Group chat" : conv.character_name ? `Chat with ${conv.character_name}` : "Chat";
     return { ...none, mode: "chat", conversation_id: conv.id, label: titled(kind, conv.title || "Untitled") };
   }
   const card = charactersView().find((item) => item.id === S.activeCharId);

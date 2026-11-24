@@ -16,8 +16,6 @@ const IDS = Object.freeze({
   docMobileSidebarToggle: "doc-mobile-sidebar-toggle",
   sidebar: "sidebar",
   chatAvatar: "chat-avatar",
-  chatTitle: "chat-title-wrap",
-  portraitTitle: "sidebar-portrait-title",
   toolsPanel: "tools-panel",
   toolsPanelToggle: "tools-panel-btn",
   inspector: "inspector",
@@ -104,13 +102,6 @@ function createEventMatcher(event) {
 
 function closeMobileSidebar() {
   setAppState(APP_STATE.sidebarOpen, false);
-}
-
-// A phone's header has no room for the title, so it rides in the portrait the avatar opens.
-function placeChatTitle() {
-  const title = getElement(IDS.chatTitle);
-  const home = isMobileSidebarViewport() ? getElement(IDS.portraitTitle) : getElement(IDS.chatAvatar)?.parentElement;
-  if (title && home && title.parentElement !== home) home.append(title);
 }
 
 function syncMobilePanelState() {
@@ -242,7 +233,6 @@ function handleEscape(event) {
 
 function handleViewportChange() {
   if (!isMobileSidebarViewport()) closeMobileSidebar();
-  placeChatTitle();
   syncMobilePanelState();
   armMobileBackIfNeeded();
 }
@@ -276,6 +266,14 @@ function bindViewportListener(handler) {
   MOBILE_VIEWPORT.addListener(handler);
 }
 
+// The keyboard shrinks the layout viewport (resizes-content), so vh-based sizes shrink with it. --app-full-height holds
+// its height while a field has focus, so sizes built on it stay put when the keyboard opens.
+let _fullHeight = { width: 0, height: 0 };
+
+function typing() {
+  return document.activeElement?.matches("input, textarea, select, [contenteditable]") ?? false;
+}
+
 function trackVisualViewport() {
   const vv = window.visualViewport;
   if (!vv) return;
@@ -283,6 +281,11 @@ function trackVisualViewport() {
     const root = document.documentElement.style;
     root.setProperty("--app-height", `${Math.round(vv.height)}px`);
     root.setProperty("--app-offset", `${Math.round(vv.offsetTop)}px`);
+    const { innerWidth: width, innerHeight: height } = window;
+    if (!typing() || width !== _fullHeight.width || height > _fullHeight.height) {
+      _fullHeight = { width, height };
+      root.setProperty("--app-full-height", `${height}px`);
+    }
   };
   apply();
   vv.addEventListener("resize", apply);
@@ -303,7 +306,6 @@ export function initMobileUi(deps) {
   _closeBurger = deps.closeBurger;
   trackVisualViewport();
   preventIosFocusZoom();
-  placeChatTitle();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);

@@ -570,11 +570,6 @@ async function saveCharEdit(id, exportAfter = false) {
     await loadCharacters();
     renderWorldsSidebar(); // a changed World link moves the linked World to the top
     await loadConversations();
-    const activeConv = S.conversations.find((c) => c.id === S.activeConvId);
-    if (activeConv && activeConv.character_card_id === id) {
-      const titleEl = document.getElementById("chat-title-text");
-      if (titleEl) titleEl.textContent = activeConv.title || activeConv.character_name || "";
-    }
     renderMessages();
     const headerTags = $("ce-header-tags");
     if (headerTags) {

@@ -36,12 +36,16 @@ import {
   plural,
   scrollToBottom,
   setChatFollowing,
+  setChatTitle,
   toast,
 } from "./utils.js";
 import { clearTextEffect } from "./workflow_text_effects.js";
 
 export async function loadConversations() {
   S.conversations = await api.get("/conversations");
+  // A rename from elsewhere (the assistant, a card edit) reaches the open chat's title here.
+  const active = S.conversations.find((c) => c.id === S.activeConvId);
+  if (active) setChatTitle(active.title || active.character_name || "");
   notify("conversations");
   renderGroupList();
 }
@@ -127,7 +131,7 @@ export function resetChatUI() {
   S.directorState = null;
   S.inspectedMsgId = null;
   S.inspectedDirectorData = null;
-  $("chat-title-text").textContent = "Select a character";
+  setChatTitle("Select a character");
   $("chat-avatar").textContent = CHAT_AVATAR_ICON;
   $("chat-avatar").style.cursor = "";
   $("chat-input").disabled = true;
@@ -241,7 +245,7 @@ export async function selectConversation(id) {
     if (S.activeCharId !== prevCharId) refreshCharacters();
     renderGroupList();
     updateUserBtn();
-    $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
+    setChatTitle(conv ? conv.title || conv.character_name : "");
     const av = $("chat-avatar");
     av.style.cursor = conv?.kind === "group" ? "pointer" : "";
     if (conv?.kind === "group") {
@@ -315,7 +319,7 @@ function closeDeletedConversation(id) {
     S.groupCast = null;
     S.pinnedSpeakerId = null;
     S.consumedSpeakerId = null;
-    $("chat-title-text").textContent = "Select a character";
+    setChatTitle("Select a character");
     $("chat-avatar").textContent = CHAT_AVATAR_ICON;
     renderGroupCast();
   }
@@ -814,13 +818,31 @@ async function saveTitleEdit() {
     const div = document.createElement("div");
     div.className = "chat-title";
     div.id = "chat-title-text";
-    div.textContent = updated.title || conv?.character_name || "";
     inp.replaceWith(div);
+    setChatTitle(updated.title || conv?.character_name || "");
     _titleEditBackup = "";
     toast("Title updated");
   } catch (e) {
     toast(e.message, true);
     cancelTitleEdit();
+  }
+}
+
+async function aiTitle(button) {
+  const convId = S.activeConvId;
+  if (!convId || button.disabled) return;
+  cancelTitleEdit();
+  button.disabled = true;
+  try {
+    const { title } = await api.post(`/conversations/${convId}/title`, {});
+    const conv = S.conversations.find((c) => c.id === convId);
+    if (conv) conv.title = title;
+    notify("conversations");
+    if (S.activeConvId === convId) setChatTitle(title);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -847,6 +869,7 @@ registerActions("conversations", {
   compress: () => showCompressModal(),
   checkpoint: () => createCheckpoint(),
   editTitle: () => startEditTitle(),
+  aiTitle: (el) => aiTitle(el),
 });
 
 registerActions("chat-compression", {

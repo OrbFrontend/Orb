@@ -103,7 +103,7 @@ async def test_a_started_chat_comes_from_the_route_writer_and_set_chat_writes_it
     tools = await _tools(mode="chat", conversation_id=library["chat"])
     started = await tools["start_chat"].run(tools["start_chat"].arguments(character_id=library["card"]))
     cid = started.ids["conversation_id"]
-    assert cid != library["chat"] and started.data["title"] == "Mara"
+    assert cid != library["chat"] and started.data["title"] == "Chat II"
     messages = await client.get_json(f"/api/conversations/{cid}/messages")
     assert [message["content"] for message in messages] == ["Mara looks up."], "the greeting is the first reply"
     with pytest.raises(ToolFailure, match="No character"):

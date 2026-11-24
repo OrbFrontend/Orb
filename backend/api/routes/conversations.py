@@ -45,6 +45,7 @@ from ...database import (
     render_public_profile,
     set_active_leaf,
     set_conversation_world,
+    sibling_chat_titles,
     snapshot_state_to_message,
     sync_group_members,
     touch_conversation,
@@ -53,6 +54,7 @@ from ...database import (
 )
 from ...database.models import ConversationRow
 from ...features.cards import draft_scene_profile
+from ...features.chat_titles import name_chat, title_request
 from ...features.summarization import stream_summary, summary_request
 from ...inference import AbortToken, KVCacheTracker, agent_lane_from_settings, client_from_settings
 from ...pipeline import (
@@ -427,6 +429,39 @@ async def api_summarize_conversation(
     return CleanupStreamingResponse(
         sse_stream(_gen(), request, abort_token=abort_token, cid=cid), media_type="text/event-stream"
     )
+
+
+@router.post("/api/conversations/{cid}/title")
+async def api_title_conversation(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    """Name the chat from its story so far and save the title."""
+    messages = await get_messages(cid)
+    if not any(m["content"].strip() for m in messages):
+        raise HTTPException(status_code=400, detail="The chat has no messages to name it from")
+    ctx = await load_pipeline_context(cid, abort_token=AbortToken())
+    if ctx is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    # The next turn's prefix over the whole history, on the Agent lane with the Director's reasoning: the call warms the prefix
+    # that turn's Director reads, and only its request is new.
+    cfg = offturn_config(ctx, messages)
+    lane = cfg.agent_lane
+    try:
+        title = await name_chat(
+            lane.client,
+            lane.base,
+            ctx.settings,
+            title_request(tool_notice=lane.sends_tool_schemas([{"role": "user", "content": ""}])),
+            taken=[t for t in await sibling_chat_titles(conv) if t != conv["title"]],
+            reasoning_on=cfg.director_reasoning_on,
+            reasoning_prefill=cfg.director_reasoning_prefill,
+            kv_tracker=KVCacheTracker(conversation_id=cid),
+        )
+    except Exception as exc:
+        logger.warning("Chat title call failed for %s", scrub_log(cid), exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Title request failed: {exc}") from None
+    if title is None:
+        raise HTTPException(status_code=502, detail="The model gave no usable title; try again or type one")
+    updated = await update_conversation(cid, {"title": title})
+    return {"title": updated["title"] if updated else title}
 
 
 @router.post("/api/conversations/{cid}/compress")

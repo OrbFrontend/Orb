@@ -116,7 +116,7 @@ async def test_conversation_with_character_card(client, db):
 
     conv = await client.post_json("/api/conversations", json={"character_card_id": card_id})
     cid = conv["id"]
-    assert conv["title"] == "Aria"
+    assert conv["title"] == "Chat I"
     assert conv["character_name"] == "Aria"
 
     # first_mes should be auto-added as the first assistant message
@@ -214,6 +214,38 @@ async def test_checkpoint_copies_only_active_branch(client, db):
     # Only the active path is copied -- the alternate swipe is not carried.
     async with db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?", (new_cid,)) as cur:
         assert (await cur.fetchone())["n"] == 2
+
+
+async def test_a_cards_chats_number_on_without_reusing_a_deleted_number(client):
+    card_id = await client.create("/api/characters", json={"name": "Aria"})
+    first, second = [await client.create("/api/conversations", json={"character_card_id": card_id}) for _ in range(2)]
+    await client.put(f"/api/conversations/{second}", json={"title": "Chat IX · Part 2"})
+    await client.delete_checked(f"/api/conversations/{first}")
+    third = await client.post_json("/api/conversations", json={"character_card_id": card_id})
+    assert third["title"] == "Chat X"
+
+
+async def test_an_ai_title_extends_the_next_turns_prefix_and_skips_a_sibling_title(client, llm_mock):
+    card_id = await client.create("/api/characters", json={"name": "Aria", "first_mes": "The woods are restless."})
+    other = await client.create("/api/conversations", json={"character_card_id": card_id})
+    await client.put(f"/api/conversations/{other}", json={"title": "Lost in the Woods · Part 2"})
+    cid = await client.create("/api/conversations", json={"character_card_id": card_id})
+    llm_mock.enqueue_writer("I follow you in.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Lead on.", "attachments": []})).text
+
+    start = len(llm_mock.captured)
+    llm_mock.enqueue_writer('"Lost in the Woods"')
+    llm_mock.enqueue_writer("The Restless Woods")
+    assert await client.post_json(f"/api/conversations/{cid}/title", json={}) == {"title": "The Restless Woods"}
+    first, retry = (call["messages"] for call in llm_mock.captured[start:])
+    assert retry[: len(first)] == first and retry[len(first)]["content"] == '"Lost in the Woods"'
+
+    calls = len(llm_mock.captured)
+    llm_mock.enqueue_writer("We walk on.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Onward.", "attachments": []})).text
+    prefix = first[:-1]
+    assert [m["role"] for m in prefix[-3:]] == ["assistant", "user", "assistant"], "the prefix holds the whole history"
+    assert llm_mock.captured[calls]["messages"][: len(prefix)] == prefix
 
 
 async def test_checkpoint_accepts_custom_title(client, db):

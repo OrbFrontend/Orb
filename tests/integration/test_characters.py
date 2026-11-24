@@ -56,8 +56,7 @@ async def test_character_updates_sync_to_linked_conversations(client, db):
     )
     cid = await client.create("/api/conversations", json={"character_card_id": card_id})
     custom = await client.create("/api/conversations", json={"character_card_id": card_id, "title": "Custom Title"})
-    # The title defaulted to the character's name.
-    assert (await db.one("SELECT title FROM conversations WHERE id = ?", (cid,)))["title"] == "Old Name"
+    assert (await db.one("SELECT title FROM conversations WHERE id = ?", (cid,)))["title"] == "Chat I"
 
     await client.put(
         f"/api/characters/{card_id}",
@@ -67,7 +66,7 @@ async def test_character_updates_sync_to_linked_conversations(client, db):
     row = await db.one(
         "SELECT title, character_name, character_scenario, post_history_instructions FROM conversations WHERE id = ?", (cid,)
     )
-    assert tuple(row) == ("New Name", "New Name", "Updated scenario", "New instructions")
+    assert tuple(row) == ("Chat I", "New Name", "Updated scenario", "New instructions")
     # A custom title is left alone; the character name still follows.
     row = await db.one("SELECT title, character_name FROM conversations WHERE id = ?", (custom,))
     assert tuple(row) == ("Custom Title", "New Name")

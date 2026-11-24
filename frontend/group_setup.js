@@ -21,7 +21,7 @@ import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
 import { syncActivity } from "./operations.js";
 import { charactersView, notify, S, subscribe, turnActive } from "./state.js";
-import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
+import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, setChatTitle, toast } from "./utils.js";
 
 // Both group setup views use this shared context explanation.
 
@@ -645,8 +645,7 @@ function showGroupConfig(initialTab = "cast") {
     S.groupCast.max_speakers = updated.group_max_speakers;
     S.groupCast.context_mode = updated.group_context_mode;
     S.groupCast.sheet_updates = Boolean(updated.group_sheet_updates);
-    const titleEl = $("chat-title-text");
-    if (titleEl) titleEl.textContent = updated.title;
+    setChatTitle(updated.title);
   }
 
   async function saveCast(members) {

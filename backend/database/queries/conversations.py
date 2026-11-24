@@ -73,6 +73,22 @@ async def get_conversation(cid: str) -> ConversationRow | None:
     return cast(ConversationRow, dict(rows[0])) if rows else None
 
 
+async def card_chat_titles(card_id: str) -> list[str]:
+    """The titles of every solo chat started from the card *card_id*."""
+    rows = await select_rows("SELECT title FROM conversations WHERE character_card_id = ? AND kind = 'solo'", (card_id,))
+    return [str(row["title"]) for row in rows]
+
+
+async def sibling_chat_titles(conv: ConversationRow) -> list[str]:
+    """The titles of the chats *conv* is one of: its group's family, or the solo chats of its card (none without one)."""
+    if conv.get("kind", "solo") == "group":
+        root = group_root_of(conv)
+        rows = await select_rows("SELECT title FROM conversations WHERE id = ? OR group_root_id = ?", (root, root))
+        return [str(row["title"]) for row in rows]
+    card_id = conv.get("character_card_id")
+    return await card_chat_titles(str(card_id)) if card_id else []
+
+
 async def create_conversation(
     cid: str,
     title: str,

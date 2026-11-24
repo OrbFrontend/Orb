@@ -9,6 +9,14 @@ export function $(id) {
   return document.getElementById(id);
 }
 
+/** Show *text* as the open chat's title, in the header and in the portrait's title row. */
+export function setChatTitle(text) {
+  for (const id of ["chat-header-title", "chat-title-text"]) {
+    const el = $(id);
+    if (el) el.textContent = text;
+  }
+}
+
 export function esc(s) {
   const div = document.createElement("div");
   div.textContent = s == null ? "" : s;

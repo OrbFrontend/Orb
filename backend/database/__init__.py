@@ -58,6 +58,7 @@ from .queries.conversation_logs import (
     wipe_logs_older_than,
 )
 from .queries.conversations import (
+    card_chat_titles,
     create_conversation,
     delete_conversation,
     delete_group_family,
@@ -68,6 +69,7 @@ from .queries.conversations import (
     group_root_of,
     list_conversations,
     set_workflow_state,
+    sibling_chat_titles,
     touch_conversation,
     update_conversation,
 )

@@ -393,6 +393,12 @@ cached; with more kept, it ends where an earlier turn's request began.
 Pre-pipeline hooks do not run, so a hook that adds a tool would put the summary
 on its own lane.
 
+The title button in the character portrait works the same way on the Agent
+lane. The call builds the next turn's prefix over the chat's history with the
+Director's reasoning setup, then adds one request, so the next Director call
+finds that prefix already cached. A rejected title (not a title, or one a
+sibling chat has) is replayed with its reason for one corrective request.
+
 ## Providers that cache only where asked
 
 llama.cpp, DeepSeek, OpenAI, and most routed open models reuse any matching
