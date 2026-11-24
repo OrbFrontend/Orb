@@ -12,7 +12,7 @@ LayoutRole = Literal["system", "user", "assistant"]
 CUSTOM_KIND = "custom"
 DEFAULT_LAYOUT_ID = "default"
 
-PREFIX_MARKERS: tuple[str, ...] = ("main_prompt", "cast", "constant_lore", "workflow_blocks")
+PREFIX_MARKERS: tuple[str, ...] = ("main_prompt", "cast", "constant_lore")
 WRITER_MARKERS: tuple[str, ...] = (
     "selected_lore",
     "decisions",
@@ -25,7 +25,6 @@ MARKER_LABELS: dict[str, str] = {
     "main_prompt": "Main prompt",
     "cast": "Group cast",
     "constant_lore": "Constant lore",
-    "workflow_blocks": "Workflow blocks",
     "selected_lore": "Selected lore",
     "decisions": "Decisions",
     "scene_guidance": "Scene guidance",
@@ -67,7 +66,6 @@ _SEED_ORDER: tuple[str, ...] = (
     "example_dialogue",
     "card_instructions",
     "user_persona",
-    "workflow_blocks",
     *WRITER_MARKERS,
 )
 

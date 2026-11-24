@@ -541,7 +541,7 @@ async def _generate_group_exchange(
         if turn.reuse_setup_prefix:
             prefix = setup.prefix
         else:
-            prefix = build_turn_prefix(ctx, turn.history, extra_system_blocks=list(setup.extra_system_blocks), speaker=speaker)
+            prefix = build_turn_prefix(ctx, turn.history, speaker=speaker)
         card = await db.get_character_card(speaker.card_id) if speaker.card_id else None
         pipeline = run_pipeline(
             ctx.client,
@@ -1037,7 +1037,7 @@ async def _open_continue(
     assert setup is not None
     prefix = setup.prefix
     if speaker is not None:
-        prefix = build_turn_prefix(ctx, history, extra_system_blocks=list(setup.extra_system_blocks) or None, speaker=speaker)
+        prefix = build_turn_prefix(ctx, history, speaker=speaker)
     *base_prefix, open_reply = prefix
     if open_reply["role"] != "assistant" or not isinstance(open_reply["content"], str):
         yield {"event": "error", "data": "This reply cannot be continued as text"}

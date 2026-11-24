@@ -58,7 +58,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
                 client=None,
                 kv_tracker=KVCacheTracker(),
                 schema_overrides={},
-                accumulators={"merged_enabled_tools": {}, "extras": []},
+                accumulators={"merged_enabled_tools": {}},
             )
         )
 

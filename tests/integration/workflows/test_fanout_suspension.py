@@ -20,7 +20,7 @@ DRIFTING_DRAFT = "*She steps closer, watching him carefully.* Are you sure about
 
 
 async def _pre_events(settings) -> list[dict]:
-    accumulators = {"merged_enabled_tools": {}, "extras": []}
+    accumulators = {"merged_enabled_tools": {}}
     events = []
     async for ev in iterate_pre_pipeline_hooks(
         conversation_id="c1",

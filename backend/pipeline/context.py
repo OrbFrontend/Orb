@@ -277,13 +277,11 @@ def build_turn_prefix(
     ctx: PipelineContext,
     history: Sequence[Mapping[str, Any]],
     *,
-    extra_system_blocks: list[str] | None = None,
     speaker: CastMember | None = None,
 ) -> list[ChatMessage]:
     """Build the prefix every lane of the turn shares.
 
-    *extra_system_blocks* from pre-pipeline hooks and *speaker* apply to every pass, so the Editor's lane sees the same cast as
-    the Writer it is auditing.
+    *speaker* applies to every pass, so the Editor's lane sees the same cast as the Writer it is auditing.
     """
     conv = ctx.conv
     macros, user_description = _ctx_macros(ctx)
@@ -299,7 +297,6 @@ def build_turn_prefix(
         user_description,
         personality=ctx.personality,
         constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
-        extra_system_blocks=extra_system_blocks,
         cast=cast,
         speaker_names=ctx.speaker_names,
         scripts=ctx.card_scripts,
@@ -312,7 +309,7 @@ def build_turn_prefix(
 class TurnSetup:
     """Per-turn inputs produced by :func:`prepare_turn`, ready for ``run_pipeline``.
 
-    Holds the shared prefix with any pre-pipeline system blocks already applied, the merged tool-enable map, macros, the
+    Holds the shared prefix, the merged tool-enable map, macros, the
     sections Writer-request blocks may name, lorebook block, scratch dict, KV tracker, and dynamic-schema map.
     """
 
@@ -323,7 +320,6 @@ class TurnSetup:
     turn_scratch: dict
     kv_tracker: KVCacheTracker
     schema_overrides: Mapping[str, dict]
-    extra_system_blocks: tuple[str, ...]
     sections: SectionInputs = field(default_factory=SectionInputs)
     # Identity of the Worlds this turn may propose changes to; None when no enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
@@ -405,9 +401,9 @@ async def prepare_turn(
         grouped=ctx.cast.grouped,
     )
     schema_overrides = MappingProxyType(overrides)
-    accumulators = {"merged_enabled_tools": dict(enabled_tools_pre_merge), "extras": []}
+    accumulators = {"merged_enabled_tools": dict(enabled_tools_pre_merge)}
 
-    # Pre-pipeline hooks may extend the tool map or append system blocks.
+    # Pre-pipeline hooks may extend the tool map.
     async for ev in iterate_pre_pipeline_hooks(
         conversation_id=conversation_id,
         character_id=ctx.conv.get("character_card_id"),
@@ -425,21 +421,14 @@ async def prepare_turn(
     ):
         yield ev
 
-    extras = accumulators["extras"]
-    if extras:
-        prefix = build_turn_prefix(ctx, history, extra_system_blocks=extras)
-    else:
-        prefix = prefix_base
-
     yield TurnSetup(
-        prefix=prefix,
+        prefix=prefix_base,
         merged_enabled_tools=accumulators["merged_enabled_tools"],
         macros=macros,
         lorebook=lorebook,
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
-        extra_system_blocks=tuple(extras),
         sections=turn_sections(ctx),
         world_proposal=world_proposal,
     )

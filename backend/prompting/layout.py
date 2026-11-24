@@ -52,7 +52,6 @@ class PrefixInputs:
     main_prompt: str = ""
     cast: str = ""
     constant_lore: str = ""
-    workflow_blocks: str = ""
     sections: SectionInputs = field(default_factory=SectionInputs)
 
 

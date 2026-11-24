@@ -31,7 +31,6 @@ const CONTROLLED_BY = {
   main_prompt: "Always",
   cast: "Groups",
   constant_lore: "Worlds",
-  workflow_blocks: "Workflows",
   selected_lore: "Worlds",
   decisions: "Judge",
   scene_guidance: "Director, State",

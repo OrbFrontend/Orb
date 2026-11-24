@@ -20,7 +20,6 @@ from ..workflows import (
     EV_DRAFT_REPLACED,
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
-    EV_SYSTEM_PROMPT,
     HookType,
     PostCtx,
     PreCtx,
@@ -333,9 +332,9 @@ async def iterate_pre_pipeline_hooks(
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
 ) -> AsyncIterator[PublicTurnEvent]:
-    """Run PRE_PIPELINE hooks, forwarding events and merging tools/system extras.
+    """Run PRE_PIPELINE hooks, forwarding events and merging tools.
 
-    Prepopulate accumulators with merged_enabled_tools and extras. Log and skip
+    Prepopulate accumulators with merged_enabled_tools. Log and skip
     hook failures; Stop interrupts the current hook and starts no more.
     """
     abort: AbortToken | None = getattr(client, "abort_token", None)
@@ -395,15 +394,6 @@ async def iterate_pre_pipeline_hooks(
                                 logger.warning("workflow %r enabled unregistered tool %r; dropping", sub.workflow_id, name)
                                 continue
                             accumulators["merged_enabled_tools"][name] = True
-                        continue
-                    if t == EV_SYSTEM_PROMPT:
-                        block = ev.get("block")
-                        if not isinstance(block, str) or not block.strip():
-                            logger.warning(
-                                "pre_pipeline hook %r yielded empty/whitespace-only system_prompt; ignoring", sub.workflow_id
-                            )
-                            continue
-                        accumulators["extras"].append(block)
                         continue
                     # Unknown control event ("type" present but unmatched): drop it
                     # instead of leaking it through as a stray SSE event.

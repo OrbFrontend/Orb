@@ -42,7 +42,6 @@ def _refused(error: PromptLayoutError) -> HTTPException:
 # What a marker whose text the user does not edit stands for.
 _MARKER_PLACEHOLDERS: dict[str, str] = {
     "cast": "[The group's cast and each member's sheet]",
-    "workflow_blocks": "[Text that enabled workflows add]",
 }
 
 

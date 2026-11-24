@@ -141,7 +141,6 @@ def prefix_inputs(
     *,
     personality: str = "",
     constant_lorebook_block: str = "",
-    extra_system_blocks: Sequence[str] | None = None,
     cast: TurnCast | None = None,
 ) -> PrefixInputs:
     """Each prefix marker's own text and the sections, macros resolved."""
@@ -151,7 +150,6 @@ def prefix_inputs(
         main_prompt=resolve(system_prompt),
         cast=render_cast_section(cast, macros).lstrip("\n") if cast and grouped else "",
         constant_lore=constant_lorebook_block,
-        workflow_blocks="\n\n".join(extra_system_blocks or []),
         sections=section_inputs(
             description,
             char_scenario,
@@ -177,7 +175,6 @@ def build_prefix(
     *,
     personality: str = "",
     constant_lorebook_block: str = "",
-    extra_system_blocks: list[str] | None = None,
     cast: TurnCast | None = None,
     speaker_names: Mapping[str, str] | None = None,
     scripts: CardScripts | None = None,
@@ -199,7 +196,6 @@ def build_prefix(
         user_description,
         personality=personality,
         constant_lorebook_block=constant_lorebook_block,
-        extra_system_blocks=extra_system_blocks,
         cast=cast,
     )
     head = render_prefix(layout if layout is not None else default_layout(), inputs, macros)

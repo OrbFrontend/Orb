@@ -98,8 +98,8 @@ panel do not.
   message. The Editor replays that message; the Director never sees it.
   Continue sends no Writer request, so these blocks do not steer it.
 
-A **marker** stands for an engine block: `main_prompt`, `cast`,
-`constant_lore` and `workflow_blocks` in the prefix; `selected_lore`,
+A **marker** stands for an engine block: `main_prompt`, `cast` and
+`constant_lore` in the prefix; `selected_lore`,
 `decisions`, `scene_guidance`, `user_message` and `depth_lore` in the Writer
 request. Markers cannot be switched off, deleted, or moved across the divider;
 the setting that drives each one decides whether it renders, and the group
