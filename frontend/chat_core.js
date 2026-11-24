@@ -5,7 +5,6 @@ import { reconcileChildren } from "./dom_reconcile.js";
 import { activeExpressionPlayback } from "./expression_playback.js";
 import { sceneEmptyStateHtml, speakerAvatarCell, speakerLabel } from "./group_cast.js";
 import { CHEVRON_LEFT_ICON, CHEVRON_RIGHT_ICON, EDIT_ICON_PATHS } from "./icons.js";
-import { sectionHtml } from "./inspector_section.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import {
@@ -18,6 +17,7 @@ import { preserveScrollDistance } from "./scroll_follow.js";
 import {
   effectiveWorkflowEnabled,
   localMlReady,
+  notify,
   S,
   sendBlocker,
   streamingHidden,
@@ -592,39 +592,7 @@ async function fetchContextSize() {
     if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
     if (data) {
       S.contextSize = data;
-      renderContextSize();
+      notify("context-size");
     }
   } catch (_e) {}
-}
-
-export function renderContextSize() {
-  const el = document.getElementById("inspector-context-size");
-  if (!el) return;
-  const data = S.contextSize;
-  if (!data) {
-    el.outerHTML = sectionHtml({ title: "Context", meta: "—", id: "inspector-context-size" });
-    return;
-  }
-  const total = data.total_tokens_est;
-  const rows = Object.entries(data.breakdown)
-    .filter(([_, v]) => v.tokens_est > 0)
-    .sort((a, b) => b[1].tokens_est - a[1].tokens_est)
-    .map(([key, val]) => {
-      const pct = ((val.tokens_est / total) * 100).toFixed(0);
-      const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-      return `<div class="ctx-row">
-        <span class="ctx-label">${esc(label)}</span>
-        <span class="ctx-bar"><span class="ctx-bar-fill" style="width:${pct}%"></span></span>
-        <span class="ctx-tokens">${val.tokens_est.toLocaleString()}</span>
-      </div>`;
-    })
-    .join("");
-  el.outerHTML = sectionHtml({
-    key: "context_size",
-    open: S.contextSizeOpen,
-    id: "inspector-context-size",
-    title: "Context",
-    meta: `~${total.toLocaleString()} tok · ${data.message_count} msgs`,
-    body: rows,
-  });
 }

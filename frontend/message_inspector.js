@@ -27,7 +27,6 @@ const OPEN_STATE_FIELDS = {
   reasoning: "reasoningOpen",
   tool_calls: "toolCallsOpen",
   injection_block: "injectionBlockOpen",
-  context_size: "contextSizeOpen",
   latency: "latencyOpen",
   decisions: "decisionsOpen",
   feedback: "feedbackOpen",

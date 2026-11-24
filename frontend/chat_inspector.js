@@ -1,6 +1,6 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
-import { renderContextSize, renderMessages } from "./chat_core.js";
+import { renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
 import { turnLabel } from "./chat_turn.js";
 import { expressionLabels, expressionPlaybackCue } from "./expression_playback.js";
@@ -443,7 +443,6 @@ function currentMoodsHtml() {
 function _renderDirectorPanel({ latency, latencyBreakdown, toolCalls, injection, feedback, stateChanges }) {
   withReasoningScroll(() => {
     $("inspector-content").innerHTML = `
-      <div class="inspector-block" id="inspector-context-size"></div>
       ${currentMoodsHtml()}
       ${_buildReasoningHtml()}
       ${currentDecisionsHtml()}
@@ -453,25 +452,21 @@ function _renderDirectorPanel({ latency, latencyBreakdown, toolCalls, injection,
       ${injectionHtml(injection)}
       ${latencyHtml(latency, latencyBreakdown)}`;
   });
-  renderContextSize();
 }
 
 function _renderInspectorMain() {
-  // Turn details live on each reply; the panel keeps the context size and next-turn controls.
+  // Turn details live on each reply; the panel keeps the next-turn controls.
   if (S.inspectorInline) {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
-       <div class="inspector-block" id="inspector-context-size"></div>
        ${_buildReasoningHtml()}`;
     });
-    renderContextSize();
     return;
   }
 
   if (S.inspectedMsgId == null && turnActive() && S.lastDirectorData === null) {
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
-       <div class="inspector-block" id="inspector-context-size"></div>
        ${currentMoodsHtml()}
        ${_buildReasoningHtml()}
        ${currentDecisionsHtml()}
@@ -479,7 +474,6 @@ function _renderInspectorMain() {
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
     });
-    renderContextSize();
     return;
   }
 
@@ -506,7 +500,6 @@ function _renderInspectorMain() {
     const decHtml = currentDecisionsHtml();
     withReasoningScroll(() => {
       $("inspector-content").innerHTML = `
-       <div class="inspector-block" id="inspector-context-size"></div>
        ${currentMoodsHtml()}
        ${_buildReasoningHtml()}
        ${decHtml}
@@ -514,7 +507,6 @@ function _renderInspectorMain() {
        ${stateHtml}
        ${fbHtml || stateHtml || decHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
     });
-    renderContextSize();
     return;
   }
 
@@ -555,14 +547,39 @@ function _portraitSection(title, rows, extra = "") {
   }${extra}</section>`;
 }
 
+function _contextBarsHtml(size) {
+  const total = size.total_tokens_est;
+  return Object.entries(size.breakdown)
+    .filter(([, part]) => part.tokens_est > 0)
+    .sort((a, b) => b[1].tokens_est - a[1].tokens_est)
+    .map(([key, part]) => {
+      const pct = ((part.tokens_est / total) * 100).toFixed(0);
+      const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      return `<div class="ctx-row">
+        <span class="ctx-label">${esc(label)}</span>
+        <span class="ctx-bar"><span class="ctx-bar-fill" style="width:${pct}%"></span></span>
+        <span class="ctx-tokens">${part.tokens_est.toLocaleString()}</span>
+      </div>`;
+    })
+    .join("");
+}
+
 function _portraitInfoHtml(card) {
   let html = "";
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
   const started = conv?.created_at && new Date(conv.created_at);
+  const chatRows = [];
   if (started && !Number.isNaN(started.getTime())) {
-    const when = started.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-    html += _portraitSection("This chat", [["Started", esc(when)]]);
+    chatRows.push(["Started", esc(started.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))]);
   }
+  const size = S.contextSize;
+  if (size) {
+    const msgs = `${size.message_count.toLocaleString()} msg${size.message_count === 1 ? "" : "s"}`;
+    chatRows.push(["Context", `≈ ${size.total_tokens_est.toLocaleString()} tokens · ${msgs}`]);
+  }
+  const bars = size?.total_tokens_est ? _contextBarsHtml(size) : "";
+  if (chatRows.length)
+    html += _portraitSection("This chat", chatRows, bars && `<div class="portrait-info-context">${bars}</div>`);
   if (!card) return html;
   const rows = [];
   if (card.creator) rows.push(["Creator", esc(card.creator)]);
@@ -678,6 +695,10 @@ async function _expressionTick() {
 }
 
 subscribe("expression-playback", () => void _expressionTick());
+subscribe("context-size", () => {
+  const img = $("sidebar-portrait-image");
+  if (img?._exprCharId && !_portraitHidden()) _renderPortraitInfo(img, img._exprCharId);
+});
 subscribe("settings", (patch) => {
   if ("inspector_inline" in patch || "agent_same_as_writer" in patch || "show_mood_injection" in patch)
     renderInspector();

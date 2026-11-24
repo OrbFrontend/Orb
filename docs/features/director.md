@@ -89,5 +89,5 @@ when no breakdown is available.
 A collapsed Inspector block keeps a summary line of active moods and decision
 outcomes. Opening or collapsing a block or section applies to every reply and to
 the panel, and is saved; the Reasoning block opens apart from the panel's
-Reasoning controls. The panel keeps the context size and next-turn reasoning
-controls.
+Reasoning controls. The panel keeps the next-turn reasoning controls; the context size sits
+in the character portrait under This chat.

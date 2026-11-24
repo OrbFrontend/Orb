@@ -86,7 +86,6 @@ export const S = {
   decisionsOpen: true,
   feedbackOpen: true,
   stateChangesOpen: true,
-  contextSizeOpen: true,
   latencyOpen: false,
   inlineInspectorOpen: true, // the in-chat Inspector blocks, shared by every reply
   inlineReasoningOpen: true, // the in-chat Reasoning blocks, apart from the panel's section
@@ -356,6 +355,7 @@ const TOPICS = new Set([
   "lorebook",
   "expression-playback",
   "avatars",
+  "context-size",
 ]);
 
 const _subscribers = new Map(); // topic -> listeners
