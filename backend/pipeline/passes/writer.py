@@ -22,7 +22,7 @@ from ...core.llm_types import ContentDelta, ReasoningDelta
 from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
-from ...prompting import member_macros, tail_carries_identity
+from ...prompting import member_macros, speaker_instructions, tail_carries_identity
 from ...prompting.layout import TOOL_NOTICE, SectionInputs, WriterInputs, render_writer_tail
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
@@ -114,8 +114,8 @@ def build_writer_content(
                     else f"## Example Dialogue\n{example}"
                 )
                 speaker_open += "\n\n"
-        if speaker.post_history and not prevent_prompt_overrides:
-            speaker_open += f"## Additional Instructions\n{resolve(speaker.post_history)}\n\n"
+        if instructions := speaker_instructions(speaker, prevent_prompt_overrides=prevent_prompt_overrides):
+            speaker_open += f"## Additional Instructions\n{resolve(instructions)}\n\n"
         speaker_close = (
             f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
         )

@@ -65,6 +65,7 @@ from .macros import (
     Macros,
     card_description,
     card_personality,
+    fill_original,
     has_inline_macros,
     outside_literals,
     resolve_inline,

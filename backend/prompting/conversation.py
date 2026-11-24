@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple
 
-from ..core import Macros, card_description, card_personality
+from ..core import Macros, card_description, card_personality, fill_original
 from ..core.prompt_layout import LayoutBlock, main_prompt_text
 from ..core.settings import Settings
 
@@ -71,19 +71,21 @@ def char_context(settings: Settings, card: Mapping[str, Any] | None, layout: Seq
     """Resolve the effective main prompt and the card's description, personality, and example messages.
 
     The main prompt is *layout*'s Main prompt text; a character card's own system_prompt, when present and not disabled by the
-    prevent_prompt_overrides setting, replaces it.
+    prevent_prompt_overrides setting, replaces it, a ``{{original}}`` in it standing for the Main prompt it replaces.
     """
     system_prompt = main_prompt_text(layout)
     if not card:
         return CharContext(system_prompt, "", "", "")
     card_system_prompt = card.get("system_prompt")
     if card_system_prompt and not settings.get("prevent_prompt_overrides"):
-        system_prompt = card_system_prompt
+        system_prompt = fill_original(card_system_prompt, system_prompt)
     return CharContext(
         system_prompt, card.get("description") or "", card.get("personality") or "", card.get("mes_example") or ""
     )
 
 
 def chat_instructions(settings: Settings, conv: Mapping[str, Any]) -> str:
-    """The chat's own instruction text, unless prompt overrides are off."""
-    return "" if settings.get("prevent_prompt_overrides") else str(conv.get("post_history_instructions", "") or "")
+    """The chat's own instruction text, unless prompt overrides are off; ``{{original}}`` in it has no global text to stand for."""
+    if settings.get("prevent_prompt_overrides"):
+        return ""
+    return fill_original(str(conv.get("post_history_instructions", "") or ""), "")

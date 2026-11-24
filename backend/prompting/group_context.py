@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ..core import CastMember, GroupContextMode, Macros, TurnCast
+from ..core import CastMember, GroupContextMode, Macros, TurnCast, fill_original
 
 CAST_HEADING = "## Cast"
 DOSSIER_HEADING = "## Character dossier: "
@@ -150,6 +150,11 @@ def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
     return "".join(parts)
 
 
+def speaker_instructions(member: CastMember, *, prevent_prompt_overrides: bool) -> str:
+    """The member card's post-history instructions as the trailing Writer message carries them; empty when overrides are off."""
+    return "" if prevent_prompt_overrides else fill_original(member.post_history, "")
+
+
 def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_prompt_overrides: bool) -> list[str]:
     """The member's own fields the trailing Writer message carries, in order.
 
@@ -157,8 +162,7 @@ def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_p
     about *which* fields ship -- only about the headings wrapped around them, which the size estimator does not need.
     """
     fields = [member.private_sheet, member.mes_example] if tail_carries_identity(mode) else []
-    if not prevent_prompt_overrides:
-        fields.append(member.post_history)
+    fields.append(speaker_instructions(member, prevent_prompt_overrides=prevent_prompt_overrides))
     return [field for field in fields if field]
 
 

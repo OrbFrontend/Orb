@@ -11,6 +11,7 @@ from ..core.prompt_layout import CUSTOM_KIND, LayoutBlock
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
+    chat_instructions,
     compute_style_injection_block,
     conversation_macro_seed,
     group_context,
@@ -64,9 +65,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     )
     scenario_text = macros.resolve_message(conv.get("character_scenario", "") or "")
     mes_text = macros.resolve_message(mes_example or "")
-    post_text = macros.resolve_message(
-        "" if settings.get("prevent_prompt_overrides") else (conv.get("post_history_instructions", "") or "")
-    )
+    post_text = macros.resolve_message(chat_instructions(settings, conv))
     # The group breakdown follows the context mode: the shared body once, plus the largest single speaker's share of it,
     # rendered through the same projection the prompt uses.
     group_components: list[tuple[str, str]] = []

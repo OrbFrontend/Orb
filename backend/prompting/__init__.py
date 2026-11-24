@@ -17,6 +17,7 @@ from .group_context import (
     prefix_cache_shape,
     prefix_is_speaker_scoped,
     render_cast_section,
+    speaker_instructions,
     tail_carries_identity,
 )
 from .scene_direction import (

@@ -14,7 +14,7 @@ from backend.database import (
     set_active_leaf,
 )
 from backend.pipeline.context import build_turn_prefix, load_pipeline_context
-from backend.prompting import build_prefix, member_macros, persona_macros
+from backend.prompting import build_prefix, char_context, chat_instructions, member_macros, persona_macros
 from backend.workflows.toolkit import build_offturn_prefix
 
 _LONG_DRAFT = "word " * 60
@@ -157,6 +157,18 @@ def test_pre_history_assistant_block_merges_into_an_assistant_greeting():
 
     assert [m["role"] for m in prefix] == ["system", "assistant", "user"]
     assert prefix[1]["content"] == "One\n\nTwo\n\nGreeting"
+
+
+def test_a_card_override_extends_the_main_prompt_through_original():
+    layout = default_layout(main_prompt="Main")
+    card = {"system_prompt": "{{Original}}\n\nStay terse. `{{original}}`"}
+
+    assert char_context({}, card, layout).system_prompt == "Main\n\nStay terse. `{{original}}`"
+    assert char_context({}, {"system_prompt": "Replace"}, layout).system_prompt == "Replace"
+    assert char_context({"prevent_prompt_overrides": 1}, card, layout).system_prompt == "Main"
+    # Post-history instructions have no global text in Orb: the macro leaves nothing, not a literal.
+    assert chat_instructions({}, {"post_history_instructions": "{{original}}\nNo emojis."}) == "No emojis."
+    assert chat_instructions({}, {"post_history_instructions": "{{original}}"}) == ""
 
 
 def test_a_section_block_renders_nothing_while_its_sections_are_empty():

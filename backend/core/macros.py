@@ -52,6 +52,21 @@ def _sub(text: str, user_name: str, char_name: str) -> str:
     return _outside_literals(text, _fire)
 
 
+_ORIGINAL_RE = re.compile(r"\{\{original\}\}", re.IGNORECASE)
+
+
+def fill_original(text: str, original: str) -> str:
+    """Substitute a card override's ``{{original}}`` with the text the override replaces (Character Card V2 spec).
+
+    A card's ``system_prompt`` passes the Main prompt; its post-history instructions pass ``""``, Orb having no global
+    instructions they could extend. Backticked spans stay literal; a filled text is stripped so an empty original leaves no
+    stray blank lines (and an override of nothing but the macro renders nothing).
+    """
+    if not text or not _ORIGINAL_RE.search(text):
+        return text or ""
+    return _outside_literals(text, lambda t: _ORIGINAL_RE.sub(lambda _m: original, t)).strip()
+
+
 def _sub_cast(text: str, cast_names: str) -> str:
     if not text or not cast_names:
         return text or ""
