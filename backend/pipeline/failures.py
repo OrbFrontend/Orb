@@ -7,7 +7,14 @@ from typing import Any, TypeVar
 
 import httpx
 
-from ..inference import AbortToken, DecisionTransportError, EndpointConfigError, LLMCallError, provider_sentence
+from ..inference import (
+    AbortToken,
+    DecisionTransportError,
+    EndpointConfigError,
+    LLMCallError,
+    PromptShapeError,
+    provider_sentence,
+)
 from ..inference.claude_code import ClaudeCodeError
 from ..inference.errors import BODY_LIMIT
 from ..inference.gpu_swap import GpuSwapError
@@ -82,6 +89,7 @@ GENERIC_HTTP_HEADLINE = "The model provider rejected the request."
 WORKFLOW_HEADLINE = "A workflow step failed."
 CONFIG_HEADLINE = "The model settings are incomplete."
 INTERNAL_HEADLINE = "Something went wrong inside Orb."
+_PROMPT_SHAPE_HEADLINE = "The endpoint cannot take this prompt layout."
 _GPU_SWAP_HEADLINE = "The GPU swap with ComfyUI didn't finish."
 
 
@@ -193,6 +201,10 @@ def describe_failure(exc: BaseException) -> FailureData:
     if isinstance(exc, EndpointConfigError):
         # The message names the setting to change; it carries nothing from a provider.
         return {"headline": CONFIG_HEADLINE, "sentence": str(exc), "kind": "config", "stage": stage}
+
+    if isinstance(exc, PromptShapeError):
+        # Refused before sending; the message names the prompt layout change.
+        return {"headline": _PROMPT_SHAPE_HEADLINE, "sentence": str(exc), "kind": "config", "stage": stage}
 
     if isinstance(exc, GpuSwapError):
         return {"headline": _GPU_SWAP_HEADLINE, "sentence": str(exc), "kind": "workflow", "stage": stage}

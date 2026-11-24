@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ....core import ChatMessage, ContentPart, extract_hyperparams
+from ....core import ChatMessage, extract_hyperparams
 from ....core.llm_types import CompletionMessage
 from ....core.settings import Settings
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
@@ -52,7 +52,7 @@ async def feedback_step(
     settings: Settings,
     feedback_fragments: Sequence[Mapping[str, Any]],
     *,
-    writer_user_msg: str | list[ContentPart],
+    writer_request: Sequence[ChatMessage],
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -68,10 +68,10 @@ async def feedback_step(
     tool_schema = build_feedback_tool(feedback_fragments)
 
     request = build_feedback_prompt(feedback_fragments, reasoning_on=reasoning_on, tool_schema=tool_schema)
-    # Replay writer_user_msg + reply (as the editor does) so the feedback call
+    # Replay writer_request + reply (as the editor does) so the feedback call
     # continues the warm writer/editor stack; only `request` is new bytes.
     trailing: list[ChatMessage] = [
-        {"role": "user", "content": writer_user_msg},
+        *writer_request,
         {"role": "assistant", "content": reply_text},
         {"role": "user", "content": request},
     ]

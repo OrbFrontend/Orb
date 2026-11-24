@@ -94,9 +94,10 @@ panel do not.
 
 - **Prefix** blocks (above the divider) build the system message and optional
   pre-history messages. Every pass and off-turn workflow call reads them.
-- **Writer request** blocks (below the divider) build the Writer's single user
-  message. The Editor replays that message; the Director never sees it.
-  Continue sends no Writer request, so these blocks do not steer it.
+- **Writer request** blocks (below the divider) build the Writer's messages
+  after history. The Editor and the later passes replay those messages; the
+  Director never sees them. Continue sends no Writer request, so these blocks do
+  not steer it.
 
 A **marker** stands for an engine block: `main_prompt`, `cast` and
 `constant_lore` in the prefix; `selected_lore`,
@@ -106,7 +107,8 @@ the setting that drives each one decides whether it renders, and the group
 context mode decides what `cast` carries.
 
 The engine places its remaining Writer lines itself rather than as blocks. The
-group speaker frame opens the Writer request and the "write as" line closes it.
+group speaker frame opens the Writer request and the "write as" line closes it,
+both as user text.
 The state block, under `**Current State**`, follows `scene_guidance`. The tool
 notice, the Length Guard nudge and the group speaker's cue, in that order, lead
 `user_message`.
@@ -150,7 +152,9 @@ active layout's Main prompt.
 Every other block is a **custom block**, including the Character, Scenario,
 Example dialogue, Chat instructions and User persona blocks a new layout seeds
 (`SECTION_BLOCKS` in `core/prompt_layout.py`). A custom block may be edited,
-switched off, deleted, or moved to either side of the divider. Its text may
+switched off, deleted, or moved to either side of the divider; one moved
+across it with its old side's default role (`system` above, `user` below)
+takes the new side's default, and a role the user picked stays. Its text may
 name section placeholders:
 
 | Placeholder | Section |
@@ -185,14 +189,26 @@ Rendering rules:
   blocks, markers included, become messages between the system message and
   history; adjacent messages with the same role, including the first history
   row, merge with a blank line.
-- The Writer request is always one user message, so roles do not apply below
-  the divider. Custom blocks there use the `___` divider, as lore does. Section
-  values reach the Writer through `PipelineContext.sections`, the same values
-  the prefix renders.
+- Every block below the divider has a role too, `user` by default, so a layout
+  that sets none sends one user message. Each block becomes a message of its
+  role after history; adjacent blocks of one role share a message, and a
+  message that another follows drops its trailing blank line. Nothing merges
+  into the last history row, so the cached prefix keeps its bytes. A custom
+  block takes the `___` divider only when it continues a message of its role.
+  The turn's attachments ride the message holding the User message when that is
+  a user message, else the last user message. Section values reach the Writer
+  through `PipelineContext.sections`, the same values the prefix renders.
+- The messages go out as laid out, on every transport: a request may end on an
+  assistant turn, and a system message may follow history. Orb never moves or
+  re-roles a message to fit an API. Where the wire cannot carry the shape, the
+  call fails with that reason: the Anthropic Messages API, which takes system
+  text only ahead of the turns, refuses a later system message before sending
+  (`PromptShapeError`), and a chat template that refuses one answers with its
+  own error. The later passes replay the request unchanged, then the reply.
 - Prefix blocks resolve with the conversation's macro seed, so their bytes are
   stable across builds. Writer-request blocks roll inline macros fresh each time
-  the request is built; the Editor replays the built string, so both passes read
-  the same rolls.
+  the request is built; the Editor replays the built messages, so both passes
+  read the same rolls.
 
 Every turn and off-turn builder renders the same active layout:
 `load_pipeline_context` reads it once into `PipelineContext.layout`, and
@@ -209,5 +225,5 @@ The HTTP surface lives in `api/routes/prompt_layouts.py`:
 | `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the last layout); deleting the active layout activates the first one left |
 | `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
-| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its text when editable, and its role above the divider; roles apply only above it), or delete a custom block; a refused edit is a 409 |
+| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its role, and its text when editable), or delete a custom block; a refused edit is a 409 |
 | `PUT /api/prompt-layouts/{id}/order` | Place every block: `{prefix: [...ids], writer: [...ids]}` |

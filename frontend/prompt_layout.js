@@ -33,6 +33,9 @@ const CONTROLLED_BY = {
   depth_lore: "Worlds",
 };
 
+// The role a block takes unless the user picks another: system text above the chat history, the Writer's user turn below.
+const _defaultRole = (region) => (region === "prefix" ? "system" : "user");
+
 function _ordered(region) {
   return _blocks.filter((b) => b.region === region).sort((a, b) => a.sort_order - b.sort_order);
 }
@@ -40,7 +43,7 @@ function _ordered(region) {
 function _rowHtml(b) {
   const marker = _isMarker(b);
   const label = b.label || "Untitled block";
-  const role = b.region === "prefix" && b.role !== "system" ? `<span class="pl-role">${esc(b.role)}</span>` : "";
+  const role = b.role !== _defaultRole(b.region) ? `<span class="pl-role">${esc(b.role)}</span>` : "";
   const toggle = !marker
     ? `<div class="frag-toggle-wrapper">
         <label class="tog" for="pl-toggle-${escAttr(b.id)}">
@@ -127,19 +130,16 @@ async function toggleBlock(id, enabled) {
 }
 
 function openBlock(id) {
-  const b = id ? _byId(id) : { kind: "custom", label: "", content: "", role: "system", region: "writer" };
+  const b = id ? _byId(id) : { kind: "custom", label: "", content: "", role: _defaultRole("writer"), region: "writer" };
   if (!b) return;
   const custom = !_isMarker(b);
   const nameField = custom
     ? `<div class="field"><label for="pl-label">Name</label><input id="pl-label" value="${escAttr(b.label)}"></div>`
     : "";
-  const roleField =
-    b.region === "prefix"
-      ? `<div class="field"><label for="pl-role">Role</label>
-          <select id="pl-role">${["system", "user", "assistant"]
-            .map((r) => `<option value="${r}" ${b.role === r ? "selected" : ""}>${r}</option>`)
-            .join("")}</select></div>`
-      : "";
+  const roleField = `<div class="field"><label for="pl-role">Role</label>
+      <select id="pl-role">${["system", "user", "assistant"]
+        .map((r) => `<option value="${r}" ${b.role === r ? "selected" : ""}>${r}</option>`)
+        .join("")}</select></div>`;
   showModal(`
     <h2>${custom ? (id ? "Edit Block" : "New Block") : esc(b.label)}</h2>
     ${nameField}

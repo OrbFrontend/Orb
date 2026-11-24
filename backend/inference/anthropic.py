@@ -9,7 +9,7 @@ from typing import Any
 
 from ..core.llm_types import CompletionDelta
 from .chat_stream import ChatStream
-from .errors import llm_stream_error
+from .errors import PromptShapeError, llm_stream_error
 from .ledger import LEDGER
 from .schema import strictify_schema
 
@@ -84,9 +84,10 @@ def _tool_use_blocks(tool_calls: object) -> list[dict[str, Any]]:
 
 
 def _translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
-    """Hoist system text and translate/coalesce Anthropic user/assistant turns.
+    """Hoist the leading system text and translate/coalesce Anthropic user/assistant turns.
 
-    A cache breakpoint on the system text turns ``system`` into a one-block list carrying it; the text is the same either way. A
+    The Messages API carries system text only ahead of the turns, so a system message after the first turn is refused rather
+    than moved. A cache breakpoint on the system text turns ``system`` into a one-block list carrying it; the text is the same either way. A
     breakpoint inside a tool message moves onto its ``tool_result`` block.
     """
     system_parts: list[str] = []
@@ -104,6 +105,11 @@ def _translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | li
     for message in messages:
         role = message.get("role")
         if role == "system":
+            if translated:
+                raise PromptShapeError(
+                    "Anthropic's Messages API takes system text only before the first message. "
+                    "Give the system block after the chat history another role, or move it above the chat history."
+                )
             for block in _text_parts(message.get("content")):
                 text = block.get("text")
                 if isinstance(text, str) and text:

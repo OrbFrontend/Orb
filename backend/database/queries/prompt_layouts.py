@@ -15,7 +15,10 @@ from ...core.prompt_layout import (
     EDITABLE_MARKERS,
     MARKER_TEMPLATES,
     LayoutBlock,
+    LayoutRegion,
+    LayoutRole,
     default_layout,
+    default_role,
     marker_block_id,
     marker_placeholder,
     names_marker_placeholder,
@@ -149,8 +152,7 @@ async def set_active_prompt_layout(layout_id: str) -> bool:
 
 
 async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
-    """A custom block at the end of the layout; only a block above the chat history keeps its role. None when the layout is
-    missing."""
+    """A custom block at the end of the layout. None when the layout is missing."""
     if await get_prompt_layout(layout_id) is None:
         return None
     block_id = uuid.uuid4().hex
@@ -165,7 +167,7 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
             kind=CUSTOM_KIND,
             label=data["label"].strip(),
             content=data["content"],
-            role=data["role"] if data["region"] == "prefix" else "system",
+            role=data["role"] or default_role(data["region"]),
             region=data["region"],
             sort_order=int(rows[0]["top"]) + 1,
         )
@@ -176,7 +178,7 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
 
 async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
     """Edit a block's label, text, role or switch. A marker keeps its name and switch, only an editable marker's text changes,
-    keeping its placeholder, and only a block above the chat history takes a role. :func:`reorder_prompt_blocks` moves blocks."""
+    keeping its placeholder. :func:`reorder_prompt_blocks` moves blocks."""
     row = await get_prompt_block(block_id)
     if row is None:
         return None
@@ -191,8 +193,6 @@ async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptB
         raise PromptLayoutError("A built-in block keeps its name.")
     if not custom and "enabled" in data:
         raise PromptLayoutError("Another setting switches this block.")
-    if "role" in data and data["role"] != row["role"] and row["region"] != "prefix":
-        raise PromptLayoutError("Roles apply only above the chat history.")
     updates = {column: data[column] for column in ("label", "content", "role", "enabled") if column in data}
     if "label" in updates:
         updates["label"] = updates["label"].strip()
@@ -221,13 +221,24 @@ async def delete_prompt_block(block_id: str) -> bool:
     return True
 
 
+def _crossed_role(row: PromptBlockRow, region: LayoutRegion) -> LayoutRole:
+    """*row*'s role once placed in *region*."""
+    if row["region"] != region and row["role"] == default_role(row["region"]):
+        return default_role(region)
+    return row["role"]
+
+
 async def reorder_prompt_blocks(layout_id: str, prefix: Sequence[str], writer: Sequence[str]) -> list[PromptBlockRow] | None:
-    """Place every block of the layout: *prefix* ids above the chat history, *writer* ids below, each in order. None when the
+    """Place every block of the layout: *prefix* ids above the chat history, *writer* ids below, each in order. A block that
+    crosses the history with its region's default role takes the new region's default; any other role stays. None when the
     layout is missing."""
     rows = {row["id"]: row for row in await get_prompt_blocks(layout_id)}
     if not rows:
         return None
-    placed = [*(("prefix", block_id) for block_id in prefix), *(("writer", block_id) for block_id in writer)]
+    placed: list[tuple[LayoutRegion, str]] = [
+        *(("prefix", block_id) for block_id in prefix),
+        *(("writer", block_id) for block_id in writer),
+    ]
     ids = [block_id for _, block_id in placed]
     if len(ids) != len(set(ids)) or set(ids) != set(rows):
         raise PromptLayoutError("The order must list every block of the layout exactly once.")
@@ -235,8 +246,11 @@ async def reorder_prompt_blocks(layout_id: str, prefix: Sequence[str], writer: S
         raise PromptLayoutError("This block cannot cross the chat history.")
     async with get_db() as db:
         await db.executemany(
-            "UPDATE prompt_blocks SET sort_order = ?, region = ? WHERE id = ?",
-            [(index, region, block_id) for index, (region, block_id) in enumerate(placed)],
+            "UPDATE prompt_blocks SET sort_order = ?, region = ?, role = ? WHERE id = ?",
+            [
+                (index, region, _crossed_role(rows[block_id], region), block_id)
+                for index, (region, block_id) in enumerate(placed)
+            ],
         )
         await db.commit()
     return await get_prompt_blocks(layout_id)

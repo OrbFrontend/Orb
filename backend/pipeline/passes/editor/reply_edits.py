@@ -12,7 +12,7 @@ from typing import Any
 from ....analysis.detectors.subject_fixation import confirm, nominate, presence_streaks
 from ....analysis.healing import heal_deletion
 from ....analysis.text.markup import narration_mask
-from ....core import ChatMessage, ContentPart, extract_hyperparams
+from ....core import ChatMessage, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
 from ....database.models import GenerationTimingRow
@@ -110,7 +110,7 @@ async def _forced_edit_call(
     prompt: str,
     settings: Settings,
     *,
-    writer_user_msg: str | list[ContentPart],
+    writer_request: Sequence[ChatMessage],
     tool_choice: dict,
     kv_tracker=None,
     reasoning_on: bool = False,
@@ -119,7 +119,7 @@ async def _forced_edit_call(
     """One Editor call over *draft*, forced to the tool *tool_choice* names, that extends the Writer's prefix; the reply lands
     in *resp*."""
     trailing: list[ChatMessage] = [
-        {"role": "user", "content": writer_user_msg},
+        *writer_request,
         {"role": "assistant", "content": draft},
         {"role": "user", "content": prompt},
     ]
@@ -158,7 +158,7 @@ async def reply_edit_step(
     settings: Settings,
     reply_edit_fragments: Sequence[Mapping[str, Any]],
     *,
-    writer_user_msg: str | list[ContentPart],
+    writer_request: Sequence[ChatMessage],
     effective_msg: str,
     judge_config: JudgeConfig | None = None,
     recent_replies: Sequence[str] = (),
@@ -234,7 +234,7 @@ async def reply_edit_step(
                     current,
                     build_prompt(fragment, draft=current, reasoning_on=reasoning_on),
                     settings,
-                    writer_user_msg=writer_user_msg,
+                    writer_request=writer_request,
                     tool_choice=tool_choice,
                     kv_tracker=kv_tracker,
                     reasoning_on=reasoning_on,
@@ -279,7 +279,7 @@ async def subject_fixation_step(
     settings: Settings,
     history: Sequence[TaggedReply],
     *,
-    writer_user_msg: str | list[ContentPart],
+    writer_request: Sequence[ChatMessage],
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -310,7 +310,7 @@ async def subject_fixation_step(
         draft,
         build_subject_fixation_prompt(streaks, draft=draft, reasoning_on=reasoning_on),
         settings,
-        writer_user_msg=writer_user_msg,
+        writer_request=writer_request,
         tool_choice=EDITOR_FIND_REPLACE_CHOICE,
         kv_tracker=kv_tracker,
         reasoning_on=reasoning_on,

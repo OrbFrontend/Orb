@@ -37,6 +37,14 @@ class EndpointConfigError(ValueError):
     """
 
 
+class PromptShapeError(ValueError):
+    """The prompt has a shape the endpoint's API cannot carry as written.
+
+    Raised before sending rather than rearranging the prompt, so what reaches the model is always what the layout says. The
+    message names what to change and is safe to show as-is.
+    """
+
+
 # What a rejection says went wrong, decided once where the error is built:
 # - ``unknown_route``: the body specifically identifies an HTTP route mismatch, so another route on the host may answer;
 # - ``unknown_model``: a 404 whose sentence names the model, so the route answered but does not serve it;

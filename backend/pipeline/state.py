@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
-from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
+from ..core import ChatMessage, Macros, StateView, joined_delta
 from ..core.llm_types import ParsedToolCall
 from ..database.models import DirectorStateRow, GenerationTimingRow
 from ..inference import CachedBase, LLMClient, TextCallRecord
@@ -175,7 +175,8 @@ class TurnState:
     # Post-Editor text retained before secondary workflows change the visible
     # reply. ``writer_draft`` is the legacy persistence/API name for this source.
     writer_draft: str = ""
-    writer_content: str | list[ContentPart] = ""
+    # The Writer's messages after history, replayed verbatim by the passes that follow it.
+    writer_request: list[ChatMessage] = field(default_factory=list)
     # What the Writer's text-mode call sent and streamed back, for Continue.
     writer_call: TextCallRecord | None = None
     reasoning_director: str = ""

@@ -11,7 +11,6 @@ from typing import Any
 
 from ....core import (
     ChatMessage,
-    ContentPart,
     StateFragment,
     StateOp,
     StateRejection,
@@ -140,7 +139,7 @@ async def state_step(
     decision_guidance: str = "",
     user_message: str = "",
     reply_text: str | None = None,
-    writer_user_msg: str | list[ContentPart] | None = None,
+    writer_request: Sequence[ChatMessage] = (),
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -176,7 +175,7 @@ async def state_step(
         if placement == "after_reply":
             # Replay the Writer exchange so each call extends the warm Writer prefix.
             trailing: list[ChatMessage] = [
-                {"role": "user", "content": writer_user_msg or ""},
+                *writer_request,
                 {"role": "assistant", "content": reply_text or ""},
                 {"role": "user", "content": request},
             ]

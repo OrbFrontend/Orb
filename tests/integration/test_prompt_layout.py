@@ -89,6 +89,62 @@ async def test_writer_blocks_leave_the_prefix_alone_and_the_editor_replays_them(
     assert editor[: len(first)] == first
 
 
+async def test_writer_blocks_send_their_roles_as_laid_out_and_the_editor_replays_them(client, llm_mock):
+    await client.put_checked(
+        "/api/settings",
+        json={"enable_agent": True, "length_guard_enabled": True, "length_guard_max_words": 5},
+    )
+    layout_id, seeded = await _active_layout(client)
+    system = await _add_block(client, layout_id, content="Injected sysprompt", role="system")
+    ack = await _add_block(client, layout_id, content="Injected acknowledgement", role="assistant")
+    praise = await _add_block(client, layout_id, content="Injected praise", role="user")
+    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    message = seeded["user_message"]["id"]
+    ours = [system["id"], message, ack["id"], praise["id"]]
+    await client.put_checked(
+        f"/api/prompt-layouts/{layout_id}/order",
+        json={
+            "prefix": [b["id"] for b in order if b["region"] == "prefix"],
+            "writer": [system["id"], message, ack["id"], praise["id"]]
+            + [b["id"] for b in order if b["region"] == "writer" and b["id"] not in ours],
+        },
+    )
+    cid = await _card_conversation(client)
+
+    llm_mock.enqueue_writer(_LONG_DRAFT)
+    llm_mock.enqueue_editor(None)
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Hi", "attachments": []})).text
+    writer = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]["messages"]
+    editor = [call for call in llm_mock.captured if call["pass"] == "editor"][-1]["messages"]
+
+    # Each block keeps its role after history, and nothing merges into the last history row.
+    assert [m["role"] for m in writer[-5:]] == ["assistant", "system", "user", "assistant", "user"]
+    assert writer[-4]["content"] == "Injected sysprompt"
+    assert writer[-3]["content"].endswith("___\n\nHi")
+    assert writer[-2]["content"] == "Injected acknowledgement"
+    assert writer[-1]["content"] == "Injected praise\n\n"
+    # The Editor replays the request verbatim, then the draft.
+    assert editor[: len(writer)] == writer
+    assert editor[len(writer)] == {"role": "assistant", "content": _LONG_DRAFT}
+
+
+def test_anthropic_refuses_a_system_message_after_the_first_turn_rather_than_moving_it():
+    import pytest
+
+    from backend.inference.anthropic import build_request_body
+    from backend.inference.errors import PromptShapeError
+
+    messages = [
+        {"role": "system", "content": "Main"},
+        {"role": "user", "content": "Hi"},
+        {"role": "system", "content": "Late"},
+    ]
+    with pytest.raises(PromptShapeError):
+        build_request_body({"messages": messages}, "https://api.anthropic.com/v1", "claude")
+    body = build_request_body({"messages": messages[:2]}, "https://api.anthropic.com/v1", "claude")
+    assert body["system"] == "Main"
+
+
 async def test_offturn_prefix_matches_the_turn_prefix_under_a_custom_layout(client):
     layout_id, seeded = await _active_layout(client)
     await _add_block(client, layout_id, content="House rules for {{user}}.", region="prefix")
@@ -194,9 +250,6 @@ async def test_a_prefix_marker_with_a_user_role_becomes_a_pre_history_message(cl
     layout_id, seeded = await _active_layout(client)
     main = seeded["main_prompt"]["id"]
     await client.expect("patch", f"/api/prompt-blocks/{main}", json={"content": "Main text", "role": "user"})
-    await client.expect(
-        "patch", f"/api/prompt-blocks/{seeded['user_message']['id']}", json={"role": "user"}, expected_status=409
-    )
     cid = "layout-role"
     await create_conversation(cid, "Role", "Iris", "A rainy archive.")
     mid, _ = await add_message(cid, "user", "Hello.", 0)

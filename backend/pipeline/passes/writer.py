@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 from ...core import (
     CastMember,
     ChatMessage,
-    ContentPart,
     GroupContextMode,
     Macros,
     build_multimodal_content,
@@ -23,7 +22,7 @@ from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
 from ...prompting import member_macros, speaker_instructions, tail_carries_identity
-from ...prompting.layout import TOOL_NOTICE, SectionInputs, WriterInputs, render_writer_tail
+from ...prompting.layout import TOOL_NOTICE, SectionInputs, WriterInputs, WriterRequest, render_writer_request
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
 from .editor.length_guard import writer_nudge
@@ -91,11 +90,24 @@ def _speaker_frame(
     return opening, closing, speaker_macros
 
 
+def _with_attachments(request: WriterRequest, attachments: Sequence[Mapping[str, Any]]) -> list[ChatMessage]:
+    """*request*'s messages, the turn's attachments on its anchor message, or on a user message of their own after it when no
+    user message can carry them."""
+    messages = list(request.messages)
+    if not attachments:
+        return messages
+    if request.attach_to is None:
+        return [*messages, {"role": "user", "content": build_multimodal_content("", attachments)}]
+    anchor = messages[request.attach_to]
+    messages[request.attach_to] = {"role": "user", "content": build_multimodal_content(str(anchor["content"]), attachments)}
+    return messages
+
+
 async def writer_pass(
     client: LLMClient,
     base: CachedBase,
     settings: Settings,
-    content: str | list[ContentPart],
+    request: Sequence[ChatMessage],
     *,
     kv_tracker: KVCacheTracker | None = None,
     reasoning_on: bool = True,
@@ -104,10 +116,10 @@ async def writer_pass(
 ) -> AsyncIterator[ContentDelta | ReasoningDelta]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
-    *content* is the writer's user-message body, prebuilt by :func:`writer_stage` and shared with the editor. The tool blob
-    comes from *base* so it stays byte-identical with the director and editor passes.
+    *request* is the Writer's messages after history, prebuilt by :func:`writer_stage` and replayed by the later passes. The
+    tool blob comes from *base* so it stays byte-identical with the director and editor passes.
     """
-    trailing: list[ChatMessage] = [{"role": "user", "content": content}]
+    trailing = list(request)
 
     hyperparams = extract_hyperparams(settings)
     logger.info(
@@ -149,7 +161,7 @@ async def writer_stage(
 ) -> AsyncIterator[CoreTurnEvent]:
     """Input-prep + writer pass + event translation.
 
-    Builds ``state.writer_content`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
+    Builds ``state.writer_request`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
     :func:`writer_pass` translating ``content``->``token`` and ``reasoning``->``reasoning`` events, and accumulates the writer's
     wall time into the Inspector breakdown.
     """
@@ -177,8 +189,8 @@ async def writer_stage(
         speaker_open=speaker_open,
         speaker_close=speaker_close,
     )
-    tail = render_writer_tail(layout if layout is not None else default_layout(), inputs, block_macros)
-    state.writer_content = build_multimodal_content(tail, attachments)
+    request = render_writer_request(layout if layout is not None else default_layout(), inputs, block_macros)
+    state.writer_request = _with_attachments(request, attachments)
     state.writer_call = TextCallRecord()
     label_buffer = ""
     label_pending = speaker is not None
@@ -191,7 +203,7 @@ async def writer_stage(
             cfg.writer_lane.client,
             cfg.writer_lane.base,
             settings,
-            state.writer_content,
+            state.writer_request,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.writer_reasoning_on,
             reasoning_prefill=cfg.writer_reasoning_prefill,

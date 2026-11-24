@@ -266,7 +266,8 @@ class PromptLayoutActive(BaseModel):
 class PromptBlockCreate(BaseModel):
     label: str = ""
     content: str = ""
-    role: Literal["system", "user", "assistant"] = "system"
+    # None takes the region's default role.
+    role: Literal["system", "user", "assistant"] | None = None
     region: Literal["prefix", "writer"] = "writer"
 
 

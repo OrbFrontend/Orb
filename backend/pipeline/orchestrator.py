@@ -490,7 +490,7 @@ async def _after_reply_state_stage(
             # No decision guidance: it directs the Writer, rides the replayed
             # Writer message already, and the reply is the only record now.
             reply_text=state.resp_text,
-            writer_user_msg=state.writer_content,
+            writer_request=state.writer_request,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.editor_reasoning_on,
             reasoning_prefill=cfg.editor_reasoning_prefill,

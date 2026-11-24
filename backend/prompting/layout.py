@@ -13,6 +13,7 @@ from ..core.prompt_layout import (
     SECTION_PLACEHOLDERS,
     LayoutBlock,
     LayoutRegion,
+    LayoutRole,
 )
 
 
@@ -191,28 +192,72 @@ def join_history(head: Sequence[ChatMessage], history: Sequence[ChatMessage]) ->
     return messages + rows
 
 
-def render_writer_tail(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None) -> str:
-    """The Writer's one user message: the speaker frame, the Writer-request blocks in order, then the closing line.
+@dataclass(frozen=True, slots=True)
+class WriterRequest:
+    """The Writer's request: the messages after history, and which one the turn's attachments ride."""
 
-    Custom blocks roll inline macros fresh on every build; the Editor replays the built string, so both passes read the same
-    rolls.
+    messages: tuple[ChatMessage, ...]
+    # The message holding the User message when that is a user message, else the last user message; None when there is none.
+    attach_to: int | None
+
+
+def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None) -> WriterRequest:
+    """The Writer's messages after history: the speaker frame, the Writer-request blocks in order, then the closing line.
+
+    Each block becomes a message of its role; adjacent blocks of one role share a message. The speaker frame and the closing
+    line are user text. Custom blocks roll inline macros fresh on every build; later passes replay the built messages, so they
+    read the same rolls.
     """
     resolve = _resolver(macros._replace(seed="") if macros else None)
-    tail = inputs.speaker_open
+    pieces: list[tuple[LayoutRole, str]] = []
+    holder: int | None = None
+
+    def add(role: LayoutRole, text: str, *, divided: bool = False) -> None:
+        if divided and pieces and pieces[-1][0] == role:
+            text = f"{_DIVIDER}{text}"
+        pieces.append((role, f"{text}\n\n"))
+
+    if inputs.speaker_open:
+        pieces.append(("user", inputs.speaker_open))
     for block in region_blocks(blocks, "writer"):
         if block.kind == "user_message":
             # The engine's own lines for this request lead the user's message wherever the layout places it.
             cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
-            tail += "".join(f"{line}\n\n" for line in (inputs.tool_notice, inputs.length_nudge, cue) if line)
+            for line in (inputs.tool_notice, inputs.length_nudge, cue):
+                if line:
+                    add(block.role, line)
         if block.kind == CUSTOM_KIND:
             text = _render_block(block.content, inputs.sections, resolve)
             if text:
-                tail += f"{_DIVIDER}{text}\n\n"
+                # The divider separates a custom block from what precedes it in the same message.
+                add(block.role, text, divided=True)
             continue
         text = _render_marker(block, getattr(inputs, block.kind), resolve)
         if text:
-            tail += f"{text}\n\n"
+            add(block.role, text)
+            if block.kind == "user_message":
+                holder = len(pieces) - 1
         if block.kind == "scene_guidance" and inputs.current_state:
             # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
-            tail += f"{_DIVIDER}{inputs.current_state}\n\n"
-    return tail + inputs.speaker_close
+            add(block.role, f"{_DIVIDER}{inputs.current_state}")
+    if inputs.speaker_close:
+        pieces.append(("user", inputs.speaker_close))
+
+    messages: list[ChatMessage] = []
+    attach_to: int | None = None
+    for index, (role, text) in enumerate(pieces):
+        if messages and messages[-1]["role"] == role:
+            messages[-1] = {"role": role, "content": str(messages[-1]["content"]) + text}
+        else:
+            if messages:
+                # A message that ends before another opens drops its trailing separator.
+                messages[-1] = {"role": messages[-1]["role"], "content": str(messages[-1]["content"]).rstrip()}
+            messages.append({"role": role, "content": text})
+        if index == holder and role == "user":
+            attach_to = len(messages) - 1
+    if not messages:
+        # Nothing rendered: the request is still the one empty user message the turn's attachments ride.
+        return WriterRequest(({"role": "user", "content": ""},), 0)
+    if attach_to is None:
+        attach_to = next((i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), None)
+    return WriterRequest(tuple(messages), attach_to)

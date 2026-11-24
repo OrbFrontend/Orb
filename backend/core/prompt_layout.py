@@ -84,6 +84,11 @@ def marker_region(kind: str) -> LayoutRegion:
     return "writer" if kind in WRITER_MARKERS else "prefix"
 
 
+def default_role(region: LayoutRegion) -> LayoutRole:
+    """The role a block takes by default: system text above the chat history, the Writer's user turn below it."""
+    return "system" if region == "prefix" else "user"
+
+
 def marker_block_id(layout_id: str, kind: str) -> str:
     return f"{layout_id}:{kind}"
 
@@ -119,6 +124,7 @@ def default_layout(layout_id: str = DEFAULT_LAYOUT_ID, main_prompt: str = "") ->
                     kind=key,
                     label=MARKER_LABELS[key],
                     content=main_prompt if key == "main_prompt" else MARKER_TEMPLATES.get(key, ""),
+                    role=default_role(marker_region(key)),
                     region=marker_region(key),
                     sort_order=index,
                 )
