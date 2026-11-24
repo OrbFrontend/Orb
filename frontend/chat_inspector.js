@@ -18,6 +18,7 @@ import {
   REASONING_BOTTOM_THRESHOLD,
   REASONING_PASSES,
   refreshInlineInspector,
+  rememberedInspection,
   rememberInspection,
   renderLiveInspector,
   shownInjection,
@@ -47,8 +48,8 @@ export async function inspectMessage(msgId) {
   const viewToken = S.conversationViewToken;
   const request = ++inspectionRequest;
   S.inspectedMsgId = msgId;
-  S.inspectedDirectorData = null;
-  renderInspector();
+  const cached = rememberedInspection(msgId);
+  if (cached) showInspection(cached);
   const isCurrent = () =>
     request === inspectionRequest &&
     S.activeConvId === conversationId &&
@@ -57,21 +58,25 @@ export async function inspectMessage(msgId) {
   try {
     const data = await api.get(convUrl(conversationId, "messages", msgId, "director-log"));
     if (!isCurrent()) return;
-    S.inspectedDirectorData = data;
-    S.inspectedReasoning = {
-      director: data.reasoning_director || "",
-      writer: data.reasoning_writer || "",
-      editor: data.reasoning_editor || "",
-    };
-    S.inspectedReasoningSelected = S.inspectedReasoning.editor ? 2 : S.inspectedReasoning.writer ? 1 : 0;
     rememberInspection(msgId, data);
-    renderInspector();
+    showInspection(data);
     refreshInlineInspector(msgId);
   } catch (_e) {
     if (!isCurrent()) return;
     S.inspectedDirectorData = null;
     renderInspector();
   }
+}
+
+function showInspection(data) {
+  S.inspectedDirectorData = data;
+  S.inspectedReasoning = {
+    director: data.reasoning_director || "",
+    writer: data.reasoning_writer || "",
+    editor: data.reasoning_editor || "",
+  };
+  S.inspectedReasoningSelected = S.inspectedReasoning.editor ? 2 : S.inspectedReasoning.writer ? 1 : 0;
+  renderInspector();
 }
 
 export function clearInspectedMessage() {

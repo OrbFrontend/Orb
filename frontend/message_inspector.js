@@ -447,6 +447,12 @@ export function rememberInspection(msgId, data) {
   inspections.set(msgId, data ?? null);
 }
 
+/** A reply's cached `director-log` payload; undefined when not fetched yet. */
+export function rememberedInspection(msgId) {
+  syncCacheConversation();
+  return inspections.get(msgId);
+}
+
 /** Message *m*'s in-chat blocks, or "" when the setting is off or there is nothing to show. */
 export function inlineInspectorHtml(m) {
   if (!S.inspectorInline || m.role !== "assistant" || !m.id) return "";
