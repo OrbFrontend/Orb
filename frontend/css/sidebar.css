@@ -209,10 +209,11 @@
 
 /* Prompt Layout: blocks above the divider build the shared prefix, blocks below build the Writer's request. */
 #prompt-layout-list .fragment-item { padding-left: 2px; }
-.pl-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
-.pl-header-actions { display: flex; gap: 4px; }
-.pl-header-actions .btn { flex: 1; justify-content: center; padding: 4px 6px; }
-.pl-header + .btn { margin-bottom: 6px; }
+.pl-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.pl-header .theme-select { font-size: 12px; padding: 5px 10px; color: var(--text-primary); }
+.pl-header-actions { display: flex; gap: 8px; }
+.pl-header-actions .btn { flex: 1; justify-content: center; padding-left: 6px; padding-right: 6px; }
+.pl-header + .btn { margin-bottom: 8px; }
 .pl-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .pl-name .frag-label { flex: 0 1 auto; padding-right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-off .pl-name { opacity: 0.55; }

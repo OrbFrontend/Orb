@@ -97,7 +97,7 @@ function render() {
       </div>
       ${_ordered("writer").map(_rowHtml).join("")}
     </div>
-    <button class="btn btn-block btn-sm" data-wf-action="prompt-layout:add" style="margin-top:6px">+ Add Block</button>`;
+    <button class="btn btn-block btn-sm" data-wf-action="prompt-layout:add" style="margin-top:8px">+ Add Block</button>`;
   if (!_dragReady) {
     _dragReady = true;
     initDragReorder(el, { itemSelector: ".fragment-item", handleSelector: ".frag-drag-handle", onReorder: saveOrder });
