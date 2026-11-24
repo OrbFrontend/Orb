@@ -29,11 +29,6 @@ _DIVIDER = "___\n\n"
 # The Writer ships the shared tool schemas under tool_choice="none", which some routes rewrite to "auto" and some templates
 # ignore; this line is what keeps the Writer writing prose there. "This turn" keeps it true when a later pass replays the request.
 TOOL_NOTICE = "**Do not use tool or function calls this turn.**"
-# The fixed framing of each marker whose text the user does not edit.
-_MARKER_HEADS: dict[str, str] = {
-    "current_state": _DIVIDER,
-    "cue": "## Your cue\n",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,12 +58,15 @@ class PrefixInputs:
 
 @dataclass(frozen=True, slots=True)
 class WriterInputs:
-    """Each Writer-request marker's own text, the sections for placeholder blocks, and the speaker frame around them."""
+    """Each Writer-request marker's own text, the engine lines that ride a marker, the sections for placeholder blocks, and the
+    speaker frame around them."""
 
     selected_lore: str = ""
     decisions: str = ""
     scene_guidance: str = ""
+    # Follows Scene guidance.
     current_state: str = ""
+    # Lead the User message.
     tool_notice: str = ""
     length_nudge: str = ""
     cue: str = ""
@@ -79,15 +77,10 @@ class WriterInputs:
     speaker_close: str = ""
 
 
-def marker_text(kind: str, content: str) -> str:
-    """A marker's fixed framing around *content*; nothing when *content* is empty."""
-    return f"{_MARKER_HEADS.get(kind, '')}{content}" if content else ""
-
-
 def _render_marker(block: LayoutBlock, value: str, resolve: Callable[[str], str]) -> str:
-    """A marker: its own text around *value* when the user edits it, else its fixed framing."""
+    """A marker: its own text around *value* when the user edits it, else *value* as is."""
     if block.kind not in MARKER_TEMPLATES:
-        return marker_text(block.kind, value)
+        return value
     if not value:
         return ""
     return _fill(block.content or MARKER_TEMPLATES[block.kind], {block.kind: value}, resolve)
@@ -219,6 +212,10 @@ def render_writer_tail(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macr
     resolve = _resolver(macros._replace(seed="") if macros else None)
     tail = inputs.speaker_open
     for block in region_blocks(blocks, "writer"):
+        if block.kind == "user_message":
+            # The engine's own lines for this request lead the user's message wherever the layout places it.
+            cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
+            tail += "".join(f"{line}\n\n" for line in (inputs.tool_notice, inputs.length_nudge, cue) if line)
         if block.kind == CUSTOM_KIND:
             text = _render_block(block.content, inputs.sections, resolve)
             if text:
@@ -227,4 +224,7 @@ def render_writer_tail(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macr
         text = _render_marker(block, getattr(inputs, block.kind), resolve)
         if text:
             tail += f"{text}\n\n"
+        if block.kind == "scene_guidance" and inputs.current_state:
+            # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
+            tail += f"{_DIVIDER}{inputs.current_state}\n\n"
     return tail + inputs.speaker_close

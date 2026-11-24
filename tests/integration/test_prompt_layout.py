@@ -173,7 +173,7 @@ async def test_a_prefix_marker_with_a_user_role_becomes_a_pre_history_message(cl
     main = seeded["main_prompt"]["id"]
     await client.expect("patch", f"/api/prompt-blocks/{main}", json={"content": "Main text", "role": "user"})
     await client.expect(
-        "patch", f"/api/prompt-blocks/{seeded['length_nudge']['id']}", json={"role": "user"}, expected_status=409
+        "patch", f"/api/prompt-blocks/{seeded['user_message']['id']}", json={"role": "user"}, expected_status=409
     )
     cid = "layout-role"
     await create_conversation(cid, "Role", "Iris", "A rainy archive.")
@@ -235,19 +235,25 @@ async def test_scene_guidance_and_user_message_render_from_their_own_text(client
     assert log["injection_block"].startswith("**Scene Guidance**\n\nWrite with tension")
 
 
-async def test_the_tool_notice_is_its_own_block_and_renders_without_length_guard(client, llm_mock):
-    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
+async def test_the_engine_lines_lead_the_user_message_wherever_it_sits(client, llm_mock):
+    await client.put_checked(
+        "/api/settings",
+        json={
+            "enable_agent": True,
+            "enabled_tools": {"direct_scene": True},
+            "length_guard_enabled": True,
+            "length_guard_enforce": True,
+        },
+    )
     layout_id, seeded = await _active_layout(client)
-    notice = "**Do not use tool or function calls this turn.**"
-    assert seeded["tool_notice"]["builtin_text"] == notice
-    assert seeded["length_nudge"]["builtin_text"].startswith("**Keep your response under")
+    assert {"current_state", "length_nudge", "cue", "tool_notice"}.isdisjoint(seeded)
     order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
-    tool = seeded["tool_notice"]["id"]
+    message = seeded["user_message"]["id"]
     await client.put_checked(
         f"/api/prompt-layouts/{layout_id}/order",
         json={
             "prefix": [b["id"] for b in order if b["region"] == "prefix"],
-            "writer": [b["id"] for b in order if b["region"] == "writer" and b["id"] != tool] + [tool],
+            "writer": [message] + [b["id"] for b in order if b["region"] == "writer" and b["id"] != message],
         },
     )
     cid = await _card_conversation(client)
@@ -257,8 +263,8 @@ async def test_the_tool_notice_is_its_own_block_and_renders_without_length_guard
     _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Knock.", "attachments": []})).text
     writer = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]["messages"][-1]["content"]
 
-    assert "Keep your response under" not in writer
-    assert writer.index("Knock.") < writer.index(notice)
+    assert writer.startswith("**Do not use tool or function calls this turn.**\n\n**Keep your response under ")
+    assert writer.index("Knock.") < writer.index("**Scene Guidance**")
 
 
 async def test_description_and_personality_resolve_separately_solo_and_under_a_group_override(client):

@@ -17,10 +17,6 @@ WRITER_MARKERS: tuple[str, ...] = (
     "selected_lore",
     "decisions",
     "scene_guidance",
-    "current_state",
-    "tool_notice",
-    "length_nudge",
-    "cue",
     "user_message",
     "depth_lore",
 )
@@ -33,10 +29,6 @@ MARKER_LABELS: dict[str, str] = {
     "selected_lore": "Selected lore",
     "decisions": "Decisions",
     "scene_guidance": "Scene guidance",
-    "current_state": "Current state",
-    "tool_notice": "Tool notice",
-    "length_nudge": "Length nudge",
-    "cue": "Speaker cue",
     "user_message": "User message",
     "depth_lore": "Depth lore",
 }

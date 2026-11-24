@@ -100,25 +100,28 @@ panel do not.
 
 A **marker** stands for an engine block: `main_prompt`, `cast`,
 `constant_lore` and `workflow_blocks` in the prefix; `selected_lore`,
-`decisions`, `scene_guidance`, `current_state`, `tool_notice`,
-`length_nudge`, `cue`, `user_message` and `depth_lore` in the Writer request.
-Markers cannot be switched off, deleted, or moved across the divider; the
-setting that drives each one decides whether it renders, and the group context
-mode decides what `cast` carries. The group speaker frame always opens the
-Writer request and the "write as" line always closes it.
+`decisions`, `scene_guidance`, `user_message` and `depth_lore` in the Writer
+request. Markers cannot be switched off, deleted, or moved across the divider;
+the setting that drives each one decides whether it renders, and the group
+context mode decides what `cast` carries.
 
-`tool_notice` renders whenever the Writer request carries tool schemas. The
+The engine places its remaining Writer lines itself rather than as blocks. The
+group speaker frame opens the Writer request and the "write as" line closes it.
+The state block, under `**Current State**`, follows `scene_guidance`. The tool
+notice, the Length Guard nudge and the group speaker's cue, in that order, lead
+`user_message`.
+
+The tool notice renders whenever the Writer request carries tool schemas. The
 Writer ships the shared schemas under `tool_choice="none"` to keep the cached
 prefix, but auto-only routes rewrite that to `auto` and some templates ignore
 it; the notice is what keeps the Writer writing prose there. It says "this
 turn" because the Editor and later passes replay the request before asking for
-their own tool call. `length_nudge` renders only while Length Guard enforces.
+their own tool call. The nudge renders only while Length Guard enforces.
 
-The Director stage hands the Writer three separate parts, each its own marker:
-`decisions` (the Judge's guidance lines for the Writer), `scene_guidance` (the
-Director's mood prompts and field values) and `current_state` (the state block
-under `**Current State**`). The Inspector's injection block and the Director's
-own requests still see decisions and Scene Guidance under their fixed headings,
+The Director stage hands the Writer `decisions` (the Judge's guidance lines for
+the Writer), `scene_guidance` (the Director's mood prompts and field values)
+and the state block. The Inspector's injection block and the Director's own
+requests still see decisions and Scene Guidance under their fixed headings,
 `**Major Decisions**` and `**Scene Guidance**`.
 
 Lore reaches the layout the same way: `constant_lore`, `selected_lore` and

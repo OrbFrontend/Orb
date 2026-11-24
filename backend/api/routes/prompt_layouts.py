@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from ...core.prompt_layout import CUSTOM_KIND, EDITABLE_MARKERS
-from ...core.settings import Settings
 from ...database import (
     PromptLayoutError,
     create_prompt_block,
@@ -18,16 +17,12 @@ from ...database import (
     get_active_prompt_layout_id,
     get_prompt_blocks,
     get_prompt_layout,
-    get_settings,
     list_prompt_layouts,
     rename_prompt_layout,
     reorder_prompt_blocks,
     set_active_prompt_layout,
     update_prompt_block,
 )
-from ...pipeline.passes.editor.length_guard import writer_nudge
-from ...prompting.fragment_state import STATE_BLOCK_HEADING
-from ...prompting.layout import TOOL_NOTICE, marker_text
 from ..schemas import (
     PromptBlockCreate,
     PromptBlockOrder,
@@ -44,41 +39,21 @@ def _refused(error: PromptLayoutError) -> HTTPException:
     return HTTPException(status_code=409, detail=str(error))
 
 
-# What an engine marker's dynamic part stands for, shown in its fixed framing.
+# What a marker whose text the user does not edit stands for.
 _MARKER_PLACEHOLDERS: dict[str, str] = {
     "cast": "[The group's cast and each member's sheet]",
     "workflow_blocks": "[Text that enabled workflows add]",
-    "current_state": f"{STATE_BLOCK_HEADING}\n\n[Each state fragment's entries]",
-    "cue": "[The Director's cue for this speaker]",
 }
 
 
-def _builtin_text(kind: str, settings: Settings) -> str:
-    """The text the engine sends for a marker, with its dynamic part in brackets; empty for blocks holding their own text."""
-    if kind == "length_nudge":
-        nudge = writer_nudge(
-            {
-                "enforce": True,
-                "max_words": int(settings.get("length_guard_max_words", 240)),
-                "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
-            }
-        )
-        return nudge.strip()
-    if kind == "tool_notice":
-        return TOOL_NOTICE
-    placeholder = _MARKER_PLACEHOLDERS.get(kind)
-    return marker_text(kind, placeholder) if placeholder else ""
-
-
-def _block_view(row: Mapping[str, Any], settings: Settings) -> dict[str, Any]:
+def _block_view(row: Mapping[str, Any]) -> dict[str, Any]:
     """A block row plus whether its text is editable and, for a marker that is not, the text it sends."""
     editable = row["kind"] == CUSTOM_KIND or row["kind"] in EDITABLE_MARKERS
-    return {**row, "editable": editable, "builtin_text": "" if editable else _builtin_text(row["kind"], settings)}
+    return {**row, "editable": editable, "builtin_text": "" if editable else _MARKER_PLACEHOLDERS.get(row["kind"], "")}
 
 
 async def _blocks(layout_id: str) -> list[dict[str, Any]]:
-    settings = await get_settings()
-    return [_block_view(row, settings) for row in await get_prompt_blocks(layout_id)]
+    return [_block_view(row) for row in await get_prompt_blocks(layout_id)]
 
 
 @router.get("/api/prompt-layouts")
@@ -133,7 +108,7 @@ async def api_list_prompt_blocks(layout_id: str):
 @router.post("/api/prompt-layouts/{layout_id}/blocks")
 async def api_create_prompt_block(layout_id: str, data: PromptBlockCreate):
     try:
-        return _block_view(await create_prompt_block(layout_id, data.model_dump()), await get_settings())
+        return _block_view(await create_prompt_block(layout_id, data.model_dump()))
     except LookupError:
         raise HTTPException(status_code=404, detail="Prompt layout not found") from None
     except PromptLayoutError as error:
@@ -159,7 +134,7 @@ async def api_update_prompt_block(block_id: str, data: PromptBlockUpdate):
         raise _refused(error) from None
     if row is None:
         raise HTTPException(status_code=404, detail="Prompt block not found")
-    return _block_view(row, await get_settings())
+    return _block_view(row)
 
 
 @router.delete("/api/prompt-blocks/{block_id}")

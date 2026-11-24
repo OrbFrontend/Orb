@@ -34,11 +34,7 @@ const CONTROLLED_BY = {
   workflow_blocks: "Workflows",
   selected_lore: "Worlds",
   decisions: "Judge",
-  scene_guidance: "Director",
-  current_state: "State",
-  tool_notice: "Tools",
-  length_nudge: "Length Guard",
-  cue: "Groups",
+  scene_guidance: "Director, State",
   user_message: "Always",
   depth_lore: "Worlds",
 };
