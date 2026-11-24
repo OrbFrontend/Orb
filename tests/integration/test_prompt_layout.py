@@ -342,6 +342,41 @@ async def test_the_engine_lines_lead_the_user_message_wherever_it_sits(client, l
     assert writer.index("Knock.") < writer.index("**Scene Guidance**")
 
 
+async def test_switched_off_markers_leave_the_prompt_but_the_engine_lines_and_the_inspector_stay(client, llm_mock):
+    await client.put_checked(
+        "/api/settings",
+        json={
+            "enable_agent": True,
+            "enabled_tools": {"direct_scene": True},
+            "length_guard_enabled": True,
+            "length_guard_enforce": True,
+        },
+    )
+    _, seeded = await _active_layout(client)
+    await client.expect("patch", f"/api/prompt-blocks/{seeded['main_prompt']['id']}", json={"content": "Main text"})
+    for kind in ("main_prompt", "scene_guidance", "user_message"):
+        await client.expect("patch", f"/api/prompt-blocks/{seeded[kind]['id']}", json={"enabled": False})
+    card = await client.post_json(
+        "/api/characters",
+        json={"name": "Aria", "description": "A guard.", "first_mes": "Halt.", "system_prompt": "Card rules. {{original}}"},
+    )
+    cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
+
+    llm_mock.enqueue_director([{"type": "function", "function": {"name": "direct_scene", "arguments": {"moods": ["tense"]}}}])
+    llm_mock.enqueue_writer("Fine.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Knock.", "attachments": []})).text
+    messages = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]["messages"]
+    wire = _wire(messages)
+
+    assert "Main text" not in wire and "Card rules." not in wire
+    assert "Knock." not in wire and "Write with tension" not in wire
+    assert messages[-1]["content"].startswith("**Do not use tool or function calls this turn.**\n\n**Keep your response under ")
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{(await get_messages(cid))[-1]['id']}/director-log")
+    assert log["injection_block"].startswith("**Scene Guidance**\n\nWrite with tension")
+    breakdown = (await client.get_json(f"/api/conversations/{cid}/context-size"))["breakdown"]
+    assert breakdown["system_prompt"]["chars"] == breakdown["director_injection"]["chars"] == 0
+
+
 async def test_description_and_personality_resolve_separately_solo_and_under_a_group_override(client):
     fields = "{{description}}|{{personality}}"
     card = await client.post_json("/api/characters", json={"name": "Aria", "description": "Ranger.", "personality": "Wary."})

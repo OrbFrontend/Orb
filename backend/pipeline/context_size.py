@@ -142,9 +142,23 @@ _SECTION_ROWS: dict[str, str] = {
 }
 
 
+# The size rows each marker renders, so a switched-off marker drops out of the estimate. The Main prompt leaves through
+# ``char_context``.
+_MARKER_ROWS: dict[str, tuple[str, ...]] = {
+    # Classic card swap appends the speaker's card to the cast; the speaker tail rides the speaker frame, not a marker.
+    "cast": ("cast_public", "cast_dossiers", "largest_active_card"),
+    "constant_lore": ("lorebook_constant",),
+    "selected_lore": ("lorebook",),
+    "depth_lore": ("lorebook_depth",),
+    "scene_guidance": ("director_injection",),
+}
+
+
 def _apply_layout(components: list[tuple[str, int]], layout: Sequence[LayoutBlock], macros: Macros) -> list[tuple[str, int]]:
-    """Zero the rows of sections no enabled block names, and bill other custom blocks above and below the history."""
+    """Zero the rows of switched-off markers and of sections no enabled block names, and bill other custom blocks above and
+    below the history."""
     named: set[str] = set()
+    off = {row for block in layout if not block.enabled for row in _MARKER_ROWS.get(block.kind, ())}
     custom = {"prefix": 0, "writer": 0}
     for block in layout:
         if block.kind != CUSTOM_KIND or not block.enabled:
@@ -154,6 +168,6 @@ def _apply_layout(components: list[tuple[str, int]], layout: Sequence[LayoutBloc
             named.update(_SECTION_ROWS[name] for name in sections)
         else:
             custom[block.region] += len(macros.resolve_message(block.content).strip())
-    unnamed = set(_SECTION_ROWS.values()) - named
-    rows = [(key, 0 if key in unnamed else chars) for key, chars in components]
+    off |= set(_SECTION_ROWS.values()) - named
+    rows = [(key, 0 if key in off else chars) for key, chars in components]
     return rows + [(f"custom_{region}", chars) for region, chars in custom.items() if chars]

@@ -21,16 +21,26 @@ export async function loadPromptLayout() {
 const _byId = (id) => _blocks.find((b) => b.id === id);
 const _isMarker = (b) => b.kind !== "custom";
 
-// What switches each built-in block that has no toggle of its own.
-const CONTROLLED_BY = {
-  main_prompt: "Always",
-  cast: "Groups",
-  constant_lore: "Worlds",
-  selected_lore: "Worlds",
-  decisions: "Judge",
-  scene_guidance: "Director, State",
-  user_message: "Always",
-  depth_lore: "Worlds",
+// What each built-in block carries, and what produces it.
+const BUILT_IN = {
+  main_prompt: {
+    about:
+      "Your system prompt. A character card's own system prompt replaces it unless Prevent prompt overrides is on.",
+    source: "You, or the character card",
+  },
+  cast: { about: "The group's character cards, as the group's context mode shapes them.", source: "Group chat" },
+  constant_lore: { about: "Constant lorebook entries without @ Depth.", source: "Worlds" },
+  selected_lore: {
+    about: "Lorebook entries chosen this turn by keyword or by the Director.",
+    source: "Worlds, Director",
+  },
+  decisions: { about: "The Judge's guidance for this turn.", source: "Judge" },
+  scene_guidance: {
+    about: "The Director's guidance for this turn, followed by the current state.",
+    source: "Director, State",
+  },
+  user_message: { about: "Your message this turn.", source: "You" },
+  depth_lore: { about: "Constant lorebook entries with @ Depth.", source: "Worlds" },
 };
 
 // The role a block takes unless the user picks another: system text above the chat history, the Writer's user turn below.
@@ -41,31 +51,19 @@ function _ordered(region) {
 }
 
 function _rowHtml(b) {
-  const marker = _isMarker(b);
   const label = b.label || "Untitled block";
   const role = b.role !== _defaultRole(b.region) ? `<span class="pl-role">${esc(b.role)}</span>` : "";
-  const toggle = !marker
-    ? `<div class="frag-toggle-wrapper">
+  const classes = ["fragment-item", "pl-block", boolFlag(b.enabled) ? "" : "pl-off"].filter(Boolean).join(" ");
+  return `<div class="${classes}" data-id="${escAttr(b.id)}" data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}">
+      <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
+      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${role}</div>
+      <div class="frag-toggle-wrapper">
         <label class="tog" for="pl-toggle-${escAttr(b.id)}">
           <input type="checkbox" id="pl-toggle-${escAttr(b.id)}" ${boolFlag(b.enabled) ? "checked" : ""}
                  data-wf-action="prompt-layout:toggle" data-wf-on="change" data-block-id="${escAttr(b.id)}">
           <span class="tog-slider"></span>
         </label>
-      </div>`
-    : `<span class="pl-control">${esc(CONTROLLED_BY[b.kind] || "")}</span>`;
-  const classes = [
-    "fragment-item",
-    "pl-block",
-    !marker && !boolFlag(b.enabled) ? "pl-off" : "",
-    b.editable ? "" : "pl-fixed",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const open = b.editable ? ` data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}"` : "";
-  return `<div class="${classes}" data-id="${escAttr(b.id)}"${open}>
-      <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
-      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${role}</div>
-      ${toggle}
+      </div>
     </div>`;
 }
 
@@ -136,14 +134,23 @@ function openBlock(id) {
   const nameField = custom
     ? `<div class="field"><label for="pl-label">Name</label><input id="pl-label" value="${escAttr(b.label)}"></div>`
     : "";
+  const about = BUILT_IN[b.kind];
+  const aboutField = about
+    ? `<p class="pl-about">${esc(about.about)}</p><div class="field"><label>Source</label>${esc(about.source)}</div>`
+    : "";
+  const textField =
+    b.editable || !id
+      ? `<div class="field"><label for="pl-content">Text</label><textarea id="pl-content" rows="8">${esc(b.content)}</textarea></div>`
+      : "";
   const roleField = `<div class="field"><label for="pl-role">Role</label>
       <select id="pl-role">${["system", "user", "assistant"]
         .map((r) => `<option value="${r}" ${b.role === r ? "selected" : ""}>${r}</option>`)
         .join("")}</select></div>`;
   showModal(`
     <h2>${custom ? (id ? "Edit Block" : "New Block") : esc(b.label)}</h2>
+    ${aboutField}
     ${nameField}
-    <div class="field"><label for="pl-content">Text</label><textarea id="pl-content" rows="8">${esc(b.content)}</textarea></div>
+    ${textField}
     ${roleField}
     <div class="modal-actions">
       ${id && custom ? `<button class="btn btn-danger" data-wf-action="prompt-layout:deleteBlock" data-block-id="${escAttr(id)}">Delete</button>` : ""}
@@ -154,7 +161,8 @@ function openBlock(id) {
 
 async function saveBlock(id) {
   const block = id ? _byId(id) : null;
-  const data = { content: $("pl-content").value };
+  const data = {};
+  if ($("pl-content")) data.content = $("pl-content").value;
   if ($("pl-label")) data.label = $("pl-label").value;
   if ($("pl-role")) data.role = $("pl-role").value;
   await _attempt(async () => {

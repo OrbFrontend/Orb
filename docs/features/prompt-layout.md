@@ -1,10 +1,12 @@
 # Prompt Layout
 
 **Prompt Layout** in the sidebar sets the order of what the model reads in chat
-mode. Drag blocks to reorder them, switch your own blocks on or off, and add new
-text blocks.
+mode. Drag blocks to reorder them, switch any block on or off, and add new text
+blocks. Built-in blocks cannot be deleted, renamed, or moved across Chat
+history.
 
-Click a block to edit its text. The **Main prompt** holds your system prompt;
+Click a block to edit its text. A built-in block's window also says what it
+carries and what produces it. The **Main prompt** holds your system prompt;
 edit it there. It fills [macros](macros.md) such as `{{char}}` and `{{user}}`.
 A character card's own system prompt replaces it unless **Prevent prompt
 overrides** is on.
@@ -28,8 +30,15 @@ must stay in the text, and the block is left out on turns where it is empty:
 | Scene guidance | `{{scene_guidance}}` | The Director's guidance |
 | User message | `{{user_message}}` | Your message |
 
-Group cast's text is fixed. The label on the right of a built-in block names
-what produces it.
+Group cast's text is fixed.
+
+Switching a built-in block off keeps its text out of the prompt; whatever
+produces it still runs. With the Director on and Scene guidance off, the
+Director still runs and the Inspector still shows its guidance, but the Writer
+never reads it. With Main prompt off there is no system prompt, the character
+card's included. With User message off the model reads your message only from
+the next reply on, as chat history; in a group, the later speakers of the same
+round already read it there. Attached images still go.
 
 Blocks above **Chat history** go to every pass, so changing them makes the model
 re-read the whole chat once. Each of them has a role: system blocks join the

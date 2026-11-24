@@ -177,8 +177,8 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
 
 
 async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
-    """Edit a block's label, text, role or switch. A marker keeps its name and switch, only an editable marker's text changes,
-    keeping its placeholder. :func:`reorder_prompt_blocks` moves blocks."""
+    """Edit a block's label, text, role or switch. A marker keeps its name, only an editable marker's text changes, keeping its
+    placeholder. :func:`reorder_prompt_blocks` moves blocks."""
     row = await get_prompt_block(block_id)
     if row is None:
         return None
@@ -191,8 +191,6 @@ async def update_prompt_block(block_id: str, data: Mapping[str, Any]) -> PromptB
             raise PromptLayoutError(f"Keep {marker_placeholder(kind)} in this block's text.")
     if not custom and "label" in data:
         raise PromptLayoutError("A built-in block keeps its name.")
-    if not custom and "enabled" in data:
-        raise PromptLayoutError("Another setting switches this block.")
     updates = {column: data[column] for column in ("label", "content", "role", "enabled") if column in data}
     if "label" in updates:
         updates["label"] = updates["label"].strip()

@@ -204,6 +204,9 @@ class WriterRequest:
 def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None) -> WriterRequest:
     """The Writer's messages after history: the speaker frame, the Writer-request blocks in order, then the closing line.
 
+    The engine's lines lead the User message, or precede the closing line while the User message is switched off. The state
+    block follows Scene guidance and leaves with it.
+
     Each block becomes a message of its role; adjacent blocks of one role share a message. The speaker frame and the closing
     line are user text. Custom blocks roll inline macros fresh on every build; later passes replay the built messages, so they
     read the same rolls.
@@ -217,15 +220,16 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
             text = f"{_DIVIDER}{text}"
         pieces.append((role, f"{text}\n\n"))
 
+    cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
+    engine_lines = [line for line in (inputs.tool_notice, inputs.length_nudge, cue) if line]
+    writer_blocks = region_blocks(blocks, "writer")
     if inputs.speaker_open:
         pieces.append(("user", inputs.speaker_open))
-    for block in region_blocks(blocks, "writer"):
+    for block in writer_blocks:
         if block.kind == "user_message":
             # The engine's own lines for this request lead the user's message wherever the layout places it.
-            cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
-            for line in (inputs.tool_notice, inputs.length_nudge, cue):
-                if line:
-                    add(block.role, line)
+            for line in engine_lines:
+                add(block.role, line)
         if block.kind == CUSTOM_KIND:
             text = _render_block(block.content, inputs.sections, resolve)
             if text:
@@ -240,6 +244,10 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
         if block.kind == "scene_guidance" and inputs.current_state:
             # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
             add(block.role, f"{_DIVIDER}{inputs.current_state}")
+    if not any(block.kind == "user_message" for block in writer_blocks):
+        # With the User message switched off, the engine's lines still close the request as user text.
+        for line in engine_lines:
+            add("user", line)
     if inputs.speaker_close:
         pieces.append(("user", inputs.speaker_close))
 

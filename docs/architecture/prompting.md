@@ -102,16 +102,20 @@ panel do not.
 A **marker** stands for an engine block: `main_prompt`, `cast` and
 `constant_lore` in the prefix; `selected_lore`,
 `decisions`, `scene_guidance`, `user_message` and `depth_lore` in the Writer
-request. Markers cannot be switched off, deleted, or moved across the divider;
-the setting that drives each one decides whether it renders, and the group
-context mode decides what `cast` carries.
+request. Markers cannot be deleted, renamed, or moved across the divider. Each
+can be switched off like a custom block; the setting that drives it still
+decides whether it has anything to render, and the group context mode decides
+what `cast` carries. A switched-off marker only leaves the prompt: the stage
+that produces it still runs, and the Inspector still shows its output.
 
 The engine places its remaining Writer lines itself rather than as blocks. The
 group speaker frame opens the Writer request and the "write as" line closes it,
 both as user text.
-The state block, under `**Current State**`, follows `scene_guidance`. The tool
-notice, the Length Guard nudge and the group speaker's cue, in that order, lead
-`user_message`.
+The state block, under `**Current State**`, follows `scene_guidance` and leaves
+with it when `scene_guidance` is switched off. The tool notice, the Length Guard
+nudge and the group speaker's cue, in that order, lead `user_message`; with
+`user_message` switched off they still go, as user text just before the "write
+as" line.
 
 The tool notice renders whenever the Writer request carries tool schemas. The
 Writer ships the shared schemas under `tool_choice="none"` to keep the cached
@@ -139,11 +143,13 @@ template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
 like a section placeholder: the text's macros resolve, with the conversation's
 seed above the divider and fresh below it, then the value goes in literally.
 The block renders nothing while its value is empty. Writer-request text carries
-its own `___` divider. Every other marker's text is fixed and does not open.
+its own `___` divider. Every other marker's text is fixed; its window has no text field.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless
-`prevent_prompt_overrides` is set (`prompting.char_context`). Either text
+`prevent_prompt_overrides` is set (`prompting.char_context`). Switching the
+marker off leaves no main prompt at all, the card's included, for the
+summarizer and the size estimate as well. Either text
 resolves macros with the conversation's seed, as prefix custom blocks do, but
 keeps its whitespace, so text without macros keeps its bytes. Every lane,
 including a separate Agent lane, off-turn calls, and the summarizer read the
@@ -225,5 +231,5 @@ The HTTP surface lives in `api/routes/prompt_layouts.py`:
 | `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the last layout); deleting the active layout activates the first one left |
 | `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
-| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its role, and its text when editable), or delete a custom block; a refused edit is a 409 |
+| `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its role, its switch, and its text when editable), or delete a custom block; a refused edit is a 409 |
 | `PUT /api/prompt-layouts/{id}/order` | Place every block: `{prefix: [...ids], writer: [...ids]}` |

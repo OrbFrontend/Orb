@@ -102,9 +102,12 @@ def names_marker_placeholder(kind: str, text: str) -> bool:
     return marker_placeholder(kind).lower() in text.lower()
 
 
-def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str:
-    """The layout's Main prompt text; empty when the layout has none."""
-    return next((block.content for block in blocks if block.kind == "main_prompt"), "")
+def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str | None:
+    """The layout's Main prompt text: empty when the layout has none, None when the layout switches it off."""
+    block = next((block for block in blocks if block.kind == "main_prompt"), None)
+    if block is None:
+        return ""
+    return block.content if block.enabled else None
 
 
 def default_layout(layout_id: str = DEFAULT_LAYOUT_ID, main_prompt: str = "") -> tuple[LayoutBlock, ...]:

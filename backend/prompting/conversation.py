@@ -72,13 +72,15 @@ def char_context(settings: Settings, card: Mapping[str, Any] | None, layout: Seq
     """Resolve the effective main prompt and the card's description, personality, and example messages.
 
     The main prompt is *layout*'s Main prompt text; a character card's own system_prompt, when present and not disabled by the
-    prevent_prompt_overrides setting, replaces it, a ``{{original}}`` in it standing for the Main prompt it replaces.
+    prevent_prompt_overrides setting, replaces it, a ``{{original}}`` in it standing for the Main prompt it replaces. A layout
+    that switches the Main prompt off has no main prompt, the card's included.
     """
-    system_prompt = main_prompt_text(layout)
+    main_prompt = main_prompt_text(layout)
+    system_prompt = main_prompt or ""
     if not card:
         return CharContext(system_prompt, "", "", "")
     card_system_prompt = card.get("system_prompt")
-    if card_system_prompt and not settings.get("prevent_prompt_overrides"):
+    if main_prompt is not None and card_system_prompt and not settings.get("prevent_prompt_overrides"):
         system_prompt = fill_original(card_system_prompt, system_prompt)
     return CharContext(
         system_prompt, card.get("description") or "", card.get("personality") or "", card.get("mes_example") or ""
