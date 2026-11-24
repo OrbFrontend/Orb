@@ -12,7 +12,6 @@ LayoutRole = Literal["system", "user", "assistant"]
 CUSTOM_KIND = "custom"
 DEFAULT_LAYOUT_ID = "default"
 
-PREFIX_MARKERS: tuple[str, ...] = ("main_prompt", "cast", "constant_lore")
 WRITER_MARKERS: tuple[str, ...] = (
     "selected_lore",
     "decisions",
@@ -20,7 +19,6 @@ WRITER_MARKERS: tuple[str, ...] = (
     "user_message",
     "depth_lore",
 )
-MARKERS: tuple[str, ...] = PREFIX_MARKERS + WRITER_MARKERS
 MARKER_LABELS: dict[str, str] = {
     "main_prompt": "Main prompt",
     "cast": "Group cast",

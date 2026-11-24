@@ -4,7 +4,7 @@
 mode. Drag blocks to reorder them, switch your own blocks on or off, and add new
 text blocks.
 
-Click any block to see its text. The **Main prompt** holds your system prompt;
+Click a block to edit its text. The **Main prompt** holds your system prompt;
 edit it there. It fills [macros](macros.md) such as `{{char}}` and `{{user}}`.
 A character card's own system prompt replaces it unless **Prevent prompt
 overrides** is on.
@@ -28,9 +28,8 @@ must stay in the text, and the block is left out on turns where it is empty:
 | Scene guidance | `{{scene_guidance}}` | The Director's guidance |
 | User message | `{{user_message}}` | Your message |
 
-Other built-in blocks show the text Orb sends, with the parts that change each
-turn in brackets. Other settings switch them on and off, as the label on the
-right says.
+Group cast's text is fixed. The label on the right of a built-in block names
+what produces it.
 
 Blocks above **Chat history** go to every pass, so changing them makes the model
 re-read the whole chat once. Each of them has a role: system blocks join the
@@ -38,5 +37,5 @@ system message, and user or assistant blocks become messages before the chat.
 Blocks below it go only to the Writer, in one message, and are read fresh every
 turn, so changing them costs nothing extra.
 
-To use a different arrangement, create or copy a layout, edit it, and press
-**Use this layout**.
+To use a different arrangement, create or copy a layout, or pick one from the
+list. The selected layout is the one chat uses.

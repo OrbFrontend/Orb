@@ -41,16 +41,9 @@ def _found(value: _T | None, what: str = "Prompt layout") -> _T:
     return value
 
 
-# What a marker whose text the user does not edit stands for.
-_MARKER_PLACEHOLDERS: dict[str, str] = {
-    "cast": "[The group's cast and each member's sheet]",
-}
-
-
 def _block_view(row: Mapping[str, Any]) -> dict[str, Any]:
-    """A block row plus whether its text is editable and, for a marker that is not, the text it sends."""
-    editable = row["kind"] == CUSTOM_KIND or row["kind"] in EDITABLE_MARKERS
-    return {**row, "editable": editable, "builtin_text": "" if editable else _MARKER_PLACEHOLDERS.get(row["kind"], "")}
+    """A block row plus whether its text is editable."""
+    return {**row, "editable": row["kind"] == CUSTOM_KIND or row["kind"] in EDITABLE_MARKERS}
 
 
 @router.get("/api/prompt-layouts")

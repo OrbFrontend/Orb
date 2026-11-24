@@ -213,11 +213,10 @@
 .pl-header .theme-select { font-size: 12px; padding: 5px 10px; color: var(--text-primary); }
 .pl-header-actions { display: flex; gap: 8px; }
 .pl-header-actions .btn { flex: 1; justify-content: center; padding-left: 6px; padding-right: 6px; }
-.pl-header + .btn { margin-bottom: 8px; }
 .pl-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .pl-name .frag-label { flex: 0 1 auto; padding-right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-off .pl-name { opacity: 0.55; }
-#pl-content[readonly] { color: var(--text-secondary); }
+.fragment-item.pl-fixed { cursor: default; }
 .pl-control { flex-shrink: 0; margin-left: 8px; font-size: 10px; color: var(--text-muted); }
 .pl-role { font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
 .fragment-item.pl-divider { display: block; cursor: default; padding: 6px 4px 4px; margin: 4px 0; }
@@ -226,5 +225,3 @@
   letter-spacing: 0.06em; color: var(--text-secondary); }
 .pl-divider-rule::before, .pl-divider-rule::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .pl-header-actions .btn:disabled { opacity: 0.45; cursor: default; }
-.pl-note { font-size: 11px; color: var(--text-secondary); background: var(--bg-hover); border-radius: var(--radius);
-  padding: 6px 8px; margin-bottom: 6px; }

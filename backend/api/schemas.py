@@ -268,7 +268,6 @@ class PromptBlockCreate(BaseModel):
     content: str = ""
     role: Literal["system", "user", "assistant"] = "system"
     region: Literal["prefix", "writer"] = "writer"
-    enabled: bool = True
 
 
 class PromptBlockUpdate(BaseModel):

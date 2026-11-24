@@ -10,11 +10,9 @@ from ..core import ChatMessage, ContentPart, Macros
 from ..core.prompt_layout import (
     CUSTOM_KIND,
     MARKER_TEMPLATES,
-    MARKERS,
     SECTION_PLACEHOLDERS,
     LayoutBlock,
     LayoutRegion,
-    default_layout,
 )
 
 
@@ -85,12 +83,8 @@ def _render_marker(block: LayoutBlock, value: str, resolve: Callable[[str], str]
 
 
 def region_blocks(blocks: Iterable[LayoutBlock], region: LayoutRegion) -> list[LayoutBlock]:
-    """*region*'s enabled blocks in order, with any marker the layout lacks appended at its region's end."""
-    blocks = [block for block in blocks if block.kind == CUSTOM_KIND or block.kind in MARKERS]
-    present = {block.kind for block in blocks}
-    missing = [block for block in default_layout() if block.kind != CUSTOM_KIND and block.kind not in present]
-    ordered = sorted(blocks, key=lambda block: block.sort_order) + missing
-    return [block for block in ordered if block.region == region and (block.enabled or block.kind != CUSTOM_KIND)]
+    """*region*'s switched-on blocks in order."""
+    return [block for block in sorted(blocks, key=lambda block: block.sort_order) if block.region == region and block.enabled]
 
 
 def _resolver(macros: Macros | None) -> Callable[[str], str]:

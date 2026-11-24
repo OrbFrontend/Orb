@@ -5,21 +5,16 @@ import { GRIP_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { $, boolFlag, esc, escAttr, toast } from "./utils.js";
 
-const PREFIX_NOTE = "Every pass reads this; editing it re-reads the chat.";
-
 let _layouts = [];
 let _activeId = "default";
-let _viewId = null;
 let _blocks = [];
-let _note = "";
 let _dragReady = false;
 
 export async function loadPromptLayout() {
   const { layouts, active_id } = await api.get("/prompt-layouts");
   _layouts = layouts;
   _activeId = active_id;
-  if (!_layouts.some((l) => l.id === _viewId)) _viewId = _activeId;
-  _blocks = await api.get(`/prompt-layouts/${_viewId}/blocks`);
+  _blocks = await api.get(`/prompt-layouts/${_activeId}/blocks`);
   render();
 }
 
@@ -44,7 +39,7 @@ function _ordered(region) {
 
 function _rowHtml(b) {
   const marker = _isMarker(b);
-  const label = b.label || (marker ? b.kind : "Untitled block");
+  const label = b.label || "Untitled block";
   const role = b.region === "prefix" && b.role !== "system" ? `<span class="pl-role">${esc(b.role)}</span>` : "";
   const toggle = !marker
     ? `<div class="frag-toggle-wrapper">
@@ -55,10 +50,16 @@ function _rowHtml(b) {
         </label>
       </div>`
     : `<span class="pl-control">${esc(CONTROLLED_BY[b.kind] || "")}</span>`;
-  const classes = ["fragment-item", "pl-block", !marker && !boolFlag(b.enabled) ? "pl-off" : ""]
+  const classes = [
+    "fragment-item",
+    "pl-block",
+    !marker && !boolFlag(b.enabled) ? "pl-off" : "",
+    b.editable ? "" : "pl-fixed",
+  ]
     .filter(Boolean)
     .join(" ");
-  return `<div class="${classes}" data-id="${escAttr(b.id)}" data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}">
+  const open = b.editable ? ` data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}"` : "";
+  return `<div class="${classes}" data-id="${escAttr(b.id)}"${open}>
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
       <div class="pl-name"><span class="frag-label">${esc(label)}</span>${role}</div>
       ${toggle}
@@ -69,27 +70,18 @@ function render() {
   const el = $("prompt-layout-list");
   if (!el) return;
   const options = _layouts
-    .map(
-      (l) =>
-        `<option value="${escAttr(l.id)}" ${l.id === _viewId ? "selected" : ""}>${esc(l.name)}${l.id === _activeId ? " (active)" : ""}</option>`,
-    )
+    .map((l) => `<option value="${escAttr(l.id)}" ${l.id === _activeId ? "selected" : ""}>${esc(l.name)}</option>`)
     .join("");
-  const activeButton =
-    _viewId === _activeId
-      ? ""
-      : `<button class="btn btn-sm btn-block" data-wf-action="prompt-layout:activate">Use this layout</button>`;
   el.innerHTML = `
     <div class="pl-header">
-      <select class="theme-select" aria-label="Prompt layout" data-wf-action="prompt-layout:view" data-wf-on="change">${options}</select>
+      <select class="theme-select" aria-label="Prompt layout" data-wf-action="prompt-layout:select" data-wf-on="change">${options}</select>
       <div class="pl-header-actions">
-        <button class="btn btn-sm" data-wf-action="prompt-layout:new" title="New layout">New</button>
-        <button class="btn btn-sm" data-wf-action="prompt-layout:duplicate" title="Duplicate this layout">Copy</button>
-        <button class="btn btn-sm" data-wf-action="prompt-layout:rename" title="Rename this layout">Rename</button>
-        <button class="btn btn-sm" data-wf-action="prompt-layout:delete" title="Delete this layout" ${_viewId === _activeId || _layouts.length < 2 ? "disabled" : ""}>Delete</button>
+        <button class="btn btn-sm" data-wf-action="prompt-layout:new">New</button>
+        <button class="btn btn-sm" data-wf-action="prompt-layout:duplicate">Copy</button>
+        <button class="btn btn-sm" data-wf-action="prompt-layout:rename">Rename</button>
+        <button class="btn btn-sm" data-wf-action="prompt-layout:delete" ${_layouts.length < 2 ? "disabled" : ""}>Delete</button>
       </div>
     </div>
-    ${activeButton}
-    ${_note ? `<div class="pl-note" role="status">${esc(_note)}</div>` : ""}
     <div class="pl-blocks">
       ${_ordered("prefix").map(_rowHtml).join("")}
       <div class="fragment-item pl-divider" data-id="">
@@ -102,11 +94,6 @@ function render() {
     _dragReady = true;
     initDragReorder(el, { itemSelector: ".fragment-item", handleSelector: ".frag-drag-handle", onReorder: saveOrder });
   }
-}
-
-// The re-read note only matters for the layout the chat actually uses.
-function _setNote(text) {
-  if (_viewId === _activeId) _note = text;
 }
 
 // Runs *fn*, showing a refused request as a toast.
@@ -126,13 +113,8 @@ async function saveOrder(container) {
     if (row.classList.contains("pl-divider")) below = true;
     else (below ? writer : prefix).push(row.dataset.id);
   }
-  const prefixChanged =
-    _ordered("prefix")
-      .map((b) => b.id)
-      .join() !== prefix.join();
   await _attempt(async () => {
-    _blocks = await api.put(`/prompt-layouts/${_viewId}/order`, { prefix, writer });
-    if (prefixChanged) _setNote(PREFIX_NOTE);
+    _blocks = await api.put(`/prompt-layouts/${_activeId}/order`, { prefix, writer });
   });
   render();
 }
@@ -140,15 +122,9 @@ async function saveOrder(container) {
 async function toggleBlock(id, enabled) {
   const block = _byId(id);
   if (!block) return;
-  await _attempt(async () => {
-    Object.assign(block, await api.patch(`/prompt-blocks/${id}`, { enabled }));
-    if (block.region === "prefix") _setNote(PREFIX_NOTE);
-  });
+  await _attempt(async () => Object.assign(block, await api.patch(`/prompt-blocks/${id}`, { enabled })));
   render();
 }
-
-// Blocks holding their own text say so; every other built-in block shows the text the engine sends.
-const _editable = (b) => !_isMarker(b) || b.editable;
 
 function openBlock(id) {
   const b = id ? _byId(id) : { kind: "custom", label: "", content: "", role: "system", region: "writer" };
@@ -157,7 +133,6 @@ function openBlock(id) {
   const nameField = custom
     ? `<div class="field"><label for="pl-label">Name</label><input id="pl-label" value="${escAttr(b.label)}"></div>`
     : "";
-  const text = _editable(b) ? b.content : b.builtin_text;
   const roleField =
     b.region === "prefix"
       ? `<div class="field"><label for="pl-role">Role</label>
@@ -168,7 +143,7 @@ function openBlock(id) {
   showModal(`
     <h2>${custom ? (id ? "Edit Block" : "New Block") : esc(b.label)}</h2>
     ${nameField}
-    <div class="field"><label for="pl-content">Text</label><textarea id="pl-content" rows="8"${_editable(b) ? "" : " readonly"}>${esc(text)}</textarea></div>
+    <div class="field"><label for="pl-content">Text</label><textarea id="pl-content" rows="8">${esc(b.content)}</textarea></div>
     ${roleField}
     <div class="modal-actions">
       ${id && custom ? `<button class="btn btn-danger" data-wf-action="prompt-layout:deleteBlock" data-block-id="${escAttr(id)}">Delete</button>` : ""}
@@ -179,28 +154,22 @@ function openBlock(id) {
 
 async function saveBlock(id) {
   const block = id ? _byId(id) : null;
-  const data = {};
-  if (!block || _editable(block)) data.content = $("pl-content").value;
-  if (!block || !_isMarker(block)) data.label = $("pl-label").value;
+  const data = { content: $("pl-content").value };
+  if ($("pl-label")) data.label = $("pl-label").value;
   if ($("pl-role")) data.role = $("pl-role").value;
   await _attempt(async () => {
-    if (!block) _blocks.push(await api.post(`/prompt-layouts/${_viewId}/blocks`, data));
-    else if (Object.entries(data).some(([key, value]) => block[key] !== value))
-      Object.assign(block, await api.patch(`/prompt-blocks/${id}`, data));
-    else return closeModal();
-    if (block?.region === "prefix") _setNote(PREFIX_NOTE);
+    if (block) Object.assign(block, await api.patch(`/prompt-blocks/${id}`, data));
+    else _blocks.push(await api.post(`/prompt-layouts/${_activeId}/blocks`, data));
     closeModal();
     render();
   });
 }
 
 function deleteBlock(id) {
-  const block = _byId(id);
-  confirmDelete("Block", `Delete "${esc(block?.label || "Untitled block")}"?`, () =>
+  confirmDelete("Block", `Delete "${esc(_byId(id)?.label || "Untitled block")}"?`, () =>
     _attempt(async () => {
       await api.del(`/prompt-blocks/${id}`);
       _blocks = _blocks.filter((b) => b.id !== id);
-      if (block?.region === "prefix") _setNote(PREFIX_NOTE);
       closeModal();
       render();
     }),
@@ -230,45 +199,33 @@ async function saveName(save) {
   });
 }
 
-const createLayout = (copyFrom) =>
-  saveName(async (name) => {
-    _viewId = (await api.post("/prompt-layouts", { name, copy_from: copyFrom })).id;
-    _note = "";
-  });
+const _activate = (id) => api.put("/prompt-layouts/active", { id });
 
-const _viewed = () => _layouts.find((l) => l.id === _viewId);
+const createLayout = (copyFrom) =>
+  saveName(async (name) => _activate((await api.post("/prompt-layouts", { name, copy_from: copyFrom })).id));
+
+const _active = () => _layouts.find((l) => l.id === _activeId);
 
 function deleteLayout() {
-  confirmDelete("Layout", `Delete "${esc(_viewed()?.name || "")}" and its blocks?`, () =>
+  confirmDelete("Layout", `Delete "${esc(_active()?.name || "")}" and its blocks?`, () =>
     _attempt(async () => {
-      await api.del(`/prompt-layouts/${_viewId}`);
-      _viewId = _activeId;
+      await api.del(`/prompt-layouts/${_activeId}`);
       await loadPromptLayout();
     }),
   );
 }
 
-const activateLayout = () =>
-  _attempt(async () => {
-    await api.put("/prompt-layouts/active", { id: _viewId });
-    _activeId = _viewId;
-    _setNote(PREFIX_NOTE);
-    await loadPromptLayout();
-  });
-
 registerActions("prompt-layout", {
-  view: async (el) => {
-    _viewId = el.value;
-    _note = "";
+  select: async (el) => {
+    await _attempt(() => _activate(el.value));
     await loadPromptLayout();
   },
-  activate: () => activateLayout(),
   new: () => nameModal("New Layout", "", "createNew"),
-  duplicate: () => nameModal("Copy Layout", `${_viewed()?.name || "Layout"} copy`, "createCopy"),
-  rename: () => nameModal("Rename Layout", _viewed()?.name || "", "saveName"),
+  duplicate: () => nameModal("Copy Layout", `${_active()?.name || "Layout"} copy`, "createCopy"),
+  rename: () => nameModal("Rename Layout", _active()?.name || "", "saveName"),
   createNew: () => createLayout(null),
-  createCopy: () => createLayout(_viewId),
-  saveName: () => saveName((name) => api.patch(`/prompt-layouts/${_viewId}`, { name })),
+  createCopy: () => createLayout(_activeId),
+  saveName: () => saveName((name) => api.patch(`/prompt-layouts/${_activeId}`, { name })),
   delete: () => deleteLayout(),
   add: () => openBlock(null),
   open: (el, e) => {

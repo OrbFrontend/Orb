@@ -137,8 +137,7 @@ template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
 like a section placeholder: the text's macros resolve, with the conversation's
 seed above the divider and fresh below it, then the value goes in literally.
 The block renders nothing while its value is empty. Writer-request text carries
-its own `___` divider. Every other marker's text is fixed; the API's
-`builtin_text` field shows it, with its dynamic part in brackets.
+its own `___` divider. Every other marker's text is fixed and does not open.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless
@@ -207,7 +206,7 @@ The HTTP surface lives in `api/routes/prompt_layouts.py`:
 |---|---|
 | `GET /api/prompt-layouts` | Layouts and the active id |
 | `POST /api/prompt-layouts` | Create a layout; `{copy_from}` duplicates one |
-| `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the active or last layout) |
+| `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the last layout); deleting the active layout activates the first one left |
 | `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
 | `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its text when editable, and its role above the divider; roles apply only above it), or delete a custom block; a refused edit is a 409 |

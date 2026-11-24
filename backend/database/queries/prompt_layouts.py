@@ -124,14 +124,17 @@ async def rename_prompt_layout(layout_id: str, name: str) -> PromptLayoutRow | N
 
 
 async def delete_prompt_layout(layout_id: str) -> bool:
+    """Deletes the layout; deleting the active one activates the first layout left."""
     if await get_prompt_layout(layout_id) is None:
         return False
-    if layout_id == await get_active_prompt_layout_id():
-        raise PromptLayoutError("The active layout cannot be deleted.")
-    if len(await list_prompt_layouts()) <= 1:
+    remaining = [row["id"] for row in await list_prompt_layouts() if row["id"] != layout_id]
+    if not remaining:
         raise PromptLayoutError("The last layout cannot be deleted.")
+    was_active = layout_id == await get_active_prompt_layout_id()
     async with get_db() as db:
         await db.execute("DELETE FROM prompt_layouts WHERE id = ?", (layout_id,))
+        if was_active:
+            await db.execute("UPDATE settings SET active_prompt_layout_id = ? WHERE id = 1", (remaining[0],))
         await db.commit()
     return True
 
@@ -165,7 +168,6 @@ async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> Prompt
             role=data["role"] if data["region"] == "prefix" else "system",
             region=data["region"],
             sort_order=int(rows[0]["top"]) + 1,
-            enabled=data["enabled"],
         )
         await insert_layout_blocks(db, layout_id, [block])
         await db.commit()
