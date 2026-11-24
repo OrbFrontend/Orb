@@ -41,10 +41,16 @@ the next reply on, as chat history; in a group, the later speakers of the same
 round already read it there. Attached images still go.
 
 Blocks above **Chat history** go to every pass, so changing them makes the model
-re-read the whole chat once. Each of them has a role: system blocks join the
-system message, and user or assistant blocks become messages before the chat.
-Blocks below it go only to the Writer, in one message, and are read fresh every
-turn, so changing them costs nothing extra.
+re-read the whole chat once. A block there marked **clock** uses `{{time}}` or
+`{{date}}`, so the model re-reads the chat whenever they change. Blocks below it
+go only to the Writer and are read fresh every turn, so changing them costs
+nothing extra.
+
+Every block has a role and is sent where you put it. Neighbouring blocks with
+the same role become one message. Some providers refuse some arrangements, such
+as system text after the chat on Anthropic; the reply then fails with the
+provider's reason. Assistant blocks at the very end start the reply, on
+providers that allow it.
 
 To use a different arrangement, create or copy a layout, or pick one from the
 list. The selected layout is the one chat uses.

@@ -17,6 +17,7 @@ from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
 from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
+from ....prompting.layout import replay_reply
 from ....prompting.tool_schemas import EDITOR_FIND_REPLACE_CHOICE, EDITOR_REWRITE_CHOICE
 from ...subject_tags import TaggedReply, tag_text
 from ...timing import measure_step
@@ -119,8 +120,7 @@ async def _forced_edit_call(
     """One Editor call over *draft*, forced to the tool *tool_choice* names, that extends the Writer's prefix; the reply lands
     in *resp*."""
     trailing: list[ChatMessage] = [
-        *writer_request,
-        {"role": "assistant", "content": draft},
+        *replay_reply(writer_request, draft),
         {"role": "user", "content": prompt},
     ]
     async for event in base.complete_into(

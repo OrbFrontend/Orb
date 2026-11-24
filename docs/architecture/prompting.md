@@ -189,12 +189,14 @@ Rendering rules:
   heading. A block naming none renders like any custom block.
 - A block naming `{{examples}}` is filled once per `<START>` example and keeps
   the blank lines between examples.
-- Every block above the divider has a role. Enabled `system` blocks join, in
-  order, into one system message with the built-in separators; the Main prompt
-  opens it even when empty while its role is `system`. `user` and `assistant`
-  blocks, markers included, become messages between the system message and
-  history; adjacent messages with the same role, including the first history
-  row, merge with a blank line.
+- Every block above the divider has a role, and each becomes a message of its
+  role in the order laid out, markers included; adjacent messages with the same
+  role, including the first history row, merge with a blank line. A `system`
+  block after a `user` or `assistant` block stays there rather than joining the
+  first system message. The Main prompt opens the prompt even when empty while
+  it leads with the `system` role, so the next system block keeps its separator;
+  a message left empty is not sent, so a layout without system text sends no
+  system message.
 - Every block below the divider has a role too, `user` by default, so a layout
   that sets none sends one user message. Each block becomes a message of its
   role after history; adjacent blocks of one role share a message, and a
@@ -202,8 +204,15 @@ Rendering rules:
   into the last history row, so the cached prefix keeps its bytes. A custom
   block takes the `___` divider only when it continues a message of its role.
   The turn's attachments ride the message holding the User message when that is
-  a user message, else the last user message. Section values reach the Writer
-  through `PipelineContext.sections`, the same values the prefix renders.
+  a user message, else the last user message, else a user message of their own.
+  Section values reach the Writer through `PipelineContext.sections`, the same
+  values the prefix renders.
+- Assistant blocks that end the Writer request are the reply's opening
+  (prefill): the last keeps no trailing whitespace, and the engine's closing
+  user text (the "write as" line, and the engine lines while `user_message` is
+  switched off) goes before them. The later passes replay the reply as the
+  continuation of that opening (`prompting.layout.replay_reply`), the bytes the
+  Writer produced; the stored reply is the model's text alone.
 - The messages go out as laid out, on every transport: a request may end on an
   assistant turn, and a system message may follow history. Orb never moves or
   re-roles a message to fit an API. Where the wire cannot carry the shape, the
@@ -211,6 +220,7 @@ Rendering rules:
   text only ahead of the turns, refuses a later system message before sending
   (`PromptShapeError`), and a chat template that refuses one answers with its
   own error. The later passes replay the request unchanged, then the reply.
+  Anthropic's current models refuse an assistant prefill outright.
 - Prefix blocks resolve with the conversation's macro seed, so their bytes are
   stable across builds. Writer-request blocks roll inline macros fresh each time
   the request is built; the Editor replays the built messages, so both passes

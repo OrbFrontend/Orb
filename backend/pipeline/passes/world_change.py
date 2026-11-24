@@ -13,6 +13,7 @@ from ...core.llm_types import CompletionMessage, ParsedToolCall
 from ...core.settings import Settings
 from ...features.lorebook import build_world_change_catalog, parse_proposal_call, validate_proposal
 from ...inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
+from ...prompting.layout import replay_reply
 from ...prompting.tool_schemas import PROPOSE_WORLD_CHANGES_CHOICE, PROPOSE_WORLD_CHANGES_TOOL
 from .world_change_prompt import build_world_change_prompt
 
@@ -63,8 +64,7 @@ async def world_change_step(
         catalog, original_user_message=original_user_message, reasoning_on=reasoning_on, tool_schema=PROPOSE_WORLD_CHANGES_TOOL
     )
     trailing: list[ChatMessage] = [
-        *writer_request,
-        {"role": "assistant", "content": reply_text},
+        *replay_reply(writer_request, reply_text),
         {"role": "user", "content": request},
     ]
     hyperparams = extract_hyperparams(settings, lane="agent")

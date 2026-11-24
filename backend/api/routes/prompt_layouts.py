@@ -7,6 +7,7 @@ from typing import Any, TypeVar
 
 from fastapi import APIRouter, HTTPException
 
+from ...core.macros import has_clock_macros
 from ...core.prompt_layout import CUSTOM_KIND, EDITABLE_MARKERS
 from ...database import (
     create_prompt_block,
@@ -42,8 +43,13 @@ def _found(value: _T | None, what: str = "Prompt layout") -> _T:
 
 
 def _block_view(row: Mapping[str, Any]) -> dict[str, Any]:
-    """A block row plus whether its text is editable."""
-    return {**row, "editable": row["kind"] == CUSTOM_KIND or row["kind"] in EDITABLE_MARKERS}
+    """A block row plus whether its text is editable, and whether it reads the clock above the chat history, where every
+    change re-reads the chat."""
+    return {
+        **row,
+        "editable": row["kind"] == CUSTOM_KIND or row["kind"] in EDITABLE_MARKERS,
+        "clock": row["region"] == "prefix" and has_clock_macros(row["content"]),
+    }
 
 
 @router.get("/api/prompt-layouts")

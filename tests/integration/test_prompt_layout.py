@@ -1,6 +1,7 @@
 """Prompt layout: the prefix stays byte-stable around Writer-request edits, and every builder shares one layout."""
 
 import json
+from dataclasses import replace
 
 from backend.core import Macros
 from backend.core.prompt_layout import LayoutBlock, default_layout
@@ -22,7 +23,7 @@ from backend.prompting import (
     member_macros,
     persona_macros,
 )
-from backend.prompting.layout import SectionInputs
+from backend.prompting.layout import SectionInputs, WriterInputs, render_writer_request, replay_reply
 from backend.workflows.toolkit import build_offturn_prefix
 
 _LONG_DRAFT = "word " * 60
@@ -246,10 +247,18 @@ def test_a_section_block_renders_nothing_while_its_sections_are_empty():
     assert filled.endswith("\n\nWhere: Dunes C")
 
 
-async def test_a_prefix_marker_with_a_user_role_becomes_a_pre_history_message(client):
+async def test_prefix_blocks_keep_their_place_and_role(client):
     layout_id, seeded = await _active_layout(client)
     main = seeded["main_prompt"]["id"]
     await client.expect("patch", f"/api/prompt-blocks/{main}", json={"content": "Main text", "role": "user"})
+    late = await _add_block(client, layout_id, content="Late system", region="prefix", role="system")
+    note = await _add_block(client, layout_id, content="Late note", region="prefix", role="user")
+    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    prefix = [b["id"] for b in order if b["region"] == "prefix" and b["id"] not in (late["id"], note["id"])]
+    await client.put_checked(
+        f"/api/prompt-layouts/{layout_id}/order",
+        json={"prefix": [*prefix, note["id"], late["id"]], "writer": [b["id"] for b in order if b["region"] == "writer"]},
+    )
     cid = "layout-role"
     await create_conversation(cid, "Role", "Iris", "A rainy archive.")
     mid, _ = await add_message(cid, "user", "Hello.", 0)
@@ -259,9 +268,37 @@ async def test_a_prefix_marker_with_a_user_role_becomes_a_pre_history_message(cl
     assert ctx is not None
     turn = build_turn_prefix(ctx, await get_messages(cid))
 
-    assert [m["role"] for m in turn] == ["system", "user"]
-    assert turn[1]["content"] == "Main text\n\nHello."
-    assert "Main text" not in turn[0]["content"]
+    # Nothing is hoisted into a leading system message; only adjacent messages of one role merge.
+    assert [m["role"] for m in turn] == ["user", "system", "user", "system", "user"]
+    assert turn[0]["content"] == "Main text"
+    assert turn[3]["content"] == "Late system"
+
+
+def test_the_prefix_sends_no_empty_system_message():
+    # An empty Main prompt still opens the prompt as system text, and every other block is user text.
+    layout = tuple(block if block.kind == "main_prompt" else replace(block, role="user") for block in default_layout())
+    history = [{"role": "user", "content": "Hi"}]
+
+    prefix = build_prefix("", SectionInputs(scenario="Dunes"), history, Macros("U", "C", seed="s"), layout=layout)
+
+    assert prefix == [{"role": "user", "content": "## Scenario\nDunes\n\nHi"}]
+
+
+def test_a_trailing_assistant_block_is_the_reply_opening():
+    layout = (
+        *default_layout(),
+        LayoutBlock(id="p", kind="custom", content="Sure:", role="assistant", region="writer", sort_order=30),
+    )
+    inputs = WriterInputs(user_message="Hi", speaker_open="## You are writing as A\n", speaker_close="Write as A only.")
+
+    request = render_writer_request(layout, inputs, None)
+
+    # The engine's closing line stays user text ahead of the opening, which keeps no trailing whitespace.
+    assert [m["role"] for m in request.messages] == ["user", "assistant"]
+    assert request.messages[0]["content"].endswith("Write as A only.")
+    assert request.messages[1]["content"] == "Sure:"
+    # Later passes replay the reply as the continuation of that opening, as the Writer produced it.
+    assert replay_reply(request.messages, " Yes.")[-1] == {"role": "assistant", "content": "Sure: Yes."}
 
 
 async def test_a_section_block_below_the_history_moves_into_the_writer_request(client, llm_mock):

@@ -32,6 +32,7 @@ from ....analysis.patching import PatchError, PatchErrorKind, apply_id_patches, 
 from ....core import AssistantToolMessage, ChatMessage, WireMessage, extract_hyperparams, reasoning_delta_event
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
+from ....prompting.layout import replay_reply
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
 from .length_guard import LengthGuard, evaluate_length_guard
@@ -635,8 +636,7 @@ class _EditLoop:
     def start(self, writer_request: Sequence[ChatMessage]) -> None:
         """Open the replay buffer: the Writer's request, its draft, and the first edit request."""
         self.trailing = [
-            *writer_request,
-            {"role": "assistant", "content": self.draft},
+            *replay_reply(writer_request, self.draft),
             {"role": "user", "content": self.request.prompt},
         ]
         self.rules_shown = set(self.request.ruled) if self.request.ruled is not None else None

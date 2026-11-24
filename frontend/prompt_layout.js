@@ -43,6 +43,13 @@ const BUILT_IN = {
   depth_lore: { about: "Constant lorebook entries with @ Depth.", source: "Worlds" },
 };
 
+const CLOCK_NOTE =
+  "{{time}} or {{date}} above Chat history makes the model re-read the whole chat whenever they change.";
+const REGION_NOTE = {
+  prefix: "Above Chat history every pass reads this block. Changing it makes the model re-read the whole chat once.",
+  writer: "Below Chat history only the Writer reads this block, fresh every turn.",
+};
+
 // The role a block takes unless the user picks another: system text above the chat history, the Writer's user turn below.
 const _defaultRole = (region) => (region === "prefix" ? "system" : "user");
 
@@ -54,10 +61,11 @@ function _rowHtml(b) {
   const label = b.label || "Untitled block";
   const builtIn = _isMarker(b) ? `<span class="frag-type-badge" title="Built-in block">B</span>` : "";
   const role = b.role !== _defaultRole(b.region) ? `<span class="pl-role">${esc(b.role)}</span>` : "";
+  const clock = b.clock ? `<span class="pl-role pl-clock" title="${escAttr(CLOCK_NOTE)}">clock</span>` : "";
   const classes = ["fragment-item", "pl-block", boolFlag(b.enabled) ? "" : "pl-off"].filter(Boolean).join(" ");
   return `<div class="${classes}" data-id="${escAttr(b.id)}" data-wf-action="prompt-layout:open" data-block-id="${escAttr(b.id)}">
       <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(label)}">${GRIP_ICON}</button>
-      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${builtIn}${role}</div>
+      <div class="pl-name"><span class="frag-label">${esc(label)}</span>${builtIn}${role}${clock}</div>
       <div class="frag-toggle-wrapper">
         <label class="tog" for="pl-toggle-${escAttr(b.id)}">
           <input type="checkbox" id="pl-toggle-${escAttr(b.id)}" ${boolFlag(b.enabled) ? "checked" : ""}
@@ -147,9 +155,11 @@ function openBlock(id) {
       <select id="pl-role">${["system", "user", "assistant"]
         .map((r) => `<option value="${r}" ${b.role === r ? "selected" : ""}>${r}</option>`)
         .join("")}</select></div>`;
+  const notes = [REGION_NOTE[b.region], b.clock ? CLOCK_NOTE : ""].filter(Boolean);
   showModal(`
     <h2>${custom ? (id ? "Edit Block" : "New Block") : esc(b.label)}</h2>
     ${aboutField}
+    ${notes.map((note) => `<p class="modal-subtitle pl-about">${esc(note)}</p>`).join("")}
     ${nameField}
     ${textField}
     ${roleField}

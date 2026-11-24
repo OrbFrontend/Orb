@@ -22,7 +22,14 @@ from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
 from ...prompting import member_macros, speaker_instructions, tail_carries_identity
-from ...prompting.layout import TOOL_NOTICE, SectionInputs, WriterInputs, WriterRequest, render_writer_request
+from ...prompting.layout import (
+    TOOL_NOTICE,
+    SectionInputs,
+    WriterInputs,
+    WriterRequest,
+    prefill_start,
+    render_writer_request,
+)
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
 from .editor.length_guard import writer_nudge
@@ -91,13 +98,14 @@ def _speaker_frame(
 
 
 def _with_attachments(request: WriterRequest, attachments: Sequence[Mapping[str, Any]]) -> list[ChatMessage]:
-    """*request*'s messages, the turn's attachments on its anchor message, or on a user message of their own after it when no
-    user message can carry them."""
+    """*request*'s messages, the turn's attachments on its anchor message, or on a user message of their own when no user
+    message can carry them, ahead of any trailing assistant text the reply continues."""
     messages = list(request.messages)
     if not attachments:
         return messages
     if request.attach_to is None:
-        return [*messages, {"role": "user", "content": build_multimodal_content("", attachments)}]
+        cut = prefill_start([message["role"] for message in messages])
+        return [*messages[:cut], {"role": "user", "content": build_multimodal_content("", attachments)}, *messages[cut:]]
     anchor = messages[request.attach_to]
     messages[request.attach_to] = {"role": "user", "content": build_multimodal_content(str(anchor["content"]), attachments)}
     return messages

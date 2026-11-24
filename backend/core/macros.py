@@ -224,6 +224,13 @@ def has_inline_macros(text: str) -> bool:
     return any(pattern.search(text) for pattern, _ in _INLINE_MACROS)
 
 
+def has_clock_macros(text: str) -> bool:
+    """True when *text* names ``{{time}}`` or ``{{date}}``, which read the clock on every resolve, backticked literals
+    excluded."""
+    text = _LITERAL_RE.sub("", text or "")
+    return bool(_TIME_RE.search(text) or _DATE_RE.search(text))
+
+
 def resolve_stored_random(texts: Sequence[str], choices: MutableMapping[str, str], key_prefix: str) -> list[str]:
     """Resolve random and pick macros against stored choices."""
     seen: dict[str, int] = {}

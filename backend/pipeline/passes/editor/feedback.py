@@ -12,6 +12,7 @@ from ....core import ChatMessage, extract_hyperparams
 from ....core.llm_types import CompletionMessage
 from ....core.settings import Settings
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
+from ....prompting.layout import replay_reply
 from ....prompting.tool_schemas import GIVE_FEEDBACK_CHOICE, build_feedback_tool
 from .prompts import build_feedback_prompt
 
@@ -71,8 +72,7 @@ async def feedback_step(
     # Replay writer_request + reply (as the editor does) so the feedback call
     # continues the warm writer/editor stack; only `request` is new bytes.
     trailing: list[ChatMessage] = [
-        *writer_request,
-        {"role": "assistant", "content": reply_text},
+        *replay_reply(writer_request, reply_text),
         {"role": "user", "content": request},
     ]
 

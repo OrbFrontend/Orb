@@ -159,34 +159,30 @@ def _merge_content(head: str, content: str | list[ContentPart]) -> str | list[Co
 
 
 def render_prefix(blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: Macros | None) -> list[ChatMessage]:
-    """The system message plus the pre-history messages: every message before the first history row."""
+    """Every message before the first history row: each block a message of its role, in order, adjacent blocks of one role
+    sharing a message. No message is empty."""
     resolve = _resolver(macros)
-    pieces: list[str] = []
-    pre_history: list[ChatMessage] = []
+    messages: list[ChatMessage] = []
     for block in region_blocks(blocks, "prefix"):
         if block.kind == CUSTOM_KIND:
             text = _render_block(block.content, inputs.sections, resolve)
         else:
             text = _render_marker(block, getattr(inputs, block.kind), resolve)
-        if block.role == "system":
-            if block.kind == "main_prompt" and not pieces:
-                # The main prompt opens the system message, even when empty, so the next section keeps its separator.
-                pieces.append(text)
-            elif text:
-                pieces.append(f"\n\n{text}" if pieces else text)
+        if block.kind == "main_prompt" and block.role == "system" and not messages:
+            # The main prompt opens the prompt, even when empty, so the next system block keeps its separator.
+            messages.append({"role": "system", "content": text})
+        elif text and messages and messages[-1]["role"] == block.role:
+            messages[-1] = {"role": block.role, "content": f"{messages[-1]['content']}\n\n{text}"}
         elif text:
-            if pre_history and pre_history[-1]["role"] == block.role:
-                pre_history[-1] = {"role": block.role, "content": _join(str(pre_history[-1]["content"]), text)}
-            else:
-                pre_history.append({"role": block.role, "content": text})
-    return [{"role": "system", "content": "".join(pieces)}, *pre_history]
+            messages.append({"role": block.role, "content": text})
+    return [message for message in messages if message["content"]]
 
 
 def join_history(head: Sequence[ChatMessage], history: Sequence[ChatMessage]) -> list[ChatMessage]:
-    """Append *history* to the rendered prefix, merging the last pre-history message into a first row of the same role."""
+    """Append *history* to the rendered prefix, merging the last prefix message into a first row of the same role."""
     messages = list(head)
     rows = list(history)
-    if len(messages) > 1 and rows and rows[0]["role"] == messages[-1]["role"]:
+    if messages and rows and rows[0]["role"] == messages[-1]["role"]:
         messages[-1] = {"role": rows[0]["role"], "content": _merge_content(str(messages[-1]["content"]), rows[0]["content"])}
         rows = rows[1:]
     return messages + rows
@@ -244,12 +240,16 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
         if block.kind == "scene_guidance" and inputs.current_state:
             # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
             add(block.role, f"{_DIVIDER}{inputs.current_state}")
-    if not any(block.kind == "user_message" for block in writer_blocks):
-        # With the User message switched off, the engine's lines still close the request as user text.
-        for line in engine_lines:
-            add("user", line)
+    # With the User message switched off, the engine's lines still close the request as user text.
+    user_message_off = not any(block.kind == "user_message" for block in writer_blocks)
+    closing: list[tuple[LayoutRole, str]] = [("user", f"{line}\n\n") for line in engine_lines if user_message_off]
     if inputs.speaker_close:
-        pieces.append(("user", inputs.speaker_close))
+        closing.append(("user", inputs.speaker_close))
+    # The closing lines go before a trailing run of assistant blocks, which the reply continues.
+    cut = prefill_start([role for role, _ in pieces])
+    pieces[cut:cut] = closing
+    if holder is not None and holder >= cut:
+        holder += len(closing)
 
     messages: list[ChatMessage] = []
     attach_to: int | None = None
@@ -266,6 +266,26 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
     if not messages:
         # Nothing rendered: the request is still the one empty user message the turn's attachments ride.
         return WriterRequest(({"role": "user", "content": ""},), 0)
+    if messages[-1]["role"] == "assistant":
+        # The reply continues this text, so it keeps no trailing separator (Anthropic also refuses one).
+        messages[-1] = {"role": "assistant", "content": str(messages[-1]["content"]).rstrip()}
     if attach_to is None:
         attach_to = next((i for i in range(len(messages) - 1, -1, -1) if messages[i]["role"] == "user"), None)
     return WriterRequest(tuple(messages), attach_to)
+
+
+def prefill_start(roles: Sequence[str]) -> int:
+    """Where the trailing run of assistant roles, which the reply continues, starts; ``len(roles)`` when there is none."""
+    cut = len(roles)
+    while cut and roles[cut - 1] == "assistant":
+        cut -= 1
+    return cut
+
+
+def replay_reply(request: Sequence[ChatMessage], reply: str) -> list[ChatMessage]:
+    """*request* followed by the reply it got, as a later pass replays them: a request ending on assistant text is the reply's
+    own opening, so the reply continues that message."""
+    messages = list(request)
+    if messages and messages[-1]["role"] == "assistant" and isinstance(messages[-1]["content"], str):
+        return [*messages[:-1], {"role": "assistant", "content": messages[-1]["content"] + reply}]
+    return [*messages, {"role": "assistant", "content": reply}]
