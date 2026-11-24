@@ -1,0 +1,216 @@
+/* Raven: a printed technical poster. Warm paper, brown-black ink, one signal red, square corners and diagonal bands.
+   Red fills carry ink text; text-weight red is the deeper --accent so it reads on paper. Static paint only. */
+:root {
+  --ink:#2b2221; --ink-2:#3a302e; --ink-rule:#5a4e4b; --paper-on-ink:#d9d1c4; --muted-on-ink:#a99e92;
+  --sig:#ff5442; --sig-hover:#ff7062; --sig-tint:#efcdc3; --quote:#952416; --narration:#675c57;
+  --shadow-hard:3px 3px 0 var(--ink); --shadow-pop:8px 8px 0 var(--sig);
+
+  --bg-deep:#cbc2b3; --bg-primary:#d9d1c4; --bg-surface:#e3ddd2; --bg-elevated:#ebe6dc; --bg-hover:#cfc6b8;
+  --border:#a79e92; --border-light:#8a8178;
+  --text-primary:#2b2221; --text-secondary:#463c3a; --text-muted:#5f5653;
+  --accent:#a82a1a; --accent-dim:#7e1f13; --accent-glow:rgba(255,84,66,0.16); --accent-muted:rgba(255,84,66,0.2);
+  --red:#b3261a; --warning:#80520a;
+
+  --font-prose:'Exo 2',system-ui,sans-serif;
+  --font-ui:'Fira Code','Cascadia Code',Consolas,monospace;
+  --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:0px; --font-prose-size:15px;
+  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px;
+
+  --scrollbar-width:thin; --scrollbar-thumb:var(--ink); --scrollbar-track:transparent;
+
+  /* Red hue sits near 30; offset 120 puts the pass lanes on green and blue, clear of paper and signal. */
+  --frag-lane-offset:120;
+
+  --mobile-overlay-color:rgba(43,34,33,0.45) !important;
+  --mobile-panel-shadow-left:12px 0 30px rgba(43,34,33,0.34) !important;
+  --mobile-panel-shadow-right:-12px 0 30px rgba(43,34,33,0.34) !important;
+  --mobile-menu-shadow:6px 6px 0 var(--sig) !important;
+}
+*, *::before, *::after { border-radius: 0 !important; }
+
+/* Paper with fine pinstripes and one faded red-and-ink band across the diagonal. It runs behind the message
+   labels, so it stays a print ghost; full strength would fight the text. */
+body { --band-red:color-mix(in srgb, var(--sig) 30%, var(--bg-deep));
+  --band-ink:color-mix(in srgb, var(--ink) 30%, var(--bg-deep));
+  background:
+    linear-gradient(-58deg, transparent 0 46%, var(--band-red) 46% 49.5%, transparent 49.5% 51%,
+      var(--band-ink) 51% 51.6%, transparent 51.6%),
+    repeating-linear-gradient(-58deg, transparent 0 9px, rgba(43,34,33,0.09) 9px 10px),
+    var(--bg-deep) !important; }
+
+/* ── Frame ── */
+
+#sidebar, #inspector, #tools-panel, #assistant-panel { background: var(--bg-primary) !important; }
+#sidebar { border-right: 2px solid var(--ink) !important; }
+#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 2px solid var(--ink) !important; }
+
+@media (min-width: 901px) {
+  #app { padding: 10px; }
+  #sidebar { margin-right: 10px; }
+  #inspector.open, #tools-panel.open, #assistant-panel.open { margin-left: 10px; }
+  #sidebar, #inspector.open, #tools-panel.open, #assistant-panel.open,
+  #chat-header, #doc-header, #chat-input-area, #doc-footer {
+    border: 2px solid var(--ink) !important; box-shadow: var(--shadow-hard) !important; }
+  #chat-header, #doc-header { margin-bottom: 6px; }
+  #doc-footer { margin-top: 10px; }
+  #chat-input-area { margin-top: 6px; }
+  #chat-messages { padding: 4px 12px 8px !important; }
+}
+
+/* ── Bars ── */
+
+.sidebar-header { background: var(--ink) !important; border-bottom: 4px solid var(--sig) !important; }
+.sidebar-header h1 { font-family: 'Exo 2',system-ui,sans-serif !important; font-weight: 700 !important;
+  font-size: 22px !important; text-transform: uppercase; letter-spacing: .14em !important; color: var(--sig) !important; }
+.sidebar-header .subtitle { color: var(--muted-on-ink) !important; letter-spacing: .32em !important; }
+.sidebar-header .theme-label { color: var(--muted-on-ink) !important; letter-spacing: .2em !important; }
+.sidebar-header .theme-select { background: var(--ink-2) !important; border: 1px solid var(--ink-rule) !important;
+  color: var(--paper-on-ink) !important; }
+.sidebar-header .theme-select:focus { border-color: var(--sig) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn) { color: var(--muted-on-ink) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--sig) !important; }
+
+.sidebar-section { border-bottom: 1px solid var(--border) !important; }
+.sidebar-section-header { letter-spacing: .22em !important; color: var(--ink) !important; font-weight: 600 !important; }
+.sidebar-section-header:hover { background: var(--bg-hover) !important; color: var(--accent) !important; }
+.sidebar-section-header.stuck { box-shadow: 0 2px 0 var(--ink) !important; }
+.char-item.active { background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important;
+  box-shadow: inset 4px 0 0 var(--sig) !important; }
+
+/* An ink rule that ends in a red bar, like the poster's coded stripes. */
+#chat-header, #doc-header { background: var(--bg-elevated) !important; border-bottom: 4px solid transparent !important;
+  border-image: linear-gradient(90deg, var(--ink) 0 78%, transparent 78% 79%, var(--sig) 79% 100%) 4 !important; }
+@media (min-width: 901px) {
+  #chat-header, #doc-header { border-image: none !important; border-bottom: 2px solid var(--ink) !important;
+    background: linear-gradient(90deg, var(--ink) 0 6px, var(--sig) 6px 12px, transparent 12px),
+      var(--bg-elevated) !important; padding-left: 26px !important; }
+}
+#chat-header .chat-title, #doc-header .doc-title { color: var(--ink) !important; font-weight: 700 !important;
+  text-transform: uppercase; letter-spacing: .08em; }
+
+/* ── Controls ── */
+
+.btn { background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; color: var(--ink) !important;
+  transition: background .12s, color .12s, transform .08s, box-shadow .08s !important; }
+.btn:not(:disabled):hover { background: var(--ink) !important; color: var(--paper-on-ink) !important; }
+.btn-accent, #send-btn, .asst-send { background: var(--sig) !important; border: 2px solid var(--ink) !important;
+  color: var(--ink) !important; font-weight: 700 !important; box-shadow: var(--shadow-hard) !important; }
+.btn-accent:not(:disabled):hover, #send-btn:not(:disabled):hover, .asst-send:not(:disabled):hover {
+  background: var(--sig-hover) !important; color: var(--ink) !important;
+  transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink) !important; }
+.btn-accent:not(:disabled):active, #send-btn:not(:disabled):active, .asst-send:not(:disabled):active {
+  transform: translate(3px, 3px); box-shadow: 0 0 0 transparent !important; }
+.btn-active { background: var(--sig-tint) !important; border-color: var(--ink) !important; color: var(--ink) !important;
+  box-shadow: inset 0 -3px 0 var(--sig) !important; }
+.btn-active:not(:disabled):hover { background: var(--ink) !important; color: var(--sig) !important; }
+.btn-danger, #stop-btn, .asst-send.asst-stop { background: var(--ink) !important; border: 2px solid var(--ink) !important;
+  color: var(--sig) !important; box-shadow: 3px 3px 0 var(--sig) !important; }
+.btn-danger:not(:disabled):hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: var(--ink-2) !important;
+  color: var(--sig-hover) !important; }
+#burger-btn, #mobile-sidebar-toggle, #mobile-chat-actions-toggle, #doc-mobile-sidebar-toggle {
+  background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; color: var(--ink) !important; }
+#burger-btn:hover { background: var(--ink) !important; color: var(--paper-on-ink) !important; }
+
+input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
+textarea, select, #chat-input, .cb-control, .asst-compose {
+  background-color: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; color: var(--ink) !important; }
+.sidebar-header .theme-select { background-color: var(--ink-2) !important; border-color: var(--ink-rule) !important;
+  color: var(--paper-on-ink) !important; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus, #chat-input:focus,
+.cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
+  border-color: var(--ink) !important; box-shadow: inset 0 -3px 0 var(--sig) !important; outline: none; }
+.cb-root .cb-input { background: transparent !important; border: none !important; box-shadow: none !important; }
+.image-gen-edit[readonly] { background: transparent !important; border-color: transparent !important;
+  color: inherit !important; }
+::placeholder { color: var(--text-muted) !important; }
+
+.cb-dropdown, #burger-dropdown, #mobile-chat-actions-menu, .wf-claim-popover, #doc-prob-popup {
+  background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
+  box-shadow: 6px 6px 0 var(--sig) !important; }
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--ink) !important;
+  color: var(--paper-on-ink) !important; }
+
+.tog-slider { background: var(--bg-deep) !important; border: 1px solid var(--ink) !important; }
+.tog-slider:before { background: var(--ink) !important; }
+.tog input:checked + .tog-slider { background: var(--sig) !important; border-color: var(--ink) !important; }
+.tog input:checked + .tog-slider:before { background: var(--ink) !important; }
+
+.tab { letter-spacing: .12em; text-transform: uppercase; }
+.tab.active { color: var(--ink) !important; border-bottom: 3px solid var(--sig) !important; }
+
+.chat-avatar, .char-avatar-sm, .char-avatar-lg, .cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar,
+.world-avatar, .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
+  border: 1px solid var(--ink) !important; background: var(--bg-elevated) !important; }
+
+/* ── Messages ── */
+
+.message .msg-role { color: var(--text-muted) !important; letter-spacing: .24em !important; font-weight: 600 !important; }
+.message.user .msg-role { color: var(--accent) !important; }
+.message .msg-body { background: var(--bg-surface) !important; border: 1px solid var(--ink) !important;
+  box-shadow: inset 4px 0 0 var(--ink) !important; }
+.message.user .msg-body { background: color-mix(in srgb, var(--sig) 12%, var(--bg-surface)) !important;
+  border-color: var(--ink) !important; box-shadow: inset -4px 0 0 var(--sig) !important; }
+.message.user .msg-edit-area textarea { background: var(--bg-elevated) !important; }
+.message .msg-body .quoted { color: var(--quote) !important; }
+.message .msg-body em { color: var(--narration) !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code, .message .msg-body .code-block-btn {
+  background: var(--bg-deep) !important; border: 1px solid var(--border-light) !important; }
+.message .msg-body blockquote { border-left: 3px solid var(--sig) !important; }
+.message .msg-inspect { border: 1px solid var(--ink) !important; }
+.msg-toolbar, .swipe-counter, .swipe-nav, .empty-state, .slop-chip { color: var(--text-muted) !important; }
+.msg-toolbar button, .swipe-nav button { color: inherit !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover { color: var(--paper-on-ink) !important;
+  background: var(--ink) !important; }
+.msg-toolbar .msg-btn-del { color: var(--red) !important; }
+.msg-toolbar .msg-btn-del:hover { color: var(--sig) !important; background: var(--ink) !important; }
+
+.gen-status { background: var(--ink) !important; color: var(--paper-on-ink) !important;
+  border-top: 2px solid var(--sig) !important; }
+#chat-input-area, #doc-footer { background: var(--bg-primary) !important; }
+.group-speaking-plan { background: var(--bg-elevated) !important;
+  border: 1px solid var(--ink) !important; }
+
+/* ── Overlays ── */
+
+.modal-overlay { background: rgba(43,34,33,0.42) !important; }
+.modal, .modal-crop { background: var(--bg-surface) !important; border: 2px solid var(--ink) !important;
+  box-shadow: var(--shadow-pop) !important; }
+.modal h2, .modal h3 { color: var(--ink) !important; font-family: 'Exo 2',system-ui,sans-serif !important;
+  font-weight: 700 !important; text-transform: uppercase; letter-spacing: .1em; }
+.modal h2 { border-bottom: 2px solid var(--ink); padding-bottom: 8px;
+  box-shadow: 0 2px 0 var(--bg-surface), 0 6px 0 -2px var(--sig); }
+.toast { background: var(--ink) !important; color: var(--paper-on-ink) !important; border: none !important;
+  box-shadow: inset 4px 0 0 var(--sig), 5px 5px 0 rgba(43,34,33,0.3) !important; }
+.toast.error { background: var(--sig) !important; color: var(--ink) !important;
+  box-shadow: inset 4px 0 0 var(--ink), 5px 5px 0 rgba(43,34,33,0.3) !important; }
+.turn-error { background: var(--sig-tint) !important; border: 1px solid var(--ink) !important;
+  border-left: 6px solid var(--red) !important; }
+.field-warning { color: var(--accent) !important; }
+.tool-card.tool-on { background: var(--sig-tint) !important; border-color: var(--ink) !important; }
+.stat-card { background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; }
+.stat-card-favorite { background: var(--ink) !important; border-color: var(--ink) !important; }
+.stat-card-favorite, .stat-card-favorite * { color: var(--paper-on-ink) !important; }
+.stat-card-favorite .stat-fav-eyebrow { color: var(--sig) !important; }
+.stat-card-clickable:hover { box-shadow: var(--shadow-hard) !important; }
+
+#doc-editor-scroll { background: transparent !important; }
+#doc-page { background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important;
+  box-shadow: 6px 6px 0 var(--ink) !important; }
+.doc-mode-toggle, .doc-probs-toggle { border: 1px solid var(--ink) !important; }
+.doc-mode-opt + .doc-mode-opt { border-left: 1px solid var(--ink) !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active { background: var(--sig) !important; color: var(--ink) !important; }
+#doc-help pre { background: var(--bg-deep) !important; border: 1px solid var(--ink) !important; }
+
+::selection { background: var(--sig); color: var(--ink); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ink); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-accent:hover, #send-btn:hover, .asst-send:hover, .btn-accent:active, #send-btn:active, .asst-send:active {
+    transform: none; }
+}
