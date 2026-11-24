@@ -63,7 +63,9 @@ def _builtin_text(kind: str, settings: Settings) -> str:
                 "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
             }
         )
-        return f"[When the request carries tool schemas]\n{TOOL_NOTICE}{nudge.strip()}"
+        return nudge.strip()
+    if kind == "tool_notice":
+        return TOOL_NOTICE
     placeholder = _MARKER_PLACEHOLDERS.get(kind)
     return marker_text(kind, placeholder) if placeholder else ""
 

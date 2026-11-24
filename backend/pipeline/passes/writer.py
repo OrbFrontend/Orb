@@ -23,7 +23,7 @@ from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
-from ...prompting.layout import SectionInputs, WriterInputs, render_writer_tail
+from ...prompting.layout import TOOL_NOTICE, SectionInputs, WriterInputs, render_writer_tail
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
 from .editor.length_guard import LengthGuard, writer_nudge
@@ -124,12 +124,12 @@ def build_writer_content(
         decisions=decisions,
         scene_guidance=scene_guidance,
         current_state=current_state,
+        tool_notice=TOOL_NOTICE if tools_sent else "",
         length_nudge=writer_nudge(length_guard).strip(),
         cue=speaker_cue,
         user_message=effective_msg,
         depth_lore=depth_block,
         sections=sections or SectionInputs(),
-        tool_notice=tools_sent,
         speaker_open=speaker_open,
         speaker_close=speaker_close,
     )

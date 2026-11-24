@@ -36,6 +36,7 @@ const CONTROLLED_BY = {
   decisions: "Judge",
   scene_guidance: "Director",
   current_state: "State",
+  tool_notice: "Tools",
   length_nudge: "Length Guard",
   cue: "Groups",
   user_message: "Always",

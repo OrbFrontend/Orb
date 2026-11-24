@@ -26,7 +26,9 @@ def _placeholder_re(names: Iterable[str]) -> re.Pattern[str]:
 _SECTION_RE = _placeholder_re(SECTION_PLACEHOLDERS)
 _EXAMPLE_SEPARATOR = "<START>"
 _DIVIDER = "___\n\n"
-TOOL_NOTICE = "**Do not use tool or function calls this turn.**\n\n"
+# The Writer ships the shared tool schemas under tool_choice="none", which some routes rewrite to "auto" and some templates
+# ignore; this line is what keeps the Writer writing prose there. "This turn" keeps it true when a later pass replays the request.
+TOOL_NOTICE = "**Do not use tool or function calls this turn.**"
 # The fixed framing of each marker whose text the user does not edit.
 _MARKER_HEADS: dict[str, str] = {
     "current_state": _DIVIDER,
@@ -67,12 +69,12 @@ class WriterInputs:
     decisions: str = ""
     scene_guidance: str = ""
     current_state: str = ""
+    tool_notice: str = ""
     length_nudge: str = ""
     cue: str = ""
     user_message: str = ""
     depth_lore: str = ""
     sections: SectionInputs = field(default_factory=SectionInputs)
-    tool_notice: bool = False
     speaker_open: str = ""
     speaker_close: str = ""
 
@@ -217,8 +219,6 @@ def render_writer_tail(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macr
     resolve = _resolver(macros._replace(seed="") if macros else None)
     tail = inputs.speaker_open
     for block in region_blocks(blocks, "writer"):
-        if block.kind == "length_nudge" and inputs.tool_notice:
-            tail += TOOL_NOTICE
         if block.kind == CUSTOM_KIND:
             text = _render_block(block.content, inputs.sections, resolve)
             if text:

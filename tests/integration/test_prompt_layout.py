@@ -235,6 +235,32 @@ async def test_scene_guidance_and_user_message_render_from_their_own_text(client
     assert log["injection_block"].startswith("**Scene Guidance**\n\nWrite with tension")
 
 
+async def test_the_tool_notice_is_its_own_block_and_renders_without_length_guard(client, llm_mock):
+    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
+    layout_id, seeded = await _active_layout(client)
+    notice = "**Do not use tool or function calls this turn.**"
+    assert seeded["tool_notice"]["builtin_text"] == notice
+    assert seeded["length_nudge"]["builtin_text"].startswith("**Keep your response under")
+    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    tool = seeded["tool_notice"]["id"]
+    await client.put_checked(
+        f"/api/prompt-layouts/{layout_id}/order",
+        json={
+            "prefix": [b["id"] for b in order if b["region"] == "prefix"],
+            "writer": [b["id"] for b in order if b["region"] == "writer" and b["id"] != tool] + [tool],
+        },
+    )
+    cid = await _card_conversation(client)
+
+    llm_mock.enqueue_director([{"type": "function", "function": {"name": "direct_scene", "arguments": {"moods": ["tense"]}}}])
+    llm_mock.enqueue_writer("Fine.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Knock.", "attachments": []})).text
+    writer = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]["messages"][-1]["content"]
+
+    assert "Keep your response under" not in writer
+    assert writer.index("Knock.") < writer.index(notice)
+
+
 async def test_description_and_personality_resolve_separately_solo_and_under_a_group_override(client):
     fields = "{{description}}|{{personality}}"
     card = await client.post_json("/api/characters", json={"name": "Aria", "description": "Ranger.", "personality": "Wary."})

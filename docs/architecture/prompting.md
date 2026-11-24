@@ -100,13 +100,19 @@ panel do not.
 
 A **marker** stands for an engine block: `main_prompt`, `cast`,
 `constant_lore` and `workflow_blocks` in the prefix; `selected_lore`,
-`decisions`, `scene_guidance`, `current_state`, `length_nudge`, `cue`,
-`user_message` and `depth_lore` in the Writer request. Markers cannot be
-switched off, deleted, or moved across the divider; the setting that drives
-each one decides whether it renders, and the group context mode decides what
-`cast` carries. The group speaker frame always opens the Writer request and the
-"write as" line always closes it; the tool notice renders directly before the
-`length_nudge` marker.
+`decisions`, `scene_guidance`, `current_state`, `tool_notice`,
+`length_nudge`, `cue`, `user_message` and `depth_lore` in the Writer request.
+Markers cannot be switched off, deleted, or moved across the divider; the
+setting that drives each one decides whether it renders, and the group context
+mode decides what `cast` carries. The group speaker frame always opens the
+Writer request and the "write as" line always closes it.
+
+`tool_notice` renders whenever the Writer request carries tool schemas. The
+Writer ships the shared schemas under `tool_choice="none"` to keep the cached
+prefix, but auto-only routes rewrite that to `auto` and some templates ignore
+it; the notice is what keeps the Writer writing prose there. It says "this
+turn" because the Editor and later passes replay the request before asking for
+their own tool call. `length_nudge` renders only while Length Guard enforces.
 
 The Director stage hands the Writer three separate parts, each its own marker:
 `decisions` (the Judge's guidance lines for the Writer), `scene_guidance` (the
