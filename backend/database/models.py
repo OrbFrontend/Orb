@@ -542,6 +542,27 @@ class InteractiveFragmentRow(TypedDict):
     gate_replies: int
 
 
+class PromptLayoutRow(TypedDict):
+    """A row from ``prompt_layouts``."""
+
+    id: str
+    name: str
+
+
+class PromptBlockRow(TypedDict):
+    """A row from ``prompt_blocks``: a marker (``kind`` is its id) or a custom block (``kind`` is ``'custom'``)."""
+
+    id: str
+    layout_id: str
+    kind: str
+    label: str
+    content: str
+    role: str
+    region: str
+    sort_order: int
+    enabled: int
+
+
 class MoodFragmentRow(TypedDict):
     """A row from ``mood_fragments`` (``SELECT *``)."""
 

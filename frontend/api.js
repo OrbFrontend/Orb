@@ -50,6 +50,9 @@ export const api = {
   put(p, b) {
     return this._req(p, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
   },
+  patch(p, b) {
+    return this._req(p, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+  },
   del(p, b) {
     const opts = { method: "DELETE" };
     if (b !== undefined) {

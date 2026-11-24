@@ -110,6 +110,7 @@ nav:
           - Prose Rewriter: features/prose-rewriter.md
       - Writing tools:
           - Macros: features/macros.md
+          - Prompt Layout: features/prompt-layout.md
           - Super-regenerate: features/super-regenerate.md
           - Magic Rewrite: features/magic-rewrite.md
           - Compress History: features/compress-history.md

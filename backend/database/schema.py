@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS settings (
     generated_chars INTEGER DEFAULT NULL,
     -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
-    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13'
+    decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
+    -- NULL reads as the seeded 'default' prompt layout.
+    active_prompt_layout_id TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -563,6 +565,28 @@ CREATE TABLE IF NOT EXISTS slop_mining_state (
     last_run_at TEXT,
     last_status TEXT NOT NULL DEFAULT ''
 );
+
+-- Prompt layouts order the chat prompt's blocks around the history: 'prefix' blocks build the system message and any
+-- pre-history messages, 'writer' blocks build the Writer's request. Marker rows (kind = a marker id) stand for built-in
+-- sections and use the id '<layout_id>:<marker>'; custom rows carry their own text.
+CREATE TABLE IF NOT EXISTS prompt_layouts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_blocks (
+    id TEXT PRIMARY KEY,
+    layout_id TEXT NOT NULL REFERENCES prompt_layouts(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'system',
+    region TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_blocks_layout ON prompt_blocks(layout_id, sort_order);
 
 -- The panel assistant's conversations as the model reads them, by the browser's session id; the newest few are kept.
 CREATE TABLE IF NOT EXISTS assistant_chats (

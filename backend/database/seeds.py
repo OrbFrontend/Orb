@@ -372,6 +372,8 @@ DEFAULT_SETTINGS: Settings = {
 
 # Seeds are regex strings or literal-variant lists. Regexes match one sentence case-insensitively; use bounded gaps, inflection
 # suffixes and word boundaries to avoid greedy or substring overmatches.
+SEED_PROMPT_LAYOUT_NAME = "Default"
+
 SEED_PHRASE_BANK = [
     r"a mix(ture)? of",
     r"drip(ped|ping|s) with",

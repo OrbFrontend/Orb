@@ -369,6 +369,8 @@ SIGNATURE_TABLES = frozenset(
         "mood_fragments",
         "interactive_fragments",
         "documents",
+        "prompt_layouts",
+        "prompt_blocks",
     }
 )
 
@@ -474,6 +476,10 @@ def _signature(path: str) -> dict:
             "fragments": q("SELECT id, label FROM mood_fragments"),
             "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
             "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
+            "prompt_layouts": q("SELECT id, name FROM prompt_layouts"),
+            "prompt_blocks": q(
+                "SELECT id, layout_id, kind, label, content, role, region, sort_order, enabled FROM prompt_blocks"
+            ),
         }
     finally:
         conn.close()

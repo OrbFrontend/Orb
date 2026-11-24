@@ -206,3 +206,23 @@
   #app.sidebar-toggled #sidebar { transition: width .25s, min-width .25s; }
   #app.sidebar-collapsed .sidebar-expand-btn { display: inline-flex; flex-shrink: 0; }
 }
+
+/* Prompt Layout: blocks above the divider build the shared prefix, blocks below build the Writer's request. */
+#prompt-layout-list .fragment-item { padding-left: 2px; }
+.pl-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.pl-header-actions { display: flex; gap: 4px; }
+.pl-header-actions .btn { flex: 1; justify-content: center; padding: 4px 6px; }
+.pl-header + .btn { margin-bottom: 6px; }
+.pl-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.pl-name .frag-label { flex: 0 1 auto; padding-right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-marker { color: var(--accent); font-size: 10px; line-height: 1; }
+.pl-fixed .pl-name { opacity: 0.55; }
+.pl-role { font-size: 10px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.fragment-item.pl-divider { display: block; cursor: default; padding: 6px 4px 4px; margin: 4px 0; }
+.fragment-item.pl-divider:hover { background: none; }
+.pl-divider-rule { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-secondary); }
+.pl-divider-rule::before, .pl-divider-rule::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.pl-header-actions .btn:disabled { opacity: 0.45; cursor: default; }
+.pl-note { font-size: 11px; color: var(--text-secondary); background: var(--bg-hover); border-radius: var(--radius);
+  padding: 6px 8px; margin-bottom: 6px; }

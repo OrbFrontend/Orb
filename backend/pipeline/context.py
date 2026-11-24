@@ -17,6 +17,7 @@ from ..core import (
     is_decision_row,
     parse_decision_definition,
 )
+from ..core.prompt_layout import LayoutBlock, default_layout
 from ..core.settings import Settings
 from ..database.models import (
     ActiveLorebookEntryRow,
@@ -41,6 +42,7 @@ from ..inference import (
 from ..prompting import (
     build_prefix,
     char_context,
+    chat_instructions,
     conversation_macro_seed,
     macro_identity,
     persona_macros,
@@ -101,6 +103,8 @@ class PipelineContext:
     # Every defined fragment, enabled or not, for the shared tool schemas (see ``_defined_fragments``). None -- a context built
     # by hand -- offers exactly ``interactive_fragments``.
     defined_fragments: list[InteractiveFragmentRow] | None = None
+    # The active prompt layout, read once so every pass and speaker in the turn renders the same blocks.
+    layout: tuple[LayoutBlock, ...] = field(default_factory=default_layout)
 
 
 async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -174,6 +178,7 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         judge_config=await resolve_judge_config(settings),
         state_contract=StateContract.capture(settings, split_interactive_fragments(interactive_fragments)[2]),
         defined_fragments=defined_fragments,
+        layout=await db.get_active_layout_blocks(),
     )
 
 
@@ -268,7 +273,7 @@ def _build_prefix_from_ctx(
         ctx.char_persona,
         conv["character_scenario"],
         ctx.mes_example,
-        ("" if ctx.settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", "")),
+        chat_instructions(ctx.settings, conv),
         history,
         macros,
         user_description,
@@ -278,6 +283,7 @@ def _build_prefix_from_ctx(
         speaker_names=ctx.speaker_names,
         scripts=ctx.card_scripts,
         speaker_scripts=ctx.speaker_scripts,
+        layout=ctx.layout,
     )
 
 

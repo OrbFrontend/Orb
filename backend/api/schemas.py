@@ -255,6 +255,40 @@ class ModelConfigUpdate(_PartialUpdate):
         return v if v is None else _check_extra_body(v)
 
 
+class PromptLayoutCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    copy_from: str | None = None
+
+
+class PromptLayoutRename(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class PromptLayoutActive(BaseModel):
+    id: str
+
+
+class PromptBlockCreate(BaseModel):
+    label: str = ""
+    content: str = ""
+    role: Literal["system", "user", "assistant"] = "system"
+    region: Literal["prefix", "writer"] = "writer"
+    enabled: bool = True
+
+
+class PromptBlockUpdate(BaseModel):
+    label: str | None = None
+    content: str | None = None
+    role: Literal["system", "user", "assistant"] | None = None
+    region: Literal["prefix", "writer"] | None = None
+    enabled: bool | None = None
+
+
+class PromptBlockOrder(BaseModel):
+    prefix: list[str]
+    writer: list[str]
+
+
 class MoodFragmentCreate(BaseModel):
     id: str
     label: str

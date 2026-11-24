@@ -46,6 +46,7 @@ from ..core.text_segmentation import (
     strip_protected_markup,
 )
 from ..database import (
+    get_active_layout_blocks,
     get_active_lorebook_entries,
     get_character_avatar,
     get_character_card,
@@ -71,6 +72,7 @@ from ..inference import local_ml as _local_ml
 from ..inference import separate_agent_lane_configured as _separate_agent_lane_configured
 from ..prompting import build_prefix as _build_prefix
 from ..prompting import char_context as _char_context
+from ..prompting import chat_instructions as _chat_instructions
 from ..prompting import conversation_macro_seed as _conversation_macro_seed
 from ..prompting import macro_identity as _macro_identity
 from ..prompting import persona_macros as _persona_macros
@@ -461,7 +463,7 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
         char_persona,
         conv.get("character_scenario", ""),
         mes_example,
-        "" if settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", ""),
+        _chat_instructions(settings, conv),
         history,
         macros,
         user_description,
@@ -472,4 +474,5 @@ async def build_offturn_prefix(conversation_id: str, history, settings: Settings
         speaker_names=speaker_names,
         scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
         speaker_scripts=speaker_scripts,
+        layout=await get_active_layout_blocks(),
     )

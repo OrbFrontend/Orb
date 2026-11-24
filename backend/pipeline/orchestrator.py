@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateFragment, StateView, carry_events
+from ..core.prompt_layout import LayoutBlock
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
@@ -158,6 +159,8 @@ async def run_pipeline(
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
+    layout: Sequence[LayoutBlock] | None = None,
+    chat_instructions: str = "",
 ) -> AsyncIterator[PipelineEvent]:
     """Run the director -> writer -> editor passes for one turn.
 
@@ -241,6 +244,8 @@ async def run_pipeline(
             speaker_cue=speaker_cue,
             macros=macros,
             context_mode=context_mode,
+            layout=layout,
+            chat_instructions=chat_instructions,
         ),
     ):
         yield ev

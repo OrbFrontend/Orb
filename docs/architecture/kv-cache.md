@@ -301,6 +301,19 @@ That shared beginning is why a long conversation does not require a complete
 prefill on every call. A group exchange follows the same rule as speakers add
 their replies; lore activation itself remains frozen until the next exchange.
 
+## Prompt layout regions
+
+The prompt layout's divider is a cost boundary. A block above it is part of the
+shared prefix, so toggling or editing it moves bytes before the history and the
+next call re-reads the chat. On llama.cpp (Qwen3.8 27B and Gemma 4 31B, one
+slot) that happens once: the first call after the change (the Director) reads
+the prefix uncached, and the Writer and Editor reuse it. A block below the
+divider is part of the Writer's request, so it costs its own tokens on every
+turn and nothing more: a ~500-token block added about that much uncached prefill
+to each Writer call, and the Editor's first call still reused the whole Writer
+request. On providers that keep a separate cache per `tool_choice`, a prefix edit
+is re-read once per lane instead.
+
 ## Batch lanes
 
 A few passes are not conversation turns at all: the library auto-tagger sends one

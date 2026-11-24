@@ -6,7 +6,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core import CardScripts, ChatMessage, ContentPart, Macros, TurnCast
+from ..core.prompt_layout import LayoutBlock, default_layout
 from .group_context import render_cast_section
+from .layout import PrefixInputs, join_history, render_prefix
 
 
 def format_message_with_attachments(
@@ -102,6 +104,36 @@ def render_history(
     return processed_messages
 
 
+def prefix_inputs(
+    system_prompt: str,
+    char_persona: str,
+    char_scenario: str,
+    mes_example: str = "",
+    post_history_instructions: str = "",
+    macros: Macros | None = None,
+    user_description: str = "",
+    *,
+    constant_lorebook_block: str = "",
+    extra_system_blocks: Sequence[str] | None = None,
+    cast: TurnCast | None = None,
+) -> PrefixInputs:
+    """Each prefix marker's own text, macros resolved."""
+    resolve = macros.resolve_message if macros else (lambda text: text)
+    grouped = bool(cast and cast.grouped)
+    user_desc = resolve(user_description)
+    return PrefixInputs(
+        main_prompt=system_prompt,
+        character="" if grouped else resolve(char_persona),
+        cast=render_cast_section(cast, macros).lstrip("\n") if cast and grouped else "",
+        constant_lore=constant_lorebook_block,
+        scenario=resolve(char_scenario),
+        example_dialogue="" if grouped else resolve(mes_example),
+        card_instructions=resolve(post_history_instructions),
+        user_persona=user_desc if user_desc.strip() else "",
+        workflow_blocks="\n\n".join(extra_system_blocks or []),
+    )
+
+
 def build_prefix(
     system_prompt: str,
     char_persona: str,
@@ -118,47 +150,26 @@ def build_prefix(
     speaker_names: Mapping[str, str] | None = None,
     scripts: CardScripts | None = None,
     speaker_scripts: Mapping[str, CardScripts] | None = None,
+    layout: Sequence[LayoutBlock] | None = None,
 ) -> list[ChatMessage]:
-    """Build the stable system prefix and rendered history messages."""
-    resolve = macros.resolve_message if macros else (lambda text: text)
-    resolved = {
-        key: resolve(value)
-        for key, value in {
-            "persona": char_persona,
-            "scenario": char_scenario,
-            "mes_example": mes_example,
-            "post_history": post_history_instructions,
-            "user_desc": user_description,
-        }.items()
-    }
+    """Build the system message, the layout's pre-history messages, and the rendered history.
 
-    parts = [system_prompt]
-    if cast and cast.grouped:
-        parts.append(render_cast_section(cast, macros))
-    elif macros and macros.char:
-        parts.append(f"\n\n## Character: {macros.char}")
-    if resolved["persona"] and not (cast and cast.grouped):
-        parts.append(f"\n{resolved['persona']}")
-    if constant_lorebook_block:
-        parts.append(f"\n\n{constant_lorebook_block}")
-    if resolved["scenario"]:
-        parts.append(f"\n\n## Scenario\n{resolved['scenario']}")
-    if resolved["mes_example"] and not (cast and cast.grouped):
-        example = resolved["mes_example"]
-        if "<START>" in example:
-            parts.append(f"\n\n{example.replace('<START>', '## Example Dialogue')}")
-        else:
-            parts.append(f"\n\n## Example Dialogue\n{example}")
-    if resolved["post_history"]:
-        parts.append(f"\n\n## Additional Instructions\n{resolved['post_history']}")
-    if resolved["user_desc"].strip():
-        user_label = macros.user if macros else "User"
-        parts.append(f"\n\n## User: {user_label}\n{resolved['user_desc']}")
-
-    for block in extra_system_blocks or []:
-        parts.append(f"\n\n{block}")
-
-    system_message: ChatMessage = {"role": "system", "content": "".join(parts)}
-    return [system_message] + render_history(
+    *layout* defaults to :func:`default_layout`, the built-in order.
+    """
+    inputs = prefix_inputs(
+        system_prompt,
+        char_persona,
+        char_scenario,
+        mes_example,
+        post_history_instructions,
+        macros,
+        user_description,
+        constant_lorebook_block=constant_lorebook_block,
+        extra_system_blocks=extra_system_blocks,
+        cast=cast,
+    )
+    head = render_prefix(layout if layout is not None else default_layout(), inputs, macros)
+    history = render_history(
         messages or [], macros, cast=cast, speaker_names=speaker_names, scripts=scripts, speaker_scripts=speaker_scripts
     )
+    return join_history(head, history)

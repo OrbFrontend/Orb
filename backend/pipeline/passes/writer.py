@@ -19,9 +19,11 @@ from ...core import (
     resolve_inline,
 )
 from ...core.llm_types import ContentDelta, ReasoningDelta
+from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
+from ...prompting.layout import WriterInputs, render_writer_tail
 from ..events import CoreTurnEvent
 from ..timing import latency_event, timed_events
 from .editor.length_guard import LengthGuard, writer_nudge
@@ -80,43 +82,52 @@ def build_writer_content(
     macros: Macros | None = None,
     prevent_prompt_overrides: bool = False,
     context_mode: GroupContextMode = "private",
+    *,
+    layout: Sequence[LayoutBlock] | None = None,
+    card_instructions: str = "",
 ) -> str | list[ContentPart]:
-    """Build Writer user-message content."""
-    tail = ""
+    """Build Writer user-message content.
+
+    *card_instructions* is the chat's raw instruction text; it renders here only when *layout* moves it below the divider.
+    """
+    speaker_open = ""
+    speaker_close = ""
+    block_macros = macros
     if speaker is not None:
         speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
+        block_macros = speaker_macros
         resolve = speaker_macros.resolve_message if speaker_macros else (lambda text: text)
-        tail += f"## You are writing as {speaker.name}\n"
+        speaker_open += f"## You are writing as {speaker.name}\n"
         if tail_carries_identity(context_mode):
             if speaker.private_sheet:
-                tail += f"{_SHEET_FRAMING}\n"
-                tail += resolve(speaker.private_sheet) + "\n\n"
+                speaker_open += f"{_SHEET_FRAMING}\n"
+                speaker_open += resolve(speaker.private_sheet) + "\n\n"
             if speaker.mes_example:
                 example = resolve(speaker.mes_example)
-                tail += (
+                speaker_open += (
                     example.replace("<START>", "## Example Dialogue")
                     if "<START>" in example
                     else f"## Example Dialogue\n{example}"
                 )
-                tail += "\n\n"
+                speaker_open += "\n\n"
         if speaker.post_history and not prevent_prompt_overrides:
-            tail += f"## Additional Instructions\n{resolve(speaker.post_history)}\n\n"
-    if lorebook_block:
-        tail += "___\n\n" + lorebook_block + "\n\n"
-    if inj_block:
-        tail += "___\n\n" + inj_block + "\n\n"
-    if tools_sent:
-        tail += "**Do not use tool or function calls this turn.**\n\n"
-    tail += writer_nudge(length_guard)
-    if speaker_cue:
-        tail += f"## Your cue\n{speaker_cue}\n\n"
-    if effective_msg:
-        tail += "___\n\n" + effective_msg + "\n\n"
-    if depth_block:
-        tail += "___\n\n" + depth_block + "\n\n"
-    if speaker is not None:
-        tail += f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
-
+            speaker_open += f"## Additional Instructions\n{resolve(speaker.post_history)}\n\n"
+        speaker_close = (
+            f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
+        )
+    inputs = WriterInputs(
+        selected_lore=lorebook_block,
+        scene_guidance=inj_block,
+        length_nudge=writer_nudge(length_guard).strip(),
+        cue=speaker_cue,
+        user_message=effective_msg,
+        depth_lore=depth_block,
+        card_instructions=macros.resolve_message(card_instructions) if macros else card_instructions,
+        tool_notice=tools_sent,
+        speaker_open=speaker_open,
+        speaker_close=speaker_close,
+    )
+    tail = render_writer_tail(layout if layout is not None else default_layout(), inputs, block_macros)
     return build_multimodal_content(tail, attachments)
 
 
@@ -173,6 +184,8 @@ async def writer_stage(
     speaker_cue: str = "",
     macros: Macros | None = None,
     context_mode: GroupContextMode = "private",
+    layout: Sequence[LayoutBlock] | None = None,
+    chat_instructions: str = "",
 ) -> AsyncIterator[CoreTurnEvent]:
     """Input-prep + writer pass + event translation.
 
@@ -200,6 +213,8 @@ async def writer_stage(
         macros=macros,
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         context_mode=context_mode,
+        layout=layout,
+        card_instructions=chat_instructions,
     )
     state.writer_call = TextCallRecord()
     label_buffer = ""

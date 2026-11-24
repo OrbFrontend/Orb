@@ -68,3 +68,8 @@ def char_context(
     if card_system_prompt and not settings.get("prevent_prompt_overrides"):
         system_prompt = card_system_prompt
     return system_prompt, char_persona, card.get("mes_example", "")
+
+
+def chat_instructions(settings: Settings, conv: Mapping[str, Any]) -> str:
+    """The chat's own instruction text, unless prompt overrides are off."""
+    return "" if settings.get("prevent_prompt_overrides") else str(conv.get("post_history_instructions", "") or "")

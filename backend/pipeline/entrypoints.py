@@ -13,7 +13,7 @@ from ..core import card_description, resolve_inline
 from ..core.settings import Settings
 from ..inference import AbortToken, CachedBase, DecisionCancelled, KVCacheTracker, TextCallRecord
 from ..inference.gpu_swap import turn_hold
-from ..prompting import prefix_cache_shape, prefix_is_speaker_scoped
+from ..prompting import chat_instructions, prefix_cache_shape, prefix_is_speaker_scoped
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
 from .context import PipelineContext, TurnSetup, build_prefixes, enabled_moods, load_pipeline_context, prepare_turn
@@ -376,6 +376,8 @@ async def _generate_reply(
         judge=opened.judge,
         state_contract=ctx.state_contract,
         judge_config=ctx.judge_config,
+        layout=ctx.layout,
+        chat_instructions=chat_instructions(settings, ctx.conv),
     )
     async for event in consume_pipeline(
         pipeline,
@@ -577,6 +579,8 @@ async def _generate_group_exchange(
             run_exchange_final=turn.is_final,
             state_contract=ctx.state_contract,
             judge_config=ctx.judge_config,
+            layout=ctx.layout,
+            chat_instructions=chat_instructions(settings, ctx.conv),
         )
         persisted_id: int | None = None
         persisted_content = ""

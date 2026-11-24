@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from .. import database as db
-from ..core import CardScripts, estimate_tokens, state_fragments_of
+from ..core import CardScripts, Macros, estimate_tokens, state_fragments_of
+from ..core.prompt_layout import CUSTOM_KIND, TOGGLEABLE_MARKERS, LayoutBlock
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
@@ -121,6 +123,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     ]
     if turn_cast.grouped:
         components[2:2] = [(key, len(text)) for key, text in group_components]
+    components = _apply_layout(components, await db.get_active_layout_blocks(), macros, turn_cast.grouped)
     breakdown = {label: {"chars": chars, "tokens_est": estimate_tokens(chars)} for label, chars in components}
     total_chars = sum(v["chars"] for v in breakdown.values())
     return {
@@ -130,3 +133,29 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
         "message_count": len(messages),
         "estimate_kind": "maximum" if turn_cast.grouped else "single_call",
     }
+
+
+# The size rows each toggleable marker renders, so switching one off drops it from the estimate.
+_MARKER_ROWS: dict[str, frozenset[str]] = {
+    "character": frozenset({"char_persona"}),
+    "cast": frozenset({"cast_public", "cast_dossiers", "largest_active_card"}),
+    "scenario": frozenset({"scenario"}),
+    "example_dialogue": frozenset({"mes_example"}),
+    "card_instructions": frozenset({"post_history"}),
+    "user_persona": frozenset({"user_persona"}),
+}
+
+
+def _apply_layout(
+    components: list[tuple[str, int]], layout: Sequence[LayoutBlock], macros: Macros, grouped: bool
+) -> list[tuple[str, int]]:
+    """Zero the rows of switched-off markers and bill custom blocks above and below the history as their own rows."""
+    off = {
+        row for block in layout if block.kind in TOGGLEABLE_MARKERS and not block.enabled for row in _MARKER_ROWS[block.kind]
+    }
+    custom = {"prefix": 0, "writer": 0}
+    for block in layout:
+        if block.kind == CUSTOM_KIND and block.enabled:
+            custom[block.region] += len(macros.resolve_message(block.content).strip())
+    rows = [(key, 0 if key in off else chars) for key, chars in components]
+    return rows + [(f"custom_{region}", chars) for region, chars in custom.items() if chars]
