@@ -26,7 +26,6 @@ from ...database import (
     update_prompt_block,
 )
 from ...pipeline.passes.editor.length_guard import writer_nudge
-from ...pipeline.passes.judge.guidance import HEADING as DECISIONS_HEADING
 from ...prompting.fragment_state import STATE_BLOCK_HEADING
 from ...prompting.layout import TOOL_NOTICE, marker_text
 from ..schemas import (
@@ -48,13 +47,9 @@ def _refused(error: PromptLayoutError) -> HTTPException:
 # What an engine marker's dynamic part stands for, shown in its fixed framing.
 _MARKER_PLACEHOLDERS: dict[str, str] = {
     "cast": "[The group's cast and each member's sheet]",
-    "constant_lore": "[Constant lore entries]",
     "workflow_blocks": "[Text that enabled workflows add]",
-    "selected_lore": "[Lore entries chosen for this turn]",
-    "decisions": f"{DECISIONS_HEADING}\n\n[Guidance from this turn's decisions]",
     "current_state": f"{STATE_BLOCK_HEADING}\n\n[Each state fragment's entries]",
     "cue": "[The Director's cue for this speaker]",
-    "depth_lore": "[Depth lore entries]",
 }
 
 

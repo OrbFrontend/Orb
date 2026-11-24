@@ -109,20 +109,27 @@ each one decides whether it renders, and the group context mode decides what
 `length_nudge` marker.
 
 The Director stage hands the Writer three separate parts, each its own marker:
-`decisions` (the Judge's guidance under `**Major Decisions**`),
-`scene_guidance` (the Director's mood prompts and field values) and
-`current_state` (the state block under `**Current State**`). The Inspector's
-injection block and the Director's other readers still see the three joined,
-with Scene Guidance under its fixed heading.
+`decisions` (the Judge's guidance lines for the Writer), `scene_guidance` (the
+Director's mood prompts and field values) and `current_state` (the state block
+under `**Current State**`). The Inspector's injection block and the Director's
+own requests still see decisions and Scene Guidance under their fixed headings,
+`**Major Decisions**` and `**Scene Guidance**`.
 
-`main_prompt`, `scene_guidance` and `user_message` hold their own text
-(`EDITABLE_MARKERS`); the API marks them `editable`. The two Writer-request ones
-start from `MARKER_TEMPLATES` and must keep their own placeholder,
-`{{scene_guidance}}` or `{{user_message}}`, which stands for the engine's part
-and is filled like a section placeholder: the text's macros resolve, then the
-value goes in literally. The block renders nothing while its value is empty, and
-its text carries its own `___` divider. Every other marker's text is fixed; the
-API's `builtin_text` field shows it, with its dynamic part in brackets.
+Lore reaches the layout the same way: `constant_lore`, `selected_lore` and
+`depth_lore` carry entry lines only, authored and Agent-managed entries in one
+list, and the Director's own request frames selected lore under its fixed
+`**Lorebook**` heading.
+
+`main_prompt` and every marker in `MARKER_TEMPLATES` hold their own text
+(`EDITABLE_MARKERS`); the API marks them `editable`. Those are the three lore
+markers, `decisions`, `scene_guidance` and `user_message`. Each starts from its
+template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
+`{{decisions}}` and so on), which stands for the engine's part and is filled
+like a section placeholder: the text's macros resolve, with the conversation's
+seed above the divider and fresh below it, then the value goes in literally.
+The block renders nothing while its value is empty. Writer-request text carries
+its own `___` divider. Every other marker's text is fixed; the API's
+`builtin_text` field shows it, with its dynamic part in brackets.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless

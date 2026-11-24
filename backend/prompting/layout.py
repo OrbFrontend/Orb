@@ -29,11 +29,8 @@ _DIVIDER = "___\n\n"
 TOOL_NOTICE = "**Do not use tool or function calls this turn.**\n\n"
 # The fixed framing of each marker whose text the user does not edit.
 _MARKER_HEADS: dict[str, str] = {
-    "selected_lore": _DIVIDER,
-    "decisions": _DIVIDER,
     "current_state": _DIVIDER,
     "cue": "## Your cue\n",
-    "depth_lore": _DIVIDER,
 }
 
 
@@ -86,7 +83,7 @@ def marker_text(kind: str, content: str) -> str:
 
 
 def _render_marker(block: LayoutBlock, value: str, resolve: Callable[[str], str]) -> str:
-    """A Writer-request marker: its own text around *value* when the user edits it, else its fixed framing."""
+    """A marker: its own text around *value* when the user edits it, else its fixed framing."""
     if block.kind not in MARKER_TEMPLATES:
         return marker_text(block.kind, value)
     if not value:
@@ -186,7 +183,7 @@ def render_prefix(blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: M
         if block.kind == CUSTOM_KIND:
             text = _render_block(block.content, inputs.sections, resolve)
         else:
-            text = marker_text(block.kind, getattr(inputs, block.kind))
+            text = _render_marker(block, getattr(inputs, block.kind), resolve)
         if block.role == "system":
             if block.kind == "main_prompt" and not pieces:
                 # The main prompt opens the system message, even when empty, so the next section keeps its separator.

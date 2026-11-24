@@ -16,10 +16,17 @@ placeholders that stand for the card and chat: `{{description}}`,
 `{{persona}}`. An empty placeholder is dropped with the blank line next to it,
 and a block whose placeholders are all empty is left out.
 
-**Scene guidance** and **User message** are built-in blocks you can edit. Their
-text names one placeholder, `{{scene_guidance}}` or `{{user_message}}`, which
-stands for the Director's guidance or the user's message, and must stay in the
-text. The block is left out on turns where that part is empty.
+Some built-in blocks hold text you can edit. Each names one placeholder that
+must stay in the text, and the block is left out on turns where it is empty:
+
+| Block | Placeholder | Stands for |
+|---|---|---|
+| Constant lore | `{{constant_lore}}` | Constant entries without **@ Depth** |
+| Selected lore | `{{selected_lore}}` | Entries chosen this turn by keyword or by the Director |
+| Depth lore | `{{depth_lore}}` | Constant entries with **@ Depth** |
+| Decisions | `{{decisions}}` | The Judge's guidance |
+| Scene guidance | `{{scene_guidance}}` | The Director's guidance |
+| User message | `{{user_message}}` | Your message |
 
 Other built-in blocks show the text Orb sends, with the parts that change each
 turn in brackets. Other settings switch them on and off, as the label on the

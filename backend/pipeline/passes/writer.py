@@ -90,8 +90,8 @@ def build_writer_content(
 ) -> str | list[ContentPart]:
     """Build Writer user-message content.
 
-    *scene_guidance* is the Scene Guidance body, without its heading; *decisions* and *current_state* are the decision
-    guidance and current-state blocks, headings included. *sections* are the prefix's card and chat sections; they render
+    *scene_guidance* and *decisions* are the Scene Guidance body and the decision lines, without their headings;
+    *current_state* is the current-state block, heading included. *sections* are the prefix's card and chat sections; they render
     here only for blocks *layout* places below the divider.
     """
     speaker_open = ""
@@ -216,7 +216,7 @@ async def writer_stage(
         depth_block=depth_block,
         speaker=speaker,
         speaker_cue=speaker_cue,
-        decisions=state.writer_decision_guidance,
+        decisions=state.writer_decisions,
         current_state=state.writer_state_block,
         macros=macros,
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),

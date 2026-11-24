@@ -39,9 +39,14 @@ MARKER_LABELS: dict[str, str] = {
     "depth_lore": "Depth lore",
 }
 
-# The engine markers whose text the user edits, each with the text a layout starts from. A Writer-request marker's text must
-# name its own placeholder, ``{{<kind>}}``, which stands for the engine's part; the block renders nothing while that is empty.
+# The engine markers whose text the user edits besides the Main prompt, each with the text a layout starts from. The text must
+# name the marker's own placeholder, ``{{<kind>}}``, which stands for the engine's part; the block renders nothing while that is
+# empty.
 MARKER_TEMPLATES: dict[str, str] = {
+    "constant_lore": "## Lorebook\n\n{{constant_lore}}",
+    "selected_lore": "___\n\n**Lorebook**\n\n{{selected_lore}}",
+    "depth_lore": "___\n\n**Lorebook (Depth)**\n\n{{depth_lore}}",
+    "decisions": "___\n\n**Major Decisions**\n\n{{decisions}}",
     "scene_guidance": "___\n\n**Scene Guidance**\n\n{{scene_guidance}}",
     "user_message": "___\n\n{{user_message}}",
 }
@@ -94,7 +99,7 @@ def marker_block_id(layout_id: str, kind: str) -> str:
 
 
 def marker_placeholder(kind: str) -> str:
-    """The placeholder an editable Writer-request marker's text must name."""
+    """The placeholder an editable marker's text must name."""
     return "{{" + kind + "}}"
 
 

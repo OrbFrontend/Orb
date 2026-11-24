@@ -30,7 +30,7 @@ from ....inference import (
 )
 from ...events import DecisionsData
 from . import cooldown
-from .guidance import decision_guidance_block
+from .guidance import decision_guidance_block, decision_guidance_lines
 from .records import (
     envelope,
     invalidated_anchor,
@@ -175,6 +175,10 @@ class JudgeResult:
     def writer_guidance(self) -> str:
         return decision_guidance_block(self.evaluations, "writer")
 
+    @property
+    def writer_lines(self) -> str:
+        return decision_guidance_lines(self.evaluations, "writer")
+
     def as_event_data(self) -> DecisionsData:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
         data: DecisionsData = {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
@@ -188,6 +192,7 @@ class JudgeResult:
         state.decision_cooldowns = dict(self.cooldowns)
         state.director_decision_guidance = self.director_guidance
         state.writer_decision_guidance = self.writer_guidance
+        state.writer_decisions = self.writer_lines
 
 
 @dataclass(slots=True)

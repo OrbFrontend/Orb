@@ -29,6 +29,7 @@ from ....prompting import (
     render_state_block,
     resolve_mood_fragment_randoms,
 )
+from ....prompting.lorebook import headed_lorebook
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
 from ...events import CoreTurnEvent, StateData
@@ -258,7 +259,7 @@ async def director_pass(
 
     # Prepended to direct_scene prompts as "___"-fenced sections (like the lorebook), so the director decides the scene with the
     # world facts and the saved state it receives in view.
-    lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
+    lorebook_prefix = ("___\n\n" + headed_lorebook(lorebook_block) + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + state_block + "\n\n") if state_block else ""
     # Already-settled facts the Director plans *around*, so they ride the context section of the tail rather than the
     # instruction. Nothing about probabilities or dice is in the block (see passes/judge/guidance.py) -- a rolled outcome reaches

@@ -370,10 +370,26 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
     director_tail = _tail_text(_captured(llm_mock, "director")[0])
     assert "Doorway: Alric holds the doorway." in director_tail
     assert "0.9" not in director_tail
+    assert "___\n\n**Major Decisions**\n\nDoorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "writer")[0])
 
     # The classifier saw the rendered state, and only once.
     assert gateway.batches == [["outcome"]]
     assert "I shove the door." in gateway.states[0]
+
+
+async def test_the_layouts_decisions_text_frames_the_writers_guidance_only(client, db, llm_mock, monkeypatch):
+    cid = await _solo_scene(client)
+    Gateway(monkeypatch, answers={"outcome": 0.9})
+    await client.expect("patch", "/api/prompt-blocks/default:decisions", json={"content": "___\n\n## Rolled\n{{decisions}}"})
+
+    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
+
+    writer_tail = _tail_text(_captured(llm_mock, "writer")[0])
+    assert "___\n\n## Rolled\nDoorway: Alric holds the doorway." in writer_tail
+    assert "Major Decisions" not in writer_tail
+    # The Director and the Inspector keep the fixed heading.
+    assert "**Major Decisions**\n\nDoorway" in _tail_text(_captured(llm_mock, "director")[0])
+    assert "**Major Decisions**\n\nDoorway" in _event(events, "director_done")["injection_block"]
 
 
 @pytest.mark.parametrize(("inject", "to_director", "to_writer"), [("director", True, False), ("writer", False, True)])
