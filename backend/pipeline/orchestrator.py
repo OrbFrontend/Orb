@@ -327,10 +327,12 @@ def _resolve_user_message(
     user_message: str, macros: Macros, *, card: Mapping[str, Any] | None, speaker: CastMember | None
 ) -> str:
     """Resolve *user_message*'s macros, then run the card's prompt scripts over it unless a group *speaker* is replying."""
-    resolved = macros.resolve_message(user_message)
+    # The message's own inline macros froze when it was saved; what a script writes into it rolls at the message's place.
+    message_macros = macros.at("user_message")
+    resolved = message_macros.resolve_message(user_message)
     if not card or speaker is not None:
         return resolved
-    return CardScripts.from_extensions(card.get("extensions")).apply(resolved, "prompt", "user", macros.resolve_message)
+    return CardScripts.from_extensions(card.get("extensions")).apply(resolved, "prompt", "user", message_macros.resolve_message)
 
 
 def _open_pipeline_state(

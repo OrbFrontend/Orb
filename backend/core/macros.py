@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import re
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from datetime import datetime
 from typing import Any, NamedTuple
 
@@ -77,13 +77,21 @@ _CARD_FIELD_RE = re.compile(r"\{\{(description|personality)\}\}", re.IGNORECASE)
 
 
 def _sub_card_fields(text: str, description: str, personality: str) -> str:
-    """Substitute {{description}} and {{personality}} literally in one pass, each value dropping its own nested macro; an empty
-    field resolves to nothing."""
+    """Substitute {{description}} and {{personality}} in one pass; an empty field resolves to nothing.
+
+    Each value drops its own nested macro and fills the other field's one level deep, with that field's card-field macros
+    dropped, which cuts cycles. Backticked spans in a value stay literal. The result is complete: no later pass changes it.
+    """
     if not text or not isinstance(text, str):
         return text or ""
-    values = {
+    own = {
         name: re.sub(rf"\{{\{{{name}\}}\}}", "", value, flags=re.IGNORECASE)
         for name, value in (("description", description), ("personality", personality))
+    }
+    bare = {name: _outside_literals(value, lambda t: _CARD_FIELD_RE.sub("", t)) for name, value in own.items()}
+    values = {
+        name: _outside_literals(value, lambda t: _CARD_FIELD_RE.sub(lambda m: bare[m.group(1).lower()], t))
+        for name, value in own.items()
     }
 
     def one(match: re.Match) -> str:
@@ -156,27 +164,36 @@ _INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
 ]
 
 
-def _resolve_inline(text: str, seed: str = "") -> str:
+_PICK_RE = re.compile(r"\{\{pick::", re.IGNORECASE)
+
+
+def _resolve_inline(text: str, seed: str = "", pick_seed: str | None = None) -> str:
     """Resolve inline comment, roll, random/pick, time, date and trim macros.
 
     With a seed, random results depend on (seed, macro text, occurrence), keeping
     rebuilt prompt fields byte-stable. Empty seed rolls fresh; time always uses now.
+    ``{{pick}}`` rolls with *pick_seed* (*seed* when None), so a pick can stay fixed where random and roll are fresh.
     """
     if not text or not isinstance(text, str):
         return text or ""
+    if pick_seed is None:
+        pick_seed = seed
 
     # Ordinal counts prior occurrences of the *same* macro text, so a seeded pick survives unrelated edits around it and repeats
     # of the same macro still roll independently.
     seen: dict[str, int] = {}
 
-    def _seeded_rng(m: re.Match) -> random.Random:
+    def _rng(m: re.Match) -> Any:
+        key = pick_seed if _PICK_RE.match(m.group(0)) else seed
+        if not key:
+            return random
         ordinal = seen.get(m.group(0), 0)
         seen[m.group(0)] = ordinal + 1
-        return random.Random(f"{seed}|{m.group(0)}|{ordinal}")
+        return random.Random(f"{key}|{m.group(0)}|{ordinal}")
 
     def _fire(t: str) -> str:
         for pattern, handler in _INLINE_MACROS:
-            t = pattern.sub(lambda m, h=handler: h(m, _seeded_rng(m) if seed else random), t)
+            t = pattern.sub(lambda m, h=handler: h(m, _rng(m)), t)
         return t
 
     return _outside_literals(text, _fire)
@@ -208,12 +225,12 @@ def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -
     return _resolve_inline(_sub(text, user_name, char_name), seed=seed)
 
 
-def resolve_inline(text: str, seed: str = "") -> str:
+def resolve_inline(text: str, seed: str = "", *, pick_seed: str | None = None) -> str:
     """Resolve inline macros once at persistence; leave {{user}}/{{char}} for reads.
 
-    Rolls are fresh unless *seed* is provided.
+    Rolls are fresh unless *seed* is provided; ``{{pick}}`` rolls with *pick_seed* when given.
     """
-    return _resolve_inline(text, seed=seed)
+    return _resolve_inline(text, seed=seed, pick_seed=pick_seed)
 
 
 def has_inline_macros(text: str) -> bool:
@@ -222,6 +239,16 @@ def has_inline_macros(text: str) -> bool:
         return False
     text = _LITERAL_RE.sub("", text)
     return any(pattern.search(text) for pattern, _ in _INLINE_MACROS)
+
+
+def named_placeholders(text: str, names: Iterable[str]) -> frozenset[str]:
+    """Which of *names* *text* names as ``{{name}}`` (case-insensitive, reported lowercase), outside backticked literals and
+    ``{{// ... }}`` notes: literals are masked first, then notes removed, as inline resolution treats them."""
+    if not text or not isinstance(text, str):
+        return frozenset()
+    pattern = re.compile(r"\{\{(" + "|".join(re.escape(name) for name in names) + r")\}\}", re.IGNORECASE)
+    scanned = _COMMENT_RE.sub("", _LITERAL_RE.sub("\x00", text))
+    return frozenset(match.group(1).lower() for match in pattern.finditer(scanned))
 
 
 def has_clock_macros(text: str) -> bool:
@@ -269,8 +296,9 @@ def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
 class Macros(NamedTuple):
     """Resolve description, personality, names, cast and inline macros for a turn.
 
-    Expand the card fields first so their own macros resolve. A conversation seed keeps
-    random/roll results stable across prompt rebuilds; an empty seed rolls fresh.
+    A value rolls once, where it is defined: the seed is the conversation's, narrowed to one place by :meth:`at`, so random,
+    pick and roll results stay stable across prompt rebuilds and two places roll independently. ``fresh`` rolls random and
+    roll anew on every resolve while a pick stays fixed for its place; an empty seed rolls everything fresh.
     """
 
     user: str
@@ -279,9 +307,30 @@ class Macros(NamedTuple):
     cast: str = ""
     # {{description}} and {{personality}}: the card's own fields, from :func:`card_description` and :func:`card_personality` solo
     # and from the member in a group (``prompting.group_context.member_macros``). Unlike the three above they are bodies of
-    # text, not names -- see :func:`_sub_card_fields`.
+    # text, not names -- see :func:`_sub_card_fields`. :meth:`with_card_fields` resolves them once, so inserting one anywhere
+    # reuses its rolls.
     description: str = ""
     personality: str = ""
+    fresh: bool = False
+
+    def at(self, place: str) -> Macros:
+        """These macros seeded for one place: a field, a block, a lore entry. Places roll independently of each other."""
+        return self._replace(seed=f"{self.seed}|{place}") if self.seed else self
+
+    def with_card_fields(self, description: str, personality: str, place: str = "") -> Macros:
+        """These macros carrying *description* and *personality* resolved once, each at its own place under *place*.
+
+        Each field fills the other's macro with that field resolved alone (its card-field macros dropped, which cuts cycles)
+        and drops its own. Resolving happens here, with this identity, and is seeded whatever ``fresh`` says: a card field is
+        fixed for its place, and every ``{{description}}`` inserts these bytes.
+        """
+        bare = self._replace(description="", personality="", fresh=False)
+        alone_description = bare.at(f"{place}description").resolve_message(description)
+        alone_personality = bare.at(f"{place}personality").resolve_message(personality)
+        return self._replace(
+            description=bare._replace(personality=alone_personality).at(f"{place}description").resolve_message(description),
+            personality=bare._replace(description=alone_description).at(f"{place}personality").resolve_message(personality),
+        )
 
     @classmethod
     def from_settings(
@@ -303,7 +352,7 @@ class Macros(NamedTuple):
         Names go in before inline macros, so any of them can be a {{random}} option.
         """
         named = _sub_cast(_sub(_sub_card_fields(text, self.description, self.personality), self.user, self.char), self.cast)
-        return _resolve_inline(named, seed=self.seed)
+        return _resolve_inline(named, seed="" if self.fresh else self.seed, pick_seed=self.seed)
 
     def resolve_prompt(self, text: str) -> str:
         """Only substitution -- {{description}}, {{personality}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""

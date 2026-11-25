@@ -81,8 +81,9 @@ Workflow-owned text composed outside that prefix -- saved configuration a
 workflow reuses in every conversation -- resolves against the same identity
 through `toolkit.conversation_macros`, which shares the prefix's persona-lock
 precedence so one call cannot name the user two ways. Such text rides a per-call
-tail rather than the shared prefix, so it may pass `seed=""` and roll
-`{{random}}` fresh each call without affecting prefix reuse.
+tail rather than the shared prefix, so it may pass `fresh=True` and roll
+`{{random}}` and `{{roll}}` fresh each call without affecting prefix reuse; a
+`{{pick}}` stays fixed for the conversation.
 
 ## Prompt layout
 
@@ -139,9 +140,10 @@ list, and the Director's own request frames selected lore under its fixed
 (`EDITABLE_MARKERS`); the API marks them `editable`. Those are the three lore
 markers, `decisions`, `scene_guidance` and `user_message`. Each starts from its
 template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
-`{{decisions}}` and so on), which stands for the engine's part and is filled
-like a section placeholder: the text's macros resolve, with the conversation's
-seed above the divider and fresh below it, then the value goes in literally.
+`{{decisions}}` and so on) outside a `{{// ... }}` note and outside backticks.
+The placeholder stands for the engine's part and is filled like a section
+placeholder: the text's macros resolve, with the conversation's seed above the
+divider and fresh below it, then the value goes in literally.
 The block renders nothing while its value is empty. Writer-request text carries
 its own `___` divider. Every other marker's text is fixed; its window has no text field.
 
@@ -149,9 +151,10 @@ The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless
 `prevent_prompt_overrides` is set (`prompting.char_context`). Switching the
 marker off leaves no main prompt at all, the card's included, for the
-summarizer and the size estimate as well. Either text
-resolves macros with the conversation's seed, as prefix custom blocks do, but
-keeps its whitespace, so text without macros keeps its bytes. Every lane,
+summarizer and the size estimate as well. Either text reaches the layout raw:
+the layout fills the sections it names and resolves its macros with the
+conversation's seed, as prefix custom blocks do, but keeps its whitespace, so
+text without macros keeps its bytes. Every lane,
 including a separate Agent lane, off-turn calls, and the summarizer read the
 active layout's Main prompt.
 
@@ -160,8 +163,11 @@ Example dialogue, Chat instructions and User persona blocks a new layout seeds
 (`SECTION_BLOCKS` in `core/prompt_layout.py`). A custom block may be edited,
 switched off, deleted, or moved to either side of the divider; one moved
 across it with its old side's default role (`system` above, `user` below)
-takes the new side's default, and a role the user picked stays. Its text may
-name section placeholders:
+takes the new side's default, and a role the user picked stays.
+
+Every layout text may name section placeholders: a custom block's, the Main
+prompt (a card's `system_prompt` included) and every editable marker's. Each
+name means its section wherever it is written, on either side of the divider:
 
 | Placeholder | Section |
 |---|---|
@@ -173,15 +179,26 @@ name section placeholders:
 | `{{persona}}` | The user persona's description |
 
 `{{description}}` and `{{personality}}` are also general macros carrying the
-same card fields; inside layout blocks they are sections, so they stay empty in
-a group. The other placeholders do not resolve outside layout blocks.
+same card fields, scoped to the speaker in a group; in layout text they are
+sections, so they stay empty in a group. The other placeholders do not resolve
+outside layout text.
+
+Only a custom block renders nothing while every section it names is empty; the
+Main prompt and the editable markers drop an empty section with its blank line
+and otherwise render. A custom block naming `{{examples}}` is filled once per
+example (below); in the Main prompt or a marker's text, `{{examples}}` inserts
+every example at once, `<START>` lines dropped, a blank line between examples.
 
 Rendering rules:
 
 - Section values arrive macro-resolved from `prompting.conversation_sections`,
   the one builder every prefix, the Writer request and the size estimate read.
   A block's own macros resolve first, then each placeholder is substituted
-  literally, with no second macro pass. An empty section's placeholder leaves with one
+  literally, with no second macro pass. A placeholder in single backticks stays
+  literal, backticks included, and one inside a `{{// ... }}` note leaves with
+  the note; neither counts as naming its section (`core.macros.named_placeholders`
+  is the one scanner, for rendering and for the marker edit check). An empty
+  section's placeholder leaves with one
   blank-line separator beside it, the one before it when there is one, so the
   seeded Character block reads `heading\ndescription\n\npersonality` with
   either field missing cleanly. A block naming placeholders renders nothing
@@ -222,9 +239,33 @@ Rendering rules:
   own error. The later passes replay the request unchanged, then the reply.
   Anthropic's current models refuse an assistant prefill outright.
 - Prefix blocks resolve with the conversation's macro seed, so their bytes are
-  stable across builds. Writer-request blocks roll inline macros fresh each time
-  the request is built; the Editor replays the built messages, so both passes
-  read the same rolls.
+  stable across builds. Writer-request blocks roll `{{random}}` and `{{roll}}`
+  fresh each time the request is built (`Macros.fresh`); a `{{pick}}` keeps the
+  seed. The Editor replays the built messages, so both passes read the same
+  rolls.
+
+A value rolls once, where it is defined. `Macros.at(place)` narrows the
+conversation's seed to one place: a section (`scenario`, `persona`,
+`examples`, `instructions`), a layout block (`layout:<kind>` for a marker,
+`layout:<id>` for a custom block, so moving one keeps its rolls), a lore entry's
+name or content, a group member's field (`prompting.member_place`), a prefill, the
+Director's scene guidance and state block, an image-generation field. The seed
+inside one place is unchanged: the macro's text and its count among identical
+macros there, so editing other text keeps a roll. `Macros.with_card_fields`
+resolves a card's description and personality once, at their own places, and
+every `{{description}}` inserts those bytes: a section, a lore entry, a history
+row and the Judge's Situation read the same rolls. Every builder derives the same
+places, so lanes keep identical prefix bytes. `POST
+/api/conversations/{id}/reroll-macros` replaces the conversation's `macro_seed`
+and clears its stored mood choices, refused while the chat has work running.
+
+No macro pass runs over a built prefix. The first pass is complete:
+`{{description}}` and `{{personality}}` each insert a field that already fills
+the other field's macro one level deep (that field's own card-field macros
+dropped, which cuts cycles). A turn lane resolves identity macros only in each
+call's trailing messages (`CachedBase.resolve_trailing`), so every call on a
+turn lane, a forced workflow call and the off-turn prefix send the same prefix
+bytes, the ones the Inspector and the size estimate show.
 
 Every turn and off-turn builder renders the same active layout:
 `load_pipeline_context` reads it once into `PipelineContext.layout`, and

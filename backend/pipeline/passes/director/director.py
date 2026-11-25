@@ -443,17 +443,18 @@ async def director_pass(
     }
 
 
-def _resolve_random_in_value(value: Any) -> Any:
+def _resolve_random_in_value(value: Any, macros: Macros, place: str) -> Any:
     """Resolve inline macros in a director-authored field value, fresh rolls.
 
     The director authored the value this turn, so a {{random}}/{{roll}} it emits re-rolls on every emission -- unlike fragment
-    source text, whose picks are pinned in the per-conversation choice map. String values and all-string lists (array fields)
-    are resolved; anything else passes through untouched.
+    source text, whose picks are pinned in the per-conversation choice map. A {{pick}} stays fixed for the field (*place*).
+    String values and all-string lists (array fields) are resolved, each item at its own place; anything else passes through
+    untouched.
     """
     if isinstance(value, str):
-        return resolve_inline(value)
+        return resolve_inline(value, pick_seed=macros.at(place).seed)
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
-        return [resolve_inline(v) for v in value]
+        return [resolve_inline(v, pick_seed=macros.at(f"{place}:{index}").seed) for index, v in enumerate(value)]
     return value
 
 
@@ -515,7 +516,7 @@ async def director_stage(
     director_block = render_state_block(
         [fragment for fragment in state_contract.to_director() if fragment.id not in updating_ids], view
     )
-    director_block = macros.resolve_message(director_block) if director_block else ""
+    director_block = macros.at("director_state").resolve_message(director_block) if director_block else ""
 
     has_director_loop_tools = any(cfg.active_tools.get(n, False) for n in DIRECTOR_LOOP_TOOL_NAMES)
     if cfg.agent_on and has_director_loop_tools:
@@ -616,7 +617,9 @@ async def director_stage(
         inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
         # Interactive values the director authored this turn roll fresh (per emission, not per conversation); resolving before
         # they become state changes keeps the saved value consistent with the injected text.
-        state.extra_fields = {fid: _resolve_random_in_value(val) for fid, val in state.extra_fields.items()}
+        state.extra_fields = {
+            fid: _resolve_random_in_value(val, macros, f"director:{fid}") for fid, val in state.extra_fields.items()
+        }
 
     # The Director's one-value state fields become validated state changes. An omitted or empty field keeps its value; a value
     # of the wrong shape is rejected and reported rather than coerced.
@@ -637,7 +640,7 @@ async def director_stage(
 
     scene_ids = {fragment["id"] for fragment in scene_fragments}
     scene_extra = {fid: value for fid, value in state.extra_fields.items() if fid in scene_ids}
-    state.scene_guidance = macros.resolve_message(
+    state.scene_guidance = macros.at("scene_guidance").resolve_message(
         compute_style_injection_block(
             state.active_moods,
             # A mood suppressed by its cooldown is resting, not deliberately deactivated. Keep its negative prompt for ordinary
@@ -688,7 +691,7 @@ async def director_stage(
     # direct_scene and of whether updates are on -- and includes this turn's before-Writer changes, a changed one-value field
     # rendering as ``old -> new``.
     writer_block = render_state_block(state_contract.to_writer(), view, prior=state.state_prior)
-    state_text = macros.resolve_message(writer_block) if writer_block else ""
+    state_text = macros.at("state").resolve_message(writer_block) if writer_block else ""
     state.writer_state_block = state_text
 
     def injection_block(scene_direction: str) -> str:
@@ -704,7 +707,7 @@ async def director_stage(
     # The Inspector can hide the mood prompts, which the user picked and can already read. None when no mood prompt rendered.
     without_moods = injection_block(
         headed_scene_guidance(
-            macros.resolve_message(
+            macros.at("scene_guidance").resolve_message(
                 compute_style_injection_block([], [], [], scene_fragments, direct_scene_enabled, scene_extra)
             )
         )

@@ -423,15 +423,21 @@ async def _turn_macros(
     )
 
 
-async def conversation_macros(conversation_id: str, settings: Settings, *, seed: str | None = None) -> Macros:
-    """Build the macros for workflow-owned text in a conversation."""
+async def conversation_macros(
+    conversation_id: str, settings: Settings, *, seed: str | None = None, fresh: bool = False
+) -> Macros:
+    """Build the macros for workflow-owned text in a conversation.
+
+    *fresh* rolls random and roll anew on every resolve while a pick stays fixed for the conversation and its place
+    (``Macros.at``); *seed* ``""`` rolls everything fresh.
+    """
     conv = await get_conversation(conversation_id)
     if conv is None:
-        return Macros(user=str(settings.get("user_name") or "User"), char="", seed=seed or "")
+        return Macros(user=str(settings.get("user_name") or "User"), char="", seed=seed or "", fresh=fresh)
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
     macros, _ = await _turn_macros(conv, settings, card, await resolve_cast(conv), seed=seed)
-    return macros
+    return macros._replace(fresh=fresh)
 
 
 async def build_offturn_prefix(conversation_id: str, history, settings: Settings) -> list[Any]:

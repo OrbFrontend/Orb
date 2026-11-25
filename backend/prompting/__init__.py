@@ -15,6 +15,7 @@ from .group_context import (
     largest_cast_section,
     macro_identity,
     member_macros,
+    member_place,
     prefix_cache_shape,
     prefix_is_speaker_scoped,
     render_cast_section,

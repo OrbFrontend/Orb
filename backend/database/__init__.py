@@ -68,6 +68,7 @@ from .queries.conversations import (
     group_family_ids,
     group_root_of,
     list_conversations,
+    reroll_conversation_macros,
     set_workflow_state,
     sibling_chat_titles,
     touch_conversation,

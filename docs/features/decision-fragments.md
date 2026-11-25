@@ -112,7 +112,7 @@ Orb expands inline macros before inserting chat text such as `{{last_message}}`
 and `{{recent_history}}`. So text from a message is not evaluated a second time.
 
 Regeneration keeps the same rolls for the same request; a new exchange gets
-fresh rolls. All decisions in an exchange share the rolls in their Situation.
+fresh rolls, except `pick`, which stays fixed for the conversation. All decisions in an exchange share the rolls in their Situation.
 Rolls in instructions, criteria, and guidance are separate for each decision.
 You can use `{{user}}`, `{{char}}`, and `{{cast}}` inside a `random` or
 `pick` option. Situation values such as `{{last_message}}`, `{{recent_history}}`,

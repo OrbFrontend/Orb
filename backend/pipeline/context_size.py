@@ -84,7 +84,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     active_moods = director.get("active_moods", [])
     est_mood_frags = resolve_mood_fragment_randoms(mood_frags, active_moods, dict(director.get("macro_choices", {})))
     direct_scene_enabled = agent_enabled(settings) and bool((settings.get("enabled_tools") or {}).get("direct_scene", False))
-    scene_guidance = macros.resolve_message(
+    scene_guidance = macros.at("scene_guidance").resolve_message(
         compute_style_injection_block(active_moods, active_moods, est_mood_frags, director_frags, direct_scene_enabled, {})
     )
     # The Writer's current-state block rides Scene guidance on every turn.
@@ -92,7 +92,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
     if writer_state:
         state_block = render_state_block(writer_state, await db.fold_path_state(cid, [m["id"] for m in messages]))
-        current_state = macros.resolve_message(state_block) if state_block else ""
+        current_state = macros.at("state").resolve_message(state_block) if state_block else ""
 
     # The Writer's lorebook block as the turn builds it; with agentic lorebook on, the part known before the Director picks.
     lorebook = build_lorebook_turn(settings, lorebook_entries, messages, macros)
@@ -110,7 +110,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
             speaker_open, speaker_close, block_macros = max(frames, key=lambda frame: len(frame[0]) + len(frame[1]))
 
     prefix = PrefixInputs(
-        main_prompt=macros.resolve_message(card_text.system_prompt),
+        main_prompt=card_text.system_prompt,
         cast=largest_cast_section(turn_cast, macros).lstrip("\n") if turn_cast.grouped else "",
         constant_lore=compute_constant_lorebook_block(lorebook_entries, macros),
         sections=sections,

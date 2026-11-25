@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..core import ChatMessage, ContentPart, Macros
+from ..core.macros import named_placeholders, outside_literals
 from ..core.prompt_layout import (
     CUSTOM_KIND,
     MARKER_TEMPLATES,
@@ -21,7 +22,6 @@ def _placeholder_re(names: Iterable[str]) -> re.Pattern[str]:
     return re.compile(r"\{\{(" + "|".join(names) + r")\}\}", re.IGNORECASE)
 
 
-_SECTION_RE = _placeholder_re(SECTION_PLACEHOLDERS)
 _EXAMPLE_SEPARATOR = "<START>"
 _DIVIDER = "___\n\n"
 # The Writer ships the shared tool schemas under tool_choice="none", which some routes rewrite to "auto" and some templates
@@ -74,13 +74,28 @@ class WriterInputs:
     speaker_close: str = ""
 
 
-def _render_marker(block: LayoutBlock, value: str, resolve: Callable[[str], str]) -> str:
-    """A marker: its own text around *value* when the user edits it, else *value* as is."""
+def _render_marker(block: LayoutBlock, value: str, sections: SectionInputs, resolve: Callable[[str], str]) -> str:
+    """A marker. The Main prompt is its raw text, with the sections it names filled; it keeps its whitespace, so text naming
+    none keeps its bytes. An editable marker is its own text around *value*, with the sections it names filled. Any other
+    marker is *value* as is."""
+    if block.kind == "main_prompt":
+        return _fill(value, _section_values(value, sections), resolve, strip=False)
     if block.kind not in MARKER_TEMPLATES:
         return value
     if not value:
         return ""
-    return _fill(block.content or MARKER_TEMPLATES[block.kind], {block.kind: value}, resolve)
+    text = block.content or MARKER_TEMPLATES[block.kind]
+    return _fill(text, {**_section_values(text, sections), block.kind: value}, resolve)
+
+
+def _section_values(text: str, sections: SectionInputs) -> dict[str, str]:
+    """The sections *text* names, each with its value, for text that is filled once: the examples go in together, each
+    ``<START>`` line dropped and a blank line between examples."""
+    values = {name: getattr(sections, name) for name in section_names(text)}
+    if "examples" in values:
+        examples = (chunk.strip("\r\n") for chunk in values["examples"].split(_EXAMPLE_SEPARATOR))
+        values["examples"] = "\n\n".join(chunk for chunk in examples if chunk)
+    return values
 
 
 def region_blocks(blocks: Iterable[LayoutBlock], region: LayoutRegion) -> list[LayoutBlock]:
@@ -88,25 +103,36 @@ def region_blocks(blocks: Iterable[LayoutBlock], region: LayoutRegion) -> list[L
     return [block for block in sorted(blocks, key=lambda block: block.sort_order) if block.region == region and block.enabled]
 
 
-def _resolver(macros: Macros | None) -> Callable[[str], str]:
-    return macros.resolve_message if macros else (lambda text: text)
+def _resolver(macros: Macros | None, block: LayoutBlock) -> Callable[[str], str]:
+    """*block*'s own resolver. A block rolls at its own place: a marker by its kind, which a layout has one of, a custom block
+    by its id, so moving a block keeps its rolls."""
+    if macros is None:
+        return lambda text: text
+    return macros.at(f"layout:{block.id if block.kind == CUSTOM_KIND else block.kind}").resolve_message
 
 
 def section_names(text: str) -> frozenset[str]:
-    """The section placeholders *text* names."""
-    return frozenset(match.group(1).lower() for match in _SECTION_RE.finditer(text))
+    """The section placeholders *text* names outside backticked literals and ``{{// ... }}`` notes."""
+    return named_placeholders(text, SECTION_PLACEHOLDERS)
 
 
 def _sentinel(name: str) -> str:
     return f"\x00orb-section-{name}\x00"
 
 
-def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str]) -> str:
+def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str], *, strip: bool = True) -> str:
     """Resolve *template*'s macros, then put each value in for its placeholder without a second macro pass.
 
-    An empty section's placeholder leaves with one blank-line separator beside it, the one before it when there is one.
+    A backticked placeholder stays literal, and one inside a note leaves with the note. An empty section's placeholder leaves
+    with one blank-line separator beside it, the one before it when there is one.
     """
-    text = resolve(_placeholder_re(values).sub(lambda match: _sentinel(match.group(1).lower()), template)).strip()
+    if not values:
+        return resolve(template).strip() if strip else resolve(template)
+    pattern = _placeholder_re(values)
+    marked = outside_literals(template, lambda t: pattern.sub(lambda match: _sentinel(match.group(1).lower()), t))
+    text = resolve(marked)
+    if strip:
+        text = text.strip()
     for name, value in values.items():
         sentinel = re.escape(_sentinel(name))
         if not value:
@@ -161,25 +187,25 @@ def _merge_content(head: str, content: str | list[ContentPart]) -> str | list[Co
 def _block_text(block: LayoutBlock, inputs: PrefixInputs | WriterInputs, resolve: Callable[[str], str]) -> str:
     if block.kind == CUSTOM_KIND:
         return _render_block(block.content, inputs.sections, resolve)
-    return _render_marker(block, getattr(inputs, block.kind), resolve)
+    return _render_marker(block, getattr(inputs, block.kind), inputs.sections, resolve)
 
 
 def prefix_block_texts(
     blocks: Sequence[LayoutBlock], inputs: PrefixInputs, macros: Macros | None
 ) -> list[tuple[LayoutBlock, str]]:
     """Each switched-on prefix block in order, with the text it renders."""
-    resolve = _resolver(macros)
-    return [(block, _block_text(block, inputs, resolve)) for block in region_blocks(blocks, "prefix")]
+    return [(block, _block_text(block, inputs, _resolver(macros, block))) for block in region_blocks(blocks, "prefix")]
 
 
 def writer_block_texts(
     blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None
 ) -> list[tuple[LayoutBlock, str]]:
     """Each switched-on Writer-request block in order, with the text it renders; Scene guidance carries the state block."""
-    resolve = _resolver(macros._replace(seed="") if macros else None)
+    # Built fresh every turn: random and roll roll anew, a pick stays fixed for its block.
+    fresh = macros._replace(fresh=True) if macros else None
     texts: list[tuple[LayoutBlock, str]] = []
     for block in region_blocks(blocks, "writer"):
-        text = _block_text(block, inputs, resolve)
+        text = _block_text(block, inputs, _resolver(fresh, block))
         if block.kind == "scene_guidance" and inputs.current_state:
             # The state block rides the Director stage's Scene guidance, as it does in the Inspector's injection block.
             text = _join(text, f"{_DIVIDER}{inputs.current_state}")

@@ -79,7 +79,10 @@ class CachedBase:
     prefix: tuple[Mapping[str, Any], ...]
     tools: tuple[dict, ...]
     model: str
+    # Transforms the whole stack, prefix included, on every call.
     resolve: Callable[[Sequence[Mapping[str, Any]]], Sequence[Mapping[str, Any]]] | None = None
+    # Transforms only each call's trailing messages: the prefix goes out as built, the bytes every other call on it sends.
+    resolve_trailing: Callable[[Sequence[Mapping[str, Any]]], Sequence[Mapping[str, Any]]] | None = None
     # The lane renders text-mode prompts with thinking on (see ``lane_template_thinking``).
     template_thinking: bool = False
     # The tracker's lane shape for a prefix that is intentionally one of several on the same server (see ``KVCacheTracker``).
@@ -98,10 +101,13 @@ class CachedBase:
     ) -> AsyncIterator[CompletionEvent]:
         """Issue one completion extending this base with *trailing*.
 
-        The cached bottom (prefix + tools + model) comes from ``self``; only *trailing* and *tool_choice* vary per call. The
-        stack is resolved via ``self.resolve`` if set, then handed to :func:`cached_complete`. The prefix length rides along so
-        the client can mark the base's end for providers that cache only at marked positions.
+        The cached bottom (prefix + tools + model) comes from ``self``; only *trailing* and *tool_choice* vary per call.
+        *trailing* is resolved via ``self.resolve_trailing`` and the stack via ``self.resolve``, each if set, then handed to
+        :func:`cached_complete`. The prefix length rides along so the client can mark the base's end for providers that cache
+        only at marked positions.
         """
+        if self.resolve_trailing is not None:
+            trailing = self.resolve_trailing(trailing)
         messages: Sequence[Mapping[str, Any]] = [*self.prefix, *trailing]
         if self.resolve is not None:
             messages = self.resolve(messages)

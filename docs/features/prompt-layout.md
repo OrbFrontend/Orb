@@ -16,10 +16,13 @@ ordinary blocks you can edit, switch off, delete, or move. Their text uses
 placeholders that stand for the card and chat: `{{description}}`,
 `{{personality}}`, `{{scenario}}`, `{{examples}}`, `{{instructions}}` and
 `{{persona}}`. An empty placeholder is dropped with the blank line next to it,
-and a block whose placeholders are all empty is left out.
+and a block whose placeholders are all empty is left out. A placeholder in
+single backticks stays as written, and one inside a `{{// ... }}` note is
+removed with the note; neither counts.
 
 Some built-in blocks hold text you can edit. Each names one placeholder that
-must stay in the text, and the block is left out on turns where it is empty:
+must stay in the text, outside notes and backticks, and the block is left out on
+turns where it is empty:
 
 | Block | Placeholder | Stands for |
 |---|---|---|
@@ -29,6 +32,11 @@ must stay in the text, and the block is left out on turns where it is empty:
 | Decisions | `{{decisions}}` | The Judge's guidance |
 | Scene guidance | `{{scene_guidance}}` | The Director's guidance |
 | User message | `{{user_message}}` | Your message |
+
+The card and chat placeholders above mean the same thing in every block's text,
+the Main prompt and a character card's system prompt included. Only a block
+built from them alone is left out when they are all empty. Outside a custom
+block, `{{examples}}` inserts every example at once, without the `<START>` lines.
 
 Group cast's text is fixed.
 

@@ -46,14 +46,8 @@ def persona_macros(
     *card* is the character's, and feeds ``{{description}}`` and ``{{personality}}``; the returned string is the *user's*. The two are unrelated despite
     the shared word -- one names a card field, the other a persona row's.
     """
-    macros = Macros.from_settings(
-        settings,
-        char_name,
-        persona,
-        seed=seed,
-        cast=cast,
-        description=card_description(card),
-        personality=card_personality(card),
+    macros = Macros.from_settings(settings, char_name, persona, seed=seed, cast=cast).with_card_fields(
+        card_description(card), card_personality(card)
     )
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return macros, user_description
@@ -102,16 +96,20 @@ def conversation_sections(
     user_description: str,
     cast: TurnCast | None = None,
 ) -> SectionInputs:
-    """The card and chat sections layout placeholders stand for, macros resolved; a group's card sections are empty."""
-    resolve = macros.resolve_message
+    """The card and chat sections layout placeholders stand for, macros resolved; a group's card sections are empty.
+
+    Each section rolls at its own place. The card fields resolve as :meth:`Macros.with_card_fields` resolves them, so a
+    ``{{description}}`` anywhere carries the Character block's rolls; the fields keep their own whitespace here.
+    """
     solo = not (cast and cast.grouped)
-    persona = resolve(user_description)
+    fields = macros.with_card_fields(card_text.description, card_text.personality)
+    persona = macros.at("persona").resolve_message(user_description)
     return SectionInputs(
-        description=resolve(card_text.description) if solo else "",
-        personality=resolve(card_text.personality) if solo else "",
+        description=fields.description if solo else "",
+        personality=fields.personality if solo else "",
         character_heading=solo and bool(macros.char),
-        scenario=resolve(conv.get("character_scenario") or ""),
-        examples=resolve(card_text.mes_example) if solo else "",
-        instructions=resolve(chat_instructions(settings, conv)),
+        scenario=macros.at("scenario").resolve_message(conv.get("character_scenario") or ""),
+        examples=macros.at("examples").resolve_message(card_text.mes_example) if solo else "",
+        instructions=macros.at("instructions").resolve_message(chat_instructions(settings, conv)),
         persona=persona if persona.strip() else "",
     )

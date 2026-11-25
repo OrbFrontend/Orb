@@ -14,13 +14,13 @@ _PROFILE_TEXT = ("appearance_prompt", "negative_prompt")
 _SKILL_TEXT = ("description", "instructions")
 
 
-def _expanded(source: Mapping[str, Any], fields: Sequence[str], macros: Macros) -> dict:
-    """Copy *source* with macros expanded in *fields*."""
+def _expanded(source: Mapping[str, Any], fields: Sequence[str], macros: Macros, place: str) -> dict:
+    """Copy *source* with macros expanded in *fields*, each rolling at its own place under *place*."""
     out = dict(source)
     for field in fields:
         value = out.get(field)
         if isinstance(value, str) and value:
-            out[field] = macros.resolve_message(value)
+            out[field] = macros.at(f"{place}:{field}").resolve_message(value)
     return out
 
 
@@ -35,17 +35,21 @@ def _for_subject(macros: Macros, name: str) -> Macros:
 
 def expand_style(style: Mapping[str, Any], macros: Macros) -> dict:
     """Expand macros in a style's model-facing text."""
-    return _expanded(style, _STYLE_TEXT, macros)
+    return _expanded(style, _STYLE_TEXT, macros, f"image:style:{style.get('id', '')}")
 
 
 def expand_profile(profile: Mapping[str, Any], macros: Macros) -> dict:
     """Expand macros in a character appearance sheet."""
-    return _expanded(profile, _PROFILE_TEXT, macros)
+    return _expanded(profile, _PROFILE_TEXT, macros, f"image:profile:{macros.char}")
 
 
 def expand_skills(skills: Sequence[Mapping[str, Any]], macros: Macros) -> tuple[dict, ...]:
     """Expand macros in composition-skill prose."""
-    return tuple(_expanded(skill, _SKILL_TEXT, macros) for skill in skills if isinstance(skill, Mapping))
+    return tuple(
+        _expanded(skill, _SKILL_TEXT, macros, f"image:skill:{skill.get('id') or index}")
+        for index, skill in enumerate(skills)
+        if isinstance(skill, Mapping)
+    )
 
 
 def expand_subjects(subjects: Sequence[Subject], macros: Macros) -> tuple[Subject, ...]:

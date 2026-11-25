@@ -272,7 +272,13 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
         return SkipReason.INVALID_DEFINITION
 
     def text(value: str, field: str) -> str:
-        return render(value, snapshot, allowed=TEXT_MACROS, seed=snapshot.roll_seed(definition.fragment_id, field))
+        return render(
+            value,
+            snapshot,
+            allowed=TEXT_MACROS,
+            seed=snapshot.roll_seed(definition.fragment_id, field),
+            pick_seed=snapshot.pick_seed(definition.fragment_id, field),
+        )
 
     try:
         item.outputs = {key: text(value, f"output:{key}") for key, value in definition.outputs.items()}
@@ -284,7 +290,13 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
         return SkipReason.NOT_CONFIGURED
     try:
         state_seed = snapshot.roll_seed(None, "state")
-        state = render(definition.state_template, snapshot, allowed=STATE_MACROS, seed=state_seed)
+        state = render(
+            definition.state_template,
+            snapshot,
+            allowed=STATE_MACROS,
+            seed=state_seed,
+            pick_seed=snapshot.pick_seed(None, "state"),
+        )
         instructions = text(definition.instructions, "instructions")
         if isinstance(definition.criteria, Mapping):
             criteria: Mapping[str, str] | tuple[str, ...] = {

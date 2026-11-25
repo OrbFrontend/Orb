@@ -247,6 +247,40 @@ def test_a_section_block_renders_nothing_while_its_sections_are_empty():
     assert filled.endswith("\n\nWhere: Dunes C")
 
 
+def test_a_backticked_section_placeholder_stays_literal():
+    macros = Macros("U", "C", seed="s")
+    layout = (
+        *default_layout(),
+        LayoutBlock(id="x", kind="custom", content="Write `{{scenario}}` for {{char}}.", sort_order=30),
+    )
+
+    # The literal neither takes the section's value nor gates the block on it.
+    for scenario in ("", "Dunes"):
+        prefix = build_prefix("Sys", SectionInputs(scenario=scenario), macros=macros, layout=layout)[0]["content"]
+        assert prefix.endswith("\n\nWrite `{{scenario}}` for C.")
+
+
+def test_a_section_name_means_its_section_in_every_layout_text():
+    # A group speaker's macros carry their own card fields; layout text still reads the sections, empty in a group.
+    speaker = Macros("U", "Mara", seed="s", description="Speaker card.", personality="Speaker mood.")
+    sections = SectionInputs(scenario="Dunes", examples="<START>\nMara: hi\n<START>\nMara: bye\n")
+    guidance = LayoutBlock(
+        id="g",
+        kind="scene_guidance",
+        content="{{scene_guidance}}\nWhere: {{scenario}}. Who: {{description}}",
+        role="user",
+        region="writer",
+    )
+    request = render_writer_request((guidance,), WriterInputs(scene_guidance="Calm.", sections=sections), speaker)
+    assert request.messages[0]["content"].startswith("Calm.\nWhere: Dunes. Who:")
+    assert "Speaker card." not in request.messages[0]["content"]
+
+    # The Main prompt fills them too, keeping its whitespace; outside a custom block the examples go in at once.
+    main = LayoutBlock(id="m", kind="main_prompt", content="")
+    prefix = build_prefix("  {{char}} in {{scenario}}:\n{{examples}}", sections, macros=speaker, layout=(main,))
+    assert prefix[0]["content"] == "  Mara in Dunes:\nMara: hi\n\nMara: bye"
+
+
 async def test_prefix_blocks_keep_their_place_and_role(client):
     layout_id, seeded = await _active_layout(client)
     main = seeded["main_prompt"]["id"]
@@ -328,6 +362,9 @@ async def test_scene_guidance_and_user_message_render_from_their_own_text(client
     scene, message = seeded["scene_guidance"]["id"], seeded["user_message"]["id"]
     # Text that drops its placeholder would silently drop the engine's part, so it is refused.
     await client.expect("patch", f"/api/prompt-blocks/{message}", json={"content": "___\n\nNo message"}, expected_status=409)
+    # So is text naming it only where it never renders: inside a note, or as a backticked literal.
+    for hidden in ("___\n\n{{// was: {{user_message}} }}", "___\n\n`{{user_message}}`"):
+        await client.expect("patch", f"/api/prompt-blocks/{message}", json={"content": hidden}, expected_status=409)
     await client.expect(
         "patch", f"/api/prompt-blocks/{scene}", json={"content": "## Direction for {{char}}\n{{scene_guidance}}"}
     )
@@ -482,3 +519,33 @@ async def test_the_summary_extends_the_turn_prefix(client, llm_mock):
     assert _wire(summary["messages"][:shared]) == _wire(writer["messages"][:shared])
     assert _wire(summary.get("tools") or []) == _wire(writer.get("tools") or [])
     assert "Deep woods." not in summary["messages"][0]["content"]
+
+
+async def test_every_call_sends_the_prefix_it_was_built_with(client, llm_mock):
+    layout_id, seeded = await _active_layout(client)
+    await client.expect(
+        "patch",
+        f"/api/prompt-blocks/{seeded['main_prompt']['id']}",
+        json={"content": "About: {{description}}\nScene: {{scenario}}"},
+    )
+    card = await client.post_json(
+        "/api/characters",
+        json={
+            "name": "Aria",
+            "description": "She is calm. {{personality}}",
+            "personality": "Moody",
+            "scenario": "A ship.",
+            "first_mes": "Hello.",
+        },
+    )
+    cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
+    offturn = await build_offturn_prefix(cid, await get_messages(cid), await get_settings())
+
+    llm_mock.enqueue_writer("Fine.")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Hi", "attachments": []})).text
+    writer = [call for call in llm_mock.captured if call["pass"] == "writer"][-1]["messages"]
+
+    # A field naming the other resolves in the first pass, the Main prompt fills the sections it names, and the Writer lane
+    # sends the off-turn prefix's bytes.
+    assert offturn[0]["content"].startswith("About: She is calm. Moody\nScene: A ship.\n\n")
+    assert _wire(writer[: len(offturn)]) == _wire(offturn)

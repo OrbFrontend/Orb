@@ -3,13 +3,19 @@
 The design under test: message rows resolve inline macros once at the persist boundary (user send, assistant persist, plain
 edit), greetings re-roll from a stashed raw template on every fetch until the first user message freezes them, mood fragment
 text resolves against the per-conversation ``director_state.macro_choices`` map so a pick is made once and reused every later
-turn (and carried by checkpoint), and director-authored interactive values roll fresh on every emission.
+turn (and carried by checkpoint), and director-authored interactive values roll fresh on every emission. Text the prompt keeps
+fixed rolls once per conversation and place, ``{{pick}}`` stays fixed even where random rolls fresh, and Reroll Macros starts
+both over.
 """
 
 import json
 
 import backend.database as dbmod
+from backend.core import Macros
+from backend.core.prompt_layout import LayoutBlock
 from backend.pipeline import handle_turn
+from backend.prompting import CharContext, conversation_sections, persona_macros, render_history
+from backend.prompting.layout import WriterInputs, render_writer_request
 
 _GREETING_OPTIONS = {"Ahoy", "Wotcher"}
 
@@ -229,3 +235,48 @@ async def test_checkpoint_copies_macro_choices(client, db, llm_mock):
     resp = await client.post_json(f"/api/conversations/{new_cid}/checkpoint", json={"title": "cp2"})
     grandchild = await dbmod.get_conversation(resp["id"])
     assert grandchild is not None and grandchild["macro_seed"] == cid
+
+
+async def test_reroll_macros_gives_a_new_seed_and_forgets_mood_picks(client, db, llm_mock):
+    cid = "conv-rm-reroll"
+    await _setup_directed_conversation(client, cid)
+    llm_mock.enqueue_director(_direct_scene({"moods": ["vivid"]}))
+    llm_mock.enqueue_writer("ok")
+    await _drain(handle_turn(cid, "hello"))
+    assert (await dbmod.get_director_state(cid))["macro_choices"]
+    before = await dbmod.get_conversation(cid)
+
+    await client.post_json(f"/api/conversations/{cid}/reroll-macros", json={})
+
+    after = await dbmod.get_conversation(cid)
+    assert before is not None and after is not None
+    assert after["macro_seed"] not in ("", before["macro_seed"], cid)
+    assert (await dbmod.get_director_state(cid))["macro_choices"] == {}
+
+
+def test_a_value_rolls_where_it_is_defined():
+    # Two places roll independently, even with the same macro text.
+    rolls = [
+        conversation_sections(
+            {}, {"character_scenario": "{{roll::1d1000}}"}, CharContext("", "", "", ""), m, "{{roll::1d1000}}"
+        )
+        for m in (Macros("A", "B", seed=f"c{i}") for i in range(20))
+    ]
+    assert any(sections.scenario != sections.persona for sections in rolls)
+
+    # A card field rolls once: the Character block, a {{description}} in another field and one in history read the same bytes.
+    card = {"description": "{{random::red::blue::green::black}} hair, {{personality}}", "personality": "{{pick::shy::bold}}"}
+    macros, _ = persona_macros({}, "Bob", {"name": "Ann"}, seed="conv-1", card=card)
+    text = CharContext("", card["description"], card["personality"], "")
+    sections = conversation_sections({}, {"character_scenario": "Bob has {{description}}"}, text, macros, "")
+    assert sections.description.endswith(sections.personality) and "{{" not in sections.description
+    assert sections.scenario == f"Bob has {sections.description}"
+    assert render_history([{"role": "user", "content": "{{description}}"}], macros)[0]["content"] == sections.description
+
+    # Below Chat history a random rolls on every build while a pick stays fixed for its block.
+    block = LayoutBlock(
+        id="w", kind="custom", content="{{pick::a::b::c::d::e::f}} {{random::a::b::c::d::e::f}}", role="user", region="writer"
+    )
+    built = [render_writer_request([block], WriterInputs(), macros).messages[0]["content"].split() for _ in range(30)]
+    assert len({pick for pick, _ in built}) == 1
+    assert len({rolled for _, rolled in built}) > 1

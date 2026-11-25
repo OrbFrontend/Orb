@@ -48,10 +48,10 @@ def resolve_pipeline_config(
     prefills = settings.get("reasoning_prefill_passes") or {}
 
     def _prefill(key: str) -> str:
-        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin per conversation exactly like fragment text --
-        # the tail stays byte-stable turn over turn.
+        # Seeded by conversation and pass, so {{random}}/{{roll}} pin per conversation exactly like fragment text -- the tail
+        # stays byte-stable turn over turn.
         raw = str(prefills.get(key) or "")
-        return macros.resolve_message(raw) if raw else ""
+        return macros.at(f"prefill:{key}").resolve_message(raw) if raw else ""
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
@@ -72,7 +72,7 @@ def resolve_pipeline_config(
             prefix=tuple(prefix),
             tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
             model=settings["model_name"],
-            resolve=macros.resolve_prompt_messages,
+            resolve_trailing=macros.resolve_prompt_messages,
             template_thinking=lane_template_thinking(reasoning_passes, lane="writer", separate_agent_lane=dual_model),
             shape=cache_shape,
         ),
@@ -85,7 +85,7 @@ def resolve_pipeline_config(
                 prefix=tuple(prefix),
                 tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
                 model=settings.get("agent_model_name", settings["model_name"]),
-                resolve=macros.resolve_prompt_messages,
+                resolve_trailing=macros.resolve_prompt_messages,
                 template_thinking=lane_template_thinking(reasoning_passes, lane="agent", separate_agent_lane=True),
                 shape=cache_shape,
             ),

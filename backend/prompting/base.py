@@ -119,11 +119,11 @@ def build_prefix(
 ) -> list[ChatMessage]:
     """Build the system message, the layout's pre-history messages, and the rendered history.
 
-    *system_prompt* is the raw Main prompt text; its macros resolve here. *sections* arrive resolved
-    (``prompting.conversation_sections``). *layout* defaults to :func:`default_layout`, the built-in order.
+    *system_prompt* is the raw Main prompt text; the layout resolves its macros and fills the sections it names. *sections*
+    arrive resolved (``prompting.conversation_sections``). *layout* defaults to :func:`default_layout`, the built-in order.
     """
     inputs = PrefixInputs(
-        main_prompt=macros.resolve_message(system_prompt) if macros else system_prompt,
+        main_prompt=system_prompt,
         cast=render_cast_section(cast, macros).lstrip("\n") if cast and cast.grouped else "",
         constant_lore=constant_lorebook_block,
         sections=sections,

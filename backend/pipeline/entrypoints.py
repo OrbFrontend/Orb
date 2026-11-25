@@ -459,7 +459,7 @@ async def _generate_group_exchange(
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
     )
-    shared = open_turn_state(ctx.director, setup.macros.resolve_message(user_message))
+    shared = open_turn_state(ctx.director, setup.macros.at("user_message").resolve_message(user_message))
     if opened.judge is not None:
         opened.judge.apply_to(shared)
 
@@ -1058,7 +1058,7 @@ async def _open_continue(
         cache_shape=prefix_cache_shape(ctx.cast.context_mode, speaker),
     )
     base = cfg.writer_lane.base
-    prefill = base.resolve([open_reply])[0]["content"] if base.resolve else open_reply["content"]
+    prefill = base.resolve_trailing([open_reply])[0]["content"] if base.resolve_trailing else open_reply["content"]
     yield base, str(prefill), setup.kv_tracker
 
 

@@ -218,13 +218,19 @@ def select_active_entries(
     return [e for e in candidates if _fold_name(e) in director_named]
 
 
-def _render_entries(entries: Sequence[Mapping[str, Any]], resolve) -> list[str]:
-    """Render *entries*, authored before dynamic, skipping any that render blank."""
+def _resolve_at(macros: Macros | None, place: str, text: str) -> str:
+    return macros.at(place).resolve_message(text) if macros else text
+
+
+def _render_entries(entries: Sequence[Mapping[str, Any]], macros: Macros | None) -> list[str]:
+    """Render *entries*, authored before dynamic, skipping any that render blank. Each entry's name and content roll at their
+    own places."""
     matched = sorted(entries, key=lambda e: (is_dynamic(e), -e.get("priority", 100), e.get("sort_order", 0), e.get("id", 0)))
     parts: list[str] = []
     for entry in matched:
-        name = resolve(entry.get("name", ""))
-        content = resolve(entry.get("content", ""))
+        place = f"lore:{entry.get('entry_layer') or 'authored'}:{entry.get('id', '')}"
+        name = _resolve_at(macros, f"{place}:name", entry.get("name", ""))
+        content = _resolve_at(macros, f"{place}:content", entry.get("content", ""))
         if name and content:
             parts.append(f"{name}: {content}")
         elif content:
@@ -240,8 +246,7 @@ def render_lorebook_block(entries: Sequence[Mapping[str, Any]], macros: Macros |
     by priority DESC, then sort_order ASC, id ASC (the canonical lorebook order, so the block bytes are stable across turns
     regardless of input order -- KV cache); names and content are macro-resolved. Returns ``""`` when nothing renders.
     """
-    resolve = macros.resolve_message if macros else (lambda t: t)
-    return "\n\n".join(_render_entries(entries, resolve))
+    return "\n\n".join(_render_entries(entries, macros))
 
 
 def headed_lorebook(body: str) -> str:
@@ -302,5 +307,6 @@ def compute_constant_lorebook_block(entries: Sequence[Mapping[str, Any]], macros
 def compute_depth_lorebook_block(entries: Sequence[Mapping[str, Any]], macros: Macros | None = None) -> str:
     """Render depth-positioned lorebook entries for the prompt tail."""
     depth_bound = [e for e in select_effective_entries(entries) if e.get("constant") and e.get("at_depth")]
-    fresh = macros._replace(seed="") if macros else None
+    # Read fresh every turn: random and roll roll anew, a pick stays fixed for its entry.
+    fresh = macros._replace(fresh=True) if macros else None
     return render_lorebook_block(depth_bound, fresh)

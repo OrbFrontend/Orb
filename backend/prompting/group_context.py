@@ -62,15 +62,22 @@ def member_macros(macros: Macros | None, member: CastMember, roster: str) -> Mac
     """Scope char, description and personality macros to a member.
 
     Preserve user and seed for byte-stable resolution. A scene sheet override stands in for the description and empties the
-    personality.
+    personality. The member's fields resolve once, at the member's own places.
     """
     if macros is None:
         return None
-    return macros._replace(char=member.name, cast=roster, description=member.description, personality=member.personality)
+    return macros._replace(char=member.name, cast=roster).with_card_fields(
+        member.description, member.personality, member_place(member, "")
+    )
 
 
-def _resolver(macros: Macros | None):
-    return macros.resolve_message if macros else (lambda text: text)
+def member_place(member: CastMember, field: str) -> str:
+    """Where one of a member's texts rolls: the same place wherever that text renders."""
+    return f"member:{member.member_id}:{field}"
+
+
+def _resolver(macros: Macros | None, place: str):
+    return macros.at(place).resolve_message if macros else (lambda text: text)
 
 
 def _examples_block(text: str, heading: str) -> str:
@@ -80,23 +87,24 @@ def _examples_block(text: str, heading: str) -> str:
 
 def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> str:
     """Render confirmed public profiles for the cast."""
-    resolve = _resolver(macros._replace(cast=roster) if macros else None)
+    scoped = macros._replace(cast=roster) if macros else None
     parts = [f"\n\n{CAST_HEADING}"]
     for member in cast.members:
         parts.append(f"\n### {member.name}")
         if member.public_profile:
-            parts.append(f"\n{resolve(member.public_profile)}")
+            parts.append(f"\n{_resolver(scoped, member_place(member, 'public_profile'))(member.public_profile)}")
     return "".join(parts)
 
 
 def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> str:
     """Render one member's identity dossier."""
-    resolve = _resolver(member_macros(macros, member, roster))
+    scoped = member_macros(macros, member, roster)
     body = []
     if member.private_sheet:
-        body.append(resolve(member.private_sheet))
+        body.append(_resolver(scoped, member_place(member, "private_sheet"))(member.private_sheet))
     if member.mes_example:
-        body.append(_examples_block(resolve(member.mes_example), DOSSIER_EXAMPLE_HEADING))
+        example = _resolver(scoped, member_place(member, "mes_example"))(member.mes_example)
+        body.append(_examples_block(example, DOSSIER_EXAMPLE_HEADING))
     if not body:
         return ""
     return f"\n\n{DOSSIER_HEADING}{member.name}\n" + "\n\n".join(body)
@@ -109,12 +117,13 @@ def _render_active_card(speaker: CastMember, macros: Macros | None, roster: str)
     reads about it, then its own card. The same doubling exists under Private, where the card lands in the tail instead --
     neither mode suppresses a member's public profile just because that member happens to be speaking.
     """
-    resolve = _resolver(member_macros(macros, speaker, roster))
+    scoped = member_macros(macros, speaker, roster)
     parts = [f"\n\n{ACTIVE_CARD_HEADING}{speaker.name}"]
     if speaker.private_sheet:
-        parts.append(f"\n{resolve(speaker.private_sheet)}")
+        parts.append(f"\n{_resolver(scoped, member_place(speaker, 'private_sheet'))(speaker.private_sheet)}")
     if speaker.mes_example:
-        parts.append("\n\n" + _examples_block(resolve(speaker.mes_example), EXAMPLE_HEADING))
+        example = _resolver(scoped, member_place(speaker, "mes_example"))(speaker.mes_example)
+        parts.append("\n\n" + _examples_block(example, EXAMPLE_HEADING))
     return "".join(parts)
 
 

@@ -467,6 +467,33 @@ async function createCheckpoint() {
   }
 }
 
+function rerollMacros() {
+  if (!S.activeConvId) {
+    toast("No active conversation", true);
+    return;
+  }
+  if (turnActive()) {
+    toast("Stop generation before rerolling macros", true);
+    return;
+  }
+  const cid = S.activeConvId;
+  showConfirmModal(
+    {
+      title: "Reroll macros",
+      message: "Reroll every macro this conversation keeps fixed?",
+      confirmText: "Reroll",
+    },
+    async () => {
+      try {
+        await api.post(`/conversations/${cid}/reroll-macros`, {});
+        toast("Macros rerolled");
+      } catch (e) {
+        toast(`Failed to reroll macros: ${e.message}`, true);
+      }
+    },
+  );
+}
+
 // The compress dialog's takes. Each Generate, Regenerate or Revise adds one, the way a reply gains swipes, and a hand edit
 // stays on its take. They outlive the dialog: reopening it on the same history brings them back.
 let _compressKeepCount = 4;
@@ -868,6 +895,7 @@ registerActions("conversations", {
   history: () => showConvHistoryModal(),
   compress: () => showCompressModal(),
   checkpoint: () => createCheckpoint(),
+  rerollMacros: () => rerollMacros(),
   editTitle: () => startEditTitle(),
   aiTitle: (el) => aiTitle(el),
 });

@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ....core import CastMember, DecisionDefinition, Macros, outside_literals, resolve_inline
-from ....prompting import format_message_with_attachments, group_speaker_label
+from ....prompting import format_message_with_attachments, group_speaker_label, member_place
 
 DECISION_RENDERER_VERSION = "1"
 _RECENT_HISTORY_DEPTH = 6
@@ -62,10 +62,19 @@ class DecisionSnapshot:
         """
         return f"{self.seed}|{self.anchor_message_id}|{fragment_id or ''}|{field}" if self.seed else ""
 
+    def pick_seed(self, fragment_id: str | None, field: str) -> str:
+        """Seed one field's ``{{pick}}``: fixed for the conversation, as a pick is everywhere, where random and roll follow
+        :meth:`roll_seed`."""
+        return f"{self.seed}|judge|{fragment_id or ''}|{field}" if self.seed else ""
 
-def _resolved_field(macros: Macros, name: str, value: str | None) -> str | None:
-    """Resolve a card field the way the Writer's ``{{description}}`` or ``{{personality}}`` does."""
-    return macros._replace(**{name: value}).resolve_message(f"{{{{{name}}}}}") if value else value
+
+def _card_fields(
+    macros: Macros, description: str | None, personality: str | None, place: str = ""
+) -> tuple[str | None, str | None]:
+    """The card fields as the Writer's ``{{description}}`` and ``{{personality}}`` insert them, rolls included; an absent
+    field stays as it is."""
+    fields = macros.with_card_fields(description or "", personality or "", place)
+    return (fields.description if description else description, fields.personality if personality else personality)
 
 
 def _message_text(message: Mapping[str, Any], macros: Macros | None, scripts: Any = None) -> str:
@@ -102,6 +111,7 @@ def build_snapshot(
 
     completed = [message for message in history if message.get("role") in ("user", "assistant")]
     last_assistant = next((message for message in reversed(completed) if message.get("role") == "assistant"), None)
+    resolved_description, resolved_personality = _card_fields(macros, description, personality)
     previous_reply = ""
     if last_assistant:
         body = _message_text(last_assistant, macros, scripts_for(last_assistant))
@@ -116,8 +126,8 @@ def build_snapshot(
         user=macros.user,
         char=macros.char,
         cast=macros.cast,
-        description=_resolved_field(macros, "description", description),
-        personality=_resolved_field(macros, "personality", personality),
+        description=resolved_description,
+        personality=resolved_personality,
         scope=scope,
         anchor_message_id=anchor_message_id,
         seed=macros.seed,
@@ -129,13 +139,12 @@ def card_snapshots(snapshot: DecisionSnapshot, members: Iterable[CastMember]) ->
     scoped: dict[str, DecisionSnapshot] = {}
     for member in members:
         if member.card_id and member.card_id not in scoped:
+            # The member's places, so the Judge reads the rolls the cast section and the Writer show.
             member_macros = Macros(user=snapshot.user, char=member.name, seed=snapshot.seed, cast=snapshot.cast)
-            scoped[member.card_id] = replace(
-                snapshot,
-                char=member.name,
-                description=_resolved_field(member_macros, "description", member.description),
-                personality=_resolved_field(member_macros, "personality", member.personality),
+            description, personality = _card_fields(
+                member_macros, member.description, member.personality, member_place(member, "")
             )
+            scoped[member.card_id] = replace(snapshot, char=member.name, description=description, personality=personality)
     return scoped
 
 
@@ -230,7 +239,14 @@ class UnavailableMacro(Exception):
         self.macro = macro
 
 
-def render(template: str, snapshot: DecisionSnapshot, *, allowed: frozenset[str] = STATE_MACROS, seed: str = "") -> str:
+def render(
+    template: str,
+    snapshot: DecisionSnapshot,
+    *,
+    allowed: frozenset[str] = STATE_MACROS,
+    seed: str = "",
+    pick_seed: str | None = None,
+) -> str:
     """Resolve names, then the template's inline macros, then insert values opaquely.
 
     Message text and the description go in last, so they are never evaluated.
@@ -249,5 +265,5 @@ def render(template: str, snapshot: DecisionSnapshot, *, allowed: frozenset[str]
         return lambda body: _MACRO_RE.sub(one, body)
 
     identities = allowed & _IDENTITY_MACROS
-    named = resolve_inline(outside_literals(template, substitute(identities)), seed=seed)
+    named = resolve_inline(outside_literals(template, substitute(identities)), seed=seed, pick_seed=pick_seed)
     return outside_literals(named, substitute(allowed - identities))

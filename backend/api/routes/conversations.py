@@ -43,6 +43,7 @@ from ...database import (
     mark_orphaned_changesets_stale,
     reject_sheet_proposal,
     render_public_profile,
+    reroll_conversation_macros,
     set_active_leaf,
     set_conversation_world,
     sibling_chat_titles,
@@ -70,6 +71,7 @@ from ..deletions import delete_chat
 from ..deps import (
     CleanupStreamingResponse,
     deleting_resources,
+    idle_chats_guard,
     profile_draft_failures,
     require_conversation,
     rows_response,
@@ -362,6 +364,15 @@ async def api_delete_conversation(cid: str):
 async def api_touch_conversation(cid: str):
     if not await touch_conversation(cid):
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"ok": True}
+
+
+@router.post("/api/conversations/{cid}/reroll-macros")
+async def api_reroll_macros(conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    """Roll every macro the conversation keeps fixed again: a new macro seed, and no stored mood picks. Refused while the
+    conversation has work running, which would read or save the old picks."""
+    with idle_chats_guard([conv]):
+        await reroll_conversation_macros(conv["id"])
     return {"ok": True}
 
 

@@ -43,8 +43,8 @@ prompt content predictable across turns.
 ## Macros
 
 [Macros](macros.md) work in entry names and text. Random macros in constant and
-keyword-activated entries roll once per conversation. A constant entry with
-`@ Depth` rolls on every turn.
+keyword-activated entries roll once per conversation, each entry on its own. A
+constant entry with `@ Depth` rolls on every turn; a `pick` in it stays fixed.
 
 ## Agentic and dynamic Worlds
 

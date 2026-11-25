@@ -21,7 +21,7 @@ from ...core.llm_types import ContentDelta, ReasoningDelta
 from ...core.prompt_layout import LayoutBlock, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
-from ...prompting import member_macros, speaker_instructions, tail_carries_identity
+from ...prompting import member_macros, member_place, speaker_instructions, tail_carries_identity
 from ...prompting.layout import (
     TOOL_NOTICE,
     SectionInputs,
@@ -82,17 +82,21 @@ def speaker_frame(
     if speaker is None:
         return "", "", macros
     speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
-    resolve = speaker_macros.resolve_message if speaker_macros else (lambda text: text)
+
+    def resolve(field: str, text: str) -> str:
+        # The places the cast section rolls the same texts at.
+        return speaker_macros.at(member_place(speaker, field)).resolve_message(text) if speaker_macros else text
+
     opening = f"## You are writing as {speaker.name}\n"
     if tail_carries_identity(context_mode):
         if speaker.private_sheet:
-            opening += f"{_SHEET_FRAMING}\n{resolve(speaker.private_sheet)}\n\n"
+            opening += f"{_SHEET_FRAMING}\n{resolve('private_sheet', speaker.private_sheet)}\n\n"
         if speaker.mes_example:
-            example = resolve(speaker.mes_example)
+            example = resolve("mes_example", speaker.mes_example)
             heading = "## Example Dialogue"
             opening += (example.replace("<START>", heading) if "<START>" in example else f"{heading}\n{example}") + "\n\n"
     if instructions := speaker_instructions(speaker, prevent_prompt_overrides=prevent_prompt_overrides):
-        opening += f"## Additional Instructions\n{resolve(instructions)}\n\n"
+        opening += f"## Additional Instructions\n{resolve('instructions', instructions)}\n\n"
     closing = f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
     return opening, closing, speaker_macros
 

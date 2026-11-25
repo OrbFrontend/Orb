@@ -230,6 +230,15 @@ async def touch_conversation(cid: str) -> bool:
         return cur.rowcount > 0
 
 
+async def reroll_conversation_macros(cid: str) -> bool:
+    """Give *cid* a new macro seed and forget its stored mood picks, so every macro fixed for the conversation rolls again."""
+    async with get_db() as db:
+        cur = await db.execute("UPDATE conversations SET macro_seed = ? WHERE id = ?", (uuid.uuid4().hex, cid))
+        await db.execute("UPDATE director_state SET macro_choices = '{}' WHERE conversation_id = ?", (cid,))
+        await db.commit()
+        return cur.rowcount > 0
+
+
 async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
     async with get_db() as db:
         allowed = [

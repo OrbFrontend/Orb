@@ -6,6 +6,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
+from .macros import named_placeholders
+
 LayoutRegion = Literal["prefix", "writer"]
 LayoutRole = Literal["system", "user", "assistant"]
 
@@ -99,7 +101,8 @@ def marker_placeholder(kind: str) -> str:
 
 
 def names_marker_placeholder(kind: str, text: str) -> bool:
-    return marker_placeholder(kind).lower() in text.lower()
+    """Whether *text* names the marker's placeholder where it renders: outside backticked literals and ``{{// ... }}`` notes."""
+    return kind in named_placeholders(text, (kind,))
 
 
 def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str | None:

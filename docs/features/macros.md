@@ -21,8 +21,9 @@ character. Rolls, choices, dates, and times show possible results.
 | `Date: {{date}}` | `Date: 2026-10-03` |
 
 `2d6` rolls two six-sided dice and adds them. Use `NdM` for N dice with M sides.
-`pick` works like `random`. Separate choices with `::`; choices can contain
-spaces and line breaks, but not `::` or `}}`. Macro names ignore case.
+`random` and `pick` both choose one option; they differ in when the choice is
+made (below). Separate choices with `::`; choices can contain spaces and line
+breaks, but not `::` or `}}`. Macro names ignore case.
 
 In group chats, `{{char}}` uses the group title outside a member's card text;
 `{{cast}}` lists the cast names.
@@ -32,7 +33,8 @@ In group chats, `{{char}}` uses the group title outside a member's card text;
 `{{description}}` inserts the card's **Description** field and `{{personality}}`
 its **Personality** field, each on its own. In group chats they use the speaking
 member's card; when that member has a scene sheet, `{{description}}` is the sheet
-and `{{personality}}` is empty.
+and `{{personality}}` is empty. In [Prompt Layout](prompt-layout.md) text they
+are the card's sections instead, which are empty in a group.
 
 If the description is `{{char}} distrusts {{user}}.`, then:
 
@@ -41,7 +43,8 @@ If the description is `{{char}} distrusts {{user}}.`, then:
 | `Background: {{description}}` | `Background: Mara distrusts Alex.` |
 
 The chat bubble still shows the macro. If a field is empty, its macro sends
-nothing. Avoid inserting a whole field where it is already included in the
+nothing. A field that names the other field fills it in; a field naming itself
+sends nothing there. Avoid inserting a whole field where it is already included in the
 prompt.
 
 ## Author notes and line breaks
@@ -74,18 +77,36 @@ Becomes `Hello, Alex.`
 
 ## When values are chosen
 
-Names and descriptions use the current values. Rolls and random choices depend
-on where you put them:
+Names and descriptions use the current values. Each roll belongs to the place it
+is written: a card field, the scenario, a prompt block, a lorebook entry. Two
+places roll separately, even with the same macro, and so do two copies of a
+macro in one place. Editing other text there keeps the result.
 
-| Location | When it is chosen |
+A value inserted elsewhere keeps its own rolls: `{{description}}` in the
+scenario, a lorebook entry or a message reads the same text as the Character
+block.
+
+`{{pick}}` is chosen once per conversation for its place, wherever it is.
+`{{random}}` and `{{roll}}` depend on the location:
+
+| Location | When `random` and `roll` are chosen |
 |---|---|
 | Your message | When you send it |
 | Character greeting | When you open a conversation, then frozen after your first message |
-| Persona, scenario, example dialogue, or mood prompt | Once per conversation |
+| Card fields, persona, scenario, example dialogue, chat instructions, mood prompt | Once per conversation |
+| Prompt Layout blocks above **Chat history**, including the Main prompt | Once per conversation |
+| Prompt Layout blocks below **Chat history** | Every turn |
 | Constant or keyword-activated lorebook entry | Once per conversation |
 | Constant lorebook entry with **@ Depth** | Every turn |
 | An image-generation setting | Every render |
 | A value written by the Director | Every turn |
+
+Messages and greetings choose `pick` when they are written, like `random`.
+
+Text above **Chat history** keeps its rolls so the model does not re-read the
+whole chat each turn. **Reroll Macros** in the chat menu chooses every value the
+conversation keeps fixed again, mood prompt choices included; the model re-reads
+the chat once.
 
 Time and date use the local clock. They freeze in sent messages but update each
 turn in persona or scenario text. Checkpoints keep the parent's random values.

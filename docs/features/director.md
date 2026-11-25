@@ -61,7 +61,7 @@ Writer. Describe the value you want and include examples when useful.
 
 Fragment text supports [macros](macros.md). A random macro in mood prompt text
 rolls once per conversation. A random macro emitted in a Director value rolls on
-each turn. Put a macro in single backticks when you want the Director to see it as
+each turn; a `pick` there stays fixed for that field. Put a macro in single backticks when you want the Director to see it as
 literal text.
 
 Fragments run from top to bottom within their stage. Earlier Director values can

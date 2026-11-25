@@ -441,7 +441,8 @@ async def _generate_fresh(
     picked = excerpt["text"] if excerpt else ""
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings)
-    macros = await conversation_macros(ctx.conversation_id, ctx.settings, seed="")
+    # Every render rolls random and roll anew; a pick stays fixed for the conversation.
+    macros = await conversation_macros(ctx.conversation_id, ctx.settings, fresh=True)
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     if reference is not None:
         source = explicit_source(style_reference_source(selected_style), likeness=True)

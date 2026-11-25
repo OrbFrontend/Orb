@@ -169,7 +169,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
         # the *turn* stage is the one that had to be free, and it is (it reuses the blob it was built into).
         tools=tuple(enabled_schemas({**(settings.get("enabled_tools") or {}), "propose_world_changes": True})),
         model=model,
-        resolve=macros.resolve_prompt_messages,
+        resolve_trailing=macros.resolve_prompt_messages,
     )
 
     reasoning_on = bool((settings.get("reasoning_enabled_passes") or {}).get("editor", False))

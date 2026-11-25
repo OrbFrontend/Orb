@@ -44,7 +44,7 @@ from ...pipeline import (
     prose_rewrite_source,
     retained_draft,
 )
-from ...prompting import resolve_persona_id
+from ...prompting import conversation_macro_seed, resolve_persona_id
 from ...workflows.contracts import PublicEvent
 from ...workflows.prose_rewriter_host import ProseRewriteConfig, resolve_config, rewrite_events
 from ..deletions import delete_message_subtree
@@ -443,12 +443,9 @@ async def api_autocomplete(
         char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
         summary_source = (card or {}).get("description") or ""
 
-    macros = Macros(
-        user=user_name,
-        char=char_name,
-        cast=cast_names,
-        description=card_description(card),
-        personality=card_personality(card),
+    # The card fields carry the conversation's rolls, as every prompt inserts them.
+    macros = Macros(user=user_name, char=char_name, seed=conversation_macro_seed(conv), cast=cast_names).with_card_fields(
+        card_description(card), card_personality(card)
     )
     messages = await get_messages(cid)
     recent = [
