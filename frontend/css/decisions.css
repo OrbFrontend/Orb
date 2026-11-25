@@ -10,39 +10,53 @@
 .decision-hint { font-size: 11px; color: var(--text-muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .decision-section .field-row > .decision-knob { flex: 0 0 104px; min-width: 0; }
 .decision-section .field-row > .decision-inject { flex: 0 0 120px; min-width: 0; }
-.decision-macros { font-size: 11px; line-height: 1.5; color: var(--text-muted); margin-top: 3px; }
-.decision-macros code { font-family: var(--font-mono); font-size: 11px; }
+/* Macro chips insert at the caret of the template box above them. */
+.decision-macros { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.decision-macro { padding: 1px 6px; font-family: var(--font-mono); font-size: 11px; line-height: 1.5;
+  color: var(--text-muted); background: var(--bg-primary); border: 1px solid transparent; border-radius: var(--radius);
+  transition: color .15s, border-color .15s; }
+.decision-macro:hover { color: var(--text-primary); border-color: var(--border-light); }
 .decision-status, .decision-problem {
   font-size: 11px; line-height: 1.45; border-left: 2px solid; padding: 2px 0 2px 8px; margin: 6px 0;
 }
 .decision-status { color: var(--dec-warn); }
 .decision-problem { color: var(--red); }
 
-/* One grid for every question type. The key column is wide enough for the
-   add button under it, and for a name input with its remove button beside it. */
-.decision-options { --dec-key-col: 136px; margin-bottom: 10px; }
-.decision-option-head, .decision-option-row, .decision-options-foot {
-  display: grid; grid-template-columns: var(--dec-key-col) 1fr 1fr; gap: 8px; align-items: start;
+/* Each outcome is a card on one grid shared with the column heads: name, the two texts, then grip and remove.
+   Rows without a grip or remove button leave those columns empty, so every type lines up the same. */
+.decision-options { --dec-grid: 156px minmax(0, 1fr) minmax(0, 1fr) 22px 22px; --dec-card-pad: 8px;
+  margin-bottom: 10px; }
+.decision-option-head, .decision-option-row {
+  display: grid; grid-template-columns: var(--dec-grid); column-gap: 8px; align-items: start;
+  grid-template-areas: "key text output grip remove";
 }
+.decision-option-head { padding: 0 calc(var(--dec-card-pad) + 1px); margin-bottom: 6px; }
+.decision-head-key { grid-area: key; }
+.decision-head-text { grid-area: text; }
+.decision-head-output { grid-area: output; }
 .decision-option-head, .decision-cell-label {
-  font-size: 11px; line-height: 1.4; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted);
+  font-size: 11px; font-weight: 500; line-height: 1.4; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--text-secondary);
 }
-.decision-option-head { margin-bottom: 4px; }
-.decision-option-head .decision-hint { margin-left: 2px; }
-.decision-option-row { margin-bottom: 6px; }
+.decision-option-row { padding: var(--dec-card-pad); margin-bottom: 6px; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: var(--radius); transition: border-color .15s; }
+.decision-option-row:focus-within { border-color: var(--border-light); }
 .decision-section textarea { min-height: 0; max-height: 320px; resize: none; overflow-y: auto; }
 .decision-option-row textarea { width: 100%; overflow: hidden; }
+.decision-cell { min-width: 0; }
+.decision-cell-text { grid-area: text; }
+.decision-cell-output { grid-area: output; }
 
 /* A placeholder that wraps would size an empty box taller than its row. */
 .decision-option-row textarea::placeholder { white-space: nowrap; }
 
-/* As tall as a one-line box, so the key centers on the first line beside it. */
-.decision-key-cell { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 32px; }
-.decision-key-fixed { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
-.decision-key-input { flex: 1; min-width: 0; }
+/* As tall as a one-line box, so the name and buttons center on the first line beside them. */
+.decision-key-cell { grid-area: key; display: flex; align-items: center; min-width: 0; min-height: 32px; }
+.decision-key-fixed { flex: 1; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); }
+.decision-key-input { flex: 1; min-width: 0; padding-inline: 8px; font-family: var(--font-mono); }
 .decision-drag-handle {
-  --ui-icon-size: 14px; flex: none; display: flex; align-items: center; align-self: stretch;
-  padding: 0 2px; color: var(--text-muted); background: none; border: none; border-radius: 3px; cursor: grab;
+  grid-area: grip; --ui-icon-size: 14px; display: flex; align-items: center; justify-content: center; height: 32px;
+  padding: 0; color: var(--text-muted); background: none; border: none; border-radius: 3px; cursor: grab;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   /* See .cast-drag: a held press drags, a swipe across it still scrolls. */
   touch-action: pan-y;
@@ -50,12 +64,11 @@
 .decision-drag-handle:hover { color: var(--text-secondary); background: var(--bg-hover); }
 .decision-drag-handle:active { cursor: grabbing; }
 .decision-option-row.dragging { opacity: .6; }
-.decision-row-remove { --btn-square-size: 22px; flex: none; color: var(--text-muted); }
+.decision-row-remove { grid-area: remove; --btn-square-size: 22px; margin-top: 5px; color: var(--text-muted); }
 .decision-row-remove:hover { color: var(--red); }
-.decision-options-foot { margin-top: 2px; }
-.decision-options-foot > .btn { grid-column: 1; justify-content: center; width: 100%; padding: 7px 4px; font-size: 11px;
-  white-space: nowrap; }
-.decision-options-foot > .decision-hint { grid-column: 2 / 4; align-self: center; }
+.decision-options-foot { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.decision-add { --ui-icon-size: 13px; --ui-icon-stroke: 2.4; flex: none; padding-left: 8px; }
+.decision-options-foot > .decision-hint { line-height: 1.5; }
 .decision-cell-label { display: none; }
 
 /* The gate's question box is taller than its History number: labels share a
@@ -81,20 +94,17 @@
   .decision-section .field-row > .field:nth-child(2) { flex: 1.3 1 0; min-width: 0; }
   .decision-section .field-row > .decision-knob { flex-basis: 76px; }
   .decision-section .field-row > .decision-inject { flex-basis: 88px; }
-  .decision-macros { white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+  .decision-macros { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
     mask-image: linear-gradient(to right, #000 85%, transparent); }
+  .decision-macro { flex: none; }
   .decision-macros::-webkit-scrollbar { display: none; }
   .decision-option-head { display: none; }
-  .decision-options .decision-option-row { grid-template-columns: 1fr; gap: 4px; padding: 8px 0 10px; margin: 0;
-    border-top: 1px solid var(--border); }
-  .decision-cell-label { display: block; margin-top: 4px; }
-  .decision-key-cell { justify-content: space-between; min-height: 0; }
-  .decision-drag-handle { padding: 6px 10px; margin-block: -6px; }
-  .decision-key-fixed { font-weight: 600; color: var(--text-primary); }
-  .decision-key-input { flex: 0 1 200px; margin-right: auto; }
-  .decision-options .decision-options-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px;
-    padding-top: 10px; border-top: 1px solid var(--border); }
-  .decision-options-foot > .btn { width: auto; padding: 5px 10px; }
+  .decision-options .decision-option-row { grid-template-columns: minmax(0, 1fr) auto auto; row-gap: 4px;
+    grid-template-areas: "key grip remove" "text text text" "output output output"; }
+  .decision-cell-label { display: block; margin: 4px 0 4px; }
+  .decision-drag-handle { width: 32px; }
+  .decision-key-input { flex: 0 1 220px; }
+  .decision-options-foot { flex-wrap: wrap; gap: 6px 10px; }
 }
 
 /* ── Judge lane ───────────────────────────────────────────────────────────── */

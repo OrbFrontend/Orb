@@ -1,7 +1,8 @@
 // Decision fragment editor. Server config supplies its options and limits.
+import { registerActions } from "./actions.js";
 import { decisionConfig, outcomeLabel } from "./decisions.js";
 import { initDragReorder } from "./drag_reorder.js";
-import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
+import { CLOSE_ICON, GRIP_ICON, PLUS_ICON } from "./icons.js";
 import { esc, escAttr } from "./utils.js";
 
 // Draft fields for the open fragment. Guidance mirrors the criterion until edited.
@@ -228,15 +229,53 @@ function _selectOptions(values, selected, label = (value) => value) {
     .join("");
 }
 
-/** A template textarea, the macros it expands as one quiet line under it, and its problems. */
+// Chip order: macros of a kind sit together, by the name before any "::"; an unlisted name goes last.
+const MACRO_GROUPS = [
+  ["char", "user", "cast"],
+  ["description", "personality"],
+  ["last_message", "last_assistant_message", "recent_history"],
+  ["roll", "random", "pick"],
+  ["time", "date"],
+  ["trim", "//"],
+];
+
+function _macroRank(macro) {
+  const name = macro.split("::")[0].split(" ")[0];
+  const group = MACRO_GROUPS.findIndex((names) => names.includes(name));
+  return group < 0 ? [MACRO_GROUPS.length, 0] : [group, MACRO_GROUPS[group].indexOf(name)];
+}
+
+function _macroChipsHtml(macros) {
+  const ranked = [...new Set(macros)].map((macro) => [_macroRank(macro), macro]);
+  ranked.sort(([[ga, na]], [[gb, nb]]) => ga - gb || na - nb);
+  return ranked
+    .map(
+      ([, macro]) =>
+        `<button type="button" class="decision-macro" data-wf-action="decisions:insertMacro" data-macro="{{${escAttr(macro)}}}" title="Insert at the cursor">{{${esc(macro)}}}</button>`,
+    )
+    .join("");
+}
+
+/** A template textarea, the macros it expands as chips that insert at its caret, and its problems. */
 function _templateFieldHtml(field, labelHtml, placeholder, macros = []) {
+  const chips = _macroChipsHtml(macros);
   return `<div class="field">
     <label>${labelHtml}</label>
     <textarea data-dec="${field}" rows="2" placeholder="${escAttr(placeholder)}">${esc(_draft[field])}</textarea>
-    ${macros.length ? `<div class="decision-macros">${macros.map((macro) => `<code>{{${esc(macro)}}}</code>`).join(" ")}</div>` : ""}
+    ${chips ? `<div class="decision-macros">${chips}</div>` : ""}
     ${_problemHtml(field)}
   </div>`;
 }
+
+registerActions("decisions", {
+  insertMacro: (chip) => {
+    const textarea = chip.closest(".field")?.querySelector("textarea");
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setRangeText(chip.dataset.macro, textarea.selectionStart, textarea.selectionEnd, "end");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  },
+});
 
 function _innerHtml() {
   if (!_draft) return "";
@@ -304,47 +343,51 @@ function _optionsHtml(config, type, copy) {
   const editable = type !== "noul";
   const removable = editable && options.length > 2;
   const max = type === "choice" ? config.choice?.max_options : config.score?.max_levels;
-  const criterionHead = `What it means ${_hint("- to the Judge")}`;
-  const outputHead = `What the story does ${_hint("- injected")}`;
+  const criterionHead = `What it means ${_hint("to the Judge")}`;
+  const outputHead = `What the story does ${_hint("injected")}`;
   const rows = options
     .map(
       (option, index) => `
       <div class="decision-option-row">
         <div class="decision-key-cell">
           ${
-            editable
-              ? `<button type="button" class="decision-drag-handle" data-dec-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder this outcome">${GRIP_ICON}</button>`
-              : ""
-          }
-          ${
             type === "choice"
-              ? `<input class="decision-key-input" data-opt="${index}" data-field="key" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name">`
+              ? `<input class="decision-key-input" data-opt="${index}" data-field="key" value="${escAttr(option.key)}" placeholder="name" aria-label="Option name" spellcheck="false">`
               : `<span class="decision-key-fixed">${esc(outcomeLabel(type, option.key))}</span>`
           }
-          ${
-            removable
-              ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
-              : ""
-          }
         </div>
-        <span class="decision-cell-label" aria-hidden="true">${criterionHead}</span>
-        <textarea rows="2" data-opt="${index}" data-field="text" aria-label="What it means" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
-        <span class="decision-cell-label" aria-hidden="true">${outputHead}</span>
-        <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What happens on a hit">${esc(option.output)}</textarea>
+        <div class="decision-cell decision-cell-text">
+          <span class="decision-cell-label" aria-hidden="true">${criterionHead}</span>
+          <textarea rows="2" data-opt="${index}" data-field="text" aria-label="What it means" placeholder="${escAttr(copy.criterionPlaceholder)}">${esc(option.text)}</textarea>
+        </div>
+        <div class="decision-cell decision-cell-output">
+          <span class="decision-cell-label" aria-hidden="true">${outputHead}</span>
+          <textarea rows="2" data-opt="${index}" data-field="output" aria-label="What the story does" placeholder="What happens on a hit">${esc(option.output)}</textarea>
+        </div>
+        ${
+          editable
+            ? `<button type="button" class="decision-drag-handle" data-dec-drag title="Drag, or use the arrow keys, to reorder" aria-label="Reorder this outcome">${GRIP_ICON}</button>`
+            : ""
+        }
+        ${
+          removable
+            ? `<button type="button" class="btn-icon btn-square decision-row-remove" data-dec-act="del-option" data-index="${index}" title="Remove" aria-label="Remove this outcome">${CLOSE_ICON}</button>`
+            : ""
+        }
       </div>`,
     )
     .join("");
   const addBtn =
     editable && !(options.length >= max)
-      ? `<button type="button" class="btn btn-sm" data-dec-act="add-option">+ Add ${type === "score" ? "level" : "option"}</button>`
+      ? `<button type="button" class="btn btn-sm decision-add" data-dec-act="add-option">${PLUS_ICON}Add ${type === "score" ? "level" : "option"}</button>`
       : "";
   const note = copy.note ? _hint(copy.note) : "";
   return `
     <div class="decision-options">
-      <div class="decision-option-head">
-        <span>${esc(copy.outcome)}</span>
-        <span>${criterionHead}</span>
-        <span>${outputHead}</span>
+      <div class="decision-option-head" aria-hidden="true">
+        <span class="decision-head-key">${esc(copy.outcome)}</span>
+        <span class="decision-head-text">${criterionHead}</span>
+        <span class="decision-head-output">${outputHead}</span>
       </div>
       ${rows}
       ${addBtn || note ? `<div class="decision-options-foot">${addBtn}${note}</div>` : ""}
@@ -359,9 +402,14 @@ export function fitDecisionTextareas(root = document.getElementById("decision-se
 function _fit(el) {
   // A hidden section measures 0; it is fitted again when it is shown.
   if (!el.offsetParent) return;
+  // Side-by-side boxes share the taller one's height, so a row's columns end on one line; stacked ones fit alone.
+  const pair = [...(el.closest(".decision-option-row")?.querySelectorAll("textarea") || [])];
+  const sideBySide = pair.length === 2 && pair[0].offsetTop === pair[1].offsetTop;
+  const boxes = sideBySide ? pair : [el];
   // From zero, not "auto": auto is the rows attribute's height, a floor the measurement would never go under.
-  el.style.height = "0";
-  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  for (const box of boxes) box.style.height = "0";
+  const height = Math.max(...boxes.map((box) => box.scrollHeight + box.offsetHeight - box.clientHeight));
+  for (const box of boxes) box.style.height = `${height}px`;
 }
 
 // -- Structural edits ---------------------------------------------------------
@@ -436,7 +484,7 @@ document.addEventListener("input", (event) => {
   if (el.dataset.field === "output") {
     option.touched = true;
   } else if (el.dataset.field === "text" && !option.touched) {
-    const output = el.parentElement.querySelector('[data-field="output"]');
+    const output = el.closest(".decision-option-row").querySelector('[data-field="output"]');
     output.value = el.value;
     _fit(output);
   }

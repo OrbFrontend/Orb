@@ -550,9 +550,9 @@ function _interactiveFragFormHtml(d, isEdit) {
           <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
           <option value="state" ${d.field_type === "state" ? "selected" : ""}>state (kept across turns)</option>
           <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
-          <option value="recast" ${d.field_type === "recast" ? "selected" : ""}>recast (edits reply)</option>
+          <option value="recast" ${d.field_type === "recast" ? "selected" : ""}>recast (patches reply)</option>
           <option value="rewrite" ${d.field_type === "rewrite" ? "selected" : ""}>rewrite (rewrites reply)</option>
-          <option value="decision" ${d.field_type === "decision" ? "selected" : ""}>decision (asks a question)</option>
+          <option value="decision" ${d.field_type === "decision" ? "selected" : ""}>decision (asks the Judge)</option>
         </select>
       </div>
     </div>
