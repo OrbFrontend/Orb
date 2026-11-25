@@ -16,7 +16,7 @@ from ...core.text_segmentation import (
 from .roleplay import THOUGHT_ATTRIBUTION, AxisStyle, Dialogue, Narration, emphasis_inner, is_inline_emphasis, strip_quotes
 from .roleplay_segmentation import extract_block_spans, find_emphasis_spans
 
-__all__ = ["classify_axes", "narration_mask", "narration_only", "protected_runs", "spoken_lines"]
+__all__ = ["classify_axes", "held_quote_narration", "narration_mask", "narration_only", "protected_runs", "spoken_lines"]
 
 
 _NARR_HIGH = 0.6  # >= this fraction of narration chars inside *asterisks* -> ASTERISK
@@ -155,7 +155,8 @@ def classify_axes(text: str) -> AxisStyle:
     has_action_beat = False
     bare_words: set[str] = set()
 
-    for para, spans in _paragraph_spans(text):
+    for para in split_paragraphs(strip_protected_markup(text)):
+        spans = extract_block_spans(para, beats_hold_quotes=True)
         for i, (typ, s, e) in enumerate(spans):
             raw = para[s:e]
             length = len(raw.strip())
@@ -164,10 +165,15 @@ def classify_axes(text: str) -> AxisStyle:
             if typ == "SPEECH":
                 speech_chars += length
             elif typ == "EMPHASIS":
-                if is_inline_emphasis(spans, i, para):
+                # A quote inside a beat is speech; the beat around it is narration.
+                quotes = find_quote_spans(raw)
+                speech_chars += sum(b - a for a, b in quotes)
+                beat = "".join(raw[a:b] for a, b in zip([0] + [q[1] for q in quotes], [q[0] for q in quotes] + [len(raw)]))
+                inner = emphasis_inner(beat)
+                if is_inline_emphasis(spans, i, para) or not any(ch.isalnum() for ch in inner):
                     continue  # inline emphasis is orthogonal to both axes
-                block_emph_chars += length
-                has_action_beat = has_action_beat or _is_action_beat(emphasis_inner(raw))
+                block_emph_chars += len(beat.strip())
+                has_action_beat = has_action_beat or _is_action_beat(inner)
             else:  # NARRATION (bare)
                 bare_chars += length
                 bare_words.update(_WORD.findall(raw.lower()))
@@ -195,6 +201,26 @@ def classify_axes(text: str) -> AxisStyle:
         dialogue = Dialogue.UNKNOWN
 
     return AxisStyle(dialogue=dialogue, narration=narration)
+
+
+def _beat_holds_quote(text: str) -> bool:
+    for para in split_paragraphs(strip_protected_markup(text)):
+        quotes = find_quote_spans(para)
+        if any(a < qa and qb < b for a, b in find_emphasis_spans(para) for qa, qb in quotes):
+            return True
+    return False
+
+
+def held_quote_narration(text: str, style: AxisStyle) -> AxisStyle:
+    """Correct a markup-classifier reading that calls a beat holding a quote bare narration.
+
+    Its weak labels came from a parse that split such a beat at the quote, so ``classify_axes`` decides that one case.
+    """
+    if style.narration != Narration.BARE or not _beat_holds_quote(text):
+        return style
+    if classify_axes(text).narration != Narration.ASTERISK:
+        return style
+    return AxisStyle(dialogue=style.dialogue, narration=Narration.ASTERISK)
 
 
 def _remove_attributed_thoughts(text: str) -> str:

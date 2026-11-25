@@ -15,6 +15,7 @@ from ..analysis import (
     classify_axes,
     format_numbered_report,
     format_report,
+    held_quote_narration,
     narration_only,
     protected_runs,
     run_audit,
@@ -298,7 +299,8 @@ async def markup_axes(text: str, settings: Settings) -> AxisStyle:
     """
     if not local_feature_ready(_MARKUP_FEATURE, settings):
         return classify_axes(text)
-    return await _classify_markup(text) or classify_axes(text)
+    style = await _classify_markup(text)
+    return classify_axes(text) if style is None else held_quote_narration(text, style)
 
 
 async def _classify_markup(text: str) -> AxisStyle | None:

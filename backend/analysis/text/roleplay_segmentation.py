@@ -100,14 +100,20 @@ def find_emphasis_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def extract_block_spans(paragraph: str) -> list[tuple[str, int, int]]:
-    """Tile a paragraph into raw ``SPEECH``/``EMPHASIS``/``NARRATION`` spans."""
+def extract_block_spans(paragraph: str, *, beats_hold_quotes: bool = False) -> list[tuple[str, int, int]]:
+    """Tile a paragraph into raw ``SPEECH``/``EMPHASIS``/``NARRATION`` spans.
+
+    With *beats_hold_quotes*, an emphasis span that wholly contains quotes stays one ``EMPHASIS`` span, quotes included.
+    """
     quote_spans = find_quote_spans(paragraph)
-    emphasis_spans = [
-        (start, end)
-        for start, end in find_emphasis_spans(paragraph)
-        if not any(start < quote_end and quote_start < end for quote_start, quote_end in quote_spans)
-    ]
+
+    def keeps(start: int, end: int) -> bool:
+        for quote_start, quote_end in quote_spans:
+            if start < quote_end and quote_start < end and not (beats_hold_quotes and start < quote_start and quote_end < end):
+                return False
+        return True
+
+    emphasis_spans = [(start, end) for start, end in find_emphasis_spans(paragraph) if keeps(start, end)]
     typed = sorted(
         [(start, end, "SPEECH") for start, end in quote_spans] + [(start, end, "EMPHASIS") for start, end in emphasis_spans]
     )
