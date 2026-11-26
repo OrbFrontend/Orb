@@ -21,14 +21,14 @@ preset.
 
 ## Manage presets
 
-Next to the picker:
+The picker's list ends with:
 
-| Button | Action |
+| Entry | Action |
 |---|---|
-| **+** | A new preset with the current setup and the built-in layout |
-| **Duplicate** | A copy of the current setup and the active preset's layout |
-| **Rename** | Rename the active preset |
-| **×** | Delete the active preset and its layout; Orb switches to the first one left |
+| **New…** | A new preset with the current setup and the built-in layout |
+| **Copy…** | A copy of the current setup and the active preset's layout |
+| **Rename…** | Rename the active preset |
+| **Delete…** | Delete the active preset; Orb switches to the first one left |
 
 The last preset cannot be deleted.
 

@@ -364,13 +364,13 @@ def _snapshots_dir() -> str:
 def _library_path(name: str) -> str:
     """Resolve a library filename after rejecting path traversal."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}\.db", name):
-        raise PresetError("Invalid preset name")
+        raise PresetError("Invalid backup name")
     root = os.path.realpath(_snapshots_dir())
     path = os.path.realpath(os.path.join(root, name))
     if not path.startswith(root + os.sep):
-        raise PresetError("Invalid preset name")
+        raise PresetError("Invalid backup name")
     if not os.path.isfile(path):
-        raise PresetError("Preset not found")
+        raise PresetError("Backup not found")
     return path
 
 
@@ -623,7 +623,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str 
     c = _scratch_connect(tmp)
     try:
         _clone_domains(c, current_db_path(), selected)
-        _assert_integrity(c, "the exported preset clone")
+        _assert_integrity(c, "the exported backup clone")
         c.execute("PRAGMA foreign_keys=ON")
         schema = _build_schema_model(c)
         # Tripwire: an excluded table that carries data would be invisible to both export and merge -- its rows would silently
@@ -670,7 +670,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str 
         c.close()
         chk = sqlite3.connect(packed)
         try:
-            _assert_integrity(chk, "the exported preset")
+            _assert_integrity(chk, "the exported backup")
         finally:
             chk.close()
         name = _unique_name(kind, label)
@@ -1189,7 +1189,7 @@ def check_and_upgrade(path: str) -> None:
     unknown = applied - set(MIGRATIONS)
     if unknown:
         raise PresetError(
-            "This preset was made with a newer version of Orb "
+            "This backup was made with a newer version of Orb "
             f"(unknown migrations: {sorted(unknown)}). Update Orb to import it."
         )
     run_pending(path)

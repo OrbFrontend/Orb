@@ -72,7 +72,7 @@ async def api_download_backup(name: str):
 @router.post("/api/backups/import")
 async def api_import_backup(file: Annotated[UploadFile, File(...)]):
     if not file.filename or not file.filename.lower().endswith(".db"):
-        raise HTTPException(status_code=400, detail="Only .db preset files are supported")
+        raise HTTPException(status_code=400, detail="Only .db backup files are supported")
     label = os.path.splitext(os.path.basename(file.filename))[0]
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         tmp_path = tmp.name

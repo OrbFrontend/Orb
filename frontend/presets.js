@@ -97,7 +97,7 @@ const createPreset = (copyFrom) =>
 
 function deletePreset() {
   const id = _activeId;
-  confirmDelete("Preset", `Delete "${esc(_active()?.name || "")}" and its prompt layout?`, () =>
+  confirmDelete("Preset", `Delete "${esc(_active()?.name || "")}"?`, () =>
     _attempt(async () => {
       await acceptSettingsRow(() => api.del(`/presets/${encodeURIComponent(id)}`));
       await _reloadLive();
