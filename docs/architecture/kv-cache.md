@@ -154,7 +154,16 @@ the cast's cards define, enabled or not, in an order no toggle moves.
 enabled or not, because upstreams that decode against the tool schema follow it
 and ignore a "Required:" line in the trailing request; a disabled required field
 is filled and dropped. Per-fragment Director mode leaves `required` empty, since
-each step fills one field. `give_feedback` and `update_state` carry no
+each step fills one field, and so does a defined decision between two Director
+fragments whose Situation reads `{{scene_guidance}}`, since the combined call
+then splits into one call per segment and
+the first would otherwise be forced to fill the second's required fields before
+the ruling exists. Each segment's `json_schema` carries its own `required`, and
+its trailing request names them. Middle-ness is read over the defined rows, so
+enabling or disabling a decision never rewrites the blob; adding, deleting, or
+moving one into or out of the middle, or making its Situation start or stop
+reading the plan, rewrites it once, as an authoring change.
+`give_feedback` and `update_state` carry no
 `required`, and `give_feedback` joins the list once any feedback fragment is
 defined. A fragment-built property carries its
 name and type only. The blob reaches every call on the lane, the Writer's
@@ -290,25 +299,53 @@ just used.
 
 ## The Judge sits beside the lanes
 
-Decision fragments go to the Judge's own endpoint, so neither of its passes
-touches a chat prefix. The before-Director pass runs ahead of the Director. The
-after-Director pass runs between the before-Writer state step and the Writer,
-with nothing on the chat lanes in between. The Writer's request then extends
-the Director's base as before, and its decision lines, with the after-Director
-ones last, stay in the Writer request below the layout divider. The Director's
-request never carries an after-Director outcome.
+Decision fragments go to the Judge's own endpoint, so no Judge point touches a
+chat prefix. The list order sets the points: decisions above every Director
+fragment form the opening point, ahead of the Director; decisions below every
+one form the closing point, between the before-Writer state step and the
+Writer; each run of decisions between two Director fragments is a middle point
+between those two Director steps. A card's decisions are placed against the
+card's own Director fragments. A point only waits when one of its decisions
+reads what changes there: `{{scene_guidance}}` in the middle, `{{scene_guidance}}`
+or `{{state}}` at the close. Every other decision renders the same as at the
+start, so it joins the opening request, and its ruling still enters the
+decided list at its place. A waiting middle point whose fragment above gave no
+value skips its decisions without a Judge request.
 
-That gap is only free while the Judge holds its own memory. If the Judge model
+The opening point's outcomes ride the `___` decisions block at the head of
+every Director step's tail, which stays byte-identical across steps. A middle
+point's ruling goes only in the decided-so-far list, which sits after the
+per-step `Fill ONLY` line, the first byte where the steps already differ, so
+rulings add no divergence on any provider or lane. The step ahead of a point
+names that point's Questions in the same place, after its `Fill ONLY` line. A
+middle ruling never enters the `___` block. Closing outcomes, like every Writer-bound line, stay in the
+Writer request below the layout divider.
+
+In combined mode a waiting middle point splits `direct_scene` into one call per
+segment, each narrowed by its per-call `json_schema` to its own fields, the
+last one adding moods, the speaking plan and the one-value state fields. Each
+extra segment re-reads its tail: lorebook, state, attachments. On llama.cpp
+SWA/hybrid models a request resumes at its message start, so that is the whole
+tail. Only setups with a waiting middle point pay it; a ruling settled with the
+opening point joins the decided list of the call holding the fragments below
+its place, with no split. One-value state fields always
+ride the Director's last call, so in per-fragment mode they cost no step of
+their own; their lines sit after that call's `Fill ONLY` line.
+
+The gaps are only free while the Judge holds its own memory. If the Judge model
 shares a GPU with the chat model through a swapper that keeps one model loaded,
 such as a llama-swap group of one, each Judge call unloads the chat model and
-its KV cache. The after-Director pass then makes the Writer
-start cold, re-reading the whole conversation, on every turn that asks one.
-Keep the Judge resident on its own server.
+its KV cache. A waiting middle point then makes the next Director step start
+cold, and a waiting closing point makes the Writer start cold, re-reading the whole conversation,
+on every turn that asks one. Keep the Judge resident on its own server. Each
+point is also one Judge round trip, in sequence.
 
 On the Judge's side, questions whose Situations render to the same text go in
 one request, so decisions that share a Situation template share one read of
-it. A before-Director and an after-Director decision never share a request:
-the second one's Situation carries the plan.
+it. Decisions at different points never share a request: a later one's
+Situation carries more of the plan. A middle Situation's `{{scene_guidance}}`
+grows by appending from one point to the next, so a Situation that ends with it
+sends the Judge's server a growing prefix.
 
 ## Across turns
 

@@ -47,7 +47,9 @@ const SKIP_REASONS = {
   invalid_answer: "The answer was missing or unusable",
   low_confidence: "Gated below the confidence floor",
   missing_anchor: "The message this was anchored to is gone",
-  director_off: "Injects into the Director only, which is off",
+  director_off: "Needs the Director, which is off",
+  no_director_after: "Injects into the Director only, but runs after its last fragment",
+  no_plan: "The Director fragment above it gave no value to judge",
 };
 
 export function skipReasonText(reason) {

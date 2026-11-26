@@ -756,7 +756,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
     }
     case "decisions": {
       try {
-        // The after-Director pass re-announces the turn's earlier skips with its own.
+        // Each later Judge point re-announces the turn's earlier skips with its own.
         const announced = new Set((state.lastDecisions?.skipped || []).map((entry) => entry.fragment_id));
         state.lastDecisions = JSON.parse(data);
         if (isViewing(state)) renderInspector();

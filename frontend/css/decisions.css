@@ -12,10 +12,9 @@
 .decision-section .decision-controls { flex-wrap: wrap; }
 .decision-section .decision-controls > .field:first-child { flex: 0 1 110px; min-width: 0; }
 .decision-section .decision-controls > .field:nth-child(2) { flex: 2 1 220px; min-width: 0; }
-.decision-routing { display: flex; gap: 8px; flex: 0 0 288px; align-items: flex-end; }
-.decision-routing:has(> .decision-knob) { flex-basis: 400px; }
-.decision-routing > .field { flex: 0 0 168px; min-width: 0; }
-.decision-routing > .field:nth-child(2) { flex: 1 1 0; }
+.decision-routing { display: flex; gap: 8px; flex: 0 0 128px; align-items: flex-end; }
+.decision-routing:has(> .decision-knob) { flex-basis: 240px; }
+.decision-routing > .field { flex: 1 1 0; min-width: 0; }
 .decision-routing > .decision-knob { flex: 0 0 104px; }
 /* Macro chips insert at the caret of the template box above them. */
 .decision-macros { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
@@ -100,8 +99,6 @@
   .decision-section .field-row > .field:first-child { flex: .7 1 0; min-width: 0; }
   .decision-section .field-row > .field:nth-child(2) { flex: 1.3 1 0; min-width: 0; }
   .decision-routing, .decision-routing:has(> .decision-knob) { flex-basis: 100%; }
-  .decision-routing > .field:first-child { flex: 1.4 1 0; }
-  .decision-routing > .field:nth-child(2) { flex: 1 1 0; }
   .decision-routing > .decision-knob { flex-basis: 76px; }
   .decision-macros { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
     mask-image: linear-gradient(to right, #000 85%, transparent); }

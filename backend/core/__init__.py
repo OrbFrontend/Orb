@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from .card_scripts import CardScripts
 from .decisions import (
-    AFTER_DIRECTOR,
-    BEFORE_DIRECTOR,
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
     DECISION_INJECTS,
-    DECISION_INJECTS_BY_PLACEMENT,
-    DECISION_PLACEMENTS,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
     DEFAULT_DECISION_INJECT,
@@ -22,7 +18,6 @@ from .decisions import (
     OUTCOME_KEYS,
     DecisionDefinition,
     decision_definition_errors,
-    default_decision_inject,
     is_decision_row,
     outcome_keys_of,
     outcome_text,
@@ -30,7 +25,7 @@ from .decisions import (
     with_outcome_text,
 )
 from .domain_types import CastMember, GroupContextMode, TurnCast
-from .fragment_stages import FRAGMENT_STAGES, REPLY_EDIT_FIELD_TYPES, FragmentStage, fragment_stage
+from .fragment_stages import FRAGMENT_STAGES, REPLY_EDIT_FIELD_TYPES, FragmentStage, fragment_stage, is_director_fragment
 from .fragment_state import (
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MAX_ENTRIES,

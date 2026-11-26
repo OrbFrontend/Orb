@@ -144,7 +144,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": -100,
         # One choice captures both success and severity from the same snapshot.
         "decision_type": "choice",
-        "decision_placement": "before_director",
         "decision_inject": "both",
         # Treat the request as a proposal; it may narrate an outcome that has not happened.
         "decision_state_template": (

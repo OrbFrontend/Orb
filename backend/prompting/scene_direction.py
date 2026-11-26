@@ -81,12 +81,16 @@ def build_style_injection(
         value = (extra_fields or {}).get(fragment["id"])
         if not value:
             continue
-        label = fragment["injection_label"]
-        if fragment["field_type"] == "array" and isinstance(value, list):
-            parts.append(label + ":\n" + "\n".join(f"- {item}" for item in value))
-        else:
-            parts.append(f"{label}: {value}")
+        parts.append(scene_field_text(fragment, value))
     return "\n\n".join(part for part in parts if part)
+
+
+def scene_field_text(fragment: Mapping[str, Any], value: Any) -> str:
+    """One Director field as Scene Guidance shows it: a list under its label, anything else after it."""
+    label = fragment["injection_label"]
+    if fragment["field_type"] == "array" and isinstance(value, list):
+        return label + ":\n" + "\n".join(f"- {item}" for item in value)
+    return f"{label}: {value}"
 
 
 def headed_scene_guidance(body: str) -> str:

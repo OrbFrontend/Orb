@@ -15,18 +15,10 @@ DECISION_RESOLUTIONS_BY_TYPE: Mapping[str, tuple[str, ...]] = {
     "score": ("argmax", "weighted", "nearest"),
 }
 DECISION_TYPES = frozenset(DECISION_RESOLUTIONS_BY_TYPE)
-BEFORE_DIRECTOR = "before_director"
-# Judges the Director's plan: reads {{scene_guidance}}, and only the Writer is left to read the outcome.
-AFTER_DIRECTOR = "after_director"
-DECISION_PLACEMENTS = (BEFORE_DIRECTOR, AFTER_DIRECTOR)
 # Which passes receive a resolved outcome's guidance. Unlike state, a decision
 # always injects somewhere: a result nobody reads is a wasted Judge call.
 DECISION_INJECTS = ("director", "writer", "both")
 DEFAULT_DECISION_INJECT = "both"
-DECISION_INJECTS_BY_PLACEMENT: Mapping[str, tuple[str, ...]] = {
-    BEFORE_DIRECTOR: DECISION_INJECTS,
-    AFTER_DIRECTOR: ("writer",),
-}
 OUTCOME_KEYS = ("true", "false")
 MAX_CHOICE_OPTIONS = 255
 MIN_SCORE_LEVELS = 2
@@ -34,7 +26,6 @@ MAX_SCORE_LEVELS = 10
 MAX_OPTION_KEY_LENGTH = 64
 DECISION_COLUMNS = (
     "decision_type",
-    "decision_placement",
     "decision_inject",
     "decision_state_template",
     "decision_instructions",
@@ -53,7 +44,6 @@ class DecisionDefinition:
     label: str
     injection_label: str
     decision_type: str
-    placement: str
     state_template: str
     instructions: str
     criteria: DecisionCriteria
@@ -67,12 +57,6 @@ class DecisionDefinition:
     @property
     def outcome_keys(self) -> tuple[str, ...]:
         return _outcome_keys(self.decision_type, self.criteria)
-
-
-def default_decision_inject(placement: Any) -> str:
-    """The inject a decision placed at *placement* gets when it names none: the first pass that still reads its outcome."""
-    injects = DECISION_INJECTS_BY_PLACEMENT.get(str(placement or ""), DECISION_INJECTS)
-    return DEFAULT_DECISION_INJECT if DEFAULT_DECISION_INJECT in injects else injects[0]
 
 
 def _outcome_keys(decision_type: str, criteria: Any) -> tuple[str, ...]:
@@ -158,15 +142,10 @@ def _parse(row: Mapping[str, Any]) -> tuple[DecisionDefinition | None, list[str]
     decision_type = _text(row, "decision_type")
     if decision_type not in DECISION_TYPES:
         errors.append(f"decision_type must be one of {', '.join(sorted(DECISION_TYPES))}")
-    placement = _text(row, "decision_placement")
-    if placement not in DECISION_PLACEMENTS:
-        errors.append(f"decision_placement must be one of {', '.join(DECISION_PLACEMENTS)}")
-    # Absent means the placement's default, so older cards and API callers keep working.
-    inject = _text(row, "decision_inject") or default_decision_inject(placement)
+    # Absent means the default, so older cards and API callers keep working.
+    inject = _text(row, "decision_inject") or DEFAULT_DECISION_INJECT
     if inject not in DECISION_INJECTS:
         errors.append(f"decision_inject must be one of {', '.join(DECISION_INJECTS)}")
-    elif placement == AFTER_DIRECTOR and inject not in DECISION_INJECTS_BY_PLACEMENT[AFTER_DIRECTOR]:
-        errors.append("decision_inject must be writer after the Director: the Director has already run")
     for column in ("decision_state_template", "decision_instructions"):
         if not _text(row, column):
             errors.append(f"{column} must not be empty")
@@ -206,7 +185,6 @@ def _parse(row: Mapping[str, Any]) -> tuple[DecisionDefinition | None, list[str]
         label=label,
         injection_label=str(row.get("injection_label") or "") or label,
         decision_type=decision_type,
-        placement=placement,
         state_template=str(row["decision_state_template"]),
         instructions=str(row["decision_instructions"]),
         criteria=criteria,

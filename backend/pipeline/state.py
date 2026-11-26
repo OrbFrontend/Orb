@@ -114,6 +114,7 @@ _DIRECTOR_SEED_FIELDS = (
     "decision_evaluations",
     "decision_cooldowns",
     "director_decision_guidance",
+    "state_decision_guidance",
     "writer_decisions",
     "selected_lorebook_entries",
     "inj_block",
@@ -159,7 +160,11 @@ class TurnState:
     # Persisted decision record, cooldown snapshot, and the guidance each pass receives.
     decision_evaluations: dict = field(default_factory=dict)
     decision_cooldowns: dict[str, int] = field(default_factory=dict)
+    # The Director's opening-point outcomes, which every Director step reads ahead of its instruction; later rulings reach
+    # the steps after them in their decided lists instead.
     director_decision_guidance: str = ""
+    # Every Director-routed outcome so far, for the before-Writer state step.
+    state_decision_guidance: str = ""
     # The Writer's decision lines without their heading, which its prompt layout's Decisions text places.
     writer_decisions: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)

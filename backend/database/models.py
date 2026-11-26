@@ -527,7 +527,6 @@ class InteractiveFragmentRow(TypedDict):
     # Decision fields are NULL for other fragment types; JSON fields are decoded
     # at query boundaries and the definition is validated as a whole.
     decision_type: str | None
-    decision_placement: str | None
     decision_inject: str | None
     decision_state_template: str | None
     decision_instructions: str | None

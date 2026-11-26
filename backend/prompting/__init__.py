@@ -27,4 +27,5 @@ from .scene_direction import (
     compute_style_injection_block,
     headed_scene_guidance,
     resolve_mood_fragment_randoms,
+    scene_field_text,
 )

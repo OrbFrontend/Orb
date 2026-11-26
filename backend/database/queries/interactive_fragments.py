@@ -4,7 +4,9 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from ...core import DECISION_COLUMNS, STATE_COLUMNS, fragment_stage
+import aiosqlite
+
+from ...core import DECISION_COLUMNS, DECISION_FIELD_TYPE, STATE_COLUMNS, fragment_stage, is_director_fragment
 from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import InteractiveFragmentRow
 
@@ -70,7 +72,7 @@ async def get_interactive_fragment(fid: str) -> InteractiveFragmentRow | None:
 
 
 async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | None:
-    """Insert a fragment; without a ``sort_order`` it goes last."""
+    """Insert a fragment; without a ``sort_order`` it goes last, or a decision just ahead of the first Director fragment."""
     payload = _encoded_decision_values(data)
     columns = ("id", *_BASE_WRITE_COLUMNS, *DECISION_COLUMNS)
     values = (
@@ -89,14 +91,27 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
         *(payload.get(column) for column in STATE_COLUMNS),
         *(payload.get(column) for column in DECISION_COLUMNS),
     )
-    async with get_db() as db:
+    async with immediate_tx() as db:
         await db.execute(
             f"INSERT INTO interactive_fragments ({', '.join(columns)}) "  # nosec B608 -- columns from module literals
             f"VALUES ({', '.join(_LAST_SLOT if column == 'sort_order' else '?' for column in columns)})",
             values,
         )
-        await db.commit()
-        return await get_interactive_fragment(payload["id"])
+        if payload.get("sort_order") is None and payload.get("field_type") == DECISION_FIELD_TYPE:
+            await _put_ahead_of_director(db, str(payload["id"]))
+    return await get_interactive_fragment(payload["id"])
+
+
+async def _put_ahead_of_director(db: aiosqlite.Connection, fid: str) -> None:
+    """Move decision *fid* just ahead of the first Director fragment, where it asks the Judge before the Director runs."""
+    rows = await db.execute_fetchall("SELECT id, field_type FROM interactive_fragments ORDER BY sort_order, id")
+    others = [row for row in rows if fragment_stage(row["field_type"]) == "director" and row["id"] != fid]
+    first = next((i for i, row in enumerate(others) if is_director_fragment(row["field_type"])), None)
+    if first is None:
+        return
+    ids = [str(row["id"]) for row in others]
+    ids.insert(first, fid)
+    await _reorder(db, ids)
 
 
 async def update_interactive_fragment(
@@ -131,25 +146,29 @@ async def reorder_interactive_fragments(ids: Sequence[str]) -> dict[str, int] | 
     apart in the order they ran. Read and written under one write lock; a refused batch changes nothing.
     """
     async with immediate_tx() as db:
-        rows = list(
-            await db.execute_fetchall("SELECT id, field_type, sort_order FROM interactive_fragments ORDER BY sort_order, id")
-        )
-        stage_by_id = {str(row["id"]): fragment_stage(row["field_type"]) for row in rows}
-        if any(fid not in stage_by_id for fid in ids):
-            return None
-        if len({stage_by_id[fid] for fid in ids}) > 1:
-            raise InteractiveFragmentReorderLaneMismatch("Fragments must belong to the same stage")
-        named, asked = set(ids), iter(ids)
-        order = [next(asked) if row["id"] in named else str(row["id"]) for row in rows]
-        slots = [int(row["sort_order"]) for row in rows]
-        for index in range(1, len(slots)):
-            slots[index] = max(slots[index], slots[index - 1] + 1)
-        placed = dict(zip(order, slots))
-        held = {str(row["id"]): row["sort_order"] for row in rows}
-        await db.executemany(
-            "UPDATE interactive_fragments SET sort_order = ? WHERE id = ?",
-            [(slot, fid) for fid, slot in placed.items() if held[fid] != slot],
-        )
+        return await _reorder(db, ids)
+
+
+async def _reorder(db: aiosqlite.Connection, ids: Sequence[str]) -> dict[str, int] | None:
+    rows = list(
+        await db.execute_fetchall("SELECT id, field_type, sort_order FROM interactive_fragments ORDER BY sort_order, id")
+    )
+    stage_by_id = {str(row["id"]): fragment_stage(row["field_type"]) for row in rows}
+    if any(fid not in stage_by_id for fid in ids):
+        return None
+    if len({stage_by_id[fid] for fid in ids}) > 1:
+        raise InteractiveFragmentReorderLaneMismatch("Fragments must belong to the same stage")
+    named, asked = set(ids), iter(ids)
+    order = [next(asked) if row["id"] in named else str(row["id"]) for row in rows]
+    slots = [int(row["sort_order"]) for row in rows]
+    for index in range(1, len(slots)):
+        slots[index] = max(slots[index], slots[index - 1] + 1)
+    placed = dict(zip(order, slots))
+    held = {str(row["id"]): row["sort_order"] for row in rows}
+    await db.executemany(
+        "UPDATE interactive_fragments SET sort_order = ? WHERE id = ?",
+        [(slot, fid) for fid, slot in placed.items() if held[fid] != slot],
+    )
     return placed
 
 

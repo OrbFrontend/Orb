@@ -10,21 +10,9 @@ let _draft = null;
 // Validation problems keyed by their display field.
 let _problems = {};
 
-const PLACEMENT_DEFAULT = "before_director";
-const PLACEMENT_LABELS = { before_director: "Before Director", after_director: "After Director" };
 // Which passes receive the resolved guidance. No "off": an unread outcome is a wasted Judge call.
 const INJECT_DEFAULT = "both";
 const INJECT_LABELS = { director: "Director", writer: "Writer", both: "Both" };
-
-// The injects a placement allows; after the Director only the Writer is left.
-function _injectsFor(placement) {
-  return decisionConfig()?.placement_injects?.[placement] || Object.keys(INJECT_LABELS);
-}
-
-function _fitInject() {
-  const allowed = _injectsFor(_draft.placement);
-  if (!allowed.includes(_draft.inject)) _draft.inject = allowed.includes(INJECT_DEFAULT) ? INJECT_DEFAULT : allowed[0];
-}
 
 function _policiesFor(type) {
   return decisionConfig()?.resolution_policies?.[type] || [];
@@ -60,12 +48,10 @@ export function initDecisionDraft(fragment) {
     // Preserve intentionally empty guidance when reopening the draft.
     options: entries.map(([key, text]) => _option(key, text, outputs[key], Object.hasOwn(outputs, key))),
     resolution: fragment.decision_resolution || _policiesFor(type)[0] || "",
-    placement: fragment.decision_placement || PLACEMENT_DEFAULT,
     inject: fragment.decision_inject || INJECT_DEFAULT,
     threshold: fragment.decision_threshold ?? null,
     confidence_floor: fragment.decision_confidence_floor ?? null,
   };
-  _fitInject();
 }
 
 // -- Reading the form ---------------------------------------------------------
@@ -76,7 +62,6 @@ export function readDecisionFields() {
   const { type, options, resolution } = _draft;
   return {
     decision_type: type,
-    decision_placement: _draft.placement,
     decision_inject: _draft.inject,
     decision_state_template: _draft.state_template,
     decision_instructions: _draft.instructions,
@@ -125,7 +110,7 @@ function _syncFromDom() {
 
 // Map backend validation messages to the relevant editor fields.
 const PROBLEM_ANCHORS = [
-  [/^decision_(type|resolution|placement|inject|threshold|confidence_floor)\b/, "policy"],
+  [/^decision_(type|resolution|inject|threshold|confidence_floor)\b/, "policy"],
   [/^(decision_state_template|Situation template)\b/, "state_template"],
   [/^(decision_instructions|Question)\b/, "instructions"],
   [/^(decision_criteria|decision_outputs|Outcome description|Guidance)\b/, "criteria"],
@@ -307,12 +292,8 @@ function _innerHtml() {
       </div>
       <div class="decision-routing">
         <div class="field">
-          <label>Runs</label>
-          <select data-dec="placement">${_selectOptions(config.placements || [PLACEMENT_DEFAULT], _draft.placement, (value) => PLACEMENT_LABELS[value] || value)}</select>
-        </div>
-        <div class="field">
           <label title="Which passes receive the outcome's guidance">Inject</label>
-          <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(_injectsFor(_draft.placement), _draft.inject, (value) => INJECT_LABELS[value])}</select>
+          <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(Object.keys(INJECT_LABELS), _draft.inject, (value) => INJECT_LABELS[value])}</select>
         </div>
         ${
           knob
@@ -325,10 +306,7 @@ function _innerHtml() {
       </div>
     </div>
     ${_problemHtml("policy")}
-    ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", [
-      ...(config.situation_chips || []),
-      ...(_draft.placement === "after_director" ? config.after_director_chips || [] : []),
-    ])}
+    ${_templateFieldHtml("state_template", `Situation ${_hint("{{scene_guidance}} is the Director's plan above this decision")}`, config.default_state_template || "", config.situation_chips || [])}
     ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, config.question_chips || [])}
     ${_optionsHtml(config, type, copy)}
     ${_problemHtml("criteria")}`;
@@ -465,13 +443,12 @@ document.addEventListener("click", (event) => {
       ?.lastElementChild?.scrollIntoView({ block: "nearest" });
 });
 
-// Type changes rebuild the table; resolution changes swap the numeric control; placement changes narrow Inject.
+// Type changes rebuild the table; resolution changes swap the numeric control.
 document.addEventListener("change", (event) => {
   const select = _inSection(event.target.closest("select[data-dec]"));
   if (!select) return;
   _mutate(() => {
     if (select.dataset.dec === "type") _retype(select.value);
-    if (select.dataset.dec === "placement") _fitInject();
   });
 });
 

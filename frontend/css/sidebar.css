@@ -163,7 +163,6 @@
 }
 /* The add button brings its own 6px; the last lane leaves 2px, so it sits 8px below, the same as between lanes. */
 .frag-lane:has(+ .btn) { margin-bottom: 2px; }
-.frag-lane-judge { --frag-lane-turn: 0; }
 .frag-lane-director { --frag-lane-turn: 90; }
 .frag-lane-state { --frag-lane-turn: 180; }
 .frag-lane-editor { --frag-lane-turn: 270; }
@@ -199,6 +198,7 @@
 .fragment-item .frag-label { flex: 1; font-weight: 500; padding-right: 8px; }
 .frag-type-badge { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px;
   padding: 3px 4px; }
+.frag-skip-badge { color: var(--warning, #c8a84b); border-color: currentColor; }
 .frag-toggle-wrapper { display: flex; align-items: center; margin-left: 8px; flex-shrink: 0; position: relative;
   z-index: 1; }
 #sidebar-collapse-btn, .sidebar-expand-btn { --ui-icon-size: 14px; display: none; padding: 4px; background: none;

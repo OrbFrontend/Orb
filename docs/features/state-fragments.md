@@ -67,6 +67,10 @@ Automatic updates need the **Agent** enabled. **Before the Writer** also needs
 the **Direction** tool. **After the reply** adds an Agent call; **Individual
 fragment processing** updates each fragment separately.
 
+A one-value fragment updated **Before the Writer** is filled in the Director's
+last request, after every Director fragment and every decision between them,
+so it reflects the whole scene direction and adds no call of its own.
+
 **Manual only** stops automatic updates but still sends saved facts according to
 **Inject**. Disabling a fragment stops both updating and sending its facts.
 A cooldown pauses updates while the saved facts are still sent.

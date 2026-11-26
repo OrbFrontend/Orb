@@ -25,7 +25,7 @@ from .failures import (
     staged,
     step_failure_warning,
 )
-from .passes.director import AfterDirector, apply_state_step_result, cooldown, director_stage, state_event_payload
+from .passes.director import DirectorJudge, apply_state_step_result, cooldown, director_stage, state_event_payload
 from .passes.editor import editor_stage
 from .passes.judge import JudgeConfig, JudgeResult
 from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
@@ -103,12 +103,12 @@ async def run_director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
-    after_director: AfterDirector | None = None,
+    director_judge: DirectorJudge | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Announce the state changes *state* was seeded with, then direct the turn.
 
     The one Director entry for a solo turn and for a group exchange's shared Director, so both label a failure as the Director's
-    and read the Judge's guidance from *state*. *after_director* is the after-Director Judge pass, run inside the stage.
+    and read the Judge's guidance from *state*. *director_judge* holds the Judge points that run inside the stage.
     """
     try:
         if state.state_events or state.state_report["dropped"]:
@@ -128,8 +128,7 @@ async def run_director_stage(
             lorebook=lorebook,
             macros=macros,
             speaker_keys=speaker_keys,
-            director_decision_guidance=state.director_decision_guidance,
-            after_director=after_director,
+            judge=director_judge,
         ):
             yield ev
     except Exception as exc:
@@ -168,7 +167,7 @@ async def run_pipeline(
     run_director: bool = True,
     director_seed: TurnState | None = None,
     judge: JudgeResult | None = None,
-    after_director: AfterDirector | None = None,
+    director_judge: DirectorJudge | None = None,
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
@@ -228,7 +227,7 @@ async def run_pipeline(
             kv_tracker=kv_tracker,
             lorebook=lorebook,
             macros=macros,
-            after_director=after_director,
+            director_judge=director_judge,
         ):
             yield ev
 

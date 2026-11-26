@@ -1,15 +1,17 @@
 # Decision Fragments
 
 A decision fragment asks the **Judge**, a classifier model, one question about
-the current situation, before or after the Director runs. The Judge selects an
-outcome using the fragment's resolution policy. Orb sends that outcome's
-guidance to the passes its **Inject** setting names, under **Major Decisions**.
+the current situation, at its place among the Director fragments. The Judge
+selects an outcome using the fragment's resolution policy. Orb sends that
+outcome's guidance to the passes its **Inject** setting names, under **Major
+Decisions**.
 
-Decision fragments run independently. Each sees the turn's situation, not another
-fragment's result, so their order does not create a sequence. Orb batches questions
-with the same rendered situation when limits allow; separate batches run at the
-same time. If one question depends on another's answer, combine them into a single
-choice or score decision.
+Decisions next to each other, with no Director fragment between them, are
+asked together and run independently: each sees the turn's situation, not
+another's result. Orb batches questions with the same rendered situation when
+limits allow; separate batches run at the same time. If one question depends on
+another's answer, combine them into a single choice or score decision, or put a
+Director fragment between them.
 
 ## Create and configure
 
@@ -60,26 +62,59 @@ Each outcome has two separate fields:
 
 Empty guidance means that outcome adds no instructions.
 
-## Runs
+## Order
 
-**Runs** sets when the Judge asks the question:
+Decisions and Director fragments share one list in the Library, **Judge &
+Director**, and it runs top to bottom. Drag a decision to choose when the Judge
+asks it. A new decision starts above the Director fragments.
 
-| Runs | The Judge reads | Inject |
+| Where the decision sits | `{{scene_guidance}}` reads | Inject **Director** reaches |
 |---|---|---|
-| **Before Director** (the default) | The conversation | Director, Writer or Both |
-| **After Director** | The conversation and the Director's plan, as `{{scene_guidance}}` | Writer only |
+| Above every Director fragment | Nothing yet: a Situation that uses it is skipped | Every Director fragment, moods and before-Writer state |
+| Between two Director fragments | The fields above it, and earlier rulings | The Director fragments below it, moods and before-Writer state |
+| Below every Director fragment | The whole plan | Nothing: the decision is skipped |
 
-An **After Director** decision judges what the Director just planned, for
-example whether the attack it chose lands. The Director has already run, so
-only the Writer receives the outcome. The Writer sees both the plan and the
-outcome. The default prompt layout puts **Decisions** before **Scene guidance**,
-so write guidance that overrides the plan ("Whatever the plan says, the lunge
-misses."), or move the Decisions block below Scene guidance in the
+Inject **Writer** reaches the Writer from any place. Below every Director
+fragment, **Both** reaches the Writer only.
+
+A decision between two Director fragments judges what the Director has decided
+so far, and the fragments below build on its outcome. For example, put
+**Attack** first, then a decision "Does the attack land?" whose Situation reads
+`{{scene_guidance}}`, then **Consequence**. The Director plans the attack, the
+Judge rules, and the Director writes the consequence knowing the attack missed.
+The Director's request just before the decision shows its **Question**, so the
+plan leaves room for whatever the Judge answers. Its `{{state}}` is still the
+state the turn starts from.
+
+A decision below every Director fragment judges the finished plan, after the
+before-Writer state updates. The Writer sees both the plan and the outcome. The
+default prompt layout puts **Decisions** before **Scene guidance**, so write
+guidance that overrides the plan ("Whatever the plan says, the lunge misses."),
+or move the Decisions block below Scene guidance in the
 [Prompt Layout](prompt-layout.md).
 
-After Director decisions are asked only when the Director runs. Otherwise they
-are skipped without asking the Judge, and the Inspector reports why. They
-cost a second Judge request, between the Director and the Writer.
+A decision waits for its place only when its Situation reads something that
+changes there: `{{scene_guidance}}` between Director fragments, and
+`{{scene_guidance}}` or `{{state}}` below them. Any other decision is asked at
+the start of the turn, in the same Judge request as the decisions above the
+Director when their Situations match, and its outcome still reaches only what
+its place reaches. The Director never stops for it. Each place where a decision
+waits costs one Judge request, one after another.
+
+If the Director fragment just above a waiting decision gives no value this
+turn, because it rests or its request failed, the decision is skipped without
+asking the Judge.
+
+The list marks a decision its place makes skip with **!**.
+
+A character card's decisions follow the card's own Director fragments in the
+same way: above the card's first, between two, or below its last. A card with
+only decisions asks them above the Director.
+
+When the Agent or the **Direction** tool is off, every decision is asked at the
+start of the turn. A decision whose Situation uses `{{scene_guidance}}`, or
+whose Inject is **Director**, is skipped without asking the Judge, and the
+Inspector reports why.
 
 ## Inject
 
@@ -87,7 +122,7 @@ cost a second Judge request, between the Director and the Writer.
 
 | Inject | Receives the guidance |
 |---|---|
-| **Director** | The Director and its before-Writer state updates |
+| **Director** | The Director steps after the decision, and its before-Writer state updates |
 | **Writer** | The Writer, at the top of its injection block |
 | **Both** | Both of the above (the default) |
 
@@ -103,18 +138,19 @@ Inspector reports why.
 
 The **Situation** template is the context sent to the Judge. It supports
 `{{last_message}}`, `{{last_assistant_message}}`, `{{recent_history}}`,
-`{{state}}`, `{{user}}`, `{{char}}`, `{{cast}}`, and, in solo chats,
-`{{description}}` and `{{personality}}`. An **After Director** decision also has
-`{{scene_guidance}}`: the Director's mood prompts and field values, as the
-Writer's Scene Guidance carries them.
+`{{state}}`, `{{scene_guidance}}`, `{{user}}`, `{{char}}`, `{{cast}}`, and, in
+solo chats, `{{description}}` and `{{personality}}`. `{{scene_guidance}}` is the
+Director's plan at the decision's place (see [Order](#order)): the field values
+above it and earlier rulings, or, below every Director fragment, the mood
+prompts and field values as the Writer's Scene Guidance carries them.
 
 `{{state}}` lists every enabled [state fragment](state-fragments.md) that
 holds something, under its injection label, whatever its **Inject** setting:
 a tracker no pass is shown, such as hidden hit points, still reaches a
-Situation that asks for it. Before the Director it is the state the turn
-starts from, including your corrections. After the Director it also has the
-turn's before-Writer changes, shown as `old -> new`. Changes made after the
-reply land on the next turn.
+Situation that asks for it. Above or between Director fragments it is the
+state the turn starts from, including your corrections. Below every Director
+fragment it also has the turn's before-Writer changes, shown as `old -> new`.
+Changes made after the reply land on the next turn.
 `{{recent_history}}` contains up to the last six completed user and assistant
 messages. To send a different number of messages, add a count from 1 to 50:
 `{{recent_history::10}}`. The count is in messages, not exchanges. For
@@ -165,14 +201,13 @@ Judge answer. A changed or steered situation may need a new request. Draw-based
 resolutions (`Roll`, `Random by odds`, and `First option gates, else random`)
 draw again from the reused answer; the other resolutions keep their outcome.
 
-An **After Director** decision's input includes the Director's plan, so a
+A Situation that uses `{{scene_guidance}}` includes the Director's plan, so a
 regeneration whose Director plans differently asks the Judge again.
 
 In a group chat, decisions run once per exchange and the result is shared by
-each speaker's reply; **After Director** decisions read the exchange's shared
-plan. Regenerating a later speaker keeps the exchange's committed result,
-including its After Director outcomes, which the earlier speakers already wrote
-from. If a member is given the floor after an unanswered user message, that
+each speaker's reply; decisions after Director fragments read the exchange's
+shared plan. Regenerating a later speaker keeps the exchange's committed
+result, which the earlier speakers already wrote from. If a member is given the floor after an unanswered user message, that
 message becomes the decision's current request.
 
 ## Cooldowns and skipped decisions
@@ -191,9 +226,12 @@ ignored.
 
 ## Authoring tips
 
-- Give decisions that run at the same time the same Situation template. Orb
+- Give decisions that run at the same place the same Situation template. Orb
   sends questions whose Situations render the same in one request, so they
   cost one Judge call instead of several.
+- Put `{{scene_guidance}}` last in a Situation between Director fragments. The
+  plan grows from one place to the next, so the Judge's server can reuse the
+  start of the previous request.
 - Make each fragment answer one question that is independent of the others.
   Combine dependent questions into one choice or score decision.
 - Write criteria that distinguish the outcomes clearly. Keep the story

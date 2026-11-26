@@ -11,8 +11,8 @@ from pydantic import Field, StringConstraints, field_validator
 
 from ....core import (
     DECISION_FIELD_TYPE,
-    DECISION_INJECTS_BY_PLACEMENT,
     DECISION_RESOLUTIONS_BY_TYPE,
+    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_TEMPLATE,
     FRAGMENT_STAGES,
@@ -23,7 +23,6 @@ from ....core import (
     STATE_FIELD_TYPE,
     STATE_MAX_ENTRIES_CEILING,
     FragmentStage,
-    default_decision_inject,
     fragment_stage,
     outcome_keys_of,
     outcome_text,
@@ -182,7 +181,6 @@ def decision_settings(row: Mapping[str, Any]) -> dict[str, Any]:
         **({"threshold": row["decision_threshold"]} if row.get("decision_threshold") is not None else {}),
         **({"min_confidence": row["decision_confidence_floor"]} if row.get("decision_confidence_floor") is not None else {}),
         "inject": row.get("decision_inject"),
-        "runs": row.get("decision_placement"),
     }
 
 
@@ -375,13 +373,8 @@ class _DecisionCreate(ToolArguments):
     min_confidence_percent: int = Field(
         default=0, ge=0, le=100, description="choice, score: skip less confident answers; 0 never skips."
     )
-    runs: Literal["before_director", "after_director"] = Field(
-        default="before_director",
-        description="after_director judges the Director's plan, which its situation reads as {{scene_guidance}}; only the "
-        "Writer gets its guidance.",
-    )
     inject: Literal["", "director", "writer", "both"] = Field(
-        default="", description="Which passes get the guidance. Empty: both, or writer after the Director."
+        default="", description="Which passes get the guidance. Empty: both."
     )
     situation: str = _text(
         _ARG_TEXT_CHARS, "What the Judge reads, with macros like {{last_message}}. Empty: the last reply and request."
@@ -423,7 +416,13 @@ class _InteractiveSet(ToolArguments):
     gate_replies: int = Field(
         default=-1, ge=-1, le=10, description="With a gate: earlier replies the Judge sees; -1 leaves it."
     )
-    position: int = Field(default=0, ge=0, description="Its place in its stage, 1 runs first; 0 leaves it.")
+    position: int = Field(
+        default=0,
+        ge=0,
+        description="Its place in its stage, 1 runs first; 0 leaves it. Decisions share the Director's stage, and a decision "
+        "asks the Judge at its place: ahead of the Director fragments, between two (later ones build on its outcome, and "
+        "its situation's {{scene_guidance}} reads the fields above it), or after them (the Writer gets its guidance).",
+    )
 
 
 class _DecisionSet(ToolArguments):
@@ -437,9 +436,6 @@ class _DecisionSet(ToolArguments):
     )
     inject: Literal["unchanged", "director", "writer", "both"] = Field(
         default="unchanged", description="Which passes get the guidance."
-    )
-    runs: Literal["unchanged", "before_director", "after_director"] = Field(
-        default="unchanged", description="When the Judge asks it; after_director sends its guidance to the Writer only."
     )
 
 
@@ -576,8 +572,8 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
     @tools.add(
         "write",
         _DecisionCreate,
-        "Create a decision fragment: a question the Judge answers before or after the Director runs, whose outcome's guidance the "
-        "passes then follow.",
+        "Create a decision fragment: a question the Judge answers, whose outcome's guidance the passes then follow. It starts "
+        "ahead of the Director fragments; set_interactive_fragment's position moves it between or after them.",
     )
     async def create_decision_fragment(args: _DecisionCreate) -> ToolOutput:
         decision_type = _STORED_DECISION_TYPES[args.decision_type]
@@ -595,8 +591,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             "injection_label": args.injection_label.strip() or args.label.strip(),
             "cooldown_turns": args.cooldown_turns,
             "decision_type": decision_type,
-            "decision_placement": args.runs,
-            "decision_inject": args.inject or default_decision_inject(args.runs),
+            "decision_inject": args.inject or DEFAULT_DECISION_INJECT,
             "decision_state_template": args.situation.strip() or DEFAULT_STATE_TEMPLATE,
             "decision_instructions": args.question.strip(),
             **_outcome_columns(args),
@@ -733,9 +728,9 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
     @tools.add(
         "write",
         _DecisionSet,
-        "Set how a decision fragment resolves: its resolution, threshold, minimum confidence, which passes get its "
-        "guidance, and whether it runs before or after the Director. Its question and outcomes change through "
-        "edit_interactive_fragment.",
+        "Set how a decision fragment resolves: its resolution, threshold, minimum confidence, and which passes get its "
+        "guidance. Its question and outcomes change through edit_interactive_fragment, its place through "
+        "set_interactive_fragment.",
         idempotent=True,
     )
     async def set_decision_fragment(args: _DecisionSet) -> ToolOutput:
@@ -748,11 +743,6 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             wanted["decision_resolution"] = resolution
         if args.inject != "unchanged":
             wanted["decision_inject"] = args.inject
-        if args.runs != "unchanged":
-            wanted["decision_placement"] = args.runs
-            # After the Director only the Writer reads the outcome, so a move there takes the Writer unless told otherwise.
-            if args.inject == "unchanged" and row.get("decision_inject") not in DECISION_INJECTS_BY_PLACEMENT[args.runs]:
-                wanted["decision_inject"] = default_decision_inject(args.runs)
         if args.threshold_percent >= 0:
             if resolution != "threshold":
                 raise ToolFailure("threshold_percent is only for the threshold resolution. Nothing was changed.")
@@ -766,9 +756,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
                 raise ToolFailure("min_confidence_percent is for choice and score decisions. Nothing was changed.")
             wanted["decision_confidence_floor"] = args.min_confidence_percent / 100 or None
         if not wanted:
-            raise ToolFailure(
-                "Name resolution, threshold_percent, min_confidence_percent, inject or runs; nothing was asked to."
-            )
+            raise ToolFailure("Name resolution, threshold_percent, min_confidence_percent or inject; nothing was asked to.")
         changes = {key: value for key, value in wanted.items() if row.get(key) != value}
         label, ids = f"decision fragment {quoted(row['label'])}", {"fragment_id": row["id"]}
         if changes:
@@ -796,7 +784,6 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
 def _said(changes: Mapping[str, Any]) -> str:
     """The changes a setter made, as a summary names them."""
     names = {"decision_resolution": "resolution", "decision_inject": "inject", "decision_threshold": "threshold"}
-    names["decision_placement"] = "runs"
     names["decision_confidence_floor"] = "min confidence"
     names["gate_replies"] = "gate replies"
 

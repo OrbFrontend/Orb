@@ -11,9 +11,9 @@ from typing import Any, cast
 import aiosqlite
 
 from ...core import (
-    BEFORE_DIRECTOR,
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
+    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
@@ -25,8 +25,8 @@ from ...core import (
     STATE_MODES,
     STATE_UPDATES,
     TurnCast,
-    default_decision_inject,
     has_inline_macros,
+    is_director_fragment,
     resolve_inline,
     upgrade_legacy_fragment,
 )
@@ -171,7 +171,7 @@ def card_embedded_fragments(card: Mapping[str, Any] | None) -> tuple[list[MoodFr
         )
 
     interactive: list[InteractiveFragmentRow] = []
-    for i, raw_entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
+    for i, raw_entry in enumerate(_card_fragment_entries(upgrade_card_decision_order(frags.get("interactive")))):
         if raw_entry["id"] in RESERVED_FRAGMENT_IDS:
             continue
         # Shared card files keep the legacy progressive and direction-note types
@@ -222,15 +222,50 @@ def upgrade_card_fragment_types(extensions: Any) -> Any:
     if not isinstance(orb, dict) or not isinstance(frags, dict) or not isinstance(interactive, list):
         return extensions
     upgraded = [upgrade_legacy_fragment(entry) if isinstance(entry, dict) else entry for entry in interactive]
-    return {**extensions, "orb": {**orb, "fragments": {**frags, "interactive": upgraded}}}
+    return {**extensions, "orb": {**orb, "fragments": {**frags, "interactive": upgrade_card_decision_order(upgraded)}}}
+
+
+# A card decision's legacy run setting; the list order says when a decision runs instead.
+_LEGACY_PLACEMENT = "decision_placement"
+
+
+def upgrade_card_decision_order(entries: Any) -> Any:
+    """*entries* with each decision that names a legacy ``decision_placement`` moved to where its order means the same.
+
+    A ``before_director`` decision after the card's first Director entry moves just ahead of it, an ``after_director`` one
+    before the card's last Director entry moves just after it, and the key is dropped. Entries without the key keep their
+    place, so an upgraded card reads the same on every load.
+    """
+    if not isinstance(entries, list) or not any(isinstance(e, dict) and _LEGACY_PLACEMENT in e for e in entries):
+        return entries
+
+    def placement(entry: Any) -> str:
+        return str(entry.get(_LEGACY_PLACEMENT) or "") if isinstance(entry, dict) else ""
+
+    directors = {
+        id(entry)
+        for entry in entries
+        if isinstance(entry, dict) and is_director_fragment(_text(upgrade_legacy_fragment(entry), "field_type", "string"))
+    }
+    marks = [index for index, entry in enumerate(entries) if id(entry) in directors]
+    early = [e for i, e in enumerate(entries) if marks and placement(e) == "before_director" and i > marks[0]]
+    late = [e for i, e in enumerate(entries) if marks and placement(e) == "after_director" and i < marks[-1]]
+    moved = {id(e) for e in (*early, *late)}
+    order = [e for e in entries if id(e) not in moved]
+    if early:
+        first = next(i for i, e in enumerate(order) if id(e) in directors)
+        order[first:first] = early
+    if late:
+        last = max(i for i, e in enumerate(order) if id(e) in directors)
+        order[last + 1 : last + 1] = late
+    return [{k: v for k, v in e.items() if k != _LEGACY_PLACEMENT} if isinstance(e, dict) else e for e in order]
 
 
 def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Read decision fields with defaults, leaving invalid rows for the Judge to report."""
     columns = {column: entry.get(column) for column in DECISION_COLUMNS}
-    defaults = {"decision_type": "noul", "decision_placement": BEFORE_DIRECTOR, "decision_resolution": "threshold"}
+    defaults = {"decision_type": "noul", "decision_resolution": "threshold", "decision_inject": DEFAULT_DECISION_INJECT}
     columns.update({column: value for column, value in defaults.items() if not columns[column]})
-    columns["decision_inject"] = columns["decision_inject"] or default_decision_inject(columns["decision_placement"])
     return columns
 
 

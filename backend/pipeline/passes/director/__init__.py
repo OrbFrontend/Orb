@@ -1,6 +1,6 @@
 from . import cooldown
 from .director import (
-    AfterDirector,
+    DirectorJudge,
     DirectorResult,
     apply_state_step_result,
     apply_tool_calls,

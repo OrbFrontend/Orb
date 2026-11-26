@@ -7,9 +7,11 @@ import logging
 import time
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ....core import (
+    STATE_FIELD_TYPE,
     ChatMessage,
     StateOp,
     StateRejection,
@@ -28,6 +30,7 @@ from ....prompting import (
     headed_scene_guidance,
     render_state_block,
     resolve_mood_fragment_randoms,
+    scene_field_text,
 )
 from ....prompting.lorebook import headed_lorebook
 from ....prompting.tool_catalog import require_tool
@@ -40,7 +43,7 @@ from ..judge import headed_decisions
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
-from .prompts import build_director_scene_step_prompt, build_director_tool_prompt
+from .prompts import build_director_scene_step_prompt, build_director_tool_prompt, ruling_entry
 
 if TYPE_CHECKING:
     from ....core import Macros
@@ -50,6 +53,23 @@ logger = logging.getLogger(__name__)
 
 # A stage that runs once the Director has planned, before the Writer's blocks are assembled from *state*.
 AfterDirector = Callable[["TurnState"], AsyncIterator[CoreTurnEvent]]
+
+
+@dataclass(frozen=True, slots=True)
+class DirectorJudge:
+    """The Judge points inside the Director stage, supplied by the caller so the Director never imports the Judge.
+
+    *middle* runs the point after a Director fragment in *between*, given the plan so far and whether that fragment gave a
+    value: it yields its events, then one tuple of (label, guidance) rulings for later steps. Only a point in *waits* asks
+    the Judge there, and *questions* are what it asks, by the fragment it follows. *closing* runs after the before-Writer
+    state step.
+    """
+
+    between: frozenset[str] = frozenset()
+    waits: frozenset[str] = frozenset()
+    questions: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    middle: Callable[[TurnState, str, str, bool], AsyncIterator[Any]] | None = None
+    closing: AfterDirector | None = None
 
 
 # The speaking plan is a director output like any interactive fragment, but it is owned by the group driver rather than by a
@@ -124,14 +144,14 @@ def _with_description(key: str, prop: dict, descriptions: Mapping[str, str]) -> 
     return {**prop, "description": descriptions[key]} if key in descriptions else prop
 
 
-def _live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]]) -> dict:
+def _live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]], *, fills_moods: bool = True) -> dict:
     """The blob's ``direct_scene`` narrowed to the fields *fragments* make live.
 
     The shared blob offers every defined fragment by name only, with nothing required, so an enable toggle never rewrites the
-    cached prefix and a disabled fragment's text never reaches the lane. This view keeps the live fragments, ``moods`` and the
-    speaking plan in blob order, and restores the live fragments' descriptions and requiredness. It shapes the request's
-    parameter list and is the per-call ``json_schema``, which narrows text-mode grammars and structured-output endpoints (the
-    chat transport drops it).
+    cached prefix and a disabled fragment's text never reaches the lane. This view keeps the live fragments, then ``moods``
+    and the speaking plan when it *fills_moods* (the last request), in blob order, and restores the live
+    fragments' descriptions and requiredness. It shapes the request's parameter list and is the per-call ``json_schema``,
+    which narrows text-mode grammars and structured-output endpoints (the chat transport drops it).
     """
     descriptions = {fragment["id"]: fragment["description"] for fragment in fragments}
     required = {fragment["id"] for fragment in fragments if fragment.get("required")}
@@ -139,7 +159,7 @@ def _live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str
     properties = {
         key: _with_description(key, value, descriptions)
         for key, value in params.get("properties", {}).items()
-        if key in descriptions or key in ("moods", _SPEAKING_PLAN_FIELD)
+        if key in descriptions or (fills_moods and key in ("moods", _SPEAKING_PLAN_FIELD))
     }
     return {
         **tool_schema,
@@ -150,21 +170,137 @@ def _live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str
     }
 
 
-def _step_schema(tool_schema: dict, keep: str, stage: Mapping[str, Any] | None = None) -> dict | None:
-    """Single-field variant of the ``direct_scene`` parameters for one step call.
+def _step_schema(
+    tool_schema: dict, keep: Collection[str], fragments: Sequence[Mapping[str, Any]] = (), required: Collection[str] = ()
+) -> dict | None:
+    """The ``direct_scene`` parameters narrowed to *keep*, for one per-fragment step call.
 
     Passed as the per-call ``json_schema`` decoding constraint so the model physically cannot fill any field but the step's
-    target -- text mode applies it to the grammar (prompt bytes and KV cache untouched); the chat transport drops it and relies
-    on the post-parse filter in the loop below. *stage* is the step's fragment, whose description the names-only blob does not
-    carry; the speaking plan's synthetic stage keeps the blob's own text.
+    targets -- text mode applies it to the grammar (prompt bytes and KV cache untouched); the chat transport drops it and
+    relies on the post-parse filter in the loop below. *fragments* are the step's fragment rows, whose descriptions the
+    names-only blob does not carry; the speaking plan's synthetic stage keeps the blob's own text. A target is required when
+    the blob requires it or it is named in *required*.
     """
     params = tool_schema["function"]["parameters"]
-    prop = params.get("properties", {}).get(keep)
-    if prop is None:
+    descriptions = {fragment["id"]: fragment["description"] for fragment in fragments if fragment is not SPEAKING_PLAN_STAGE}
+    properties = {
+        key: _with_description(key, prop, descriptions) for key, prop in params.get("properties", {}).items() if key in keep
+    }
+    if not properties:
         return None
-    if stage is not None and stage is not SPEAKING_PLAN_STAGE:
-        prop = _with_description(keep, prop, {keep: stage["description"]})
-    return {"type": "object", "properties": {keep: prop}, "required": [keep] if keep in (params.get("required") or []) else []}
+    needed = {*(params.get("required") or []), *required}
+    return {"type": "object", "properties": properties, "required": [key for key in properties if key in needed]}
+
+
+# A :attr:`DirectorJudge.middle` bound to the turn's state.
+MiddleRun = Callable[[str, str, bool], AsyncIterator[Any]]
+
+
+@dataclass(slots=True)
+class _PlanSoFar:
+    """What the Director has decided this turn, in run order: as its later steps read it, and as a Judge point does."""
+
+    decided: list[tuple[str, Any]] = field(default_factory=list)
+    parts: list[str] = field(default_factory=list)
+
+    def add_field(self, fragment: Mapping[str, Any], value: Any) -> None:
+        self.decided.append((fragment["injection_label"], value))
+        if value and fragment is not SPEAKING_PLAN_STAGE:
+            self.parts.append(scene_field_text(fragment, value))
+
+    def add_rulings(self, rulings: Sequence[tuple[str, str]]) -> None:
+        for label, guidance in rulings:
+            self.decided.append(ruling_entry(label, guidance))
+            self.parts.append(f"{label}: {guidance}")
+
+
+async def _ask_judge(run: MiddleRun, after: str, plan: _PlanSoFar, *, filled: bool = True) -> AsyncIterator[Mapping[str, Any]]:
+    """Run the Judge point after *after*, relaying its events and adding its rulings to *plan*; *filled* says whether
+    *after* gave a value this turn."""
+    asked = False
+    async for item in run(after, "\n\n".join(plan.parts), filled):
+        if isinstance(item, tuple):
+            plan.add_rulings(item)
+        else:
+            asked = True
+            yield {"type": "event", "event": item}
+    if asked:
+        # The Judge's step took over the status; the Director's steps resume.
+        yield {"type": "event", "event": {"event": "step_start", "data": {"step": "director"}}}
+
+
+@dataclass(slots=True)
+class _Call:
+    """One forced Director call's tool calls and raw response; both empty when the call failed."""
+
+    parsed: list[ParsedToolCall] = field(default_factory=list)
+    raw: str = ""
+
+
+async def _forced_call(
+    call: _Call,
+    client: LLMClient,
+    base: CachedBase,
+    tool_name: str,
+    trailing: list[ChatMessage],
+    *,
+    json_schema: dict | None,
+    keep: Collection[str] | None,
+    call_params: Mapping[str, Any],
+    kv_tracker: KVCacheTracker | None,
+    timing_entries: list[GenerationTimingRow] | None,
+    timing_label: str,
+    log_name: str,
+    fragment_id: str = "",
+) -> AsyncIterator[Mapping[str, Any]]:
+    """Make one forced *tool_name* call, relaying its events, and fill *call*; ``direct_scene`` arguments outside *keep* are
+    dropped from the record, as the model often fills fields the byte-stable schema offers but the call does not want.
+    """
+    resp: CompletionMessage = {}
+    try:
+        async for event in timed_events(
+            base.complete_into(
+                client,
+                resp,
+                label=f"director:{tool_name}",
+                trailing=trailing,
+                tool_choice=require_tool(tool_name)["choice"],
+                kv_tracker=kv_tracker,
+                json_schema=json_schema,
+                **call_params,
+            ),
+            timing_entries,
+            "director",
+            timing_label,
+            fragment_id=fragment_id,
+            stopped=lambda: client.is_aborted,
+        ):
+            yield event
+    except Exception as exc:
+        # A failed call skips its fields but must not propagate: the remaining calls and the writer still run, like the
+        # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
+        logger.exception("Agent tool=%s: call failed; skipping", log_name)
+        yield {"type": "failure", "error": exc}
+        return
+    call.raw = json.dumps(resp, default=str)
+    logger.info("Agent tool=%s output:\n%s", log_name, call.raw)
+    call.parsed = parse_tool_calls(resp)
+    if not call.parsed:
+        logger.info("Agent tool=%s: model skipped", log_name)
+    if keep is not None:
+        for tc in call.parsed:
+            if tc.get("name") == "direct_scene":
+                tc["arguments"] = {k: v for k, v in tc.get("arguments", {}).items() if k in keep}
+
+
+def _segments(scene_rows: Sequence[Mapping[str, Any]], between: Collection[str]) -> list[list[Mapping[str, Any]]]:
+    """*scene_rows* split after each fragment a Judge point follows; one segment when there is none."""
+    segments: list[list[Mapping[str, Any]]] = [[]]
+    for row in scene_rows:
+        segments[-1].append(row)
+        if row["id"] in between:
+            segments.append([])
+    return segments
 
 
 @dataclass(slots=True)
@@ -230,10 +366,15 @@ async def director_pass(
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
     timing_entries: list[GenerationTimingRow] | None = None,
+    judge: DirectorJudge | None = None,
+    run_middle: MiddleRun | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Yield reasoning deltas and a ``failure`` per failed call, then one done event with DirectorResult.
+    """Yield reasoning deltas, a ``failure`` per failed call and an ``event`` per Judge point event, then one done event with
+    DirectorResult.
 
-    Speaker keys and decision guidance belong only in the trailing request, never cached schema properties.
+    Speaker keys and decision guidance belong only in the trailing request, never cached schema properties. One-value state
+    fields among *interactive_fragments* ride the last request, so they are set with the whole scene and every ruling in
+    view. *run_middle* runs *judge*'s middle points; their rulings reach every later request's decided list.
     """
     active_moods = director["active_moods"]
     mood_ids = {fragment["id"] for fragment in mood_fragments}
@@ -267,8 +408,17 @@ async def director_pass(
     notes_prefix = ("___\n\n" + state_block + "\n\n") if state_block else ""
     # Already-settled facts the Director plans *around*, so they ride the context section of the tail rather than the
     # instruction. Nothing about probabilities or dice is in the block (see passes/judge/guidance.py) -- a rolled outcome reaches
-    # the model as the story constraint its author wrote.
+    # the model as the story constraint its author wrote. Only the opening point's outcomes go here, so the block is the same
+    # in every step; a later ruling joins the decided list, past the first byte where the steps differ.
     decisions_prefix = ("___\n\n" + decision_guidance + "\n\n") if decision_guidance else ""
+
+    scene_rows = [fragment for fragment in interactive_fragments if fragment.get("field_type") != STATE_FIELD_TYPE]
+    riding_rows = [fragment for fragment in interactive_fragments if fragment.get("field_type") == STATE_FIELD_TYPE]
+    riding = [fragment for fragment in riding_rows if fragment["id"] not in resting]
+    middle = judge if judge is not None and run_middle is not None else DirectorJudge()
+    between, waits, questions = middle.between, middle.waits, middle.questions
+    plan = _PlanSoFar()
+    call_params = {**extract_hyperparams(settings, lane="agent"), **reasoning_cfg(reasoning_on, reasoning_prefill)}
 
     t0 = time.monotonic()
     for name in tool_names:
@@ -280,160 +430,178 @@ async def director_pass(
         scene_fields = tool_schema["function"]["parameters"]["properties"] if name == "direct_scene" and tool_schema else {}
         plans_speakers = _SPEAKING_PLAN_FIELD in scene_fields
         if name == "direct_scene" and per_fragment_on and (interactive_fragments or plans_speakers):
-            reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-            hyperparams = extract_hyperparams(settings, lane="agent")
-
             # One forced call per fragment, each shown the values already chosen this turn so later fragments build on earlier
-            # ones. Moods are resolved last, in a call of their own, so they are picked to fit the scene already directed (the
-            # moods step is shown the decided fields).
-            decided: list[tuple[str, Any]] = []
-            stages = [
-                *(fragment for fragment in interactive_fragments if fragment["id"] not in resting),
-                *([SPEAKING_PLAN_STAGE] if plans_speakers else []),
-                None,
-            ]
+            # ones. Moods and the one-value state fields are resolved last, in a call of their own, so they fit the scene
+            # already directed (that step is shown the decided fields).
+            stages = [*scene_rows, *([SPEAKING_PLAN_STAGE] if plans_speakers else []), None]
             for stage in stages:
                 if client.is_aborted:
                     break
-                target = stage["id"] if stage else "moods"
-                step_tail = build_director_scene_step_prompt(
+                if stage is None or stage["id"] not in resting:
+                    target = stage["id"] if stage else "moods"
+                    keep = {stage["id"]} if stage else {"moods", *(fragment["id"] for fragment in riding)}
+                    step_tail = build_director_scene_step_prompt(
+                        user_message,
+                        active_moods,
+                        mood_fragments,
+                        tool_schema=tool_schema,
+                        reasoning_on=reasoning_on,
+                        target_fragment=stage,
+                        decided_fields=plan.decided,
+                        cast_instruction=(
+                            speaking_plan_instruction(speaker_keys)
+                            if speaker_keys and stage is not None and stage["id"] == _SPEAKING_PLAN_FIELD
+                            else ""
+                        ),
+                        resting=resting,
+                        value_fields=riding if stage is None else (),
+                        value_priors=progressive_state,
+                        judged_next=questions.get(stage["id"], ()) if stage is not None else (),
+                    )
+                    step_tail = lorebook_prefix + notes_prefix + decisions_prefix + step_tail
+                    content = build_multimodal_content(step_tail, attachments)
+                    trailing = [{"role": "user", "content": content}]
+                    step_schema = (
+                        _step_schema(
+                            tool_schema,
+                            keep,
+                            [stage] if stage else riding,
+                            required=() if stage else [fragment["id"] for fragment in riding if fragment.get("required")],
+                        )
+                        if tool_schema
+                        else None
+                    )
+                    call = _Call()
+                    async for event in _forced_call(
+                        call,
+                        client,
+                        base,
+                        "direct_scene",
+                        trailing,
+                        json_schema=step_schema,
+                        keep=keep,
+                        call_params=call_params,
+                        kv_tracker=kv_tracker,
+                        timing_entries=timing_entries,
+                        timing_label=(stage.get("label") or stage.get("injection_label") or target) if stage else "Moods",
+                        log_name=f"direct_scene target={target}",
+                        fragment_id=target,
+                    ):
+                        yield event
+                    last_raw = call.raw or last_raw
+                    if parsed := call.parsed:
+                        all_calls.extend(parsed)
+                        if stage is None:
+                            # Reuse the shared unpacker so moods behave exactly as in the combined call.
+                            active_moods, values = apply_tool_calls(parsed, active_moods, mood_ids)
+                            extra_fields.update(values)
+                        else:
+                            args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
+                            val = args.get(stage["id"])
+                            if keeps_director_value(stage["id"], val):
+                                extra_fields[stage["id"]] = val
+                            plan.add_field(stage, val)
+                if run_middle is not None and stage is not None and stage["id"] in between and not client.is_aborted:
+                    async for event in _ask_judge(run_middle, stage["id"], plan, filled=stage["id"] in extra_fields):
+                        yield event
+            continue
+        # One call per segment: the Director fragments between two Judge points that wait for the plan, so a ruling reaches
+        # the fragments after it. Without one that is one call. The last one also fills moods, the speaking plan and the
+        # one-value state fields. A ruling settled with the opening point needs no split: it joins the call holding the
+        # fragments below its place.
+        segments = _segments(scene_rows, waits) if name == "direct_scene" else [[]]
+        for index, segment in enumerate(segments):
+            if client.is_aborted:
+                break
+            if run_middle is not None:
+                for fragment in segment:
+                    if fragment["id"] in between and fragment["id"] not in waits:
+                        async for event in _ask_judge(run_middle, fragment["id"], plan):
+                            yield event
+            last = index == len(segments) - 1
+            live_rows = [*(fragment for fragment in segment if fragment["id"] not in resting), *(riding if last else [])]
+            if live_rows or last:
+                # The blob offers every defined fragment; the call is shown, narrowed to,
+                # and credited with only this segment's enabled ones that are not resting.
+                live_schema = (
+                    _live_direct_scene_schema(tool_schema, live_rows, fills_moods=last)
+                    if name == "direct_scene" and tool_schema
+                    else tool_schema
+                )
+                live_fields = set(live_schema["function"]["parameters"]["properties"]) if live_schema else set()
+                elsewhere = [
+                    fragment["id"]
+                    for fragment in (*scene_rows, *riding)
+                    if fragment["id"] not in resting and fragment["id"] not in live_fields
+                ]
+                tool_tail = build_director_tool_prompt(
+                    name,
                     user_message,
                     active_moods,
                     mood_fragments,
-                    tool_schema=tool_schema,
                     reasoning_on=reasoning_on,
-                    target_fragment=stage,
-                    decided_fields=decided,
-                    progressive_prior=(progressive_state or {}).get(stage["id"]) if stage else None,
-                    cast_instruction=(
-                        speaking_plan_instruction(speaker_keys)
-                        if speaker_keys and stage is not None and stage["id"] == _SPEAKING_PLAN_FIELD
-                        else ""
-                    ),
+                    interactive_fragments=[*segment, *(riding_rows if last else [])],
+                    progressive_state=progressive_state,
+                    tool_schema=live_schema,
+                    cast_instruction=speaking_plan_instruction(speaker_keys) if speaker_keys and last else "",
                     resting=resting,
+                    # Moods and the speaking plan wait for the last segment, which the request says on its own.
+                    unavailable_fields=[
+                        key
+                        for key in scene_fields
+                        if key not in live_fields
+                        and key not in elsewhere
+                        and (last or key not in ("moods", _SPEAKING_PLAN_FIELD))
+                    ],
+                    elsewhere_fields=elsewhere,
+                    decided_fields=plan.decided,
+                    fills_moods=last,
+                    judged_next=questions.get(segment[-1]["id"], ()) if segment and not last else (),
                 )
-                step_tail = lorebook_prefix + notes_prefix + decisions_prefix + step_tail
-                content = build_multimodal_content(step_tail, attachments)
-                trailing = [{"role": "user", "content": content}]
-                resp: CompletionMessage = {}
-                try:
-                    async for event in timed_events(
-                        base.complete_into(
-                            client,
-                            resp,
-                            label="director:direct_scene",
-                            trailing=trailing,
-                            tool_choice=require_tool("direct_scene")["choice"],
-                            kv_tracker=kv_tracker,
-                            json_schema=_step_schema(tool_schema, target, stage) if tool_schema else None,
-                            **hyperparams,
-                            **reasoning_params,
-                        ),
-                        timing_entries,
-                        "director",
-                        (stage.get("label") or stage.get("injection_label") or target) if stage else "Moods",
-                        fragment_id=target,
-                        stopped=lambda: client.is_aborted,
-                    ):
-                        yield event
-                except Exception as exc:
-                    # A failed call skips this fragment but must not propagate: the remaining fragments and the writer still
-                    # run, like the lorebook-select and state steps. Aborting the turn here would also skip persisting the
-                    # finished reply.
-                    logger.exception("Agent tool=direct_scene target=%s: call failed; skipping", target)
-                    yield {"type": "failure", "error": exc}
-                    continue
-                last_raw = json.dumps(resp, default=str)
-                logger.info("Agent tool=direct_scene target=%s output:\n%s", target, last_raw)
-                parsed = parse_tool_calls(resp)
-                if not parsed:
-                    logger.info("Agent tool=direct_scene target=%s: model skipped", target)
-                    continue
-                # The model often fills fields besides the step's target despite the "Fill ONLY" instruction (the byte-stable
-                # schema still offers them all). Only the target is kept below, so strip the extras from the recorded call too --
-                # otherwise the inspector/tool-call log shows every step re-deciding fragments already settled earlier.
-                keep = "moods" if stage is None else stage["id"]
-                for tc in parsed:
-                    if tc.get("name") == "direct_scene":
-                        tc["arguments"] = {k: v for k, v in tc.get("arguments", {}).items() if k == keep}
-                all_calls.extend(parsed)
-                if stage is None:
-                    # Reuse the shared unpacker so moods behave exactly as in the combined call; any fragment values it returns
-                    # are dropped, each fragment being produced in its own call.
-                    active_moods, _ = apply_tool_calls(parsed, active_moods, mood_ids)
-                else:
-                    args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
-                    val = args.get(stage["id"])
-                    if keeps_director_value(stage["id"], val):
-                        extra_fields[stage["id"]] = val
-                    decided.append((stage["injection_label"], val))
-            continue
-        # The blob offers every defined fragment; the call is shown, narrowed to,
-        # and credited with only the enabled ones that are not resting.
-        live_schema = (
-            _live_direct_scene_schema(tool_schema, [f for f in interactive_fragments if f["id"] not in resting])
-            if name == "direct_scene" and tool_schema
-            else tool_schema
-        )
-        live_fields = set(live_schema["function"]["parameters"]["properties"]) if live_schema else set()
-        tool_tail = build_director_tool_prompt(
-            name,
-            user_message,
-            active_moods,
-            mood_fragments,
-            reasoning_on=reasoning_on,
-            interactive_fragments=interactive_fragments,
-            progressive_state=progressive_state,
-            tool_schema=live_schema,
-            cast_instruction=speaking_plan_instruction(speaker_keys) if speaker_keys else "",
-            resting=resting,
-            unavailable_fields=[key for key in scene_fields if key not in live_fields],
-        )
-        tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
-        content = build_multimodal_content(tail, attachments)
-        trailing: list[ChatMessage] = [{"role": "user", "content": content}]
-        resp: CompletionMessage = {}
-        # A failed call skips this tool but must not propagate: the remaining tools and the writer still run, like the
-        # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
-        reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-        hyperparams = extract_hyperparams(settings, lane="agent")
-        try:
-            async for event in timed_events(
-                base.complete_into(
+                tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
+                content = build_multimodal_content(tail, attachments)
+                trailing: list[ChatMessage] = [{"role": "user", "content": content}]
+                call = _Call()
+                async for event in _forced_call(
+                    call,
                     client,
-                    resp,
-                    label=f"director:{name}",
-                    trailing=trailing,
-                    tool_choice=require_tool(name)["choice"],
-                    kv_tracker=kv_tracker,
+                    base,
+                    name,
+                    trailing,
                     json_schema=live_schema["function"]["parameters"] if live_schema else None,
-                    **hyperparams,
-                    **reasoning_params,
-                ),
-                timing_entries,
-                "director",
-                "Scene fragments (combined)" if name == "direct_scene" else name,
-                stopped=lambda: client.is_aborted,
-            ):
-                yield event
-        except Exception as exc:
-            logger.exception("Agent tool=%s: call failed; skipping", name)
-            yield {"type": "failure", "error": exc}
-            continue
-        last_raw = json.dumps(resp, default=str)
-        logger.info("Agent tool=%s output:\n%s", name, last_raw)
-        if parsed := parse_tool_calls(resp):
-            # A value for a field the call was not offered live (disabled or
-            # resting) is dropped from the record as well as from the result.
-            for tc in parsed:
-                if tc.get("name") == "direct_scene" and live_schema:
-                    tc["arguments"] = {k: v for k, v in tc.get("arguments", {}).items() if k in live_fields}
-            all_calls.extend(parsed)
-            active_moods, new_extra = apply_tool_calls(parsed, active_moods, mood_ids)
-            if new_extra:
-                extra_fields.update(new_extra)
-        else:
-            logger.info("Agent tool=%s: model skipped", name)
+                    # A value for a field the call was not offered live (disabled, resting or another segment's) is dropped
+                    # from the record as well as from the result.
+                    keep=live_fields if live_schema else None,
+                    call_params=call_params,
+                    kv_tracker=kv_tracker,
+                    timing_entries=timing_entries,
+                    timing_label=(
+                        (
+                            "Scene fragments (combined)"
+                            if len(segments) == 1
+                            else f"Scene fragments ({index + 1}/{len(segments)})"
+                        )
+                        if name == "direct_scene"
+                        else name
+                    ),
+                    log_name=name,
+                ):
+                    yield event
+                last_raw = call.raw or last_raw
+                new_extra: dict = {}
+                if parsed := call.parsed:
+                    all_calls.extend(parsed)
+                    moods, new_extra = apply_tool_calls(parsed, active_moods, mood_ids)
+                    if last:
+                        active_moods = moods
+                    extra_fields.update(new_extra)
+                for fragment in segment:
+                    if fragment["id"] not in resting:
+                        plan.add_field(fragment, new_extra.get(fragment["id"]))
+            if run_middle is not None and not last and segment and not client.is_aborted:
+                after = segment[-1]["id"]
+                async for event in _ask_judge(run_middle, after, plan, filled=after in extra_fields):
+                    yield event
 
     yield {
         "type": "done",
@@ -495,15 +663,15 @@ async def director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
-    director_decision_guidance: str = "",
-    after_director: AfterDirector | None = None,
+    judge: DirectorJudge | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Prepare and run the Director, apply before-Writer state updates, then build injection and lorebook blocks. Stop skips
     remaining assembly.
 
     scene_fragments shape guidance; direct_scene_fragments also carry one-value state fields. Update state_view in place and
-    route decision guidance only to its configured passes. *after_director* sees the finished Scene Guidance and may add to
-    the Writer's decisions before they are assembled; they are read from *state* after it.
+    route decision guidance only to its configured passes. *judge*'s middle points run between Director fragments, and its
+    closing point sees the finished Scene Guidance and may add to the Writer's decisions before they are assembled; they are
+    read from *state* after it.
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
@@ -523,6 +691,7 @@ async def director_stage(
     )
     director_block = macros.at("director_state").resolve_message(director_block) if director_block else ""
 
+    run_middle = partial(judge.middle, state) if judge is not None and judge.middle is not None and judge.between else None
     has_director_loop_tools = any(cfg.active_tools.get(n, False) for n in DIRECTOR_LOOP_TOOL_NAMES)
     if cfg.agent_on and has_director_loop_tools:
         yield {"event": "director_start"}
@@ -543,15 +712,19 @@ async def director_stage(
             progressive_state=prior_values,
             state_block=director_block,
             # An empty block is a no-op.
-            decision_guidance=director_decision_guidance,
+            decision_guidance=state.director_decision_guidance,
             speaker_keys=speaker_keys,
             resting=resting,
             timing_entries=state.latency_breakdown,
+            judge=judge,
+            run_middle=run_middle,
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
             elif event["type"] == "failure":
                 yield step_failure_warning(event["error"], "director", stage=STAGE_DIRECTOR)
+            elif event["type"] == "event":
+                yield event["event"]
             elif event["type"] == "done":
                 result: DirectorResult = event["result"]
                 state.active_moods = result.active_moods
@@ -673,7 +846,7 @@ async def director_stage(
             placement="before_writer",
             known_ids=offered_state_ids(cfg.agent_lane.base),
             scene_direction=scene_direction,
-            decision_guidance=director_decision_guidance,
+            decision_guidance=state.state_decision_guidance,
             user_message=state.user_message,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
@@ -692,8 +865,8 @@ async def director_stage(
         if cfg.agent_lane.client.is_aborted:
             return
 
-    if after_director is not None:
-        async for event in after_director(state):
+    if judge is not None and judge.closing is not None:
+        async for event in judge.closing(state):
             yield event
         if cfg.agent_lane.client.is_aborted:
             return
