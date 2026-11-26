@@ -2,7 +2,9 @@
 
 Renames prompt_layouts to presets and settings.active_prompt_layout_id to active_preset_id, and adds the config JSON and the
 lane foreign keys (writer, agent and Judge endpoints; writer and agent model configs). Every preset is filled from the live
-state, so switching between former layouts changes only the blocks. A rerun changes nothing.
+state, so switching between former layouts changes only the blocks. 0097 added the active layout setting as NULL and only a
+layout switch filled it, so a NULL or stale active id is stored as the preset it read as; the frontend reads the column
+itself. A rerun changes nothing.
 """
 
 from __future__ import annotations
@@ -114,6 +116,15 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE settings DROP COLUMN active_prompt_layout_id")
     elif "active_prompt_layout_id" in settings:
         conn.execute("ALTER TABLE settings RENAME COLUMN active_prompt_layout_id TO active_preset_id")
+    if "settings" in tables:
+        # The order get_active_preset_id falls back on: 'default' first, then by name.
+        conn.execute(
+            """UPDATE settings SET active_preset_id = (
+                   SELECT id FROM presets ORDER BY id != 'default', name COLLATE NOCASE LIMIT 1
+               )
+               WHERE id = 1 AND EXISTS (SELECT 1 FROM presets)
+                 AND (active_preset_id IS NULL OR active_preset_id NOT IN (SELECT id FROM presets))"""
+        )
     config, lanes = _live_state(conn, tables)
     filled = conn.execute(
         f"UPDATE presets SET config = ?, {', '.join(f'{c} = ?' for c, _ in _LANE_COLUMNS)} WHERE config = '{{}}'",  # nosec B608

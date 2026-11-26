@@ -27,12 +27,7 @@ function acceptRow(row) {
   S.settings = Object.assign({}, savedRow, ...unsaved, localEdits);
 }
 
-export async function loadSettingsRow() {
-  return enqueue(async () => {
-    acceptRow(await api.get("/settings"));
-    notify("settings", S.settings);
-  });
-}
+export const loadSettingsRow = () => acceptSettingsRow(() => api.get("/settings"));
 
 /**
  * Apply *patch* now and save it. A failed save restores the keys it changed and rejects. *wire* is what is sent when it

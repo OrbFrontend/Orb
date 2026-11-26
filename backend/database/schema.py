@@ -563,7 +563,8 @@ CREATE TABLE IF NOT EXISTS slop_mining_state (
 -- Global presets: a named generation config plus the preset's prompt layout, its prompt_blocks rows. The settings, endpoints
 -- and fragment rows stay the live copy; switching captures them into the active preset and applies the next one. config is
 -- JSON (pipeline switches, fragment switches, agent_same_as_writer, the Judge model); the lane picks are foreign keys so a
--- Backups merge renumbers them with the endpoints. NULL keeps that lane as it is on switch.
+-- Backups merge renumbers them with the endpoints. On switch a NULL Writer or Agent lane keeps its live value; a NULL Judge
+-- lane turns the Judge off.
 CREATE TABLE IF NOT EXISTS presets (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

@@ -28,11 +28,8 @@ from ...database import (
     update_endpoint,
     update_settings,
 )
-from ...database import create_preset as insert_preset
 from ...database import delete_preset as remove_preset
-from ...database import rename_preset as rename_preset_row
 from ...database.models import PresetRow, PresetState
-from ...inference import RAW_ANSWER_CACHE
 
 # Serializes switches, and the deletes that switch, so two never interleave capture and apply.
 _lock = asyncio.Lock()
@@ -62,7 +59,6 @@ async def _apply_judge(endpoint_id: int | None, model: str | None) -> None:
     if model is not None:
         update["decision_model"] = model
     await update_decision_config(update)
-    RAW_ANSWER_CACHE.clear()
 
 
 async def apply_state(state: PresetState) -> None:
@@ -105,22 +101,13 @@ async def switch_preset(preset_id: str) -> bool:
     return True
 
 
-async def create_preset(name: str, copy_from: str | None = None) -> PresetRow | None:
-    """A preset holding the live state: New with the built-in layout, Duplicate (*copy_from*) with a copy of that preset's
-    blocks. None when *copy_from* does not exist."""
-    return await insert_preset(name, copy_from)
-
-
-async def rename_preset(preset_id: str, name: str) -> PresetRow | None:
-    return await rename_preset_row(preset_id, name)
-
-
 async def delete_preset(preset_id: str) -> bool:
     """Delete the preset; deleting the active one enters the first preset left. False when it does not exist."""
     async with _lock:
-        if await get_preset(preset_id) is None:
+        presets = await list_presets()
+        remaining = [row for row in presets if row["id"] != preset_id]
+        if len(remaining) == len(presets):
             return False
-        remaining = [row for row in await list_presets() if row["id"] != preset_id]
         if not remaining:
             raise PresetEditError("The last preset cannot be deleted.")
         if preset_id == await get_active_preset_id():
