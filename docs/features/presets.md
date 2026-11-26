@@ -32,6 +32,7 @@ Next to the picker:
 
 The last preset cannot be deleted.
 
-If an endpoint or model a preset uses is deleted, switching to that preset leaves
-that lane as it is. A fragment created after the preset was last used keeps its
-current switch.
+If the Writer's or the Agent's endpoint or model a preset uses is deleted,
+switching to that preset leaves that lane as it is. A preset without a Judge, or
+whose Judge endpoint was deleted, turns the Judge off. A fragment created after
+the preset was last used keeps its current switch.

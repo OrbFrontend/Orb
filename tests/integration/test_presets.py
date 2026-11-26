@@ -75,6 +75,17 @@ async def test_switching_round_trips_each_preset_and_skips_a_deleted_lane(client
     assert await _live(client) == {**baseline, "writer_config": config["id"], "model_name": "a-model"}
 
 
+async def test_a_preset_without_a_judge_turns_the_judge_off(client):
+    a_id = (await client.get_json("/api/presets"))["active_id"]
+    judge = await client.post_json("/api/endpoints", json={"url": "http://judge/v1", "kind": "judge"})
+    await client.put_checked("/api/decisions/config", json={"decision_endpoint_id": None})
+    b_id = (await client.post_json("/api/presets", json={"name": "No Judge"}))["id"]
+    await client.put_checked("/api/decisions/config", json={"decision_endpoint_id": judge["id"]})
+
+    assert (await client.put_json("/api/presets/active", json={"id": b_id}))["decision_endpoint_id"] is None
+    assert (await client.put_json("/api/presets/active", json={"id": a_id}))["decision_endpoint_id"] == judge["id"]
+
+
 async def test_a_backups_apply_renumbers_preset_lanes_with_the_endpoints(client):
     a_id = (await client.get_json("/api/presets"))["active_id"]
     await client.post_json("/api/endpoints", json={"url": "http://second/v1"})

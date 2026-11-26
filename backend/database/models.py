@@ -541,8 +541,29 @@ class InteractiveFragmentRow(TypedDict):
     gate_replies: int
 
 
+class PresetModels(TypedDict):
+    """The model choices that are not lane picks; those are ``PresetLanes``."""
+
+    agent_same_as_writer: int
+    judge_model: str
+
+
+class PresetFragments(TypedDict):
+    mood: dict[str, int]
+    interactive: dict[str, int]
+
+
+class PresetConfig(TypedDict, total=False):
+    """``presets.config``. Every section is optional: a config read from an older or partial file applies what it has."""
+
+    settings: dict[str, Any]  # the PRESET_SETTINGS columns, JSON ones decoded
+    models: PresetModels
+    fragments: PresetFragments
+
+
 class PresetLanes(TypedDict):
-    """A preset's lane picks, the ``presets`` foreign-key columns; None keeps that lane as it is on switch."""
+    """A preset's lane picks, the ``presets`` foreign-key columns. On switch a None Writer or Agent lane keeps its live value; a
+    None Judge lane turns the Judge off."""
 
     writer_endpoint_id: int | None
     writer_model_config_id: int | None
@@ -552,9 +573,9 @@ class PresetLanes(TypedDict):
 
 
 class PresetState(PresetLanes):
-    """What a preset holds, and what the live rows hold: ``config`` decoded, its shape ``features.presets.PresetConfig``."""
+    """What a preset holds, and what the live rows hold."""
 
-    config: dict[str, Any]
+    config: PresetConfig
 
 
 class PresetRow(PresetState):

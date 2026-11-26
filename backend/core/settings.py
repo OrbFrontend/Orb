@@ -84,7 +84,7 @@ class Settings(_SettingsBase, total=False):
     # enabled decisions are skipped and make no request.
     decision_endpoint_id: ReadOnly[int | None]
     decision_model: ReadOnly[str]
-    active_preset_id: ReadOnly[str | None]  # None: the seeded 'default' preset
+    active_preset_id: ReadOnly[str | None]  # None only before the first preset is seeded
     attachment_cache_budget_bytes: ReadOnly[int]
     attachment_access_counter: ReadOnly[int]
     generated_chars: ReadOnly[int | None]

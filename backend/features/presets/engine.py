@@ -2,15 +2,16 @@
 
 The settings, endpoints and fragment rows stay the live working copy, so no reader or writer knows presets exist. Leaving a
 preset captures the live state into it (that is the auto-save); entering one applies its state through the existing writers.
-A preset's lane picks are foreign-key columns, NULL once their endpoint or model config is deleted; a NULL lane, like a
-fragment the config names that no longer exists, keeps its live value.
+A preset's lane picks are foreign-key columns, NULL once their endpoint or model config is deleted. A NULL Writer or Agent lane,
+like a fragment the config names that no longer exists, keeps its live value; a NULL Judge lane turns the Judge off, as
+clearing it or deleting the live Judge endpoint does.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from typing import Any, TypedDict, cast
+from typing import Any
 
 from ...database import (
     PRESET_SETTINGS,
@@ -33,27 +34,6 @@ from ...database import rename_preset as rename_preset_row
 from ...database.models import PresetRow, PresetState
 from ...inference import RAW_ANSWER_CACHE
 
-
-class PresetModels(TypedDict):
-    """The model choices that are not lane picks; those are ``PresetState``'s foreign-key columns."""
-
-    agent_same_as_writer: int
-    judge_model: str
-
-
-class PresetFragments(TypedDict):
-    mood: dict[str, int]
-    interactive: dict[str, int]
-
-
-class PresetConfig(TypedDict, total=False):
-    """``presets.config``. Every section is optional: a config read from an older or partial file applies what it has."""
-
-    settings: dict[str, Any]  # the PRESET_SETTINGS columns, JSON ones decoded
-    models: PresetModels
-    fragments: PresetFragments
-
-
 # Serializes switches, and the deletes that switch, so two never interleave capture and apply.
 _lock = asyncio.Lock()
 
@@ -75,19 +55,19 @@ async def _chat_lane_update(
     return {setting: endpoint_id}
 
 
-async def _apply_judge(endpoint_id: int | None, model: str) -> None:
-    if endpoint_id is None:
-        return
-    endpoint = await get_endpoint(endpoint_id)
-    if endpoint is None or endpoint["kind"] != "judge":
-        return
-    await update_decision_config({"decision_endpoint_id": endpoint_id, "decision_model": model})
+async def _apply_judge(endpoint_id: int | None, model: str | None) -> None:
+    """Select the preset's Judge; off when it had none or its endpoint is gone."""
+    endpoint = None if endpoint_id is None else await get_endpoint(endpoint_id)
+    update: dict[str, Any] = {"decision_endpoint_id": endpoint_id if endpoint and endpoint["kind"] == "judge" else None}
+    if model is not None:
+        update["decision_model"] = model
+    await update_decision_config(update)
     RAW_ANSWER_CACHE.clear()
 
 
 async def apply_state(state: PresetState) -> None:
     """Make *state* live through the settings, endpoint, Judge and fragment writers."""
-    config = cast(PresetConfig, state["config"])
+    config = state["config"]
     settings: Mapping[str, Any] = config.get("settings", {})
     update = {key: settings[key] for key in PRESET_SETTINGS if key in settings}
     models = config.get("models", {})
@@ -99,7 +79,7 @@ async def apply_state(state: PresetState) -> None:
     update |= await _chat_lane_update(
         state["agent_endpoint_id"], state["agent_model_config_id"], "agent", "agent_endpoint_id", "agent_active_model_config_id"
     )
-    await _apply_judge(state["judge_endpoint_id"], models.get("judge_model", ""))
+    await _apply_judge(state["judge_endpoint_id"], models.get("judge_model"))
     if update:
         await update_settings(update)
     fragments = config.get("fragments")

@@ -1,7 +1,7 @@
 """Global presets: a named generation config plus the preset's prompt layout blocks.
 
 The settings, endpoints and fragment rows are the live working copy; a preset's state (``config`` and its lane columns) is what
-they held when the preset was last left. ``features.presets`` owns the switching rules and the config's shape.
+they held when the preset was last left. ``features.presets`` owns the switching rules.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import aiosqlite
 
 from ...core.prompt_layout import CUSTOM_KIND, DEFAULT_LAYOUT_ID, LayoutBlock, default_layout, marker_block_id
 from ..connection import get_db, immediate_tx, select_rows
-from ..models import PresetLanes, PresetRow, PresetState
+from ..models import PresetConfig, PresetLanes, PresetRow, PresetState
 from ..seeds import SEED_MAIN_PROMPT
 from .prompt_layouts import get_prompt_blocks, insert_layout_blocks, layout_block
 
@@ -125,8 +125,8 @@ async def _endpoint_config(db: aiosqlite.Connection, endpoint_id: int | None, co
 
 
 async def read_live_state(db: aiosqlite.Connection) -> PresetState:
-    """The live generation state over an open connection: the config in ``features.presets.PresetConfig``'s shape (empty
-    without a settings row) and the lanes the live rows select."""
+    """The live generation state over an open connection: the config (empty without a settings row) and the lanes the live
+    rows select."""
     columns = PRESET_SETTINGS + _LIVE_LANES
     rows = list(await db.execute_fetchall(f"SELECT {', '.join(columns)} FROM settings WHERE id = 1"))  # nosec B608
     if not rows:
@@ -147,7 +147,7 @@ async def read_live_state(db: aiosqlite.Connection) -> PresetState:
         "agent_model_config_id": await _endpoint_config(db, agent_id, "agent_active_model_config_id"),
         "judge_endpoint_id": row["decision_endpoint_id"],
     }
-    config = {
+    config: PresetConfig = {
         "settings": {key: json.loads(row[key] or "{}") if key in _JSON_SETTINGS else row[key] for key in PRESET_SETTINGS},
         "models": {"agent_same_as_writer": row["agent_same_as_writer"], "judge_model": row["decision_model"]},
         "fragments": {

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS settings (
     -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- NULL reads as the seeded 'default' preset.
+    -- Seeded with the first preset; NULL or a missing id reads as the first preset ('default', then by name).
     active_preset_id TEXT DEFAULT NULL
 );
 
