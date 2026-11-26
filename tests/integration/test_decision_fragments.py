@@ -375,33 +375,18 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
 
     # The Writer's Scene Guidance carries the authored words, not the dice.
     injection = _event(events, "director_done")["injection_block"]
-    assert "**Major Decisions**\n\nDoorway: Alric holds the doorway." in injection
+    assert "**Scene Guidance**\n\nDoorway: Alric holds the doorway." in injection
     assert "0.9" not in injection
 
     # So does the Director's own trailing request.
     director_tail = _tail_text(_captured(llm_mock, "director")[0])
     assert "Doorway: Alric holds the doorway." in director_tail
     assert "0.9" not in director_tail
-    assert "___\n\n**Major Decisions**\n\nDoorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "writer")[0])
+    assert "___\n\n**Scene Guidance**\n\nDoorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "writer")[0])
 
     # The classifier saw the rendered state, and only once.
     assert gateway.batches == [["outcome"]]
     assert "I shove the door." in gateway.states[0]
-
-
-async def test_the_layouts_decisions_text_frames_the_writers_guidance_only(client, db, llm_mock, monkeypatch):
-    cid = await _solo_scene(client)
-    Gateway(monkeypatch, answers={"outcome": 0.9})
-    await client.expect("patch", "/api/prompt-blocks/default:decisions", json={"content": "___\n\n## Rolled\n{{decisions}}"})
-
-    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
-
-    writer_tail = _tail_text(_captured(llm_mock, "writer")[0])
-    assert "___\n\n## Rolled\nDoorway: Alric holds the doorway." in writer_tail
-    assert "Major Decisions" not in writer_tail
-    # The Director and the Inspector keep the fixed heading.
-    assert "**Major Decisions**\n\nDoorway" in _tail_text(_captured(llm_mock, "director")[0])
-    assert "**Major Decisions**\n\nDoorway" in _event(events, "director_done")["injection_block"]
 
 
 @pytest.mark.parametrize(("inject", "to_director", "to_writer"), [("director", True, False), ("writer", False, True)])
@@ -460,7 +445,7 @@ async def test_the_after_reply_state_request_carries_no_guidance(client, db, llm
 
     # The guidance directed the Writer; the reply is the only record once it exists.
     state_call = _captured(llm_mock, "state")[0]
-    assert "Major Decisions" not in _tail_text(state_call)
+    assert "Doorway:" not in _tail_text(state_call)
     assert "Doorway: Alric holds the doorway." in json.dumps(state_call["messages"][-3]["content"])
 
 
@@ -561,7 +546,7 @@ async def test_a_resting_decision_is_recorded_as_skipped_without_an_outcome(clie
     published = _event(events, "decisions")
     assert published["evaluations"] == []
     assert published["skipped"][0]["reason"] == "resting"
-    assert "Major Decisions" not in _event(events, "director_done")["injection_block"]
+    assert "Doorway:" not in _event(events, "director_done")["injection_block"]
     assert len(gateway.batches) == 1
     # The timer still ages while resting.
     assert (await _last_assistant(cid))["decision_cooldowns"] == {"outcome": 1}
@@ -1138,9 +1123,11 @@ async def test_an_after_director_decision_judges_the_plan_for_the_writer_only(cl
     assert "Plan: Kael lunges at Vira." in gateway.states[1]
     # The Director planned without the later outcome; the Writer gets both.
     assert "lunge misses" not in _tail_text(_captured(llm_mock, "director")[0])
-    writer_tail = _tail_text(_captured(llm_mock, "writer")[0])
-    assert "Doorway: Alric holds the doorway." in writer_tail
-    assert "Strike: Whatever the plan says, the lunge misses." in writer_tail
+    # The Writer reads each ruling at its place in the list: the opening one, the plan, then the closing one.
+    assert (
+        "**Scene Guidance**\n\nDoorway: Alric holds the doorway.\n\nPlan: Kael lunges at Vira.\n\n"
+        "Strike: Whatever the plan says, the lunge misses."
+    ) in _tail_text(_captured(llm_mock, "writer")[0])
     assert "Strike: Whatever the plan says" in _event(events, "director_done")["injection_block"]
     # The last announcement carries the whole turn.
     assert [row["fragment_id"] for row in _events(events, "decisions")[-1]["evaluations"]] == ["outcome", "strike"]

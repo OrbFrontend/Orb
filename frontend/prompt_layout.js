@@ -34,10 +34,10 @@ const BUILT_IN = {
     about: "Lorebook entries chosen this turn by keyword or by the Director.",
     source: "Worlds, Director",
   },
-  decisions: { about: "The Judge's guidance for this turn.", source: "Judge" },
   scene_guidance: {
-    about: "The Director's guidance for this turn, followed by the current state.",
-    source: "Director, State",
+    about:
+      "The Director's and the Judge's guidance for this turn, in Judge & Director order, followed by the current state.",
+    source: "Director, Judge, State",
   },
   user_message: { about: "Your message this turn.", source: "You" },
   depth_lore: { about: "Constant lorebook entries with @ Depth.", source: "Worlds" },

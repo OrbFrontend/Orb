@@ -6,7 +6,17 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
-from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateFragment, StateView, carry_events
+from ..core import (
+    CardScripts,
+    CastMember,
+    ChatMessage,
+    GroupContextMode,
+    Macros,
+    StateFragment,
+    StateView,
+    carry_events,
+    fragment_stage,
+)
 from ..core.prompt_layout import LayoutBlock
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
@@ -113,14 +123,15 @@ async def run_director_stage(
     try:
         if state.state_events or state.state_report["dropped"]:
             yield {"event": "state", "data": state_event_payload(state)}
-        scene_fragments, _, _, _ = split_interactive_fragments(interactive_fragments)
         async for ev in director_stage(
             cfg,
             state,
             settings=settings,
             director=director,
             mood_fragments=mood_fragments,
-            scene_fragments=scene_fragments,
+            guidance_fragments=[
+                row for row in interactive_fragments if fragment_stage(str(row.get("field_type") or "")) == "director"
+            ],
             direct_scene_fragments=state_contract.direct_scene_rows(interactive_fragments),
             state_contract=state_contract,
             attachments=attachments,

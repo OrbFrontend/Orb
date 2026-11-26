@@ -3,8 +3,8 @@
 A decision fragment asks the **Judge**, a classifier model, one question about
 the current situation, at its place among the Director fragments. The Judge
 selects an outcome using the fragment's resolution policy. Orb sends that
-outcome's guidance to the passes its **Inject** setting names, under **Major
-Decisions**.
+outcome's guidance to the passes its **Inject** setting names, at its place in
+the list.
 
 Decisions next to each other, with no Director fragment between them, are
 asked together and run independently: each sees the turn's situation, not
@@ -87,11 +87,13 @@ plan leaves room for whatever the Judge answers. Its `{{state}}` is still the
 state the turn starts from.
 
 A decision below every Director fragment judges the finished plan, after the
-before-Writer state updates. The Writer sees both the plan and the outcome. The
-default prompt layout puts **Decisions** before **Scene guidance**, so write
-guidance that overrides the plan ("Whatever the plan says, the lunge misses."),
-or move the Decisions block below Scene guidance in the
-[Prompt Layout](prompt-layout.md).
+before-Writer state updates. The Writer reads its outcome after the plan, so
+write guidance that settles it ("Whatever the plan says, the lunge misses.").
+
+The Writer reads **Scene guidance** in the same order as the list: mood prompts
+first, then each Director value and each decision's outcome at its place. A
+decision above every Director fragment comes before the plan; one between
+**Attack** and **Consequence** comes between them.
 
 A decision waits for its place only when its Situation reads something that
 changes there: `{{scene_guidance}}` between Director fragments, and
@@ -123,7 +125,7 @@ Inspector reports why.
 | Inject | Receives the guidance |
 |---|---|
 | **Director** | The Director steps after the decision, and its before-Writer state updates |
-| **Writer** | The Writer, at the top of its injection block |
+| **Writer** | The Writer, in Scene guidance at the decision's place |
 | **Both** | Both of the above (the default) |
 
 A decision always injects somewhere, so there is no Off setting. With
@@ -142,7 +144,8 @@ The **Situation** template is the context sent to the Judge. It supports
 solo chats, `{{description}}` and `{{personality}}`. `{{scene_guidance}}` is the
 Director's plan at the decision's place (see [Order](#order)): the field values
 above it and earlier rulings, or, below every Director fragment, the mood
-prompts and field values as the Writer's Scene Guidance carries them.
+prompts, then the field values and the rulings that reached the Director, in
+list order.
 
 `{{state}}` lists every enabled [state fragment](state-fragments.md) that
 holds something, under its injection label, whatever its **Inject** setting:

@@ -33,11 +33,13 @@ def compute_style_injection_block(
     interactive_fragments: Sequence[Mapping[str, Any]],
     direct_scene_enabled: bool,
     extra_fields: dict | None = None,
+    rulings: Mapping[str, str] | None = None,
 ) -> str:
-    """Compute the Scene Guidance body from Director outputs, without its heading.
+    """Compute the Scene Guidance body from Director outputs and the Judge's *rulings*, without its heading.
 
-    State fragments render separately, in the recipient's current-state block
-    (``prompting.fragment_state``), so they never enter Scene Guidance.
+    *rulings* maps a decision's fragment id to its guidance line; they render whether or not Direction is on. State fragments
+    render separately, in the recipient's current-state block (``prompting.fragment_state``), so they never enter Scene
+    Guidance.
     """
     if extra_fields is None:
         extra_fields = {}
@@ -56,9 +58,9 @@ def compute_style_injection_block(
     )
     active = [fragment for fragment in mood_fragments if fragment["id"] in injection_moods]
 
-    if not (active or deactivated or injection_extra):
+    if not (active or deactivated or injection_extra or rulings):
         return ""
-    return build_style_injection(active, deactivated, interactive_fragments, injection_extra)
+    return build_style_injection(active, deactivated, interactive_fragments, injection_extra, rulings)
 
 
 def build_style_injection(
@@ -66,8 +68,10 @@ def build_style_injection(
     deactivated: Sequence[Mapping[str, Any]] | None = None,
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     extra_fields: dict | None = None,
+    rulings: Mapping[str, str] | None = None,
 ) -> str:
-    """Render the Scene Guidance body: active mood prompts, deactivated moods' negative prompts, then field values."""
+    """Render the Scene Guidance body: active mood prompts, deactivated moods' negative prompts, then the Judge & Director
+    list in run order, each Director field's value and each ruling at its fragment's place."""
     parts: list[str] = []
     for fragment in active:
         parts.append(fragment["prompt_text"])
@@ -75,13 +79,20 @@ def build_style_injection(
         if negative := fragment.get("negative_prompt", "").strip():
             parts.append(negative)
 
-    for fragment in sorted(interactive_fragments or [], key=lambda item: item.get("sort_order", 0)):
+    rulings = rulings or {}
+    placed: set[str] = set()
+    for fragment in interactive_fragments or []:
+        if fragment["id"] in rulings:
+            placed.add(fragment["id"])
+            parts.append(rulings[fragment["id"]])
+            continue
         if fragment.get("field_type") in REPLY_EDIT_FIELD_TYPES or fragment.get("field_type") == STATE_FIELD_TYPE:
             continue
         value = (extra_fields or {}).get(fragment["id"])
         if not value:
             continue
         parts.append(scene_field_text(fragment, value))
+    parts.extend(line for fid, line in rulings.items() if fid not in placed)
     return "\n\n".join(part for part in parts if part)
 
 

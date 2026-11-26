@@ -30,7 +30,7 @@ from ....inference import (
 )
 from ...events import DecisionsData
 from . import cooldown
-from .guidance import decision_guidance_block, decision_guidance_lines
+from .guidance import decision_guidance_block
 from .points import CLOSING, OPENING, JudgePlan, JudgePoint, point_name
 from .records import (
     envelope,
@@ -283,11 +283,6 @@ class JudgeResult:
         """The opening point's Director-routed outcomes, which every Director step reads."""
         return decision_guidance_block([row for row in self.evaluations if _placed_at_opening(row)], "director")
 
-    @property
-    def state_guidance(self) -> str:
-        """Every Director-routed outcome, which the before-Writer state step reads."""
-        return decision_guidance_block(self.evaluations, "director")
-
     def rulings_after(self) -> dict[str, list[tuple[str, str]]]:
         """Each middle point's Director-routed outcomes, by the Director fragment it follows: what the Director steps below
         that fragment build on, whenever the Judge was asked."""
@@ -296,10 +291,6 @@ class JudgeResult:
             if "point_label" in row:
                 middle.setdefault(str(row["point"]), []).append(row)
         return {after: rulings for after, rows in middle.items() if (rulings := _rulings(rows))}
-
-    @property
-    def writer_lines(self) -> str:
-        return decision_guidance_lines(self.evaluations, "writer")
 
     def as_event_data(self) -> DecisionsData:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
@@ -313,8 +304,6 @@ class JudgeResult:
         state.decision_evaluations = envelope(self.evaluations, self.skipped)
         state.decision_cooldowns = dict(self.cooldowns)
         state.director_decision_guidance = self.director_guidance
-        state.state_decision_guidance = self.state_guidance
-        state.writer_decisions = self.writer_lines
 
 
 @dataclass(slots=True)

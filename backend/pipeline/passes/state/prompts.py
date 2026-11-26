@@ -82,7 +82,6 @@ def build_state_request(
     tool_schema: dict,
     reasoning_on: bool = False,
     scene_direction: str = "",
-    decision_guidance: str = "",
     user_message: str = "",
 ) -> str:
     """Build the ``update_state`` request for one call."""
@@ -91,8 +90,6 @@ def build_state_request(
     parts.extend(_field_section(fragment, view, aliases) for fragment in fragments)
     if any(fragment.mode == "value" for fragment in fragments):
         parts.append("For fields with one value, write the complete new value only if it changed.")
-    if decision_guidance:
-        parts.append("___\n\n" + decision_guidance)
     if scene_direction:
         parts.append("___\n\n" + scene_direction)
     if user_message:

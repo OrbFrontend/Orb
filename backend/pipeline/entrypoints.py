@@ -236,9 +236,9 @@ def _director_judge(ctx: PipelineContext, opened: _OpenedTurn) -> DirectorJudge 
         # Every ruling at this place, whether the Judge was asked here or with the opening point.
         yield tuple(result.rulings_after().get(after, ()))
 
-    async def closing(state: TurnState) -> AsyncIterator[CoreTurnEvent]:
+    async def closing(state: TurnState, plan: str) -> AsyncIterator[CoreTurnEvent]:
         judged_state = _judge_state(ctx, macros, state.state_view, prior=state.state_prior)
-        async for ev in ask(state, CLOSING, state.scene_guidance, judged_state):
+        async for ev in ask(state, CLOSING, plan, judged_state):
             yield ev
 
     return DirectorJudge(

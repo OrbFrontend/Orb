@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ....core import (
     STATE_FIELD_TYPE,
@@ -17,6 +17,7 @@ from ....core import (
     StateRejection,
     build_multimodal_content,
     extract_hyperparams,
+    is_director_fragment,
     plan_state_ops,
     resolve_inline,
     value_text,
@@ -39,7 +40,7 @@ from ...events import CoreTurnEvent, StateData
 from ...failures import STAGE_DIRECTOR, step_failure_warning
 from ...timing import latency_event, timed_events
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
-from ..judge import headed_decisions
+from ..judge import decision_lines, stored_evaluations
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
@@ -51,8 +52,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# A stage that runs once the Director has planned, before the Writer's blocks are assembled from *state*.
-AfterDirector = Callable[["TurnState"], AsyncIterator[CoreTurnEvent]]
+# A stage that runs once the Director has planned, before the Writer's blocks are assembled from *state*; it reads the
+# finished plan, the Scene Guidance body as the Director's side sees it.
+AfterDirector = Callable[["TurnState", str], AsyncIterator[CoreTurnEvent]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +64,7 @@ class DirectorJudge:
     *middle* runs the point after a Director fragment in *between*, given the plan so far and whether that fragment gave a
     value: it yields its events, then one tuple of (label, guidance) rulings for later steps. Only a point in *waits* asks
     the Judge there, and *questions* are what it asks, by the fragment it follows. *closing* runs after the before-Writer
-    state step.
+    state step, reading the finished plan.
     """
 
     between: frozenset[str] = frozenset()
@@ -655,7 +657,7 @@ async def director_stage(
     settings: Settings,
     director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
-    scene_fragments: Sequence[Mapping[str, Any]],
+    guidance_fragments: Sequence[Mapping[str, Any]],
     direct_scene_fragments: Sequence[Mapping[str, Any]],
     state_contract: StateContract,
     attachments: Sequence[Mapping[str, Any]],
@@ -668,10 +670,10 @@ async def director_stage(
     """Prepare and run the Director, apply before-Writer state updates, then build injection and lorebook blocks. Stop skips
     remaining assembly.
 
-    scene_fragments shape guidance; direct_scene_fragments also carry one-value state fields. Update state_view in place and
-    route decision guidance only to its configured passes. *judge*'s middle points run between Director fragments, and its
-    closing point sees the finished Scene Guidance and may add to the Writer's decisions before they are assembled; they are
-    read from *state* after it.
+    *guidance_fragments* are the Director fields and decisions in list order, the order Scene Guidance shows their values and
+    rulings in; direct_scene_fragments also carry one-value state fields. Update state_view in place and route each ruling
+    only to its configured passes. *judge*'s middle points run between Director fragments, and its closing point reads the
+    finished plan and may add Writer rulings before the Writer's Scene Guidance is assembled from *state*.
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
@@ -816,21 +818,30 @@ async def director_stage(
         apply_state_step_result(state, StateStepResult(events, [*shape_rejections, *rejections]), state_contract)
         yield {"event": "state", "data": state_event_payload(state)}
 
-    scene_ids = {fragment["id"] for fragment in scene_fragments}
+    scene_ids = {
+        fragment["id"] for fragment in guidance_fragments if is_director_fragment(str(fragment.get("field_type") or ""))
+    }
     scene_extra = {fid: value for fid, value in state.extra_fields.items() if fid in scene_ids}
-    state.scene_guidance = macros.at("scene_guidance").resolve_message(
-        compute_style_injection_block(
-            state.active_moods,
-            # A mood suppressed by its cooldown is resting, not deliberately deactivated. Keep its negative prompt for ordinary
-            # Director removals, but do not emit it merely because cooldown enforcement filtered the mood out this turn.
-            [fragment_id for fragment_id in director["active_moods"] if fragment_id not in resting],
-            inj_mood_fragments,
-            scene_fragments,
-            direct_scene_enabled,
-            scene_extra,
+    # A mood suppressed by its cooldown is resting, not deliberately deactivated. Keep its negative prompt for ordinary Director
+    # removals, but do not emit it merely because cooldown enforcement filtered the mood out this turn.
+    prior_moods = [fragment_id for fragment_id in director["active_moods"] if fragment_id not in resting]
+
+    def guidance_body(target: Literal["director", "writer"], *, moods: bool = True) -> str:
+        """The Scene Guidance body as *target* reads it: the plan with the rulings routed to it, each at its place."""
+        return macros.at("scene_guidance").resolve_message(
+            compute_style_injection_block(
+                state.active_moods if moods else [],
+                prior_moods if moods else [],
+                inj_mood_fragments if moods else [],
+                guidance_fragments,
+                direct_scene_enabled,
+                scene_extra,
+                decision_lines(stored_evaluations(state.decision_evaluations), target),
+            )
         )
-    )
-    scene_direction = headed_scene_guidance(state.scene_guidance)
+
+    # The Director's side reads the plan with the rulings it built on: the before-Writer state step and the closing Judge.
+    plan = guidance_body("director")
 
     # Multiple-entry fields updated before the Writer reflect on the scene
     # direction just set, so they need an active scene-direction step.
@@ -845,8 +856,7 @@ async def director_stage(
             view=view,
             placement="before_writer",
             known_ids=offered_state_ids(cfg.agent_lane.base),
-            scene_direction=scene_direction,
-            decision_guidance=state.state_decision_guidance,
+            scene_direction=headed_scene_guidance(plan),
             user_message=state.user_message,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
@@ -866,11 +876,11 @@ async def director_stage(
             return
 
     if judge is not None and judge.closing is not None:
-        async for event in judge.closing(state):
+        async for event in judge.closing(state, plan):
             yield event
         if cfg.agent_lane.client.is_aborted:
             return
-    writer_decision_guidance = headed_decisions(state.writer_decisions)
+    state.scene_guidance = guidance_body("writer")
 
     # The Writer's state block rides its Scene Direction whenever a fragment injects into the Writer -- independent of
     # direct_scene and of whether updates are on -- and includes this turn's before-Writer changes, a changed one-value field
@@ -879,24 +889,15 @@ async def director_stage(
     state_text = macros.at("state").resolve_message(writer_block) if writer_block else ""
     state.writer_state_block = state_text
 
-    def injection_block(scene_direction: str) -> str:
-        block = scene_direction
+    def injection_block(body: str) -> str:
+        block = headed_scene_guidance(body)
         if writer_block:
             block = (block + "\n\n" + state_text).strip()
-        # Keep decision guidance even when the Director is disabled, and place it first.
-        if writer_decision_guidance:
-            block = (writer_decision_guidance + "\n\n" + block).strip()
         return block
 
-    state.inj_block = injection_block(scene_direction)
+    state.inj_block = injection_block(state.scene_guidance)
     # The Inspector can hide the mood prompts, which the user picked and can already read. None when no mood prompt rendered.
-    without_moods = injection_block(
-        headed_scene_guidance(
-            macros.at("scene_guidance").resolve_message(
-                compute_style_injection_block([], [], [], scene_fragments, direct_scene_enabled, scene_extra)
-            )
-        )
-    )
+    without_moods = injection_block(guidance_body("writer", moods=False))
     state.inj_block_without_moods = without_moods if without_moods != state.inj_block else None
 
     yield {

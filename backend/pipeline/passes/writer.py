@@ -189,7 +189,6 @@ async def writer_stage(
     )
     inputs = WriterInputs(
         selected_lore=state.writer_lorebook_block,
-        decisions=state.writer_decisions,
         scene_guidance=state.scene_guidance,
         current_state=state.writer_state_block,
         tool_notice=TOOL_NOTICE if tools_sent else "",

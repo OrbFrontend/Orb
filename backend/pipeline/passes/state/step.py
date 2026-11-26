@@ -137,7 +137,6 @@ async def state_step(
     placement: str,
     known_ids: frozenset[str] = frozenset(),
     scene_direction: str = "",
-    decision_guidance: str = "",
     user_message: str = "",
     reply_text: str | None = None,
     writer_request: Sequence[ChatMessage] = (),
@@ -170,7 +169,6 @@ async def state_step(
             tool_schema=live_schema,
             reasoning_on=reasoning_on,
             scene_direction=scene_direction,
-            decision_guidance=decision_guidance,
             user_message=user_message,
         )
         if placement == "after_reply":

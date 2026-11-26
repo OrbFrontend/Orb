@@ -65,7 +65,8 @@ each turn; a `pick` there stays fixed for that field. Put a macro in single back
 literal text.
 
 Fragments run from top to bottom within their stage. Earlier Director values can
-provide context for later values, and the Writer sees them in the same order.
+provide context for later values, and the Writer sees them in the same order,
+each decision's outcome at its place among them.
 Decisions share the Director's list, **Judge & Director**, and a decision
 between two Director fragments rules on the values above it before the Director
 fills the ones below. With **Individual fragment processing** off, the Director
