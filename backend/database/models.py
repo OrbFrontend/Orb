@@ -674,6 +674,8 @@ class CharacterCardRow(TypedDict, total=False):
     def_chars: int
     display_scripts: list[dict]
     display_css: str
+    #: The avatar thumbnail's version, for its URL's ``?v=``; set by the list route.
+    avatar_thumb: str
 
 
 class DocumentListRow(TypedDict):

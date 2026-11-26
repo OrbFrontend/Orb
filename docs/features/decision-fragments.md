@@ -1,9 +1,9 @@
 # Decision Fragments
 
 A decision fragment asks the **Judge**, a classifier model, one question about
-the current situation before the Director runs. The Judge selects an outcome
-using the fragment's resolution policy. Orb sends that outcome's guidance to
-the passes its **Inject** setting names, under **Major Decisions**.
+the current situation, before or after the Director runs. The Judge selects an
+outcome using the fragment's resolution policy. Orb sends that outcome's
+guidance to the passes its **Inject** setting names, under **Major Decisions**.
 
 Decision fragments run independently. Each sees the turn's situation, not another
 fragment's result, so their order does not create a sequence. Orb batches questions
@@ -60,6 +60,27 @@ Each outcome has two separate fields:
 
 Empty guidance means that outcome adds no instructions.
 
+## Runs
+
+**Runs** sets when the Judge asks the question:
+
+| Runs | The Judge reads | Inject |
+|---|---|---|
+| **Before Director** (the default) | The conversation | Director, Writer or Both |
+| **After Director** | The conversation and the Director's plan, as `{{scene_guidance}}` | Writer only |
+
+An **After Director** decision judges what the Director just planned, for
+example whether the attack it chose lands. The Director has already run, so
+only the Writer receives the outcome. The Writer sees both the plan and the
+outcome. The default prompt layout puts **Decisions** before **Scene guidance**,
+so write guidance that overrides the plan ("Whatever the plan says, the lunge
+misses."), or move the Decisions block below Scene guidance in the
+[Prompt Layout](prompt-layout.md).
+
+After Director decisions are asked only when the Director runs. Otherwise they
+are skipped without asking the Judge, and the Inspector reports why. They
+cost a second Judge request, between the Director and the Writer.
+
 ## Inject
 
 **Inject** chooses which passes receive the outcome's guidance:
@@ -82,8 +103,18 @@ Inspector reports why.
 
 The **Situation** template is the context sent to the Judge. It supports
 `{{last_message}}`, `{{last_assistant_message}}`, `{{recent_history}}`,
-`{{user}}`, `{{char}}`, `{{cast}}`, and, in solo chats, `{{description}}` and
-`{{personality}}`.
+`{{state}}`, `{{user}}`, `{{char}}`, `{{cast}}`, and, in solo chats,
+`{{description}}` and `{{personality}}`. An **After Director** decision also has
+`{{scene_guidance}}`: the Director's mood prompts and field values, as the
+Writer's Scene Guidance carries them.
+
+`{{state}}` lists every enabled [state fragment](state-fragments.md) that
+holds something, under its injection label, whatever its **Inject** setting:
+a tracker no pass is shown, such as hidden hit points, still reaches a
+Situation that asks for it. Before the Director it is the state the turn
+starts from, including your corrections. After the Director it also has the
+turn's before-Writer changes, shown as `old -> new`. Changes made after the
+reply land on the next turn.
 `{{recent_history}}` contains up to the last six completed user and assistant
 messages. To send a different number of messages, add a count from 1 to 50:
 `{{recent_history::10}}`. The count is in messages, not exchanges. For
@@ -134,9 +165,14 @@ Judge answer. A changed or steered situation may need a new request. Draw-based
 resolutions (`Roll`, `Random by odds`, and `First option gates, else random`)
 draw again from the reused answer; the other resolutions keep their outcome.
 
+An **After Director** decision's input includes the Director's plan, so a
+regeneration whose Director plans differently asks the Judge again.
+
 In a group chat, decisions run once per exchange and the result is shared by
-each speaker's reply. Regenerating a later speaker keeps the exchange's committed
-result. If a member is given the floor after an unanswered user message, that
+each speaker's reply; **After Director** decisions read the exchange's shared
+plan. Regenerating a later speaker keeps the exchange's committed result,
+including its After Director outcomes, which the earlier speakers already wrote
+from. If a member is given the floor after an unanswered user message, that
 message becomes the decision's current request.
 
 ## Cooldowns and skipped decisions
@@ -155,6 +191,9 @@ ignored.
 
 ## Authoring tips
 
+- Give decisions that run at the same time the same Situation template. Orb
+  sends questions whose Situations render the same in one request, so they
+  cost one Judge call instead of several.
 - Make each fragment answer one question that is independent of the others.
   Combine dependent questions into one choice or score decision.
 - Write criteria that distinguish the outcomes clearly. Keep the story

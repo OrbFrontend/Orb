@@ -11,9 +11,9 @@ from typing import Any, cast
 import aiosqlite
 
 from ...core import (
+    BEFORE_DIRECTOR,
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
-    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_UPDATE,
@@ -25,6 +25,7 @@ from ...core import (
     STATE_MODES,
     STATE_UPDATES,
     TurnCast,
+    default_decision_inject,
     has_inline_macros,
     resolve_inline,
     upgrade_legacy_fragment,
@@ -227,13 +228,9 @@ def upgrade_card_fragment_types(extensions: Any) -> Any:
 def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Read decision fields with defaults, leaving invalid rows for the Judge to report."""
     columns = {column: entry.get(column) for column in DECISION_COLUMNS}
-    defaults = {
-        "decision_type": "noul",
-        "decision_placement": "before_director",
-        "decision_inject": DEFAULT_DECISION_INJECT,
-        "decision_resolution": "threshold",
-    }
+    defaults = {"decision_type": "noul", "decision_placement": BEFORE_DIRECTOR, "decision_resolution": "threshold"}
     columns.update({column: value for column, value in defaults.items() if not columns[column]})
+    columns["decision_inject"] = columns["decision_inject"] or default_decision_inject(columns["decision_placement"])
     return columns
 
 

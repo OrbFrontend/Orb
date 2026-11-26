@@ -55,7 +55,7 @@ Writer. Describe the value you want and include examples when useful.
 | **State** | A value or a list kept across turns on the conversation branch, such as trust, an inventory, or open threads. See [State Fragments](state-fragments.md). |
 | **Recast** | An editing instruction applied to the completed reply. See [Recast Fragments](recast-fragments.md). |
 | **Rewrite** | An instruction the Editor follows to rewrite the whole completed reply. See [Rewrite Fragments](rewrite-fragments.md). |
-| **Decision** | A question the Judge answers before the Director runs, contributing guidance the Director plans around. See [Decision Fragments](decision-fragments.md). |
+| **Decision** | A question the Judge answers before the Director runs, contributing guidance the Director plans around, or after it, judging its plan for the Writer. See [Decision Fragments](decision-fragments.md). |
 
 ## Macros and order
 

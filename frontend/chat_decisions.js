@@ -25,8 +25,11 @@ function _chip(text, kind) {
 }
 
 function _metaText(record) {
-  const bits = ANSWER_NUMBERS.filter(([field]) => record[field] != null).map(
-    ([field, label, digits]) => `${label} ${Number(record[field]).toFixed(digits)}`,
+  const bits = record.placement === "after_director" ? ["after Director"] : [];
+  bits.push(
+    ...ANSWER_NUMBERS.filter(([field]) => record[field] != null).map(
+      ([field, label, digits]) => `${label} ${Number(record[field]).toFixed(digits)}`,
+    ),
   );
   if (record.answer_source) bits.push(ANSWER_SOURCES[record.answer_source] || record.answer_source);
   if (record.replayed_from) bits.push(`was ${ANSWER_SOURCES[record.replayed_from] || record.replayed_from}`);

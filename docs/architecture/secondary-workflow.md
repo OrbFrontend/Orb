@@ -692,7 +692,7 @@ A ZONOS voice clones from the clip itself, not a speaker embedding. On upload,
 first 60 s, the reference the server reads. When its quietest 20 ms stretches
 sit within 45 dB of its speech, something plays under the voice; the clone would
 copy it, so the vocal separator (Hybrid Demucs's vocal stem as ONNX, from
-`scripts/export_vocal_separator.py`) takes it out when downloaded. The separator
+`scripts/export_vocal_separator.py`, removed after cee0bd38) takes it out when downloaded. The separator
 removes music beds but leaves most stationary noise and hum, so the clip is
 measured again afterwards and the upload says when sound remains. It can also
 drop whispered speech. It runs on onnxruntime's CPU provider. One gain then

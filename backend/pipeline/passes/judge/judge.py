@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from ....core import DecisionDefinition
+from ....core import AFTER_DIRECTOR, BEFORE_DIRECTOR, DecisionDefinition
 from ....inference import (
     MAX_QUESTION_BYTES,
     MAX_QUESTIONS_PER_REQUEST,
@@ -40,7 +40,15 @@ from .records import (
     stored_evaluations,
     stored_skipped,
 )
-from .render import STATE_MACROS, TEXT_MACROS, DecisionSnapshot, UnavailableMacro, definition_macro_errors, macros_used, render
+from .render import (
+    TEXT_MACROS,
+    DecisionSnapshot,
+    UnavailableMacro,
+    definition_macro_errors,
+    macros_used,
+    render,
+    state_macros,
+)
 from .resolve import (
     DRAWN_RESOLUTIONS,
     ROUTINE_REASONS,
@@ -67,7 +75,7 @@ _MAX_DECISIONS_PER_CARD = 8
 # the whole stage budget: the stage costs at most one REQUEST_TIMEOUT_SECONDS.
 MAX_BATCHES = 4
 REQUEST_TIMEOUT_SECONDS = 6.0
-_SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history"})
+_SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "scene_guidance", "state"})
 
 _EVENT_FIELDS = (
     "fragment_id",
@@ -132,12 +140,50 @@ class JudgeTurn:
     invalid: tuple[InvalidDecision, ...] = ()
     # Card decisions use the owning member's ``{{char}}`` and ``{{description}}``.
     card_snapshots: Mapping[str, DecisionSnapshot] = field(default_factory=dict)
-    # Whether the Director reads decisions this turn. When it does not, a
-    # Director-only decision has no reader, so it is not asked.
+    # Whether the Director runs this turn. When it does not, a Director-only
+    # decision has no reader and an after-Director one has no plan to judge, so neither is asked.
     director_runs: bool = True
+    # Every decision of the turn when this is one of its two passes: the per-card and per-exchange caps count both passes.
+    turn_candidates: tuple[DecisionCandidate, ...] | None = None
 
     def snapshot_for(self, candidate: DecisionCandidate) -> DecisionSnapshot:
         return self.card_snapshots.get(candidate.card_id or "", self.snapshot)
+
+    def before_director(self) -> JudgeTurn:
+        """The turn's first pass: its before-Director decisions and its invalid ones.
+
+        Without a Director the after-Director decisions ride along too, so this pass reports them as skipped; no later pass
+        will.
+        """
+        if not self.director_runs:
+            return self
+        return replace(
+            self,
+            candidates=tuple(c for c in self.candidates if c.definition.placement == BEFORE_DIRECTOR),
+            turn_candidates=self.candidates,
+        )
+
+    def after_director(self, scene_guidance: str, state: str) -> JudgeTurn | None:
+        """The turn's second pass, reading the Director's *scene_guidance* and the *state* it left; None when it has nothing
+        to ask.
+
+        It keeps the turn's starting cooldowns, so a decision resting this turn rests in both passes, and
+        :meth:`JudgeResult.followed_by` can join the two results.
+        """
+        later = tuple(c for c in self.candidates if c.definition.placement == AFTER_DIRECTOR)
+        if not later or not self.director_runs:
+            return None
+        return replace(
+            self,
+            candidates=later,
+            turn_candidates=self.candidates,
+            invalid=(),
+            snapshot=replace(self.snapshot, scene_guidance=scene_guidance, state=state),
+            card_snapshots={
+                key: replace(snapshot, scene_guidance=scene_guidance, state=state)
+                for key, snapshot in self.card_snapshots.items()
+            },
+        )
 
 
 @dataclass(slots=True)
@@ -165,6 +211,19 @@ class JudgeResult:
             self,
             evaluations=[row for row in self.evaluations if row["fragment_id"] in fragment_ids],
             skipped=[row for row in self.skipped if row.get("fragment_id") in fragment_ids],
+        )
+
+    def followed_by(self, later: JudgeResult) -> JudgeResult:
+        """This before-Director result joined by the same turn's after-Director *later*.
+
+        Both passes advance the same starting cooldowns, each setting only the decisions it evaluated, so their union is the
+        turn's cooldown state.
+        """
+        return JudgeResult(
+            evaluations=[*self.evaluations, *later.evaluations],
+            skipped=[*self.skipped, *later.skipped],
+            cooldowns={**self.cooldowns, **later.cooldowns},
+            requests=self.requests + later.requests,
         )
 
     @property
@@ -230,7 +289,9 @@ def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, 
     for candidate in turn.candidates:
         if candidate.definition.fragment_id in resting:
             reason = SkipReason.RESTING
-        elif candidate.definition.inject == "director" and not turn.director_runs:
+        elif not turn.director_runs and (
+            candidate.definition.inject == "director" or candidate.definition.placement == AFTER_DIRECTOR
+        ):
             reason = SkipReason.DIRECTOR_OFF
         else:
             running.append(candidate)
@@ -293,7 +354,7 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
         state = render(
             definition.state_template,
             snapshot,
-            allowed=STATE_MACROS,
+            allowed=state_macros(definition.placement),
             seed=state_seed,
             pick_seed=snapshot.pick_seed(None, "state"),
         )
@@ -491,7 +552,8 @@ def _batches(pending: Sequence[_Item]) -> list[list[_Item]]:
 
 async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> JudgeResult:
     running, skipped = _eligible(turn)
-    over = _over_budget(running)
+    counted = running if turn.turn_candidates is None else _eligible(replace(turn, candidates=turn.turn_candidates))[0]
+    over = _over_budget(counted)
     items = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over) for candidate in running]
     replayed: dict[str, dict[str, Any]] = {}
     pending: list[_Item] = []

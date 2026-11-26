@@ -25,9 +25,9 @@ from .failures import (
     staged,
     step_failure_warning,
 )
-from .passes.director import apply_state_step_result, cooldown, director_stage, state_event_payload
+from .passes.director import AfterDirector, apply_state_step_result, cooldown, director_stage, state_event_payload
 from .passes.editor import editor_stage
-from .passes.judge import JudgeConfig, JudgeResult, headed_decisions
+from .passes.judge import JudgeConfig, JudgeResult
 from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
@@ -44,6 +44,19 @@ def _make_result(state: TurnState) -> ResultEvent:
     return {"event": "_result", "data": state.as_result_event_data()}
 
 
+def _starting_state(director: BranchBaseline) -> tuple[StateView, list[dict], list[dict]]:
+    """The branch's fold with the carried corrections applied, and those corrections split into applied and dropped."""
+    base = director.get("fragment_state")
+    view = base.copy() if isinstance(base, StateView) else StateView()
+    applied, dropped = carry_events(director.get("state_carried") or (), view)
+    return view, applied, dropped
+
+
+def starting_state_view(director: BranchBaseline) -> StateView:
+    """The state a turn opens with: what the Judge reads before the Director, and the Writer sees unless the turn changes it."""
+    return _starting_state(director)[0]
+
+
 def seed_fragment_state(state: TurnState, director: BranchBaseline) -> None:
     """Start *state* from the branch's folded state plus any carried corrections.
 
@@ -52,9 +65,7 @@ def seed_fragment_state(state: TurnState, director: BranchBaseline) -> None:
     they commit ahead of the turn's own changes so row order matches apply order. One whose entry the discarded reply added has
     nothing to apply to and is reported as dropped.
     """
-    base = director.get("fragment_state")
-    view = base.copy() if isinstance(base, StateView) else StateView()
-    applied, dropped = carry_events(director.get("state_carried") or (), view)
+    view, applied, dropped = _starting_state(director)
     state.state_view = view
     state.state_prior = view.copy()
     state.state_events = applied
@@ -92,11 +103,12 @@ async def run_director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
+    after_director: AfterDirector | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Announce the state changes *state* was seeded with, then direct the turn.
 
     The one Director entry for a solo turn and for a group exchange's shared Director, so both label a failure as the Director's
-    and read the Judge's guidance from *state*.
+    and read the Judge's guidance from *state*. *after_director* is the after-Director Judge pass, run inside the stage.
     """
     try:
         if state.state_events or state.state_report["dropped"]:
@@ -117,7 +129,7 @@ async def run_director_stage(
             macros=macros,
             speaker_keys=speaker_keys,
             director_decision_guidance=state.director_decision_guidance,
-            writer_decision_guidance=headed_decisions(state.writer_decisions),
+            after_director=after_director,
         ):
             yield ev
     except Exception as exc:
@@ -156,6 +168,7 @@ async def run_pipeline(
     run_director: bool = True,
     director_seed: TurnState | None = None,
     judge: JudgeResult | None = None,
+    after_director: AfterDirector | None = None,
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
@@ -215,6 +228,7 @@ async def run_pipeline(
             kv_tracker=kv_tracker,
             lorebook=lorebook,
             macros=macros,
+            after_director=after_director,
         ):
             yield ev
 

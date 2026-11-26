@@ -1,4 +1,4 @@
-"""Separate a clip's vocals with Hybrid Demucs exported as ONNX (scripts/export_vocal_separator.py)."""
+"""Separate a clip's vocals with Hybrid Demucs exported as ONNX (scripts/export_vocal_separator.py, removed after cee0bd38)."""
 
 from __future__ import annotations
 

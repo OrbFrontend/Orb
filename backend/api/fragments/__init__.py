@@ -8,7 +8,6 @@ from typing import Any
 from ...core import (
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
-    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_INJECT,
     DEFAULT_STATE_MAX_ENTRIES,
     DEFAULT_STATE_MODE,
@@ -16,6 +15,7 @@ from ...core import (
     REPLY_EDIT_FIELD_TYPES,
     STATE_COLUMNS,
     STATE_FIELD_TYPE,
+    default_decision_inject,
 )
 from ...pipeline.passes.judge import definition_problems
 
@@ -50,7 +50,7 @@ def _checked_decision_write(payload: dict, existing: Mapping[str, Any] | None) -
         raise DecisionProblems(problems)
     # Stored explicitly, like a state fragment's settings, so the row says where it goes.
     if not merged.get("decision_inject"):
-        payload["decision_inject"] = DEFAULT_DECISION_INJECT
+        payload["decision_inject"] = default_decision_inject(merged.get("decision_placement"))
     return payload
 
 

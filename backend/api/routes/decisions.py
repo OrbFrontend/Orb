@@ -3,6 +3,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from ...core import (
+    DECISION_INJECTS_BY_PLACEMENT,
+    DECISION_PLACEMENTS,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
     DEFAULT_STATE_TEMPLATE,
@@ -15,6 +17,7 @@ from ...database import get_endpoint, get_settings, update_decision_config
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
 from ...pipeline.passes.judge import (
+    AFTER_DIRECTOR_MACROS,
     INLINE_MACROS,
     STATE_MACRO_FORMS,
     STATE_MACROS,
@@ -34,6 +37,9 @@ def _config_payload(settings: Settings, config) -> dict:
         "resolved_url": config.url,
         "configured": config.configured,
         "state_macros": sorted(STATE_MACROS),
+        "after_director_macros": sorted(AFTER_DIRECTOR_MACROS),
+        "placements": list(DECISION_PLACEMENTS),
+        "placement_injects": {key: list(value) for key, value in DECISION_INJECTS_BY_PLACEMENT.items()},
         "state_macro_forms": list(STATE_MACRO_FORMS),
         "text_macros": sorted(TEXT_MACROS),
         "inline_macros": list(INLINE_MACROS),

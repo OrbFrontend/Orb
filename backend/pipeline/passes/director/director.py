@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +36,7 @@ from ...events import CoreTurnEvent, StateData
 from ...failures import STAGE_DIRECTOR, step_failure_warning
 from ...timing import latency_event, timed_events
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
+from ..judge import headed_decisions
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
@@ -46,6 +47,9 @@ if TYPE_CHECKING:
     from ...state import BranchBaseline, LorebookTurn, PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
+
+# A stage that runs once the Director has planned, before the Writer's blocks are assembled from *state*.
+AfterDirector = Callable[["TurnState"], AsyncIterator[CoreTurnEvent]]
 
 
 # The speaking plan is a director output like any interactive fragment, but it is owned by the group driver rather than by a
@@ -492,13 +496,14 @@ async def director_stage(
     macros: Macros,
     speaker_keys: str = "",
     director_decision_guidance: str = "",
-    writer_decision_guidance: str = "",
+    after_director: AfterDirector | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Prepare and run the Director, apply before-Writer state updates, then build injection and lorebook blocks. Stop skips
     remaining assembly.
 
     scene_fragments shape guidance; direct_scene_fragments also carry one-value state fields. Update state_view in place and
-    route decision guidance only to its configured passes.
+    route decision guidance only to its configured passes. *after_director* sees the finished Scene Guidance and may add to
+    the Writer's decisions before they are assembled; they are read from *state* after it.
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
@@ -686,6 +691,13 @@ async def director_stage(
                     yield {"event": "state", "data": state_event_payload(state)}
         if cfg.agent_lane.client.is_aborted:
             return
+
+    if after_director is not None:
+        async for event in after_director(state):
+            yield event
+        if cfg.agent_lane.client.is_aborted:
+            return
+    writer_decision_guidance = headed_decisions(state.writer_decisions)
 
     # The Writer's state block rides its Scene Direction whenever a fragment injects into the Writer -- independent of
     # direct_scene and of whether updates are on -- and includes this turn's before-Writer changes, a changed one-value field

@@ -39,6 +39,8 @@ set its field type to **State**.
 **Inject** chooses who receives the saved facts: **Off**, **Director**, **Writer**,
 or **Both**. This is separate from **Update**: manual notes can still guide
 replies, and automatically updated facts can be kept without sending them.
+A [decision](decision-fragments.md) whose Situation names `{{state}}` reads
+every enabled fragment, whatever its **Inject**.
 
 **Description** tells the Agent what to record. **Injection label** is the heading
 shown to the Director or Writer. **Required** is available only for a one-value

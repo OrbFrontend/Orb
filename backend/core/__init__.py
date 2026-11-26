@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from .card_scripts import CardScripts
 from .decisions import (
+    AFTER_DIRECTOR,
+    BEFORE_DIRECTOR,
     DECISION_COLUMNS,
     DECISION_FIELD_TYPE,
     DECISION_INJECTS,
+    DECISION_INJECTS_BY_PLACEMENT,
+    DECISION_PLACEMENTS,
     DECISION_RESOLUTIONS_BY_TYPE,
     DECISION_TYPES,
     DEFAULT_DECISION_INJECT,
@@ -18,6 +22,7 @@ from .decisions import (
     OUTCOME_KEYS,
     DecisionDefinition,
     decision_definition_errors,
+    default_decision_inject,
     is_decision_row,
     outcome_keys_of,
     outcome_text,

@@ -288,6 +288,28 @@ The first three calls may have different tool-rendered lanes, but each call
 keeps its own reusable prefix. The Editor's follow-up calls extend the prompt it
 just used.
 
+## The Judge sits beside the lanes
+
+Decision fragments go to the Judge's own endpoint, so neither of its passes
+touches a chat prefix. The before-Director pass runs ahead of the Director. The
+after-Director pass runs between the before-Writer state step and the Writer,
+with nothing on the chat lanes in between. The Writer's request then extends
+the Director's base as before, and its decision lines, with the after-Director
+ones last, stay in the Writer request below the layout divider. The Director's
+request never carries an after-Director outcome.
+
+That gap is only free while the Judge holds its own memory. If the Judge model
+shares a GPU with the chat model through a swapper that keeps one model loaded,
+such as a llama-swap group of one, each Judge call unloads the chat model and
+its KV cache. The after-Director pass then makes the Writer
+start cold, re-reading the whole conversation, on every turn that asks one.
+Keep the Judge resident on its own server.
+
+On the Judge's side, questions whose Situations render to the same text go in
+one request, so decisions that share a Situation template share one read of
+it. A before-Director and an after-Director decision never share a request:
+the second one's Situation carries the plan.
+
 ## Across turns
 
 The next turn appends the saved user and assistant messages to the old history:

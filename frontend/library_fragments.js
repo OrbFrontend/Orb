@@ -164,7 +164,7 @@ const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "recast", "rewrite"]);
 const GATED_FIELD_TYPES = new Set(["recast", "rewrite"]);
 
 const INTERACTIVE_LANES = [
-  { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
+  { id: "judge", label: "Judge", hint: "Decides questions before or after the Director runs" },
   { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
   {
     id: "state",
