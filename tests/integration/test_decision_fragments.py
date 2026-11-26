@@ -238,7 +238,7 @@ async def test_configuration_derives_the_route(client, db):
     before = await client.get_json("/api/decisions/config")
     assert before["configured"] is False
     assert before["default_state_template"]
-    assert "last_message" in before["state_macros"]
+    assert "last_message" in before["situation_chips"]
 
     await _configure(client)
     assert (await client.get_json("/api/decisions/config"))["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"

@@ -12,21 +12,38 @@ DECISION_RENDERER_VERSION = "1"
 _RECENT_HISTORY_DEPTH = 6
 # {{recent_history::N}} renders the last N messages instead of the default.
 _MAX_RECENT_HISTORY_DEPTH = 50
-STATE_MACROS = frozenset(
-    {"last_message", "last_assistant_message", "recent_history", "state", "user", "char", "cast", "description", "personality"}
+# Listed in the order the editor shows them as chips.
+_TEXT_MACRO_ORDER = ("char", "user", "cast")
+_STATE_MACRO_ORDER = (
+    *_TEXT_MACRO_ORDER,
+    "description",
+    "personality",
+    "last_message",
+    "last_assistant_message",
+    "recent_history",
+    "state",
 )
-TEXT_MACROS = frozenset({"user", "char", "cast"})
+STATE_MACROS = frozenset(_STATE_MACRO_ORDER)
+TEXT_MACROS = frozenset(_TEXT_MACRO_ORDER)
 # Names, resolved before inline macros as the main prompt path does, so they can
 # sit inside a {{random}} option. Message bodies are inserted after, and never can.
 _IDENTITY_MACROS = TEXT_MACROS
 # What each macro produced by a later stage needs to have run first.
 LATER_STAGE_MACROS: Mapping[str, str] = {"scene_guidance": "the Director", "draft": "the Writer"}
 # The Situation macros of a decision placed after the Director: the Director's plan joins the conversation.
-AFTER_DIRECTOR_MACROS = frozenset({"scene_guidance"})
+_AFTER_DIRECTOR_MACRO_ORDER = ("scene_guidance",)
+AFTER_DIRECTOR_MACROS = frozenset(_AFTER_DIRECTOR_MACRO_ORDER)
 # Inline macros resolve in every decision field; listed here as authors write them.
-INLINE_MACROS = ("roll::1d20", "random::a::b", "pick::a::b", "time", "date", "trim", "// note")
-# State macros that take a "::" argument, as authors write them.
-STATE_MACRO_FORMS = ("recent_history::10",)
+_INLINE_MACROS = ("roll::1d20", "random::a::b", "pick::a::b", "time", "date", "trim", "// note")
+# State macros that take a "::" argument, as authors write them, shown after the bare name.
+_STATE_MACRO_FORMS: Mapping[str, tuple[str, ...]] = {"recent_history": ("recent_history::10",)}
+# Editor chips per field, in display order. The After Director chips go last, so switching Runs moves no other chip.
+SITUATION_CHIPS = (
+    *(chip for name in _STATE_MACRO_ORDER for chip in (name, *_STATE_MACRO_FORMS.get(name, ()))),
+    *_INLINE_MACROS,
+)
+AFTER_DIRECTOR_CHIPS = _AFTER_DIRECTOR_MACRO_ORDER
+QUESTION_CHIPS = (*_TEXT_MACRO_ORDER, *_INLINE_MACROS)
 _MACRO_RE = re.compile(r"\{\{\s*([a-z_]+)\s*(?:::([^{}]*))?\}\}", re.IGNORECASE)
 _NESTED_RE = re.compile(r"\{\{(?:random|pick|roll)::[^{}]*\{\{\s*([a-z_]+)\s*(?:::[^{}]*)?\}\}", re.IGNORECASE)
 # Validation resolves inline macros only to remove them; any fixed seed will do.

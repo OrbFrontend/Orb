@@ -242,28 +242,10 @@ function _selectOptions(values, selected, label = (value) => value) {
     .join("");
 }
 
-// Chip order: macros of a kind sit together, by the name before any "::"; an unlisted name goes last.
-const MACRO_GROUPS = [
-  ["char", "user", "cast"],
-  ["description", "personality"],
-  ["last_message", "last_assistant_message", "recent_history", "scene_guidance", "state"],
-  ["roll", "random", "pick"],
-  ["time", "date"],
-  ["trim", "//"],
-];
-
-function _macroRank(macro) {
-  const name = macro.split("::")[0].split(" ")[0];
-  const group = MACRO_GROUPS.findIndex((names) => names.includes(name));
-  return group < 0 ? [MACRO_GROUPS.length, 0] : [group, MACRO_GROUPS[group].indexOf(name)];
-}
-
 function _macroChipsHtml(macros) {
-  const ranked = [...new Set(macros)].map((macro) => [_macroRank(macro), macro]);
-  ranked.sort(([[ga, na]], [[gb, nb]]) => ga - gb || na - nb);
-  return ranked
+  return macros
     .map(
-      ([, macro]) =>
+      (macro) =>
         `<button type="button" class="decision-macro" data-wf-action="decisions:insertMacro" data-macro="{{${escAttr(macro)}}}" title="Insert at the cursor">{{${esc(macro)}}}</button>`,
     )
     .join("");
@@ -314,7 +296,7 @@ function _innerHtml() {
     ${config.configured ? "" : `<div class="decision-status">No Judge endpoint configured. Set one under <strong>Endpoints → Judge</strong>.</div>`}
     ${_problemHtml("general")}
     <div class="modal-heading" role="heading" aria-level="3">Decision</div>
-    <div class="field-row">
+    <div class="field-row decision-controls">
       <div class="field">
         <label>Question type</label>
         <select data-dec="type">${_selectOptions(config.question_types || [], type)}</select>
@@ -323,36 +305,31 @@ function _innerHtml() {
         <label>Resolution</label>
         <select data-dec="resolution">${_selectOptions(_policiesFor(type), resolution, (value) => RESOLUTION_LABELS[value] || value)}</select>
       </div>
-      ${
-        knob
-          ? `<div class="field decision-knob">
-        <label title="${escAttr(knob[2])}">${knob[1]}</label>
-        <input type="number" min="0" max="1" step="0.01" data-dec="${knob[0]}" value="${escAttr(_draft[knob[0]] ?? "")}" placeholder="${knob[3]}" title="${escAttr(knob[2])}">
-      </div>`
-          : ""
-      }
-    </div>
-    <div class="field-row decision-routing">
-      <div class="field">
-        <label>Runs</label>
-        <select data-dec="placement">${_selectOptions(config.placements || [PLACEMENT_DEFAULT], _draft.placement, (value) => PLACEMENT_LABELS[value] || value)}</select>
-      </div>
-      <div class="field">
-        <label title="Which passes receive the outcome's guidance">Inject</label>
-        <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(_injectsFor(_draft.placement), _draft.inject, (value) => INJECT_LABELS[value])}</select>
+      <div class="decision-routing">
+        <div class="field">
+          <label>Runs</label>
+          <select data-dec="placement">${_selectOptions(config.placements || [PLACEMENT_DEFAULT], _draft.placement, (value) => PLACEMENT_LABELS[value] || value)}</select>
+        </div>
+        <div class="field">
+          <label title="Which passes receive the outcome's guidance">Inject</label>
+          <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(_injectsFor(_draft.placement), _draft.inject, (value) => INJECT_LABELS[value])}</select>
+        </div>
+        ${
+          knob
+            ? `<div class="field decision-knob">
+          <label title="${escAttr(knob[2])}">${knob[1]}</label>
+          <input type="number" min="0" max="1" step="0.01" data-dec="${knob[0]}" value="${escAttr(_draft[knob[0]] ?? "")}" placeholder="${knob[3]}" title="${escAttr(knob[2])}">
+        </div>`
+            : ""
+        }
       </div>
     </div>
     ${_problemHtml("policy")}
     ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", [
-      ...(config.state_macros || []),
-      ...(_draft.placement === "after_director" ? config.after_director_macros || [] : []),
-      ...(config.state_macro_forms || []),
-      ...(config.inline_macros || []),
+      ...(config.situation_chips || []),
+      ...(_draft.placement === "after_director" ? config.after_director_chips || [] : []),
     ])}
-    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, [
-      ...(config.text_macros || []),
-      ...(config.inline_macros || []),
-    ])}
+    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, config.question_chips || [])}
     ${_optionsHtml(config, type, copy)}
     ${_problemHtml("criteria")}`;
 }

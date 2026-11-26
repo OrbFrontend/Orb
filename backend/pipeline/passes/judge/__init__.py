@@ -13,9 +13,10 @@ from .records import (
     stored_evaluations,
 )
 from .render import (
+    AFTER_DIRECTOR_CHIPS,
     AFTER_DIRECTOR_MACROS,
-    INLINE_MACROS,
-    STATE_MACRO_FORMS,
+    QUESTION_CHIPS,
+    SITUATION_CHIPS,
     STATE_MACROS,
     TEXT_MACROS,
     DecisionSnapshot,

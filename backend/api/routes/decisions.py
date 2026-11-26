@@ -17,11 +17,9 @@ from ...database import get_endpoint, get_settings, update_decision_config
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
 from ...pipeline.passes.judge import (
-    AFTER_DIRECTOR_MACROS,
-    INLINE_MACROS,
-    STATE_MACRO_FORMS,
-    STATE_MACROS,
-    TEXT_MACROS,
+    AFTER_DIRECTOR_CHIPS,
+    QUESTION_CHIPS,
+    SITUATION_CHIPS,
     connection_test,
     definition_problems,
 )
@@ -36,13 +34,11 @@ def _config_payload(settings: Settings, config) -> dict:
         "decision_model": settings.get("decision_model", ""),
         "resolved_url": config.url,
         "configured": config.configured,
-        "state_macros": sorted(STATE_MACROS),
-        "after_director_macros": sorted(AFTER_DIRECTOR_MACROS),
+        "situation_chips": list(SITUATION_CHIPS),
+        "after_director_chips": list(AFTER_DIRECTOR_CHIPS),
+        "question_chips": list(QUESTION_CHIPS),
         "placements": list(DECISION_PLACEMENTS),
         "placement_injects": {key: list(value) for key, value in DECISION_INJECTS_BY_PLACEMENT.items()},
-        "state_macro_forms": list(STATE_MACRO_FORMS),
-        "text_macros": sorted(TEXT_MACROS),
-        "inline_macros": list(INLINE_MACROS),
         "default_state_template": DEFAULT_STATE_TEMPLATE,
         "question_types": sorted(DECISION_TYPES),
         "resolution_policies": {key: list(value) for key, value in DECISION_RESOLUTIONS_BY_TYPE.items()},
