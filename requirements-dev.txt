@@ -8,3 +8,5 @@ pip-audit==2.10.1
 pyright==1.1.414
 ruff==0.16.10
 pytest-xdist==3.8.0
+# Voice clip tests; at run time numpy arrives with onnxruntime.
+numpy>=1.26
