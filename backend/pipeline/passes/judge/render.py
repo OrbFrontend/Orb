@@ -12,18 +12,35 @@ DECISION_RENDERER_VERSION = "1"
 _RECENT_HISTORY_DEPTH = 6
 # {{recent_history::N}} renders the last N messages instead of the default.
 _MAX_RECENT_HISTORY_DEPTH = 50
-STATE_MACROS = frozenset(
-    {"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description", "personality"}
+# Listed in the order the editor shows them as chips.
+_TEXT_MACRO_ORDER = ("char", "user", "cast")
+_STATE_MACRO_ORDER = (
+    *_TEXT_MACRO_ORDER,
+    "description",
+    "personality",
+    "last_message",
+    "last_assistant_message",
+    "recent_history",
+    "state",
+    "scene_guidance",
 )
-TEXT_MACROS = frozenset({"user", "char", "cast"})
+STATE_MACROS = frozenset(_STATE_MACRO_ORDER)
+TEXT_MACROS = frozenset(_TEXT_MACRO_ORDER)
 # Names, resolved before inline macros as the main prompt path does, so they can
 # sit inside a {{random}} option. Message bodies are inserted after, and never can.
 _IDENTITY_MACROS = TEXT_MACROS
-LATER_STAGE_MACROS = frozenset({"scene_guidance", "draft"})
+# What each macro produced by a later stage needs to have run first.
+LATER_STAGE_MACROS: Mapping[str, str] = {"draft": "the Writer"}
 # Inline macros resolve in every decision field; listed here as authors write them.
-INLINE_MACROS = ("roll::1d20", "random::a::b", "pick::a::b", "time", "date", "trim", "// note")
-# State macros that take a "::" argument, as authors write them.
-STATE_MACRO_FORMS = ("recent_history::10",)
+_INLINE_MACROS = ("roll::1d20", "random::a::b", "pick::a::b", "time", "date", "trim", "// note")
+# State macros that take a "::" argument, as authors write them, shown after the bare name.
+_STATE_MACRO_FORMS: Mapping[str, tuple[str, ...]] = {"recent_history": ("recent_history::10",)}
+# Editor chips per field, in display order.
+SITUATION_CHIPS = (
+    *(chip for name in _STATE_MACRO_ORDER for chip in (name, *_STATE_MACRO_FORMS.get(name, ()))),
+    *_INLINE_MACROS,
+)
+QUESTION_CHIPS = (*_TEXT_MACRO_ORDER, *_INLINE_MACROS)
 _MACRO_RE = re.compile(r"\{\{\s*([a-z_]+)\s*(?:::([^{}]*))?\}\}", re.IGNORECASE)
 _NESTED_RE = re.compile(r"\{\{(?:random|pick|roll)::[^{}]*\{\{\s*([a-z_]+)\s*(?:::[^{}]*)?\}\}", re.IGNORECASE)
 # Validation resolves inline macros only to remove them; any fixed seed will do.
@@ -41,6 +58,12 @@ class DecisionSnapshot:
     cast: str = ""
     description: str | None = None
     personality: str | None = None
+    # The Director's plan at the decision's place: None ahead of the Director, the fields decided so far between its
+    # fragments, the whole Scene Guidance body after it.
+    scene_guidance: str | None = None
+    # Every enabled state fragment's entries, without the Current State heading: the turn's starting state, and with its
+    # before-Writer changes, as ``old -> new``, after the Director.
+    state: str = ""
     scope: str = "solo"
     anchor_message_id: int | None = None
     seed: str = ""
@@ -101,6 +124,7 @@ def build_snapshot(
     description: str | None = None,
     personality: str | None = None,
     anchor_message_id: int | None = None,
+    state: str = "",
 ) -> DecisionSnapshot:
     grouped = scope == "group"
     names = speaker_names or {}
@@ -131,6 +155,7 @@ def build_snapshot(
         scope=scope,
         anchor_message_id=anchor_message_id,
         seed=macros.seed,
+        state=state,
     )
 
 
@@ -213,7 +238,8 @@ def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: st
         if name in allowed:
             continue
         if name in LATER_STAGE_MACROS:
-            errors.append(f"{field} cannot use {{{{{name}}}}} before the Director: it does not exist yet at this stage")
+            stage = LATER_STAGE_MACROS[name]
+            errors.append(f"{field} cannot use {{{{{name}}}}} before {stage}: it does not exist yet at this stage")
         else:
             errors.append(f"{field} does not support {{{{{name}}}}} (available: {', '.join(sorted(allowed))})")
     return errors
@@ -221,7 +247,7 @@ def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: st
 
 def definition_macro_errors(definition: DecisionDefinition) -> list[str]:
     """The renderer's full macro contract, shared by authoring and execution."""
-    errors = macro_errors(definition.state_template, field="Situation template")
+    errors = macro_errors(definition.state_template, allowed=STATE_MACROS, field="Situation template")
     criteria = definition.criteria.values() if isinstance(definition.criteria, Mapping) else definition.criteria
     for texts, label in (
         ((definition.instructions,), "Question"),

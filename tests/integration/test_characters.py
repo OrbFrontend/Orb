@@ -178,6 +178,29 @@ async def test_avatar_thumbnail_crops_to_the_users_focus_until_the_avatar_change
     await client.put_checked(f"/api/characters/{card_id}/avatar/focus", json={"focus": [0.5, 0, 0.2, 1]}, expected_status=422)
 
 
+async def test_avatar_thumbnail_is_immutable_only_at_the_listed_version(client, db):
+    card_id = await client.create(
+        "/api/characters", json={"name": "Split", "avatar_b64": _split_png_b64(), "avatar_mime": "image/png"}
+    )
+
+    async def listed() -> str:
+        cards = await client.get_json("/api/characters")
+        return next(c["avatar_thumb"] for c in cards if c["id"] == card_id)
+
+    thumb = f"/api/characters/{card_id}/avatar/thumb"
+    version = await listed()
+    pinned = await client.get_checked(f"{thumb}?v={version}")
+    assert "immutable" in pinned.headers["cache-control"]
+    assert "immutable" not in (await client.get_checked(thumb)).headers["cache-control"]
+
+    # A new crop is a new version; the old URL serves the new bytes, cached only briefly.
+    await client.put(f"/api/characters/{card_id}/avatar/focus", json={"focus": [0.25, 0.0, 0.75, 1 / 3]})
+    assert await listed() != version
+    stale = await client.get_checked(f"{thumb}?v={version}")
+    assert _thumb_is_red(stale.content)
+    assert "immutable" not in stale.headers["cache-control"]
+
+
 async def test_avatar_thumbnail_snaps_to_a_detected_head(client, db, monkeypatch):
     from backend.features.cards import avatar_focus
     from backend.inference.local_models.head_detector import Head

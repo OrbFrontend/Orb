@@ -48,6 +48,12 @@ const TOP_TAGS = 100;
 
 const IDLE_RESERVE_MS = 8;
 
+// Avatars load from a screen above to a screen below what the list shows. Native lazy loading is no use here: WebKit waits
+// until an image is on screen, so every row scrolled into view arrived blank, and Chrome reaches about three screens ahead.
+const AVATAR_LOOKAHEAD = "100% 0px";
+
+let _avatarObserver = null;
+
 const NO_BUDGET = { timeRemaining: () => 0 };
 const onIdle =
   typeof requestIdleCallback === "function"
@@ -176,6 +182,7 @@ function wireBrowserChrome() {
 }
 
 function renderCharacterBrowser() {
+  stopAvatarLoading();
   // Search and tags belong to the card list; the other two views own the whole content area.
   const isCardList = _browserViewMode === "grid" || _browserViewMode === "list";
   const searchRow = document.querySelector(".char-browser-search-row");
@@ -354,6 +361,7 @@ function renderCharBrowserItems() {
   const container = $("char-browser-content");
   if (!container) return;
   _hydration = null;
+  stopAvatarLoading();
 
   const sorted = applySort(_browserCharacters);
 
@@ -372,6 +380,7 @@ function renderCharBrowserItems() {
 
   container.style.minHeight = `${Math.min(container.offsetHeight, Math.round(window.innerHeight * 0.85))}px`;
 
+  startAvatarLoading(container.firstElementChild);
   if (sorted.length > head.length) hydrateRest(container.firstElementChild, sorted, renderItem, head.length);
 
   _filterApplied = false;
@@ -400,6 +409,7 @@ function hydrateRest(wrap, sorted, renderItem, start) {
 }
 
 function appendChunk(run, end) {
+  const before = run.wrap.children.length;
   run.wrap.insertAdjacentHTML(
     "beforeend",
     run.sorted
@@ -408,6 +418,45 @@ function appendChunk(run, end) {
       .join(""),
   );
   run.next = end;
+  watchAvatars(Array.prototype.slice.call(run.wrap.children, before));
+}
+
+function scrollParent(el) {
+  for (let node = el; node && node !== document.body; node = node.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
+}
+
+/** Load each avatar in *wrap* once it nears its scroller's view, the ones already on screen first. */
+function startAvatarLoading(wrap) {
+  const root = scrollParent(wrap);
+  _avatarObserver = new IntersectionObserver(
+    (entries, observer) => {
+      const view = root ? root.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const near = entries.filter((e) => e.isIntersecting);
+      const onScreen = (e) => e.boundingClientRect.bottom > view.top && e.boundingClientRect.top < view.bottom;
+      for (const entry of [...near.filter(onScreen), ...near.filter((e) => !onScreen(e))]) {
+        observer.unobserve(entry.target);
+        const img = entry.target.querySelector("img[data-src]");
+        if (!img) continue;
+        img.src = img.dataset.src;
+        img.removeAttribute("data-src");
+      }
+    },
+    { root, rootMargin: AVATAR_LOOKAHEAD },
+  );
+  watchAvatars(wrap.children);
+}
+
+function watchAvatars(items) {
+  if (!_avatarObserver) return;
+  for (const item of items) if (item.querySelector("img[data-src]")) _avatarObserver.observe(item);
+}
+
+function stopAvatarLoading() {
+  _avatarObserver?.disconnect();
+  _avatarObserver = null;
 }
 
 function flushHydration() {
@@ -422,7 +471,7 @@ function charItemMatchAttrs(c) {
 }
 
 function renderCharBrowserCard(c) {
-  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { attrs: 'loading="lazy"' });
+  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { deferred: true });
   return `
     <div class="char-browser-card" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${escAttr(c.id)}">
       <div class="char-browser-avatar">${av}</div>
@@ -431,7 +480,7 @@ function renderCharBrowserCard(c) {
 }
 
 function renderCharBrowserListItem(c) {
-  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { attrs: 'loading="lazy"' });
+  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { deferred: true });
   const cardTags = c.tags || [];
   const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";

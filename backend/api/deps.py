@@ -520,14 +520,25 @@ _INERT_CONTENT_HEADERS = {
 }
 
 
-def image_not_modified(etag: str, request: Request) -> Response | None:
+#: For a URL that names its own version, so the bytes at it never change and the browser need not ask again.
+_IMMUTABLE_IMAGE_CACHE_CONTROL = "private, max-age=31536000, immutable"
+
+
+def _image_headers(etag: str, immutable: bool) -> dict[str, str]:
+    cache = _IMMUTABLE_IMAGE_CACHE_CONTROL if immutable else _IMAGE_CACHE_CONTROL
+    return {**_INERT_CONTENT_HEADERS, "Cache-Control": cache, "ETag": etag}
+
+
+def image_not_modified(etag: str, request: Request, *, immutable: bool = False) -> Response | None:
     """A 304 when the client already holds *etag*, else None."""
     if request.headers.get("if-none-match") != etag:
         return None
-    return Response(status_code=304, headers={**_INERT_CONTENT_HEADERS, "Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag})
+    return Response(status_code=304, headers=_image_headers(etag, immutable))
 
 
-def cached_image_response(image_bytes: bytes, mime: str | None, request: Request, etag: str | None = None) -> Response:
+def cached_image_response(
+    image_bytes: bytes, mime: str | None, request: Request, etag: str | None = None, *, immutable: bool = False
+) -> Response:
     """Return a privately cacheable image response with ETag support.
 
     Without *etag* the tag is a hash of the bytes. A caller that can version the image more cheaply passes its own tag, and can
@@ -535,11 +546,10 @@ def cached_image_response(image_bytes: bytes, mime: str | None, request: Request
     direct navigation must not execute HTML or SVG scripts on the app's origin.
     """
     etag = etag or '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
-    not_modified = image_not_modified(etag, request)
+    not_modified = image_not_modified(etag, request, immutable=immutable)
     if not_modified is not None:
         return not_modified
-    headers = {**_INERT_CONTENT_HEADERS, "Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag}
-    return Response(content=image_bytes, media_type=mime or "image/png", headers=headers)
+    return Response(content=image_bytes, media_type=mime or "image/png", headers=_image_headers(etag, immutable))
 
 
 # The MIME shape the frontend's ATTACHMENT_MIME_RE accepts (frontend/utils.js).

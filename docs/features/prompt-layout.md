@@ -29,8 +29,7 @@ turns where it is empty:
 | Constant lore | `{{constant_lore}}` | Constant entries without **@ Depth** |
 | Selected lore | `{{selected_lore}}` | Entries chosen this turn by keyword or by the Director |
 | Depth lore | `{{depth_lore}}` | Constant entries with **@ Depth** |
-| Decisions | `{{decisions}}` | The Judge's guidance |
-| Scene guidance | `{{scene_guidance}}` | The Director's guidance |
+| Scene guidance | `{{scene_guidance}}` | The Director's and the Judge's guidance, in **Judge & Director** order |
 | User message | `{{user_message}}` | Your message |
 
 The card and chat placeholders above mean the same thing in every block's text,

@@ -33,6 +33,7 @@ from ...database import (
     get_settings,
     get_user_persona,
     get_world,
+    list_avatar_versions,
     list_character_cards,
     list_expression_labels,
     set_card_source_auth,
@@ -78,7 +79,15 @@ _MAX_CARD_UPLOAD = 50 * 1024 * 1024
 
 @router.get("/api/characters")
 async def api_list_characters():
-    return rows_response(await list_character_cards())
+    """The cards without bodies; ``avatar_thumb`` names the thumbnail's current version for its ``?v=``."""
+    cards, versions = await asyncio.gather(list_character_cards(), list_avatar_versions(FOCUS_FEATURE))
+    ready = await asyncio.to_thread(focus_ready) if versions else False
+    for card in cards:
+        card_id = card.get("id", "")
+        current = versions.get(card_id)
+        if current is not None:
+            card["avatar_thumb"] = _thumb_version(card_id, current, _focus_source(current, ready)[0])
+    return rows_response(cards)
 
 
 @router.post("/api/characters")
@@ -298,13 +307,29 @@ async def api_get_avatar(card_id: str, request: Request):
     return cached_image_response(image_bytes, mime_type, request)
 
 
-async def _focus_source(current: AvatarVersionRow) -> tuple[Literal["manual", "auto", ""], bool]:
+FocusSource = Literal["manual", "auto", ""]
+
+
+def _focus_source(current: AvatarVersionRow, detector_ready: bool) -> tuple[FocusSource, bool]:
     """Who picks the thumbnail's square (the user, the head detector, or "" for the center) and whether the stored focus is it."""
     if current["focus_stamp"] == AVATAR_FOCUS_MANUAL:
         return "manual", True
-    if not current["detector_enabled"] or not await asyncio.to_thread(focus_ready):
+    if not current["detector_enabled"] or not detector_ready:
         return "", False
     return "auto", current["focus_stamp"] == AUTO_FOCUS_STAMP
+
+
+async def _current_focus_source(current: AvatarVersionRow) -> tuple[FocusSource, bool]:
+    """``_focus_source``, checking the detector only when the answer depends on it."""
+    needs_detector = current["focus_stamp"] != AVATAR_FOCUS_MANUAL and current["detector_enabled"]
+    return _focus_source(current, bool(needs_detector) and await asyncio.to_thread(focus_ready))
+
+
+def _thumb_version(card_id: str, current: AvatarVersionRow, source: FocusSource) -> str:
+    """A name for the thumbnail's bytes: its edge, the avatar's version, and who picks its square."""
+    focus_tag = f"manual:{current['focus']}" if source == "manual" else AUTO_FOCUS_STAMP if source else ""
+    version = f"{THUMB_EDGE}:{card_id}:{current['updated_at']}:{focus_tag}".encode()
+    return hashlib.md5(version, usedforsecurity=False).hexdigest()
 
 
 @router.get("/api/characters/{card_id}/avatar/thumb")
@@ -313,16 +338,17 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
 
     The square is the user's focus, else the detected head when the head detector is on, else the center. The ETag comes from
     the avatar's version and focus rather than its bytes, so a revalidation answers 304 without loading the avatar or
-    rebuilding the thumbnail.
+    rebuilding the thumbnail. A ``?v=`` equal to that version (the list's ``avatar_thumb``) marks a URL whose bytes never change,
+    so it is cached as immutable; any other ``v`` gets the short cache.
     """
     current = await get_avatar_version(card_id, FOCUS_FEATURE)
     if current is None:
         raise HTTPException(status_code=404, detail="No avatar found")
-    source, stored = await _focus_source(current)
-    focus_tag = f"manual:{current['focus']}" if source == "manual" else AUTO_FOCUS_STAMP if source else ""
-    version = f"{THUMB_EDGE}:{card_id}:{current['updated_at']}:{focus_tag}".encode()
-    etag = '"t' + hashlib.md5(version, usedforsecurity=False).hexdigest() + '"'
-    not_modified = image_not_modified(etag, request)
+    source, stored = await _current_focus_source(current)
+    version = _thumb_version(card_id, current, source)
+    etag = '"t' + version + '"'
+    immutable = request.query_params.get("v") == version
+    not_modified = image_not_modified(etag, request, immutable=immutable)
     if not_modified is not None:
         return not_modified
     result = await get_character_avatar(card_id)
@@ -340,7 +366,7 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
     thumb = await asyncio.to_thread(avatar_thumbnail, image_bytes, focus)
     if thumb is not None:
         image_bytes, mime_type = thumb, "image/webp"
-    return cached_image_response(image_bytes, mime_type, request, etag=etag)
+    return cached_image_response(image_bytes, mime_type, request, etag=etag, immutable=immutable)
 
 
 @router.get("/api/characters/{card_id}/avatar/focus")
@@ -349,7 +375,7 @@ async def api_get_avatar_focus(card_id: str):
     current = await get_avatar_version(card_id, FOCUS_FEATURE)
     if current is None:
         raise HTTPException(status_code=404, detail="No avatar found")
-    source, stored = await _focus_source(current)
+    source, stored = await _current_focus_source(current)
     return {"focus": current["focus"] if stored else None, "manual": source == "manual"}
 
 

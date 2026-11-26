@@ -55,7 +55,7 @@ Writer. Describe the value you want and include examples when useful.
 | **State** | A value or a list kept across turns on the conversation branch, such as trust, an inventory, or open threads. See [State Fragments](state-fragments.md). |
 | **Recast** | An editing instruction applied to the completed reply. See [Recast Fragments](recast-fragments.md). |
 | **Rewrite** | An instruction the Editor follows to rewrite the whole completed reply. See [Rewrite Fragments](rewrite-fragments.md). |
-| **Decision** | A question the Judge answers before the Director runs, contributing guidance the Director plans around. See [Decision Fragments](decision-fragments.md). |
+| **Decision** | A question the Judge answers at its place in the list: above the Director fragments it settles something the Director plans around, between them it rules on the plan so far, below them it judges the finished plan for the Writer. See [Decision Fragments](decision-fragments.md). |
 
 ## Macros and order
 
@@ -65,7 +65,13 @@ each turn; a `pick` there stays fixed for that field. Put a macro in single back
 literal text.
 
 Fragments run from top to bottom within their stage. Earlier Director values can
-provide context for later values, and the Writer sees them in the same order.
+provide context for later values, and the Writer sees them in the same order,
+each decision's outcome at its place among them.
+Decisions share the Director's list, **Judge & Director**, and a decision
+between two Director fragments rules on the values above it before the Director
+fills the ones below. With **Individual fragment processing** off, the Director
+fills its fragments in one request per stretch between decisions that read its
+plan.
 Recast and rewrite fragments run afterward as Editor tasks and do not enter the
 Director schema or Scene Guidance.
 

@@ -6,7 +6,17 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
-from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateFragment, StateView, carry_events
+from ..core import (
+    CardScripts,
+    CastMember,
+    ChatMessage,
+    GroupContextMode,
+    Macros,
+    StateFragment,
+    StateView,
+    carry_events,
+    fragment_stage,
+)
 from ..core.prompt_layout import LayoutBlock
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
@@ -25,9 +35,9 @@ from .failures import (
     staged,
     step_failure_warning,
 )
-from .passes.director import apply_state_step_result, cooldown, director_stage, state_event_payload
+from .passes.director import DirectorJudge, apply_state_step_result, cooldown, director_stage, state_event_payload
 from .passes.editor import editor_stage
-from .passes.judge import JudgeConfig, JudgeResult, headed_decisions
+from .passes.judge import JudgeConfig, JudgeResult
 from .passes.state import StateContract, StateStepResult, offered_state_ids, state_step
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
@@ -44,6 +54,19 @@ def _make_result(state: TurnState) -> ResultEvent:
     return {"event": "_result", "data": state.as_result_event_data()}
 
 
+def _starting_state(director: BranchBaseline) -> tuple[StateView, list[dict], list[dict]]:
+    """The branch's fold with the carried corrections applied, and those corrections split into applied and dropped."""
+    base = director.get("fragment_state")
+    view = base.copy() if isinstance(base, StateView) else StateView()
+    applied, dropped = carry_events(director.get("state_carried") or (), view)
+    return view, applied, dropped
+
+
+def starting_state_view(director: BranchBaseline) -> StateView:
+    """The state a turn opens with: what the Judge reads before the Director, and the Writer sees unless the turn changes it."""
+    return _starting_state(director)[0]
+
+
 def seed_fragment_state(state: TurnState, director: BranchBaseline) -> None:
     """Start *state* from the branch's folded state plus any carried corrections.
 
@@ -52,9 +75,7 @@ def seed_fragment_state(state: TurnState, director: BranchBaseline) -> None:
     they commit ahead of the turn's own changes so row order matches apply order. One whose entry the discarded reply added has
     nothing to apply to and is reported as dropped.
     """
-    base = director.get("fragment_state")
-    view = base.copy() if isinstance(base, StateView) else StateView()
-    applied, dropped = carry_events(director.get("state_carried") or (), view)
+    view, applied, dropped = _starting_state(director)
     state.state_view = view
     state.state_prior = view.copy()
     state.state_events = applied
@@ -92,23 +113,25 @@ async def run_director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
+    director_judge: DirectorJudge | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Announce the state changes *state* was seeded with, then direct the turn.
 
     The one Director entry for a solo turn and for a group exchange's shared Director, so both label a failure as the Director's
-    and read the Judge's guidance from *state*.
+    and read the Judge's guidance from *state*. *director_judge* holds the Judge points that run inside the stage.
     """
     try:
         if state.state_events or state.state_report["dropped"]:
             yield {"event": "state", "data": state_event_payload(state)}
-        scene_fragments, _, _, _ = split_interactive_fragments(interactive_fragments)
         async for ev in director_stage(
             cfg,
             state,
             settings=settings,
             director=director,
             mood_fragments=mood_fragments,
-            scene_fragments=scene_fragments,
+            guidance_fragments=[
+                row for row in interactive_fragments if fragment_stage(str(row.get("field_type") or "")) == "director"
+            ],
             direct_scene_fragments=state_contract.direct_scene_rows(interactive_fragments),
             state_contract=state_contract,
             attachments=attachments,
@@ -116,8 +139,7 @@ async def run_director_stage(
             lorebook=lorebook,
             macros=macros,
             speaker_keys=speaker_keys,
-            director_decision_guidance=state.director_decision_guidance,
-            writer_decision_guidance=headed_decisions(state.writer_decisions),
+            judge=director_judge,
         ):
             yield ev
     except Exception as exc:
@@ -156,6 +178,7 @@ async def run_pipeline(
     run_director: bool = True,
     director_seed: TurnState | None = None,
     judge: JudgeResult | None = None,
+    director_judge: DirectorJudge | None = None,
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
@@ -215,6 +238,7 @@ async def run_pipeline(
             kv_tracker=kv_tracker,
             lorebook=lorebook,
             macros=macros,
+            director_judge=director_judge,
         ):
             yield ev
 

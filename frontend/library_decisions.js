@@ -10,7 +10,6 @@ let _draft = null;
 // Validation problems keyed by their display field.
 let _problems = {};
 
-const PLACEMENT = "before_director";
 // Which passes receive the resolved guidance. No "off": an unread outcome is a wasted Judge call.
 const INJECT_DEFAULT = "both";
 const INJECT_LABELS = { director: "Director", writer: "Writer", both: "Both" };
@@ -63,7 +62,6 @@ export function readDecisionFields() {
   const { type, options, resolution } = _draft;
   return {
     decision_type: type,
-    decision_placement: PLACEMENT,
     decision_inject: _draft.inject,
     decision_state_template: _draft.state_template,
     decision_instructions: _draft.instructions,
@@ -229,28 +227,10 @@ function _selectOptions(values, selected, label = (value) => value) {
     .join("");
 }
 
-// Chip order: macros of a kind sit together, by the name before any "::"; an unlisted name goes last.
-const MACRO_GROUPS = [
-  ["char", "user", "cast"],
-  ["description", "personality"],
-  ["last_message", "last_assistant_message", "recent_history"],
-  ["roll", "random", "pick"],
-  ["time", "date"],
-  ["trim", "//"],
-];
-
-function _macroRank(macro) {
-  const name = macro.split("::")[0].split(" ")[0];
-  const group = MACRO_GROUPS.findIndex((names) => names.includes(name));
-  return group < 0 ? [MACRO_GROUPS.length, 0] : [group, MACRO_GROUPS[group].indexOf(name)];
-}
-
 function _macroChipsHtml(macros) {
-  const ranked = [...new Set(macros)].map((macro) => [_macroRank(macro), macro]);
-  ranked.sort(([[ga, na]], [[gb, nb]]) => ga - gb || na - nb);
-  return ranked
+  return macros
     .map(
-      ([, macro]) =>
+      (macro) =>
         `<button type="button" class="decision-macro" data-wf-action="decisions:insertMacro" data-macro="{{${escAttr(macro)}}}" title="Insert at the cursor">{{${esc(macro)}}}</button>`,
     )
     .join("");
@@ -301,7 +281,7 @@ function _innerHtml() {
     ${config.configured ? "" : `<div class="decision-status">No Judge endpoint configured. Set one under <strong>Endpoints → Judge</strong>.</div>`}
     ${_problemHtml("general")}
     <div class="modal-heading" role="heading" aria-level="3">Decision</div>
-    <div class="field-row">
+    <div class="field-row decision-controls">
       <div class="field">
         <label>Question type</label>
         <select data-dec="type">${_selectOptions(config.question_types || [], type)}</select>
@@ -310,29 +290,24 @@ function _innerHtml() {
         <label>Resolution</label>
         <select data-dec="resolution">${_selectOptions(_policiesFor(type), resolution, (value) => RESOLUTION_LABELS[value] || value)}</select>
       </div>
-      <div class="field decision-inject">
-        <label title="Which passes receive the outcome's guidance">Inject</label>
-        <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(Object.keys(INJECT_LABELS), _draft.inject, (value) => INJECT_LABELS[value])}</select>
+      <div class="decision-routing">
+        <div class="field">
+          <label title="Which passes receive the outcome's guidance">Inject</label>
+          <select data-dec="inject" title="Which passes receive the outcome's guidance">${_selectOptions(Object.keys(INJECT_LABELS), _draft.inject, (value) => INJECT_LABELS[value])}</select>
+        </div>
+        ${
+          knob
+            ? `<div class="field decision-knob">
+          <label title="${escAttr(knob[2])}">${knob[1]}</label>
+          <input type="number" min="0" max="1" step="0.01" data-dec="${knob[0]}" value="${escAttr(_draft[knob[0]] ?? "")}" placeholder="${knob[3]}" title="${escAttr(knob[2])}">
+        </div>`
+            : ""
+        }
       </div>
-      ${
-        knob
-          ? `<div class="field decision-knob">
-        <label title="${escAttr(knob[2])}">${knob[1]}</label>
-        <input type="number" min="0" max="1" step="0.01" data-dec="${knob[0]}" value="${escAttr(_draft[knob[0]] ?? "")}" placeholder="${knob[3]}" title="${escAttr(knob[2])}">
-      </div>`
-          : ""
-      }
     </div>
     ${_problemHtml("policy")}
-    ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", [
-      ...(config.state_macros || []),
-      ...(config.state_macro_forms || []),
-      ...(config.inline_macros || []),
-    ])}
-    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, [
-      ...(config.text_macros || []),
-      ...(config.inline_macros || []),
-    ])}
+    ${_templateFieldHtml("state_template", `Situation ${_hint("{{scene_guidance}} is the Director's plan above this decision")}`, config.default_state_template || "", config.situation_chips || [])}
+    ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, config.question_chips || [])}
     ${_optionsHtml(config, type, copy)}
     ${_problemHtml("criteria")}`;
 }
@@ -471,7 +446,10 @@ document.addEventListener("click", (event) => {
 // Type changes rebuild the table; resolution changes swap the numeric control.
 document.addEventListener("change", (event) => {
   const select = _inSection(event.target.closest("select[data-dec]"));
-  if (select) _mutate(() => select.dataset.dec === "type" && _retype(select.value));
+  if (!select) return;
+  _mutate(() => {
+    if (select.dataset.dec === "type") _retype(select.value);
+  });
 });
 
 // Mirror the criterion into guidance until the author edits guidance directly.

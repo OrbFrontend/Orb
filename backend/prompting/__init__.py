@@ -10,7 +10,7 @@ from .conversation import (
     persona_macros,
     resolve_persona_id,
 )
-from .fragment_state import STATE_BLOCK_HEADING, render_state_block
+from .fragment_state import STATE_BLOCK_HEADING, render_state_block, render_state_body
 from .group_context import (
     largest_cast_section,
     macro_identity,
@@ -27,4 +27,5 @@ from .scene_direction import (
     compute_style_injection_block,
     headed_scene_guidance,
     resolve_mood_fragment_randoms,
+    scene_field_text,
 )

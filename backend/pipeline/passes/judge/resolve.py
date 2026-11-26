@@ -27,10 +27,16 @@ class SkipReason:
     LOW_CONFIDENCE = "low_confidence"
     MISSING_ANCHOR = "missing_anchor"
     DIRECTOR_OFF = "director_off"
+    # A Director-only decision after the last Director fragment: nothing is left to read its outcome.
+    NO_DIRECTOR_AFTER = "no_director_after"
+    # Between Director fragments, the one above gave no value, so a decision reading the plan has nothing to judge.
+    NO_PLAN = "no_plan"
 
 
 # Routine skips do not produce a failure notice.
-ROUTINE_REASONS = frozenset({SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT, SkipReason.DIRECTOR_OFF})
+ROUTINE_REASONS = frozenset(
+    {SkipReason.RESTING, SkipReason.LOW_CONFIDENCE, SkipReason.EMPTY_INPUT, SkipReason.DIRECTOR_OFF, SkipReason.NO_PLAN}
+)
 
 
 def resolve_threshold(probability: float, threshold: float) -> str:

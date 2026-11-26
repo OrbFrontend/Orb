@@ -102,7 +102,7 @@ panel do not.
 
 A **marker** stands for an engine block: `main_prompt`, `cast` and
 `constant_lore` in the prefix; `selected_lore`,
-`decisions`, `scene_guidance`, `user_message` and `depth_lore` in the Writer
+`scene_guidance`, `user_message` and `depth_lore` in the Writer
 request. Markers cannot be deleted, renamed, or moved across the divider. Each
 can be switched off like a custom block; the setting that drives it still
 decides whether it has anything to render, and the group context mode decides
@@ -125,11 +125,15 @@ it; the notice is what keeps the Writer writing prose there. It says "this
 turn" because the Editor and later passes replay the request before asking for
 their own tool call. The nudge renders only while Length Guard enforces.
 
-The Director stage hands the Writer `decisions` (the Judge's guidance lines for
-the Writer), `scene_guidance` (the Director's mood prompts and field values)
-and the state block. The Inspector's injection block and the Director's own
-requests still see decisions and Scene Guidance under their fixed headings,
-`**Major Decisions**` and `**Scene Guidance**`.
+The Director stage hands the Writer `scene_guidance` and the state block.
+`scene_guidance` (`prompting.scene_direction`) is the mood prompts, then the
+**Judge & Director** list in run order: each Director field's value and each
+Writer-routed ruling at its fragment's place. The before-Writer state step and
+the closing Judge point read the same body with the Director-routed rulings
+instead. The Inspector's injection block and the state step see it under the
+fixed `**Scene Guidance**` heading. The Director's own steps read the opening
+point's rulings under `**Major Decisions**`, the same block in every step, and
+later rulings in their decided lists (see [KV cache](kv-cache.md)).
 
 Lore reaches the layout the same way: `constant_lore`, `selected_lore` and
 `depth_lore` carry entry lines only, authored and Agent-managed entries in one
@@ -138,9 +142,9 @@ list, and the Director's own request frames selected lore under its fixed
 
 `main_prompt` and every marker in `MARKER_TEMPLATES` hold their own text
 (`EDITABLE_MARKERS`); the API marks them `editable`. Those are the three lore
-markers, `decisions`, `scene_guidance` and `user_message`. Each starts from its
+markers, `scene_guidance` and `user_message`. Each starts from its
 template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
-`{{decisions}}` and so on) outside a `{{// ... }}` note and outside backticks.
+`{{scene_guidance}}` and so on) outside a `{{// ... }}` note and outside backticks.
 The placeholder stands for the engine's part and is filled like a section
 placeholder: the text's macros resolve, with the conversation's seed above the
 divider and fresh below it, then the value goes in literally.

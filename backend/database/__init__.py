@@ -19,6 +19,7 @@ from .queries.avatar_focus import (
     apply_detected_avatar_focus,
     clear_avatar_focus,
     get_avatar_version,
+    list_avatar_versions,
     set_manual_avatar_focus,
 )
 from .queries.character_cards import (

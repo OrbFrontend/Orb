@@ -30,7 +30,8 @@ from ....inference import (
 )
 from ...events import DecisionsData
 from . import cooldown
-from .guidance import decision_guidance_block, decision_guidance_lines
+from .guidance import decision_guidance_block
+from .points import CLOSING, OPENING, JudgePlan, JudgePoint, point_name
 from .records import (
     envelope,
     invalidated_anchor,
@@ -40,7 +41,15 @@ from .records import (
     stored_evaluations,
     stored_skipped,
 )
-from .render import STATE_MACROS, TEXT_MACROS, DecisionSnapshot, UnavailableMacro, definition_macro_errors, macros_used, render
+from .render import (
+    STATE_MACROS,
+    TEXT_MACROS,
+    DecisionSnapshot,
+    UnavailableMacro,
+    definition_macro_errors,
+    macros_used,
+    render,
+)
 from .resolve import (
     DRAWN_RESOLUTIONS,
     ROUTINE_REASONS,
@@ -67,14 +76,15 @@ _MAX_DECISIONS_PER_CARD = 8
 # the whole stage budget: the stage costs at most one REQUEST_TIMEOUT_SECONDS.
 MAX_BATCHES = 4
 REQUEST_TIMEOUT_SECONDS = 6.0
-_SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history"})
+_SITUATION_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "scene_guidance", "state"})
 
 _EVENT_FIELDS = (
     "fragment_id",
     "fragment_label",
     "injection_label",
     "source",
-    "placement",
+    "point",
+    "point_label",
     "inject",
     "scope",
     "occurrence_id",
@@ -105,6 +115,20 @@ class JudgeConfig:
         return bool(self.url and self.model)
 
 
+def _rulings(rows: Sequence[Mapping[str, Any]]) -> list[tuple[str, str]]:
+    """The Director-routed outcomes among *rows* that say something, as (label, guidance) pairs."""
+    return [
+        (str(row.get("injection_label") or row.get("fragment_label") or row["fragment_id"]), guidance)
+        for row in rows
+        if (guidance := str(row.get("guidance") or "").strip()) and row.get("inject") in ("director", "both")
+    ]
+
+
+def _placed_at_opening(row: Mapping[str, Any]) -> bool:
+    """Whether evaluation *row*'s decision sits ahead of the Director fragments; a record from before points were kept does."""
+    return "point_label" not in row and row.get("point", "opening") == "opening"
+
+
 def _source(card_id: str | None) -> str:
     return f"card:{card_id}" if card_id else "global"
 
@@ -132,12 +156,86 @@ class JudgeTurn:
     invalid: tuple[InvalidDecision, ...] = ()
     # Card decisions use the owning member's ``{{char}}`` and ``{{description}}``.
     card_snapshots: Mapping[str, DecisionSnapshot] = field(default_factory=dict)
-    # Whether the Director reads decisions this turn. When it does not, a
-    # Director-only decision has no reader, so it is not asked.
+    # Whether the Director runs this turn. When it does not, every decision is asked at the opening point, and one whose
+    # outcome only the Director reads, or whose Situation reads its plan, is skipped.
     director_runs: bool = True
+    # Every decision of the turn when this is one of its points: the per-card and per-exchange caps count every point.
+    turn_candidates: tuple[DecisionCandidate, ...] | None = None
+    # Where each decision sits and is asked, and which point this pass is.
+    plan: JudgePlan = field(default_factory=JudgePlan)
+    point: JudgePoint = OPENING
+    # A middle point whose Director fragment above gave no value: its decisions read a plan that is not there.
+    plan_missing: bool = False
 
     def snapshot_for(self, candidate: DecisionCandidate) -> DecisionSnapshot:
         return self.card_snapshots.get(candidate.card_id or "", self.snapshot)
+
+    def opening(self) -> JudgeTurn:
+        """The pass asked ahead of the Director: the invalid decisions, and every decision whose question cannot change
+        before its place (see :class:`JudgePlan`); without a Director, every decision.
+
+        Every pass keeps the turn's starting cooldowns, so a decision resting this turn rests at every point, and
+        :meth:`JudgeResult.followed_by` can join the results.
+        """
+        if not self.director_runs:
+            return replace(self, turn_candidates=self.candidates)
+        asked = tuple(c for c in self.candidates if self.plan.asked_at(c.definition.fragment_id) == OPENING)
+        return replace(self, candidates=asked, turn_candidates=self.candidates, point=OPENING)
+
+    def at(
+        self, point: JudgePoint, scene_guidance: str, state: str | None = None, *, plan_missing: bool = False
+    ) -> JudgeTurn | None:
+        """The pass asked at later *point*, reading the Director's plan so far and the *state* there when given; None when it
+        has nothing to ask."""
+        asked = tuple(c for c in self.candidates if self.plan.asked_at(c.definition.fragment_id) == point)
+        if not asked or not self.director_runs:
+            return None
+
+        def seen(snapshot: DecisionSnapshot) -> DecisionSnapshot:
+            return replace(snapshot, scene_guidance=scene_guidance, state=snapshot.state if state is None else state)
+
+        return replace(
+            self,
+            candidates=asked,
+            turn_candidates=self.candidates,
+            invalid=(),
+            point=point,
+            plan_missing=plan_missing,
+            snapshot=seen(self.snapshot),
+            card_snapshots={key: seen(snapshot) for key, snapshot in self.card_snapshots.items()},
+        )
+
+    def questions_at(self, point: JudgePoint) -> tuple[str, ...]:
+        """The Questions the Judge asks at *point*, rendered as it will render them, for the Director steps ahead of it.
+
+        Empty when the Judge would not ask them: it is not configured, the Director does not run, or a decision rests or has
+        a definition that cannot run.
+        """
+        if not self.config.configured or not self.director_runs:
+            return ()
+        resting = cooldown.blocked(self.prior_cooldowns)
+        questions: list[str] = []
+        for candidate in self.candidates:
+            definition = candidate.definition
+            if self.plan.asked_at(definition.fragment_id) != point or definition.fragment_id in resting:
+                continue
+            if definition_macro_errors(definition):
+                continue
+            try:
+                question = _render_text(definition, self.snapshot_for(candidate), definition.instructions, "instructions")
+            except UnavailableMacro:
+                continue
+            if question.strip():
+                questions.append(question.strip())
+        return tuple(questions)
+
+    def place_of(self, definition: DecisionDefinition) -> JudgePoint:
+        """Where *definition* sits in this turn's run; without a Director every decision runs at the opening point."""
+        return self.plan.point_of(definition.fragment_id) if self.director_runs else OPENING
+
+    def inject_of(self, definition: DecisionDefinition) -> str:
+        """Where *definition*'s outcome goes from its place: after the whole plan only the Writer is left to read it."""
+        return "writer" if self.place_of(definition) == CLOSING and definition.inject == "both" else definition.inject
 
 
 @dataclass(slots=True)
@@ -167,13 +265,32 @@ class JudgeResult:
             skipped=[row for row in self.skipped if row.get("fragment_id") in fragment_ids],
         )
 
-    @property
-    def director_guidance(self) -> str:
-        return decision_guidance_block(self.evaluations, "director")
+    def followed_by(self, later: JudgeResult) -> JudgeResult:
+        """This result joined by a later point's *later* of the same turn, outcomes in run order.
+
+        Every point advances the same starting cooldowns, each setting only the decisions it evaluated, so their union is the
+        turn's cooldown state.
+        """
+        return JudgeResult(
+            evaluations=[*self.evaluations, *later.evaluations],
+            skipped=[*self.skipped, *later.skipped],
+            cooldowns={**self.cooldowns, **later.cooldowns},
+            requests=self.requests + later.requests,
+        )
 
     @property
-    def writer_lines(self) -> str:
-        return decision_guidance_lines(self.evaluations, "writer")
+    def director_guidance(self) -> str:
+        """The opening point's Director-routed outcomes, which every Director step reads."""
+        return decision_guidance_block([row for row in self.evaluations if _placed_at_opening(row)], "director")
+
+    def rulings_after(self) -> dict[str, list[tuple[str, str]]]:
+        """Each middle point's Director-routed outcomes, by the Director fragment it follows: what the Director steps below
+        that fragment build on, whenever the Judge was asked."""
+        middle: dict[str, list[dict[str, Any]]] = {}
+        for row in self.evaluations:
+            if "point_label" in row:
+                middle.setdefault(str(row["point"]), []).append(row)
+        return {after: rulings for after, rows in middle.items() if (rulings := _rulings(rows))}
 
     def as_event_data(self) -> DecisionsData:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
@@ -187,7 +304,6 @@ class JudgeResult:
         state.decision_evaluations = envelope(self.evaluations, self.skipped)
         state.decision_cooldowns = dict(self.cooldowns)
         state.director_decision_guidance = self.director_guidance
-        state.writer_decisions = self.writer_lines
 
 
 @dataclass(slots=True)
@@ -228,10 +344,18 @@ def _eligible(turn: JudgeTurn) -> tuple[list[DecisionCandidate], list[dict[str, 
     running: list[DecisionCandidate] = []
     resting = cooldown.blocked(turn.prior_cooldowns)
     for candidate in turn.candidates:
-        if candidate.definition.fragment_id in resting:
+        definition = candidate.definition
+        if definition.fragment_id in resting:
             reason = SkipReason.RESTING
-        elif candidate.definition.inject == "director" and not turn.director_runs:
+        elif not turn.director_runs and (
+            definition.inject == "director" or "scene_guidance" in macros_used(definition.state_template)
+        ):
             reason = SkipReason.DIRECTOR_OFF
+        # Read off the decision's own place, so the caps count the same decisions from every point.
+        elif turn.place_of(definition) == CLOSING and definition.inject == "director":
+            reason = SkipReason.NO_DIRECTOR_AFTER
+        elif turn.plan_missing:
+            reason = SkipReason.NO_PLAN
         else:
             running.append(candidate)
             continue
@@ -265,6 +389,17 @@ def _prepare(candidate: DecisionCandidate, turn: JudgeTurn, *, over_budget: bool
     return item
 
 
+def _render_text(definition: DecisionDefinition, snapshot: DecisionSnapshot, value: str, field: str) -> str:
+    """One of *definition*'s texts, named by *field*, with its own seeded rolls; the Situation renders apart."""
+    return render(
+        value,
+        snapshot,
+        allowed=TEXT_MACROS,
+        seed=snapshot.roll_seed(definition.fragment_id, field),
+        pick_seed=snapshot.pick_seed(definition.fragment_id, field),
+    )
+
+
 def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
     """Render *item*'s request, or return why it cannot be asked."""
     definition, snapshot = item.definition, turn.snapshot_for(item.candidate)
@@ -272,13 +407,7 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
         return SkipReason.INVALID_DEFINITION
 
     def text(value: str, field: str) -> str:
-        return render(
-            value,
-            snapshot,
-            allowed=TEXT_MACROS,
-            seed=snapshot.roll_seed(definition.fragment_id, field),
-            pick_seed=snapshot.pick_seed(definition.fragment_id, field),
-        )
+        return _render_text(definition, snapshot, value, field)
 
     try:
         item.outputs = {key: text(value, f"output:{key}") for key, value in definition.outputs.items()}
@@ -376,8 +505,8 @@ def _resolved_record(item: _Item, turn: JudgeTurn) -> dict[str, Any] | None:
         "fragment_label": definition.label,
         "injection_label": definition.injection_label,
         "source": _source(item.candidate.card_id),
-        "placement": definition.placement,
-        "inject": definition.inject,
+        **_point_fields(turn, definition),
+        "inject": turn.inject_of(definition),
         "scope": turn.snapshot.scope,
         "occurrence_id": str(uuid.uuid4()),
         "input_branch_anchor": turn.snapshot.anchor_message_id,
@@ -402,6 +531,15 @@ def _resolved_record(item: _Item, turn: JudgeTurn) -> dict[str, Any] | None:
     if draw is not None:
         record["draw"] = draw
     return record
+
+
+def _point_fields(turn: JudgeTurn, definition: DecisionDefinition) -> dict[str, str]:
+    """Where *definition* sits, as a record names it; a middle place also carries its Director fragment's label."""
+    place = turn.place_of(definition)
+    fields = {"point": point_name(place)}
+    if place.kind == "middle":
+        fields["point_label"] = turn.plan.labels.get(place.after, place.after)
+    return fields
 
 
 def _skipped_row(item: _Item) -> dict[str, Any]:
@@ -450,12 +588,14 @@ def _redraw(item: _Item, stored: Mapping[str, Any]) -> bool:
     return True
 
 
-def _replayed(item: _Item, stored: Mapping[str, Any]) -> dict[str, Any]:
+def _replayed(item: _Item, stored: Mapping[str, Any], turn: JudgeTurn) -> dict[str, Any]:
+    kept = {key: value for key, value in stored.items() if key not in ("placement", "point", "point_label")}
     return {
-        **stored,
+        **kept,
+        **_point_fields(turn, item.definition),
         "fragment_label": item.definition.label,
         "injection_label": item.definition.injection_label,
-        "inject": item.definition.inject,
+        "inject": turn.inject_of(item.definition),
         "source": _source(item.candidate.card_id),
         "outputs": item.outputs,
         "answer_source": "replay",
@@ -491,7 +631,8 @@ def _batches(pending: Sequence[_Item]) -> list[list[_Item]]:
 
 async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> JudgeResult:
     running, skipped = _eligible(turn)
-    over = _over_budget(running)
+    counted = running if turn.turn_candidates is None else _eligible(replace(turn, candidates=turn.turn_candidates))[0]
+    over = _over_budget(counted)
     items = [_prepare(candidate, turn, over_budget=candidate.definition.fragment_id in over) for candidate in running]
     replayed: dict[str, dict[str, Any]] = {}
     pending: list[_Item] = []
@@ -507,7 +648,7 @@ async def judge_pass(turn: JudgeTurn, *, abort: AbortToken | None = None) -> Jud
         )
         if stored is not None:
             if item.definition.resolution not in DRAWN_RESOLUTIONS:
-                replayed[fid] = _replayed(item, stored)
+                replayed[fid] = _replayed(item, stored, turn)
                 continue
             if _redraw(item, stored):
                 continue

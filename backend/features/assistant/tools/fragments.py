@@ -12,6 +12,7 @@ from pydantic import Field, StringConstraints, field_validator
 from ....core import (
     DECISION_FIELD_TYPE,
     DECISION_RESOLUTIONS_BY_TYPE,
+    DEFAULT_DECISION_INJECT,
     DEFAULT_STATE_MODE,
     DEFAULT_STATE_TEMPLATE,
     FRAGMENT_STAGES,
@@ -372,7 +373,9 @@ class _DecisionCreate(ToolArguments):
     min_confidence_percent: int = Field(
         default=0, ge=0, le=100, description="choice, score: skip less confident answers; 0 never skips."
     )
-    inject: Literal["director", "writer", "both"] = Field(default="both", description="Which passes get the guidance.")
+    inject: Literal["", "director", "writer", "both"] = Field(
+        default="", description="Which passes get the guidance. Empty: both."
+    )
     situation: str = _text(
         _ARG_TEXT_CHARS, "What the Judge reads, with macros like {{last_message}}. Empty: the last reply and request."
     )
@@ -413,7 +416,13 @@ class _InteractiveSet(ToolArguments):
     gate_replies: int = Field(
         default=-1, ge=-1, le=10, description="With a gate: earlier replies the Judge sees; -1 leaves it."
     )
-    position: int = Field(default=0, ge=0, description="Its place in its stage, 1 runs first; 0 leaves it.")
+    position: int = Field(
+        default=0,
+        ge=0,
+        description="Its place in its stage, 1 runs first; 0 leaves it. Decisions share the Director's stage, and a decision "
+        "asks the Judge at its place: ahead of the Director fragments, between two (later ones build on its outcome, and "
+        "its situation's {{scene_guidance}} reads the fields above it), or after them (the Writer gets its guidance).",
+    )
 
 
 class _DecisionSet(ToolArguments):
@@ -563,8 +572,8 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
     @tools.add(
         "write",
         _DecisionCreate,
-        "Create a decision fragment: a question the Judge answers before the Director runs, whose outcome's guidance the "
-        "passes then follow.",
+        "Create a decision fragment: a question the Judge answers, whose outcome's guidance the passes then follow. It starts "
+        "ahead of the Director fragments; set_interactive_fragment's position moves it between or after them.",
     )
     async def create_decision_fragment(args: _DecisionCreate) -> ToolOutput:
         decision_type = _STORED_DECISION_TYPES[args.decision_type]
@@ -582,8 +591,7 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
             "injection_label": args.injection_label.strip() or args.label.strip(),
             "cooldown_turns": args.cooldown_turns,
             "decision_type": decision_type,
-            "decision_placement": "before_director",
-            "decision_inject": args.inject,
+            "decision_inject": args.inject or DEFAULT_DECISION_INJECT,
             "decision_state_template": args.situation.strip() or DEFAULT_STATE_TEMPLATE,
             "decision_instructions": args.question.strip(),
             **_outcome_columns(args),
@@ -721,7 +729,8 @@ def build_fragment_tools(host: AssistantHost) -> list[AssistantTool]:
         "write",
         _DecisionSet,
         "Set how a decision fragment resolves: its resolution, threshold, minimum confidence, and which passes get its "
-        "guidance. Its question and outcomes change through edit_interactive_fragment.",
+        "guidance. Its question and outcomes change through edit_interactive_fragment, its place through "
+        "set_interactive_fragment.",
         idempotent=True,
     )
     async def set_decision_fragment(args: _DecisionSet) -> ToolOutput:

@@ -158,14 +158,17 @@ async function toggleMoodFragmentEnabled(id, newEnabled) {
   }
 }
 
-// Group interactive fragments by Judge, Director, and Editor stages.
+// Group interactive fragments by stage: Judge & Director, State, and Editor.
 const EDITOR_LANE_FIELD_TYPES = new Set(["feedback", "recast", "rewrite"]);
 // Editor edits of the reply, which a Judge question can gate.
 const GATED_FIELD_TYPES = new Set(["recast", "rewrite"]);
 
 const INTERACTIVE_LANES = [
-  { id: "judge", label: "Judge", hint: "Decides questions before the Director runs" },
-  { id: "director", label: "Director", hint: "Directs the scene the writer works from" },
+  {
+    id: "director",
+    label: "Judge & Director",
+    hint: "Runs top to bottom: the Director directs the scene the writer works from, and a decision asks the Judge at its place",
+  },
   {
     id: "state",
     label: "State",
@@ -175,7 +178,6 @@ const INTERACTIVE_LANES = [
 ];
 
 function _interactiveLane(f) {
-  if (f.field_type === "decision") return "judge";
   if (f.field_type === "state") return "state";
   return EDITOR_LANE_FIELD_TYPES.has(f.field_type) ? "editor" : "director";
 }
@@ -196,6 +198,16 @@ export async function loadInteractiveFragments() {
 // Direction gates before-Writer state updates, which the fragment list notes.
 subscribe("settings", (patch) => ("enable_agent" in patch || "enabled_tools" in patch) && renderInteractiveFragments());
 
+function _bySortOrder(fragments) {
+  return [...fragments].sort((a, b) => {
+    const orderA = a.sort_order || 0;
+    const orderB = b.sort_order || 0;
+    if (orderA !== orderB) return orderA - orderB;
+    // Code-unit order, as the server breaks the same tie.
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
 export function renderInteractiveFragments() {
   updateStateTab();
   const el = document.getElementById("interactive-frag-list");
@@ -207,13 +219,7 @@ export function renderInteractiveFragments() {
     return;
   }
 
-  const sorted = [...(S.interactiveFragments || [])].sort((a, b) => {
-    const orderA = a.sort_order || 0;
-    const orderB = b.sort_order || 0;
-    if (orderA !== orderB) return orderA - orderB;
-    // Code-unit order, as the server breaks the same tie.
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+  const sorted = _bySortOrder(S.interactiveFragments || []);
 
   const lanes = INTERACTIVE_LANES.map((lane) => ({
     ...lane,
@@ -223,9 +229,10 @@ export function renderInteractiveFragments() {
   // accounts for it, and tinting every row would be decoration without a point.
   const grouped = lanes.length > 1;
 
+  const skips = _positionSkips(sorted);
   const html = lanes
     .map((lane) => {
-      const rows = lane.items.map(_interactiveFragmentRowHtml).join("");
+      const rows = lane.items.map((f) => _interactiveFragmentRowHtml(f, skips.get(f.id))).join("");
       if (!grouped) return rows;
       // One band behind the whole lane, rather than a tint per row: the rows
       // keep the same shape and spacing they have under Mood Fragments.
@@ -239,10 +246,45 @@ export function renderInteractiveFragments() {
   setupDragAndDrop(el);
 }
 
-function _interactiveFragmentRowHtml(f) {
+const SCENE_GUIDANCE_MACRO = /\{\{\s*scene_guidance\s*\}\}/i;
+
+/**
+ * Why each enabled decision's place in *rows* makes the Judge skip it, by id. Ahead of every Director fragment the plan does
+ * not exist yet; after the last one the Director has already run. *enabled* reads a row's switch.
+ */
+function _positionSkips(rows, enabled = (f) => boolFlag(f.enabled)) {
+  const live = rows.filter((f) => enabled(f) && _interactiveLane(f) === "director");
+  const directors = live.flatMap((f, i) => (f.field_type === "decision" ? [] : [i]));
+  const skips = new Map();
+  live.forEach((f, i) => {
+    if (f.field_type !== "decision") return;
+    if ((!directors.length || i < directors[0]) && SCENE_GUIDANCE_MACRO.test(f.decision_state_template || "")) {
+      skips.set(f.id, "Skipped: its Situation reads {{scene_guidance}}, but it runs before any Director fragment");
+    } else if (directors.length && i > directors.at(-1) && f.decision_inject === "director") {
+      skips.set(f.id, "Skipped: it injects into the Director, but it runs after the last Director fragment");
+    }
+  });
+  return skips;
+}
+
+function _skipBadge(skip) {
+  return skip ? ` <span class="frag-type-badge frag-skip-badge" title="${escAttr(skip)}">!</span>` : "";
+}
+
+/** Move the skip marks to where a reorder left the decisions, keeping the rows (and a keyboard reorder's focus) in place. */
+function _repaintSkipMarks(container, skips = _positionSkips(_bySortOrder(S.interactiveFragments || []))) {
+  for (const item of container.querySelectorAll(".fragment-item[data-id]")) {
+    item.querySelector(".frag-skip-badge")?.remove();
+    item
+      .querySelector(".frag-label")
+      ?.parentElement?.insertAdjacentHTML("beforeend", _skipBadge(skips.get(item.dataset.id)));
+  }
+}
+
+function _interactiveFragmentRowHtml(f, skip = "") {
   const enabled = boolFlag(f.enabled);
   const toggleId = `interactive-frag-toggle-${f.id}`;
-  const userBadge = _interactiveTypeBadge(f);
+  const userBadge = _interactiveTypeBadge(f) + _skipBadge(skip);
   const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
   return `
     <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" data-wf-action="fragments:openInteractive" data-frag-id="${escAttr(f.id)}">
@@ -279,6 +321,7 @@ function updateFragmentOrder(container) {
       for (const frag of S.interactiveFragments) {
         if (frag.id in sort_orders) frag.sort_order = sort_orders[frag.id];
       }
+      _repaintSkipMarks(container);
       toast("Interactive fragments reordered");
     })
     .catch((e) => {
@@ -747,13 +790,37 @@ function _cardInteractiveSidepanelHtml() {
 
 let _cardFragPending = null;
 
+const _isCardDirectorFragment = (f) => _interactiveLane(f) === "director" && f.field_type !== "decision";
+const _cardEnabled = (f) => f.enabled !== false;
+
+/**
+ * Card *entries* with each decision naming a legacy `decision_placement` moved to where its order means the same, and the
+ * key dropped: the backend's card read upgrade, applied before the editor lets the order be dragged.
+ */
+function _upgradeDecisionOrder(entries) {
+  if (!entries.some((f) => f && "decision_placement" in f)) return entries;
+  const marks = entries.flatMap((f, i) => (_isCardDirectorFragment(f) ? [i] : []));
+  const moved = (placement, wrongSide) =>
+    marks.length ? entries.filter((f, i) => f.decision_placement === placement && wrongSide(i)) : [];
+  const early = moved("before_director", (i) => i > marks[0]);
+  const late = moved("after_director", (i) => i < marks.at(-1));
+  const order = entries.filter((f) => !early.includes(f) && !late.includes(f));
+  if (early.length) order.splice(order.findIndex(_isCardDirectorFragment), 0, ...early);
+  if (late.length) order.splice(order.findLastIndex(_isCardDirectorFragment) + 1, 0, ...late);
+  return order.map(({ decision_placement: _legacy, ...rest }) => rest);
+}
+
 export function initCardFragments(fragments) {
   _cardFragPending = {
     mood: Array.isArray(fragments?.mood) ? structuredClone(fragments.mood) : [],
     interactive: Array.isArray(fragments?.interactive)
-      ? structuredClone(fragments.interactive).map(upgradeLegacyFragment)
+      ? _upgradeDecisionOrder(structuredClone(fragments.interactive).map(upgradeLegacyFragment))
       : [],
   };
+}
+
+function _cardSkips() {
+  return _positionSkips(_cardFragPending.interactive, _cardEnabled);
 }
 
 export function readCardFragments() {
@@ -763,10 +830,12 @@ export function readCardFragments() {
 export function renderCardFragmentsTab() {
   const el = document.getElementById("ce-card-frag-list");
   if (!el || !_cardFragPending) return;
+  const skips = _cardSkips();
   const row = (type, f) => `
     <div class="fragment-item" data-type="${escAttr(type)}" data-id="${escAttr(f.id)}">
+      ${type === "mood" ? "" : `<button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder; fragments run top to bottom" aria-label="Reorder ${escAttr(f.label || f.id)}">${GRIP_ICON}</button>`}
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}
+        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f) + _skipBadge(skips.get(f.id))}
         ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}
       </div>
       <div class="frag-toggle-wrapper" data-action="toggle">
@@ -780,7 +849,7 @@ export function renderCardFragmentsTab() {
   const interactive = _cardFragPending.interactive.map((f) => row("interactive", f)).join("");
   el.innerHTML =
     moods || interactive
-      ? `${interactive ? `<div class="frag-divider">Interactive</div>${interactive}` : ""}
+      ? `${interactive ? `<div class="frag-divider">Interactive</div><div class="card-frag-interactive">${interactive}</div>` : ""}
          ${moods ? `<div class="frag-divider">Mood</div>${moods}` : ""}`
       : '<div class="card-frag-empty">No fragments on this character yet</div>';
   if (!el.dataset.wired) {
@@ -788,7 +857,7 @@ export function renderCardFragmentsTab() {
     el.addEventListener("click", (e) => {
       const item = e.target.closest("[data-id]");
       if (!item) return;
-      if (e.target.closest("[data-action='toggle']")) return; // handled on change
+      if (e.target.closest("[data-action='toggle'], .frag-drag-handle")) return; // handled on change, or a reorder
       const { type, id } = item.dataset;
       if (type === "mood") showCardMoodFragmentModal(id);
       else showCardInteractiveFragmentModal(id);
@@ -798,6 +867,18 @@ export function renderCardFragmentsTab() {
       if (!item || e.target.type !== "checkbox") return;
       const f = _cardFragPending[item.dataset.type].find((x) => x.id === item.dataset.id);
       if (f) f.enabled = e.target.checked;
+      if (item.dataset.type === "interactive") _repaintSkipMarks(el, _cardSkips());
+    });
+    initDragReorder(el, {
+      itemSelector: ".fragment-item",
+      handleSelector: ".frag-drag-handle",
+      itemContainer: (item, root) => item.closest(".card-frag-interactive") || root,
+      onReorder: (container) => {
+        const byId = new Map(_cardFragPending.interactive.map((f) => [f.id, f]));
+        const ids = Array.from(container.querySelectorAll(".fragment-item"), (item) => item.dataset.id);
+        _cardFragPending.interactive = ids.map((id) => byId.get(id)).filter(Boolean);
+        _repaintSkipMarks(container, _cardSkips());
+      },
     });
   }
 }
@@ -839,7 +920,10 @@ function _wireCardFragModal(type, isEdit, fragId) {
       for (const key of STATE_SETTING_KEYS) delete existing[key];
     }
     if (existing) Object.assign(existing, d);
-    else _cardFragPending[type].push(d);
+    else if (d.field_type === "decision" && _cardFragPending.interactive.some(_isCardDirectorFragment)) {
+      // As in the Library: a new decision asks the Judge ahead of the Director.
+      _cardFragPending.interactive.splice(_cardFragPending.interactive.findIndex(_isCardDirectorFragment), 0, d);
+    } else _cardFragPending[type].push(d);
     closeSubModal();
     renderCardFragmentsTab();
   });

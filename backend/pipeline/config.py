@@ -155,11 +155,13 @@ def build_writer_tools_blob(
     agentic_lorebook: bool = False,
     dynamic_world: bool = False,
     grouped: bool = False,
+    judged_between: bool = False,
 ) -> tuple[dict, dict[str, bool]]:
     """Build shared schemas and return (overrides, enabled_tools copy).
 
     Include all defined fragments so enablement never changes the cached blob. Properties expose names/types only; trailing
-    requests supply enabled fragment text and narrow the live call.
+    requests supply enabled fragment text and narrow the live call. *judged_between* says a defined decision between
+    Director fragments reads the plan so far, which splits the combined Director call around its Judge point.
     """
     enabled_tools = dict(enabled_tools)
     agent_on = agent_enabled(settings)
@@ -167,8 +169,9 @@ def build_writer_tools_blob(
     contract = StateContract.defined(settings, state_fragments)
     scene_rows = contract.direct_scene_rows(defined_fragments)
     direct_scene = build_direct_scene_override(scene_rows, grouped=grouped)
-    # Required stays on the wire, where schema-decoding upstreams honor it, except for one-field steps (docs/architecture/kv-cache.md).
-    if settings.get("director_individual_fragments", 0):
+    # Required stays on the wire, where schema-decoding upstreams honor it, except where a call fills only some fields: one-field
+    # steps, and calls split around a Judge point, each carrying its own (docs/architecture/kv-cache.md).
+    if settings.get("director_individual_fragments", 0) or judged_between:
         direct_scene = _without_required(direct_scene)
     overrides: dict = {"direct_scene": _names_only(direct_scene, {row["id"] for row in scene_rows})}
     if agentic_lorebook:

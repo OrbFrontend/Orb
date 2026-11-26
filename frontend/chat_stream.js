@@ -756,10 +756,13 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
     }
     case "decisions": {
       try {
+        // Each later Judge point re-announces the turn's earlier skips with its own.
+        const announced = new Set((state.lastDecisions?.skipped || []).map((entry) => entry.fragment_id));
         state.lastDecisions = JSON.parse(data);
         if (isViewing(state)) renderInspector();
         // Show new skips once; inherited results did not ask again.
-        const notice = state.lastDecisions.inherited ? "" : skipNoticeText(state.lastDecisions.skipped);
+        const fresh = (state.lastDecisions.skipped || []).filter((entry) => !announced.has(entry.fragment_id));
+        const notice = state.lastDecisions.inherited ? "" : skipNoticeText(fresh);
         if (notice) toast(notice);
       } catch (_) {}
       break;

@@ -57,7 +57,7 @@ from ..prompting.lorebook import (
 )
 from .config import build_writer_tools_blob, resolve_pipeline_config, split_interactive_fragments
 from .events import PublicTurnEvent
-from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
+from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig, JudgePlan, judge_points
 from .passes.state import StateContract
 from .predicates import agent_enabled, world_proposal_active
 from .state import BranchBaseline, LorebookTurn, PipelineConfig, WorldProposalTurn
@@ -104,6 +104,10 @@ class PipelineContext:
     # Every defined fragment, enabled or not, for the shared tool schemas (see ``_defined_fragments``). None -- a context built
     # by hand -- offers exactly ``interactive_fragments``.
     defined_fragments: list[InteractiveFragmentRow] | None = None
+    # The card each card row of ``defined_fragments`` comes from, by id; a global row has none.
+    fragment_sources: Mapping[str, str] = field(default_factory=dict)
+    # Where each enabled decision asks the Judge this turn.
+    judge_plan: JudgePlan = field(default_factory=JudgePlan)
     # The active prompt layout, read once so every pass and speaker in the turn renders the same blocks.
     layout: tuple[LayoutBlock, ...] = field(default_factory=default_layout)
 
@@ -138,6 +142,8 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
     # are always enabled, so this is the enabled globals plus every card row whose id they do not claim.
     interactive_fragments = [row for row in defined_fragments if row.get("enabled", True)]
     decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
+    card_rows = {id(row) for row in card_interactive}
+    fragment_sources = {row["id"]: card_fragment_sources[row["id"]] for row in defined_fragments if id(row) in card_rows}
     phrase_bank = await db.get_phrase_bank()
     world_ids = await db.get_effective_world_ids(conversation_id)
     lorebook_entries = await db.get_active_lorebook_entries(world_ids)
@@ -179,6 +185,8 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         judge_config=await resolve_judge_config(settings),
         state_contract=StateContract.capture(settings, split_interactive_fragments(interactive_fragments)[2]),
         defined_fragments=defined_fragments,
+        fragment_sources=fragment_sources,
+        judge_plan=judge_points(interactive_fragments, fragment_sources),
         layout=layout,
     )
 
@@ -336,14 +344,17 @@ def turn_tools(ctx: PipelineContext, settings: Settings) -> tuple[dict[str, bool
         enabled_tools = {k: False for k in enabled_tools_setting}
     # Builds direct_scene plus the fragment-driven Editor and state tools from every defined fragment; must be called once so
     # all passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
+    defined = ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments
     overrides, enabled_tools = build_writer_tools_blob(
         settings,
-        ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
+        defined,
         enabled_tools,
         # Offered on the setting, not on this turn's entries, so adding the first pickable entry leaves the blob alone.
         agentic_lorebook=agent_enabled(settings) and bool(settings.get("agentic_lorebook_enabled", 0)),
         dynamic_world=bool(_proposal_world_ids(ctx, settings)),
         grouped=ctx.cast.grouped,
+        # Read over every defined row, so enabling or disabling a waiting decision never rewrites the blob.
+        judged_between=bool(judge_points(defined, ctx.fragment_sources).waits_after),
     )
     return enabled_tools, MappingProxyType(overrides)
 

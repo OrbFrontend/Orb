@@ -59,7 +59,6 @@ class WriterInputs:
     speaker frame around them."""
 
     selected_lore: str = ""
-    decisions: str = ""
     scene_guidance: str = ""
     # Follows Scene guidance.
     current_state: str = ""

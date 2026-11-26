@@ -159,10 +159,20 @@ export function bumpThumbnails() {
   notify("avatars");
 }
 
-/** A character's avatar as a small square thumbnail for list and header surfaces, or with `full` the original image. */
+let listedThumbs = { cards: null, byId: new Map() };
+
+/** The thumbnail version the card list named, which the server caches as immutable at that URL. */
+function listedThumb(charId) {
+  const cards = S.allCharacters;
+  if (listedThumbs.cards !== cards) listedThumbs = { cards, byId: new Map(cards.map((c) => [c.id, c.avatar_thumb])) };
+  return listedThumbs.byId.get(charId);
+}
+
+/** A character's avatar as a small square thumbnail for list and header surfaces, or with `full` the original image.
+ *  A bump in this page outranks the listed version, since the list may predate the change. */
 export function avatarUrl(charId, { full = false } = {}) {
   const own = avatarVersions.get(charId) || 0;
-  const version = full ? own : Math.max(own, thumbsVersion);
+  const version = full ? own : Math.max(own, thumbsVersion) || listedThumb(charId);
   const path = `/api/characters/${encodeURIComponent(charId)}/avatar${full ? "" : "/thumb"}`;
   return version ? `${path}?v=${version}` : path;
 }
@@ -206,9 +216,11 @@ export const NO_AVATAR_ICON = "👤"; // character lists
 export const CHAT_AVATAR_ICON = "📜"; // active conversation header
 
 // *icon* is plain text: shown when there is no image, or when it fails to load.
-export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "" } = {}) {
+/** An avatar <img>, or its fallback icon without *src*. A *deferred* image holds its URL in data-src until its owner loads
+ *  it. */
+export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "", deferred = false } = {}) {
   if (!src) return esc(icon);
-  return `<img src="${src}"${attrs ? ` ${attrs}` : ""} data-fallback="${escAttr(icon)}">`;
+  return `<img ${deferred ? "data-src" : "src"}="${src}"${attrs ? ` ${attrs}` : ""} data-fallback="${escAttr(icon)}">`;
 }
 
 // An <img data-fallback> that fails to load is replaced by its fallback text.

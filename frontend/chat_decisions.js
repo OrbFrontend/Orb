@@ -24,9 +24,18 @@ function _chip(text, kind) {
   return `<span class="inspect-chip pill${CHIP_KINDS[kind]}">${esc(text)}</span>`;
 }
 
+/** Where in the turn the Judge was asked, when that is not ahead of the Director. */
+function _pointText(record) {
+  if (record.point_label) return [`after ${record.point_label}`];
+  return record.point === "closing" || record.placement === "after_director" ? ["after Director"] : [];
+}
+
 function _metaText(record) {
-  const bits = ANSWER_NUMBERS.filter(([field]) => record[field] != null).map(
-    ([field, label, digits]) => `${label} ${Number(record[field]).toFixed(digits)}`,
+  const bits = _pointText(record);
+  bits.push(
+    ...ANSWER_NUMBERS.filter(([field]) => record[field] != null).map(
+      ([field, label, digits]) => `${label} ${Number(record[field]).toFixed(digits)}`,
+    ),
   );
   if (record.answer_source) bits.push(ANSWER_SOURCES[record.answer_source] || record.answer_source);
   if (record.replayed_from) bits.push(`was ${ANSWER_SOURCES[record.replayed_from] || record.replayed_from}`);

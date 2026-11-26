@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Sequence
 
 from ..connection import get_db, select_rows
@@ -20,16 +21,24 @@ async def get_avatar_version(card_id: str, detector: str) -> AvatarVersionRow | 
 
     One read answers a revalidation: the NULL test reads only the record header, and the switch rides the same statement.
     """
-    rows = await select_rows(
-        "SELECT c.updated_at, f.focus, f.stamp, "
-        "COALESCE((SELECT json_extract(local_ml_enabled, ?) FROM settings WHERE id = 1), 1) != 0 AS detector_enabled "
-        "FROM character_cards c LEFT JOIN character_avatar_focus f ON f.character_card_id = c.id "
-        "WHERE c.id = ? AND c.avatar_b64 IS NOT NULL",
-        (f"$.{detector}", card_id),
-    )
-    if not rows:
-        return None
-    row = rows[0]
+    rows = await select_rows(_VERSION_SQL + "WHERE c.id = ? AND c.avatar_b64 IS NOT NULL", (f"$.{detector}", card_id))
+    return _version_row(rows[0]) if rows else None
+
+
+async def list_avatar_versions(detector: str) -> dict[str, AvatarVersionRow]:
+    """``get_avatar_version`` for every card with an avatar, keyed by card id."""
+    rows = await select_rows(_VERSION_SQL + "WHERE c.avatar_b64 IS NOT NULL", (f"$.{detector}",))
+    return {str(row["id"]): _version_row(row) for row in rows}
+
+
+_VERSION_SQL = (
+    "SELECT c.id, c.updated_at, f.focus, f.stamp, "
+    "COALESCE((SELECT json_extract(local_ml_enabled, ?) FROM settings WHERE id = 1), 1) != 0 AS detector_enabled "
+    "FROM character_cards c LEFT JOIN character_avatar_focus f ON f.character_card_id = c.id "
+)
+
+
+def _version_row(row: sqlite3.Row) -> AvatarVersionRow:
     return {
         "updated_at": str(row["updated_at"]),
         "focus": json.loads(row["focus"]) if row["focus"] else None,

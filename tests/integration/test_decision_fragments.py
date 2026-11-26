@@ -21,6 +21,7 @@ from backend.inference import (
 )
 from backend.inference.errors import llm_call_error
 from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_speak, handle_turn
+from backend.pipeline.passes.director.prompts import DIRECTOR_PREAMBLE
 from backend.pipeline.passes.judge import judge as judge_module
 
 DEFINITION = {
@@ -30,7 +31,6 @@ DEFINITION = {
     "field_type": "decision",
     "injection_label": "Doorway",
     "decision_type": "noul",
-    "decision_placement": "before_director",
     "decision_state_template": "Previous reply:\n{{last_assistant_message}}\n\nCurrent request:\n{{last_message}}",
     "decision_instructions": "Does Alric prevail in this exchange?",
     "decision_criteria": {"true": "Alric ends in control.", "false": "Alric is driven back."},
@@ -180,8 +180,9 @@ async def test_a_valid_decision_round_trips_through_the_api(client, db):
         {"decision_instructions": ""},
         {"decision_threshold": 2.0},
         {"decision_resolution": "roll"},  # a threshold left behind in roll mode
-        {"decision_state_template": "Judge {{scene_guidance}}"},
         {"decision_instructions": "Does {{last_message}} succeed?"},
+        # The draft does not exist yet at any place among the Director fragments.
+        {"decision_state_template": "Judge {{draft}}"},
     ],
 )
 async def test_an_invalid_decision_is_rejected_with_a_reason(client, db, broken):
@@ -214,6 +215,17 @@ async def test_switching_a_decision_to_another_type_clears_its_decision_columns(
     assert updated["decision_criteria"] is None
 
 
+async def test_a_new_decision_starts_ahead_of_the_director_fragments(client, db):
+    created = await client.post_json(
+        "/api/interactive-fragments", json={**DEFINITION, "id": "strike", "decision_state_template": "{{scene_guidance}}"}
+    )
+    assert created["decision_inject"] == "both"
+    stage = [row for row in await client.get_json("/api/interactive-fragments") if row["field_type"] in ("string", "decision")]
+    assert stage.index(next(row for row in stage if row["id"] == "strike")) < next(
+        index for index, row in enumerate(stage) if row["field_type"] == "string"
+    )
+
+
 # -- configuration, preview, and the connection test --------------------------
 
 
@@ -221,7 +233,7 @@ async def test_configuration_derives_the_route(client, db):
     before = await client.get_json("/api/decisions/config")
     assert before["configured"] is False
     assert before["default_state_template"]
-    assert "last_message" in before["state_macros"]
+    assert "last_message" in before["situation_chips"]
 
     await _configure(client)
     assert (await client.get_json("/api/decisions/config"))["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"
@@ -363,33 +375,18 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
 
     # The Writer's Scene Guidance carries the authored words, not the dice.
     injection = _event(events, "director_done")["injection_block"]
-    assert "**Major Decisions**\n\nDoorway: Alric holds the doorway." in injection
+    assert "**Scene Guidance**\n\nDoorway: Alric holds the doorway." in injection
     assert "0.9" not in injection
 
     # So does the Director's own trailing request.
     director_tail = _tail_text(_captured(llm_mock, "director")[0])
     assert "Doorway: Alric holds the doorway." in director_tail
     assert "0.9" not in director_tail
-    assert "___\n\n**Major Decisions**\n\nDoorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "writer")[0])
+    assert "___\n\n**Scene Guidance**\n\nDoorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "writer")[0])
 
     # The classifier saw the rendered state, and only once.
     assert gateway.batches == [["outcome"]]
     assert "I shove the door." in gateway.states[0]
-
-
-async def test_the_layouts_decisions_text_frames_the_writers_guidance_only(client, db, llm_mock, monkeypatch):
-    cid = await _solo_scene(client)
-    Gateway(monkeypatch, answers={"outcome": 0.9})
-    await client.expect("patch", "/api/prompt-blocks/default:decisions", json={"content": "___\n\n## Rolled\n{{decisions}}"})
-
-    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
-
-    writer_tail = _tail_text(_captured(llm_mock, "writer")[0])
-    assert "___\n\n## Rolled\nDoorway: Alric holds the doorway." in writer_tail
-    assert "Major Decisions" not in writer_tail
-    # The Director and the Inspector keep the fixed heading.
-    assert "**Major Decisions**\n\nDoorway" in _tail_text(_captured(llm_mock, "director")[0])
-    assert "**Major Decisions**\n\nDoorway" in _event(events, "director_done")["injection_block"]
 
 
 @pytest.mark.parametrize(("inject", "to_director", "to_writer"), [("director", True, False), ("writer", False, True)])
@@ -448,7 +445,7 @@ async def test_the_after_reply_state_request_carries_no_guidance(client, db, llm
 
     # The guidance directed the Writer; the reply is the only record once it exists.
     state_call = _captured(llm_mock, "state")[0]
-    assert "Major Decisions" not in _tail_text(state_call)
+    assert "Doorway:" not in _tail_text(state_call)
     assert "Doorway: Alric holds the doorway." in json.dumps(state_call["messages"][-3]["content"])
 
 
@@ -549,7 +546,7 @@ async def test_a_resting_decision_is_recorded_as_skipped_without_an_outcome(clie
     published = _event(events, "decisions")
     assert published["evaluations"] == []
     assert published["skipped"][0]["reason"] == "resting"
-    assert "Major Decisions" not in _event(events, "director_done")["injection_block"]
+    assert "Doorway:" not in _event(events, "director_done")["injection_block"]
     assert len(gateway.batches) == 1
     # The timer still ages while resting.
     assert (await _last_assistant(cid))["decision_cooldowns"] == {"outcome": 1}
@@ -1082,3 +1079,316 @@ async def test_a_card_decision_in_a_group_reads_its_own_character(client, db, ll
     assert _event((await _exchange(llm_mock, conv, plan=["kael — go"], replies=["kael speaks"])), "decisions")["skipped"] == []
     assert gateway.states[0].startswith("Alric: ")
     assert _record((await dbmod.get_messages(conv["id"]))[-1])["rendered_instructions"] == "Does Alric hold the doorway?"
+
+
+# -- after the Director -------------------------------------------------------
+
+# Last in the list, so it judges the whole plan.
+_LAST = 1000
+
+STRIKE = {
+    **DEFINITION,
+    "id": "strike",
+    "label": "Strike",
+    "description": "Whether the planned attack lands.",
+    "injection_label": "Strike",
+    "sort_order": _LAST,
+    "decision_state_template": "Plan:\n{{scene_guidance}}",
+    "decision_instructions": "Does the planned attack land?",
+    "decision_criteria": {"true": "It lands.", "false": "It misses."},
+    "decision_outputs": {"true": "The lunge lands.", "false": "Whatever the plan says, the lunge misses."},
+}
+
+
+async def _plan_scene(client, cid: str = "conv-plan", *, agent: bool = True) -> str:
+    """A solo scene with the stock decision ahead of the Director, a field the Director plans in, and a decision after it."""
+    cid = await _solo_scene(client, cid, agent=agent)
+    await client.put("/api/interactive-fragments/outcome", json={"cooldown_turns": 2})
+    await client.post_checked(
+        "/api/interactive-fragments",
+        json={"id": "plan", "label": "Plan", "description": "The move.", "field_type": "string", "injection_label": "Plan"},
+    )
+    await client.post_checked("/api/interactive-fragments", json={**STRIKE, "cooldown_turns": 3})
+    return cid
+
+
+async def test_an_after_director_decision_judges_the_plan_for_the_writer_only(client, db, llm_mock, monkeypatch):
+    cid = await _plan_scene(client)
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "strike": 0.1})
+
+    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": [], "plan": "Kael lunges at Vira."})
+
+    # Two passes: the request before the Director, then the Director's plan.
+    assert gateway.batches == [["outcome"], ["strike"]]
+    assert "Plan: Kael lunges at Vira." in gateway.states[1]
+    # The Director planned without the later outcome; the Writer gets both.
+    assert "lunge misses" not in _tail_text(_captured(llm_mock, "director")[0])
+    # The Writer reads each ruling at its place in the list: the opening one, the plan, then the closing one.
+    assert (
+        "**Scene Guidance**\n\nDoorway: Alric holds the doorway.\n\nPlan: Kael lunges at Vira.\n\n"
+        "Strike: Whatever the plan says, the lunge misses."
+    ) in _tail_text(_captured(llm_mock, "writer")[0])
+    assert "Strike: Whatever the plan says" in _event(events, "director_done")["injection_block"]
+    # The last announcement carries the whole turn.
+    assert [row["fragment_id"] for row in _events(events, "decisions")[-1]["evaluations"]] == ["outcome", "strike"]
+
+    reply = await _last_assistant(cid)
+    assert [(row["fragment_id"], row["point"]) for row in reply["decision_evaluations"]["evaluations"]] == [
+        ("outcome", "opening"),
+        ("strike", "closing"),
+    ]
+    # Both passes advanced the same starting cooldowns.
+    assert reply["decision_cooldowns"] == {"outcome": 2, "strike": 3}
+
+
+async def test_an_after_director_decision_rests_and_skips_like_any_other(client, db, llm_mock, monkeypatch):
+    cid = await _plan_scene(client)
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "strike": 0.9})
+    await _turn(llm_mock, cid, "one", director={"moods": [], "plan": "Kael lunges."})
+
+    events = await _turn(llm_mock, cid, "two", director={"moods": [], "plan": "Kael lunges again."})
+
+    # Both rest this turn, and their cooldowns age once, not once per pass.
+    assert gateway.batches == [["outcome"], ["strike"]]
+    assert {row["fragment_id"]: row["reason"] for row in _events(events, "decisions")[-1]["skipped"]} == {
+        "outcome": "resting",
+        "strike": "resting",
+    }
+    assert (await _last_assistant(cid))["decision_cooldowns"] == {"outcome": 1, "strike": 2}
+
+
+async def test_an_after_director_decision_is_not_asked_while_the_director_is_off(client, db, llm_mock, monkeypatch):
+    cid = await _plan_scene(client)
+    await client.put("/api/settings", json={"enabled_tools": {"direct_scene": False}})
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "strike": 0.9})
+
+    events = await _turn(llm_mock, cid, "I shove the door.")
+
+    assert gateway.batches == [["outcome"]]
+    published = _events(events, "decisions")
+    assert len(published) == 1
+    assert published[0]["skipped"] == [
+        {"fragment_id": "strike", "fragment_label": "Strike", "source": "global", "reason": "director_off"}
+    ]
+
+
+async def test_a_group_exchange_judges_the_shared_plan_once_for_every_speaker(client, db, llm_mock, monkeypatch):
+    conv, gateway = await _group_scene(
+        client,
+        monkeypatch,
+        sort_order=_LAST,
+        decision_inject="writer",
+        decision_state_template="Plan:\n{{scene_guidance}}\n\nRequest:\n{{last_message}}",
+    )
+    events = await _exchange(llm_mock, conv)
+
+    assert gateway.batches == [["outcome"]]
+    assert len(_events(events, "decisions")) == 1
+    writer_tails = [_tail_text(call) for call in _captured(llm_mock, "writer")]
+    assert len(writer_tails) == 2
+    assert all("Doorway: Alric holds the doorway." in tail for tail in writer_tails)
+    assert len({_record(reply)["occurrence_id"] for reply in await _replies(conv["id"])}) == 1
+
+
+async def _state_value(client, cid: str, fid: str, heading: str, value: str, *, update: str, inject: str) -> None:
+    await client.post_checked(
+        "/api/interactive-fragments",
+        json={
+            "id": fid,
+            "label": heading,
+            "description": f"Track {heading}.",
+            "field_type": "state",
+            "state_mode": "value",
+            "state_update": update,
+            "state_inject": inject,
+            "injection_label": heading,
+        },
+    )
+    await client.post_checked(f"/api/conversations/{cid}/state", json={"fragment_id": fid, "op": "set", "text": value})
+
+
+async def test_the_situations_state_is_the_turns_start_before_and_its_changes_after_the_director(
+    client, db, llm_mock, monkeypatch
+):
+    cid = await _plan_scene(client)
+    await dbmod.add_message(cid, "assistant", "Greeting.", 0, advance_leaf=True)
+    # A tracker no pass is shown still reaches a Situation that asks for the state.
+    await _state_value(client, cid, "kael_hp", "Kael HP", "3 of 10", update="manual", inject="off")
+    await _state_value(client, cid, "vira_hp", "Vira HP", "10", update="before_writer", inject="writer")
+    state_template = "State:\n{{state}}\n\nPlan:\n{{scene_guidance}}"
+    await client.put_checked("/api/interactive-fragments/outcome", json={"decision_state_template": "State:\n{{state}}"})
+    await client.put_checked("/api/interactive-fragments/strike", json={"decision_state_template": state_template})
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "strike": 0.9})
+
+    await _turn(llm_mock, cid, "I swing.", director={"moods": [], "plan": "Kael lunges.", "vira_hp": "7"})
+
+    before, after = gateway.states
+    assert "Kael HP: 3 of 10" in before and "Vira HP: 10" in before
+    assert "Current State" not in before
+    # After the Director, this turn's change shows as old -> new.
+    assert "Kael HP: 3 of 10" in after and "Vira HP: 10 -> 7" in after
+
+
+# -- between Director fragments -----------------------------------------------
+
+LANDS = {
+    **DEFINITION,
+    "id": "lands",
+    "label": "Lands",
+    "injection_label": "Lunge lands?",
+    "decision_inject": "director",
+    "decision_state_template": "Request:\n{{last_message}}\n\nPlan:\n{{scene_guidance}}",
+    "decision_instructions": "Does the planned attack land?",
+    "decision_criteria": {"true": "It lands.", "false": "It misses."},
+    "decision_outputs": {"true": "The lunge lands.", "false": "The lunge misses."},
+}
+
+
+def _field(fid: str, label: str, order: int, **extra) -> dict:
+    return {"id": fid, "label": label, "description": f"The {fid}.", "field_type": "string", "injection_label": label,
+            "sort_order": order, **extra}  # fmt: skip
+
+
+async def _between_scene(client, *, per_fragment: bool, required: bool = False) -> str:
+    """The stock decision ahead of the Director, then Attack, a decision ruling on it, then Consequence."""
+    cid = await _solo_scene(client)
+    for row in await client.get_json("/api/interactive-fragments"):
+        if row["field_type"] in ("string", "array"):
+            await client.put_checked(f"/api/interactive-fragments/{row['id']}", json={"enabled": False})
+    await client.post_checked("/api/interactive-fragments", json=_field("attack", "Attack", 100))
+    await client.post_checked("/api/interactive-fragments", json={**LANDS, "sort_order": 101})
+    await client.post_checked("/api/interactive-fragments", json=_field("consequence", "Consequence", 102, required=required))
+    await client.put("/api/settings", json={"director_individual_fragments": per_fragment})
+    return cid
+
+
+def _fenced(call: dict) -> str:
+    """The ``___`` sections ahead of a Director step's instruction."""
+    return _tail_text(call).split(DIRECTOR_PREAMBLE)[0]
+
+
+async def test_a_decision_between_director_fragments_rules_on_the_plan_so_far(client, db, llm_mock, monkeypatch):
+    cid = await _between_scene(client, per_fragment=True)
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "lands": 0.1})
+    llm_mock.enqueue_director(_direct_scene(attack="a lunge for the throat"))
+    llm_mock.enqueue_director(_direct_scene(consequence="Vira staggers back"))
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("ok")
+
+    events = await _drain(handle_turn(cid, "I lunge."))
+
+    # The opening point, then the one after Attack, which reads only what was decided above it.
+    assert gateway.batches == [["outcome"], ["lands"]]
+    # The status returns to the Director once the point between its steps is done.
+    assert [step["step"] for step in _events(events, "step_start")][:3] == ["judge", "judge", "director"]
+    assert "Attack: a lunge for the throat" in gateway.states[1]
+    assert "Vira staggers" not in gateway.states[1]
+    attack, consequence, moods = _captured(llm_mock, "director")
+    # The step ahead of the point knows what the Judge asks next; the later ones get its answer instead.
+    assert LANDS["decision_instructions"] in _tail_text(attack)
+    assert LANDS["decision_instructions"] not in _tail_text(consequence) + _tail_text(moods)
+    # The ruling reaches the steps after it, never the one it judged.
+    assert "The lunge misses." not in _tail_text(attack)
+    assert "The lunge misses." in _tail_text(consequence) and "The lunge misses." in _tail_text(moods)
+    # The opening outcomes ride every step's fenced block, byte for byte; a ruling never joins it.
+    assert "Alric holds the doorway." in _fenced(attack)
+    assert _fenced(attack) == _fenced(consequence) == _fenced(moods)
+    # A Director-only ruling does not reach the Writer.
+    assert "The lunge misses." not in _tail_text(_captured(llm_mock, "writer")[0])
+    assert "Consequence: Vira staggers back" in _event(events, "director_done")["injection_block"]
+
+    records = (await _last_assistant(cid))["decision_evaluations"]["evaluations"]
+    assert [(row["fragment_id"], row["point"], row.get("point_label")) for row in records] == [
+        ("outcome", "opening", None),
+        ("lands", "attack", "Attack"),
+    ]
+
+
+def _direct_scene_blob(call: dict) -> str:
+    return json.dumps(next(tool for tool in call["tools"] if tool["function"]["name"] == "direct_scene"), sort_keys=True)
+
+
+async def test_a_combined_director_splits_around_a_decision_and_keeps_its_blob(client, db, llm_mock, monkeypatch):
+    cid = await _between_scene(client, per_fragment=False, required=True)
+    Gateway(monkeypatch, answers={"outcome": 0.9, "lands": 0.1})
+    llm_mock.enqueue_director(_direct_scene(attack="a lunge"))
+    llm_mock.enqueue_director(_direct_scene(moods=[], consequence="Vira staggers"))
+    llm_mock.enqueue_writer("ok")
+    await _drain(handle_turn(cid, "I lunge."))
+
+    first, second = _captured(llm_mock, "director")
+    assert LANDS["decision_instructions"] in _tail_text(first)
+    assert LANDS["decision_instructions"] not in _tail_text(second)
+    # Each segment's schema holds only its own fields, with their requiredness; the blob requires nothing.
+    assert set(first["params"]["json_schema"]["properties"]) == {"attack"}
+    assert set(second["params"]["json_schema"]["properties"]) == {"consequence", "moods"}
+    assert second["params"]["json_schema"]["required"] == ["consequence"]
+    assert json.loads(_direct_scene_blob(first))["function"]["parameters"]["required"] == []
+    assert "The lunge misses." in _tail_text(second)
+
+    # Switching the decision off rejoins the call, and leaves the shared blob alone.
+    await client.put_checked("/api/interactive-fragments/lands", json={"enabled": False})
+    llm_mock.enqueue_director(_direct_scene(moods=[], attack="a feint", consequence="none"))
+    llm_mock.enqueue_writer("ok")
+    start = len(_captured(llm_mock, "director"))
+    await _drain(handle_turn(cid, "Again."))
+
+    (joined,) = _captured(llm_mock, "director")[start:]
+    assert set(joined["params"]["json_schema"]["properties"]) == {"attack", "consequence", "moods"}
+    assert _direct_scene_blob(joined) == _direct_scene_blob(first)
+
+
+async def test_one_value_state_rides_the_last_director_step(client, db, llm_mock, monkeypatch):
+    cid = await _between_scene(client, per_fragment=True)
+    await dbmod.add_message(cid, "assistant", "Greeting.", 0, advance_leaf=True)
+    await _state_value(client, cid, "vira_hp", "Vira HP", "10", update="before_writer", inject="writer")
+    Gateway(monkeypatch, answers={"outcome": 0.9, "lands": 0.1})
+    llm_mock.enqueue_director(_direct_scene(attack="a lunge"))
+    llm_mock.enqueue_director(_direct_scene(consequence="Vira staggers"))
+    llm_mock.enqueue_director(_direct_scene(moods=[], vira_hp="7"))
+    llm_mock.enqueue_writer("ok")
+
+    events = await _drain(handle_turn(cid, "I lunge."))
+
+    # No step of its own: the moods step fills it, with the ruling in view.
+    steps = _captured(llm_mock, "director")
+    assert len(steps) == 3
+    assert set(steps[-1]["params"]["json_schema"]["properties"]) == {"moods", "vira_hp"}
+    assert "The lunge misses." in _tail_text(steps[-1])
+    changes = _events(events, "state")[-1]["changes"]
+    assert [(change["fragment_id"], change["text"]) for change in changes] == [("vira_hp", "7")]
+
+
+async def test_a_decision_that_does_not_read_the_plan_is_asked_with_the_opening_point(client, db, llm_mock, monkeypatch):
+    cid = await _between_scene(client, per_fragment=False)
+    # The stock decision's Situation, so both questions share one Judge request.
+    await client.put_checked(
+        "/api/interactive-fragments/lands", json={"decision_state_template": DEFINITION["decision_state_template"]}
+    )
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "lands": 0.1})
+    llm_mock.enqueue_director(_direct_scene(moods=[], attack="a lunge", consequence="Vira staggers"))
+    llm_mock.enqueue_writer("ok")
+
+    await _drain(handle_turn(cid, "I lunge."))
+
+    assert gateway.batches == [["outcome", "lands"]]
+    # Nothing to wait for, so the combined call stays whole and its ruling rides it.
+    (call,) = _captured(llm_mock, "director")
+    assert "The lunge misses." in _tail_text(call)
+    assert "The lunge misses." not in _fenced(call)
+    records = (await _last_assistant(cid))["decision_evaluations"]["evaluations"]
+    assert [(row["fragment_id"], row["point"]) for row in records] == [("outcome", "opening"), ("lands", "attack")]
+
+
+async def test_a_decision_reading_an_empty_plan_is_skipped_without_asking(client, db, llm_mock, monkeypatch):
+    cid = await _between_scene(client, per_fragment=True)
+    gateway = Gateway(monkeypatch, answers={"outcome": 0.9, "lands": 0.1})
+    llm_mock.enqueue_director(_direct_scene())
+    llm_mock.enqueue_director(_direct_scene(consequence="Vira staggers"))
+    llm_mock.enqueue_director(_direct_scene(moods=[]))
+    llm_mock.enqueue_writer("ok")
+
+    events = await _drain(handle_turn(cid, "I lunge."))
+
+    assert gateway.batches == [["outcome"]]
+    assert {row["fragment_id"]: row["reason"] for row in _events(events, "decisions")[-1]["skipped"]} == {"lands": "no_plan"}

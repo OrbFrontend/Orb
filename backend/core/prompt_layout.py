@@ -16,7 +16,6 @@ DEFAULT_LAYOUT_ID = "default"
 
 WRITER_MARKERS: tuple[str, ...] = (
     "selected_lore",
-    "decisions",
     "scene_guidance",
     "user_message",
     "depth_lore",
@@ -26,7 +25,6 @@ MARKER_LABELS: dict[str, str] = {
     "cast": "Group cast",
     "constant_lore": "Constant lore",
     "selected_lore": "Selected lore",
-    "decisions": "Decisions",
     "scene_guidance": "Scene guidance",
     "user_message": "User message",
     "depth_lore": "Depth lore",
@@ -39,7 +37,6 @@ MARKER_TEMPLATES: dict[str, str] = {
     "constant_lore": "## Lorebook\n\n{{constant_lore}}",
     "selected_lore": "___\n\n**Lorebook**\n\n{{selected_lore}}",
     "depth_lore": "___\n\n**Lorebook (Depth)**\n\n{{depth_lore}}",
-    "decisions": "___\n\n**Major Decisions**\n\n{{decisions}}",
     "scene_guidance": "___\n\n**Scene Guidance**\n\n{{scene_guidance}}",
     "user_message": "___\n\n{{user_message}}",
 }

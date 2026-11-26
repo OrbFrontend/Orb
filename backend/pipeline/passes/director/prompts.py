@@ -39,12 +39,20 @@ def build_director_tool_prompt(
     cast_instruction: str = "",
     resting: frozenset[str] = frozenset(),
     unavailable_fields: Sequence[str] = (),
+    elsewhere_fields: Sequence[str] = (),
+    decided_fields: Sequence[tuple[str, Any]] = (),
+    fills_moods: bool = True,
+    judged_next: Sequence[str] = (),
 ) -> str:
     """Build the combined Director request for one tool.
 
     *tool_schema* is the live view whose parameters the model may fill; *unavailable_fields* are the ones the shared schema
     still offers -- disabled or resting fragments -- which the request names so the model leaves them empty. ``direct_scene``
     lists each live field with its description here, because the shared schema carries fragment fields by name only.
+
+    A turn with a Judge point between Director fragments directs the scene in several requests: *elsewhere_fields* are the
+    live fields another of them fills, *decided_fields* what the earlier ones decided, and only the last fills moods.
+    *judged_next* are the Questions the Judge answers right after this request.
     """
     tool = get_tool(tool_name)
     if not tool:
@@ -70,13 +78,53 @@ def build_director_tool_prompt(
             )
         if unavailable_fields:
             parts.append(f"Interactive fields unavailable this turn (leave empty): {', '.join(unavailable_fields)}")
-        parts.append(_moods_options_block(active_moods, mood_fragments, resting))
+        if elsewhere_fields:
+            parts.append(f"Interactive fields filled in another request this turn (leave empty): {', '.join(elsewhere_fields)}")
+        if decided := _decided_block(decided_fields):
+            parts.append(decided)
+        if upcoming := _judged_next_block(judged_next):
+            parts.append(upcoming)
+        if fills_moods:
+            parts.append(_moods_options_block(active_moods, mood_fragments, resting))
+        else:
+            parts.append("Leave moods empty: they are chosen in a later request.")
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"
 
 
 def _render_decided(value: Any) -> str:
     return ", ".join(str(item) for item in value) if isinstance(value, list) else str(value)
+
+
+def _decided_block(decided_fields: Sequence[tuple[str, Any]]) -> str:
+    prior = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
+    return "Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior) if prior else ""
+
+
+def _judged_next_block(questions: Sequence[str]) -> str:
+    """The Questions a Judge point answers from what this request decides, so the plan leaves them to it."""
+    if not questions:
+        return ""
+    listed = "\n".join(f"- {question}" for question in questions)
+    return (
+        "After this, the Judge answers the following from the plan so far, and later steps follow its answer. "
+        f"Leave room for any answer:\n{listed}"
+    )
+
+
+def ruling_entry(label: str, guidance: str) -> tuple[str, str]:
+    """A Judge ruling between Director fragments, as a decided-so-far line: it stands where it differs from the plan."""
+    return f"Judge ruling ({label})", f"{guidance} Where it differs from the plan above, the ruling stands."
+
+
+def _value_field_lines(fragment: Mapping[str, Any], prior: Any) -> list[str]:
+    """A one-value state field's lines: what it records, then its saved value when it has one."""
+    lines = [f"Field '{fragment['id']}' ({field_hint(fragment['field_type'])}): {fragment['description']}"]
+    if prior:
+        lines.append(
+            f"Current value (leave the field empty to keep it; write the complete new value only if it changed): {prior}"
+        )
+    return lines
 
 
 def build_director_scene_step_prompt(
@@ -88,20 +136,34 @@ def build_director_scene_step_prompt(
     reasoning_on: bool = False,
     target_fragment: Mapping[str, Any] | None = None,
     decided_fields: Sequence[tuple[str, Any]] = (),
-    progressive_prior: Any = None,
     cast_instruction: str = "",
     resting: frozenset[str] = frozenset(),
+    value_fields: Sequence[Mapping[str, Any]] = (),
+    value_priors: Mapping[str, Any] | None = None,
+    judged_next: Sequence[str] = (),
 ) -> str:
-    """Build one ``direct_scene`` request targeting a single output."""
+    """Build one ``direct_scene`` request targeting a single output.
+
+    The last request, with no *target_fragment*, fills the moods and the one-value state *value_fields*, each shown its
+    saved value from *value_priors*, so they are set with the whole scene in view. *judged_next* are the Questions the Judge
+    answers right after a fragment's request.
+    """
     schema = tool_schema if tool_schema is not None else require_tool("direct_scene")["schema"]
     description = schema["function"]["description"]
     parts = [DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")]
 
     if target_fragment is None:
-        parts.append(f"Call ONLY direct_scene - {description}\nFill ONLY: moods.")
+        targets = ", ".join(["moods", *(fragment["id"] for fragment in value_fields)])
+        required = [fragment["id"] for fragment in value_fields if fragment.get("required")]
+        parts.append(
+            f"Call ONLY direct_scene - {description}\nFill ONLY: {targets}."
+            + (f"\nRequired: {', '.join(required)}" if required else "")
+        )
         scene = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
         if scene:
             parts.append("Scene direction decided this turn (pick moods that fit it):\n" + "\n".join(scene))
+        for fragment in value_fields:
+            parts.append("\n".join(_value_field_lines(fragment, (value_priors or {}).get(fragment["id"]))))
         parts.append(_moods_options_block(active_moods, mood_fragments, resting))
     else:
         fragment_id = target_fragment["id"]
@@ -113,14 +175,10 @@ def build_director_scene_step_prompt(
         parts.append(f"Field '{fragment_id}' ({hint}): {target_fragment['description']}")
         if cast_instruction:
             parts.append(cast_instruction)
-        prior = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
-        if prior:
-            parts.append("Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior))
-        if target_fragment["field_type"] == "state" and progressive_prior:
-            parts.append(
-                f"Current value (leave the field empty to keep it; write the complete new value only if it changed): "
-                f"{progressive_prior}"
-            )
+        if decided := _decided_block(decided_fields):
+            parts.append(decided)
+        if upcoming := _judged_next_block(judged_next):
+            parts.append(upcoming)
 
     parts.append(f'User\'s next message (context):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"

@@ -10,7 +10,13 @@ STATE_BLOCK_HEADING = "**Current State**"
 
 
 def render_state_block(fragments: Sequence[StateFragment], view: StateView, *, prior: StateView | None = None) -> str:
-    """Render injected state, showing before-Writer changes as ``old -> new``."""
+    """Render injected state under its heading, showing before-Writer changes as ``old -> new``."""
+    body = render_state_body(fragments, view, prior=prior)
+    return f"{STATE_BLOCK_HEADING}\n\n{body}" if body else ""
+
+
+def render_state_body(fragments: Sequence[StateFragment], view: StateView, *, prior: StateView | None = None) -> str:
+    """The state block's fragments without its heading; empty when no fragment holds anything."""
     parts: list[str] = []
     for fragment in fragments:
         entries = view.active(fragment.id)
@@ -24,6 +30,4 @@ def render_state_block(fragments: Sequence[StateFragment], view: StateView, *, p
             parts.append(f"{fragment.heading}: {value}")
         else:
             parts.append(fragment.heading + ":\n" + "\n".join(f"- {entry.text}" for entry in entries))
-    if not parts:
-        return ""
-    return "\n\n".join([STATE_BLOCK_HEADING, *parts])
+    return "\n\n".join(parts)

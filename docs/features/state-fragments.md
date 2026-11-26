@@ -39,6 +39,8 @@ set its field type to **State**.
 **Inject** chooses who receives the saved facts: **Off**, **Director**, **Writer**,
 or **Both**. This is separate from **Update**: manual notes can still guide
 replies, and automatically updated facts can be kept without sending them.
+A [decision](decision-fragments.md) whose Situation names `{{state}}` reads
+every enabled fragment, whatever its **Inject**.
 
 **Description** tells the Agent what to record. **Injection label** is the heading
 shown to the Director or Writer. **Required** is available only for a one-value
@@ -64,6 +66,10 @@ facts from every branch of the conversation.
 Automatic updates need the **Agent** enabled. **Before the Writer** also needs
 the **Direction** tool. **After the reply** adds an Agent call; **Individual
 fragment processing** updates each fragment separately.
+
+A one-value fragment updated **Before the Writer** is filled in the Director's
+last request, after every Director fragment and every decision between them,
+so it reflects the whole scene direction and adds no call of its own.
 
 **Manual only** stops automatic updates but still sends saved facts according to
 **Inject**. Disabling a fragment stops both updating and sending its facts.

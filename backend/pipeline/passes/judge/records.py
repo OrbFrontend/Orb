@@ -25,7 +25,6 @@ def resolution_policy_fingerprint(definition: DecisionDefinition, *, scope: str)
     return _digest(
         {
             "renderer": DECISION_RENDERER_VERSION,
-            "placement": definition.placement,
             "scope": scope,
             "resolution": definition.resolution,
             "threshold": definition.threshold,

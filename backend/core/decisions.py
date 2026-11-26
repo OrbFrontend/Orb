@@ -15,7 +15,6 @@ DECISION_RESOLUTIONS_BY_TYPE: Mapping[str, tuple[str, ...]] = {
     "score": ("argmax", "weighted", "nearest"),
 }
 DECISION_TYPES = frozenset(DECISION_RESOLUTIONS_BY_TYPE)
-DECISION_PLACEMENT = "before_director"
 # Which passes receive a resolved outcome's guidance. Unlike state, a decision
 # always injects somewhere: a result nobody reads is a wasted Judge call.
 DECISION_INJECTS = ("director", "writer", "both")
@@ -27,7 +26,6 @@ MAX_SCORE_LEVELS = 10
 MAX_OPTION_KEY_LENGTH = 64
 DECISION_COLUMNS = (
     "decision_type",
-    "decision_placement",
     "decision_inject",
     "decision_state_template",
     "decision_instructions",
@@ -46,7 +44,6 @@ class DecisionDefinition:
     label: str
     injection_label: str
     decision_type: str
-    placement: str
     state_template: str
     instructions: str
     criteria: DecisionCriteria
@@ -145,8 +142,6 @@ def _parse(row: Mapping[str, Any]) -> tuple[DecisionDefinition | None, list[str]
     decision_type = _text(row, "decision_type")
     if decision_type not in DECISION_TYPES:
         errors.append(f"decision_type must be one of {', '.join(sorted(DECISION_TYPES))}")
-    if _text(row, "decision_placement") != DECISION_PLACEMENT:
-        errors.append(f"decision_placement must be one of {DECISION_PLACEMENT}")
     # Absent means the default, so older cards and API callers keep working.
     inject = _text(row, "decision_inject") or DEFAULT_DECISION_INJECT
     if inject not in DECISION_INJECTS:
@@ -190,7 +185,6 @@ def _parse(row: Mapping[str, Any]) -> tuple[DecisionDefinition | None, list[str]
         label=label,
         injection_label=str(row.get("injection_label") or "") or label,
         decision_type=decision_type,
-        placement=DECISION_PLACEMENT,
         state_template=str(row["decision_state_template"]),
         instructions=str(row["decision_instructions"]),
         criteria=criteria,

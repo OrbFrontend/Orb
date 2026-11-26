@@ -781,8 +781,8 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
         if "…[+" in json.dumps(listed["rows"], ensure_ascii=False):
             listed["note"] = "Text ending with …[+N chars] was shortened; read_fragment reads it whole."
         current = await get_settings()
-        shown = {"mood" if row["kind"] == "mood" else row["stage"] for row in listed["rows"]}
-        notes = [await effect_note(_STAGE_TYPES.get(name, name), current, host) for name in sorted(shown)]
+        shown = {_note_type(row) for row in listed["rows"]}
+        notes = [await effect_note(name, current, host) for name in sorted(shown)]
         if any(notes):
             listed["note_switches"] = " ".join(dict.fromkeys(note for note in notes if note))
         return _listed(listed, "fragments")
@@ -827,7 +827,14 @@ def build_read_tools(settings: Settings, view: ViewContext, host: AssistantHost)
 
 
 # A field type standing for each stage, for the notes on what keeps a stage from running.
-_STAGE_TYPES = {"judge": "decision", "director": "string", "state": "state", "editor": "feedback"}
+_STAGE_TYPES = {"director": "string", "state": "state", "editor": "feedback"}
+
+
+def _note_type(row: Mapping[str, Any]) -> str:
+    """The field type whose note covers listed *row*: a decision has its own, as it needs the Judge, not the Director."""
+    if row["kind"] == "mood":
+        return "mood"
+    return "decision" if row.get("field_type") == "decision" else _STAGE_TYPES[row["stage"]]
 
 
 def _fitted(build: Callable[[int], dict[str, Any]]) -> dict[str, Any]:
