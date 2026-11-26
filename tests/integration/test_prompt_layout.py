@@ -34,9 +34,9 @@ def _wire(messages) -> str:
 
 
 async def _active_layout(client, name: str = "Custom") -> tuple[str, dict[str, dict]]:
-    """The new active layout's id and its seeded blocks, markers by kind and section blocks by label."""
-    layout = await client.post_json("/api/prompt-layouts", json={"name": name})
-    await client.put_checked("/api/prompt-layouts/active", json={"id": layout["id"]})
+    """A new active preset's id and its layout's seeded blocks, markers by kind and section blocks by label."""
+    layout = await client.post_json("/api/presets", json={"name": name})
+    await client.put_checked("/api/presets/active", json={"id": layout["id"]})
     blocks = await client.get_json(f"/api/prompt-layouts/{layout['id']}/blocks")
     return layout["id"], {block["label"] if block["kind"] == "custom" else block["kind"]: block for block in blocks}
 

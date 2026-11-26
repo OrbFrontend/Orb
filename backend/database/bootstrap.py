@@ -4,20 +4,18 @@ import json
 from datetime import UTC, datetime
 
 from ..core import DECISION_COLUMNS, STATE_COLUMNS
-from ..core.prompt_layout import DEFAULT_LAYOUT_ID, default_layout
 from . import connection
 from .connection import get_db
 from .migrations import run_pending, stamp_all
-from .queries.prompt_layouts import insert_layout_blocks
+from .queries.presets import seed_default_preset
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
     DEFAULT_CONNECTION,
     DEFAULT_ENABLED_TOOLS,
     SEED_INTERACTIVE_FRAGMENTS,
-    SEED_MAIN_PROMPT,
     SEED_MOOD_FRAGMENTS,
     SEED_PHRASE_BANK,
-    SEED_PROMPT_LAYOUT_NAME,
+    SEED_PRESET_NAME,
 )
 
 
@@ -55,9 +53,10 @@ async def init_db() -> int:
         if row[0]["c"] == 0:
             await _seed_phrase_bank(db)
 
-        row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM prompt_layouts"))
+        row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM presets"))
         if row[0]["c"] == 0:
-            await _seed_prompt_layouts(db)
+            # Last, so its config captures the seeded settings, endpoint and fragments.
+            await seed_default_preset(db, SEED_PRESET_NAME)
 
         if not existing:
             await stamp_all(db)
@@ -80,7 +79,7 @@ async def reset_to_defaults() -> None:
         await db.execute("DELETE FROM mood_fragments")
         await db.execute("DELETE FROM interactive_fragments")
         await db.execute("DELETE FROM phrase_bank")
-        await db.execute("DELETE FROM prompt_layouts")
+        await db.execute("DELETE FROM presets")
         # Suggestions, dismissals and the last run's status belong to the bank they were mined against.
         await db.execute("DELETE FROM slop_suggestions")
         await db.execute("DELETE FROM slop_dismissals")
@@ -93,7 +92,7 @@ async def reset_to_defaults() -> None:
         await _seed_mood_fragments(db)
         await _seed_interactive_fragments(db)
         await _seed_phrase_bank(db)
-        await _seed_prompt_layouts(db)
+        await seed_default_preset(db, SEED_PRESET_NAME)
 
         if cache_bookkeeping is not None:
             await db.execute(
@@ -178,8 +177,3 @@ async def _seed_phrase_bank(db) -> None:
             await db.execute(
                 "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'literal', NULL)", (json.dumps(entry),)
             )
-
-
-async def _seed_prompt_layouts(db) -> None:
-    await db.execute("INSERT INTO prompt_layouts (id, name) VALUES (?, ?)", (DEFAULT_LAYOUT_ID, SEED_PROMPT_LAYOUT_NAME))
-    await insert_layout_blocks(db, DEFAULT_LAYOUT_ID, default_layout(main_prompt=SEED_MAIN_PROMPT))

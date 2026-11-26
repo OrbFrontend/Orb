@@ -90,8 +90,8 @@ tail rather than the shared prefix, so it may pass `fresh=True` and roll
 A prompt layout is an ordered list of blocks around a fixed **Chat history**
 divider. `core/prompt_layout.py` holds the vocabulary (block shape, marker ids,
 section placeholders, and the blocks a new layout seeds); `prompting/layout.py`
-renders it. Chat mode reads the active layout; Document mode and the Assistant
-panel do not.
+renders it. Chat mode reads the active preset's layout; Document mode and the
+Assistant panel do not.
 
 - **Prefix** blocks (above the divider) build the system message and optional
   pre-history messages. Every pass and off-turn workflow call reads them.
@@ -278,14 +278,13 @@ shares one prefix (`pipeline.context.build_turn_prefix`). The summarizer reads
 the same neutral prefix over the summarized history
 (`pipeline.context.offturn_config`), so it renders the active layout too.
 
-The HTTP surface lives in `api/routes/prompt_layouts.py`:
+Each global preset owns one layout: its `prompt_blocks` rows, keyed by the
+preset's id. `api/routes/presets.py` creates, renames, deletes and switches
+presets (`features/presets`); the block surface lives in
+`api/routes/prompt_layouts.py`, where `{id}` is a preset id:
 
 | Route | Purpose |
 |---|---|
-| `GET /api/prompt-layouts` | Layouts and the active id |
-| `POST /api/prompt-layouts` | Create a layout; `{copy_from}` duplicates one |
-| `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the last layout); deleting the active layout activates the first one left |
-| `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
 | `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its role, its switch, and its text when editable), or delete a custom block; a refused edit is a 409 |
 | `PUT /api/prompt-layouts/{id}/order` | Place every block: `{prefix: [...ids], writer: [...ids]}` |

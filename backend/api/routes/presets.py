@@ -1,132 +1,54 @@
-"""Preset / backup library routes."""
+"""Global preset routes: the sidebar header's preset picker."""
 
 from __future__ import annotations
 
-import asyncio
-import os
-import tempfile
-from collections.abc import Callable
-from typing import Annotated, ParamSpec, TypeVar
+from fastapi import APIRouter, HTTPException
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-
-from ...core import maintenance_lock
-from ...features.presets import engine as presets
-from ...workflows import gpu_swap_host
-from ..admission import dataset_maintenance
-from ..schemas import PresetExportRequest
+from ...database import get_active_preset_id, get_settings, list_presets
+from ...features import presets
+from ..schemas import PresetActive, PresetCreate, PresetRename
+from .endpoints import public_settings
 
 router = APIRouter()
 
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
 
-
-async def _finish_thread(fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
-    """Keep maintenance locks and temporary files alive until a worker stops.
-
-    Cancelling a to_thread await does not stop its OS thread. Delay cancellation
-    until the worker finishes, including when the request is cancelled again.
-    """
-    worker = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
-    try:
-        return await asyncio.shield(worker)
-    except asyncio.CancelledError:
-        while not worker.done():
-            try:
-                await asyncio.shield(worker)
-            except asyncio.CancelledError:
-                continue
-            except Exception:
-                break
-        if not worker.cancelled():
-            worker.exception()  # Retrieve failures even when the request has gone away.
-        raise
+def _missing() -> HTTPException:
+    return HTTPException(status_code=404, detail="Preset not found")
 
 
 @router.get("/api/presets")
 async def api_list_presets():
-    return await asyncio.to_thread(presets.list_library)
+    rows = await list_presets()
+    return {"presets": [{"id": row["id"], "name": row["name"]} for row in rows], "active_id": await get_active_preset_id()}
 
 
-@router.post("/api/presets/export")
-async def api_export_preset(data: PresetExportRequest):
-    async with maintenance_lock():
-        try:
-            name = await _finish_thread(presets.build_preset, data.domains, data.strip_keys, data.label)
-        except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"name": name}
+@router.post("/api/presets")
+async def api_create_preset(data: PresetCreate):
+    row = await presets.create_preset(data.name, data.copy_from)
+    if row is None:
+        raise _missing()
+    return {"id": row["id"], "name": row["name"]}
 
 
-@router.get("/api/presets/{name}/download")
-async def api_download_preset(name: str):
-    try:
-        path = await asyncio.to_thread(presets._library_path, name)
-    except presets.PresetError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return FileResponse(path, media_type="application/octet-stream", filename=name)
+@router.put("/api/presets/active")
+async def api_switch_preset(data: PresetActive):
+    """Switch presets; answers the settings row the switch left live."""
+    if not await presets.switch_preset(data.id):
+        raise _missing()
+    return public_settings(await get_settings())
 
 
-@router.post("/api/presets/import")
-async def api_import_preset(file: Annotated[UploadFile, File(...)]):
-    if not file.filename or not file.filename.lower().endswith(".db"):
-        raise HTTPException(status_code=400, detail="Only .db preset files are supported")
-    label = os.path.splitext(os.path.basename(file.filename))[0]
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp_path = tmp.name
-    try:
-        with open(tmp_path, "wb") as target:
-            while chunk := await file.read(1024 * 1024):
-                target.write(chunk)
-        async with maintenance_lock():
-            stored = await _finish_thread(presets.ingest_upload, tmp_path, label)
-    except presets.PresetError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-    return {"name": stored}
+@router.patch("/api/presets/{preset_id}")
+async def api_rename_preset(preset_id: str, data: PresetRename):
+    row = await presets.rename_preset(preset_id, data.name)
+    if row is None:
+        raise _missing()
+    return {"id": row["id"], "name": row["name"]}
 
 
-@router.post("/api/presets/{name}/apply")
-async def api_apply_preset(name: str):
-    async with dataset_maintenance(), maintenance_lock():
-        try:
-            path = presets._library_path(name)
-            backup = await _finish_thread(presets.create_snapshot, f"before applying {name}", path)
-            summary = await _finish_thread(presets.apply_preset, path)
-        except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-    # A preset can switch workflows on, and the GPU swap plan is off while they are off.
-    gpu_swap_host.invalidate()
-    return {"backup": backup, "summary": summary}
-
-
-@router.post("/api/presets/{name}/restore")
-async def api_restore_preset(name: str):
-    async with dataset_maintenance(), maintenance_lock():
-        try:
-            path = presets._library_path(name)
-            meta = presets.read_meta(path) or {}
-            full = set(meta.get("included_domains") or presets.ALL_DOMAINS) >= set(presets.ALL_DOMAINS)
-            backup = await _finish_thread(presets.create_snapshot, "before restore", None if full else path)
-            if full:
-                await _finish_thread(presets.restore_full, name)
-                summary = None
-            else:
-                summary = await _finish_thread(presets.restore_partial, path)
-        except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-    gpu_swap_host.invalidate()
-    return {"backup": backup, "ok": True, "summary": summary}
-
-
-@router.delete("/api/presets/{name}")
-async def api_delete_preset(name: str):
-    try:
-        await asyncio.to_thread(presets.delete_library_entry, name)
-    except presets.PresetError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return {"ok": True}
+@router.delete("/api/presets/{preset_id}")
+async def api_delete_preset(preset_id: str):
+    """Delete a preset; answers the settings row, which changes when the active preset was deleted."""
+    if not await presets.delete_preset(preset_id):
+        raise _missing()
+    return public_settings(await get_settings())

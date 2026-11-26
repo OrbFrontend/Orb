@@ -85,12 +85,12 @@ async def test_cluster_resolution_rolls_back_if_a_later_member_fails(client, mon
 
 async def test_restore_refuses_admitted_write_and_old_epoch_cannot_save(client, monkeypatch):
     from backend.api.routes import documents
-    from backend.features.presets import ALL_DOMAINS
+    from backend.features.backups import ALL_DOMAINS
 
     doc = await client.post_json("/api/documents", json={})
     path = f"/api/documents/{doc['id']}"
     epoch = (await client.get(path)).headers["X-Orb-Epoch"]
-    name = (await client.post_json("/api/presets/export", json={"domains": list(ALL_DOMAINS)}))["name"]
+    name = (await client.post_json("/api/backups/export", json={"domains": list(ALL_DOMAINS)}))["name"]
     entered, release = asyncio.Event(), asyncio.Event()
     original = documents.get_document
 
@@ -104,10 +104,10 @@ async def test_restore_refuses_admitted_write_and_old_epoch_cannot_save(client, 
         client.put(path, headers={"X-Orb-Epoch": epoch}, json={"content": "saved", "expected_revision": 0})
     )
     await entered.wait()
-    assert (await client.post_json(f"/api/presets/{name}/restore", expected_status=409))["detail"]["work"]
+    assert (await client.post_json(f"/api/backups/{name}/restore", expected_status=409))["detail"]["work"]
     release.set()
     assert (await saving).status_code == 200
-    assert (await client.post_checked(f"/api/presets/{name}/restore")).headers["X-Orb-Epoch"] != epoch
+    assert (await client.post_checked(f"/api/backups/{name}/restore")).headers["X-Orb-Epoch"] != epoch
     stale = await client.put_json(
         path, headers={"X-Orb-Epoch": epoch}, json={"content": "late", "expected_revision": 0}, expected_status=409
     )

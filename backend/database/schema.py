@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS settings (
     -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- NULL reads as the seeded 'default' prompt layout.
-    active_prompt_layout_id TEXT DEFAULT NULL
+    -- NULL reads as the seeded 'default' preset.
+    active_preset_id TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -560,17 +560,27 @@ CREATE TABLE IF NOT EXISTS slop_mining_state (
     last_status TEXT NOT NULL DEFAULT ''
 );
 
--- Prompt layouts order the chat prompt's blocks around the history: 'prefix' blocks build the system message and any
--- pre-history messages, 'writer' blocks build the Writer's request. Marker rows (kind = a marker id) stand for built-in
--- sections and use the id '<layout_id>:<marker>'; custom rows carry their own text.
-CREATE TABLE IF NOT EXISTS prompt_layouts (
+-- Global presets: a named generation config plus the preset's prompt layout, its prompt_blocks rows. The settings, endpoints
+-- and fragment rows stay the live copy; switching captures them into the active preset and applies the next one. config is
+-- JSON (pipeline switches, fragment switches, agent_same_as_writer, the Judge model); the lane picks are foreign keys so a
+-- Backups merge renumbers them with the endpoints. NULL keeps that lane as it is on switch.
+CREATE TABLE IF NOT EXISTS presets (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    writer_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    writer_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
+    agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    agent_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
+    judge_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL
 );
 
+-- A preset's prompt layout orders the chat prompt's blocks around the history: 'prefix' blocks build the system message and
+-- any pre-history messages, 'writer' blocks build the Writer's request. Marker rows (kind = a marker id) stand for built-in
+-- sections and use the id '<layout_id>:<marker>'; custom rows carry their own text.
 CREATE TABLE IF NOT EXISTS prompt_blocks (
     id TEXT PRIMARY KEY,
-    layout_id TEXT NOT NULL REFERENCES prompt_layouts(id) ON DELETE CASCADE,
+    layout_id TEXT NOT NULL REFERENCES presets(id) ON DELETE CASCADE,
     kind TEXT NOT NULL,
     label TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',

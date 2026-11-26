@@ -68,13 +68,12 @@ body { --band-red:color-mix(in srgb, var(--sig) 30%, var(--bg-deep));
 .sidebar-header { background: var(--ink) !important; border-bottom: 4px solid var(--sig) !important; }
 .sidebar-header h1 { font-family: 'Exo 2',system-ui,sans-serif !important; font-weight: 700 !important;
   font-size: 22px !important; text-transform: uppercase; letter-spacing: .14em !important; color: var(--sig) !important; }
-.sidebar-header .subtitle { color: var(--muted-on-ink) !important; letter-spacing: .32em !important; }
 .sidebar-header .theme-label { color: var(--muted-on-ink) !important; letter-spacing: .2em !important; }
 .sidebar-header .theme-select { background: var(--ink-2) !important; border: 1px solid var(--ink-rule) !important;
   color: var(--paper-on-ink) !important; }
 .sidebar-header .theme-select:focus { border-color: var(--sig) !important; }
-.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn) { color: var(--muted-on-ink) !important; }
-.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--sig) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn, .preset-btn) { color: var(--muted-on-ink) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn, .preset-btn:not(:disabled)):hover { color: var(--sig) !important; }
 
 .sidebar-section { border-bottom: 1px solid var(--border) !important; }
 .sidebar-section-header { letter-spacing: .22em !important; color: var(--ink) !important; font-weight: 600 !important; }

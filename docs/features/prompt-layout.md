@@ -59,9 +59,9 @@ as system text after the chat on Anthropic; the reply then fails with the
 provider's reason. Assistant blocks at the very end start the reply, on
 providers that allow it.
 
-To use a different arrangement, create or copy a layout, or pick one from the
-list. The selected layout is the one chat uses.
+Each preset in the sidebar header has its own layout. To use a different
+arrangement, create or duplicate a preset there, or switch to another one.
 
 **This chat** in the character portrait shows how many tokens each switched-on
-block of the selected layout takes, in layout order, with Chat history between
+block of the active preset's layout takes, in layout order, with Chat history between
 them. A group shows its largest speaker.

@@ -12,8 +12,8 @@ from fastapi.staticfiles import StaticFiles
 
 from ..database import close_wal_anchor, current_db_path, init_db, open_wal_anchor
 from ..features import slop_suggestions
+from ..features.backups import schema_safety_problems as preset_schema_safety_problems
 from ..features.cards import http_session as card_http_session
-from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
 from .access_gate import AccessGateMiddleware

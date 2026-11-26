@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
 from ..core.prompt_layout import LayoutRegion, LayoutRole
@@ -541,8 +541,24 @@ class InteractiveFragmentRow(TypedDict):
     gate_replies: int
 
 
-class PromptLayoutRow(TypedDict):
-    """A row from ``prompt_layouts``."""
+class PresetLanes(TypedDict):
+    """A preset's lane picks, the ``presets`` foreign-key columns; None keeps that lane as it is on switch."""
+
+    writer_endpoint_id: int | None
+    writer_model_config_id: int | None
+    agent_endpoint_id: int | None
+    agent_model_config_id: int | None
+    judge_endpoint_id: int | None
+
+
+class PresetState(PresetLanes):
+    """What a preset holds, and what the live rows hold: ``config`` decoded, its shape ``features.presets.PresetConfig``."""
+
+    config: dict[str, Any]
+
+
+class PresetRow(PresetState):
+    """A row from ``presets``."""
 
     id: str
     name: str

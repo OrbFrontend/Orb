@@ -176,7 +176,7 @@ async def test_choices_override_defaults_copy_on_fork_and_survive_partial_preset
     assert source is not None
     fork = await fork_conversation(source, "Fork")
     assert (await client.get_json(f"/api/conversations/{fork}/worlds"))["world_ids"] == []
-    name = (await client.post_json("/api/presets/export", json={"domains": ["chats"]}))["name"]
+    name = (await client.post_json("/api/backups/export", json={"domains": ["chats"]}))["name"]
     await client.delete(f"/api/worlds/{global_world}")
-    await client.post_checked(f"/api/presets/{name}/apply")
+    await client.post_checked(f"/api/backups/{name}/apply")
     assert not await db.execute_fetchall("SELECT 1 FROM conversation_worlds WHERE world_id = ?", (global_world,))

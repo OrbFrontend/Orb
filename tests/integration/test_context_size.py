@@ -34,7 +34,7 @@ async def test_context_size_measures_each_layout_block_as_the_writer_receives_it
         },
     )
     cid = await client.create("/api/conversations", json={"character_card_id": card_id})
-    active_id = (await client.get_json("/api/prompt-layouts"))["active_id"]
+    active_id = (await client.get_json("/api/presets"))["active_id"]
     blocks = await client.get_json(f"/api/prompt-layouts/{active_id}/blocks")
     data = await client.get_json(f"/api/conversations/{cid}/context-size")
 

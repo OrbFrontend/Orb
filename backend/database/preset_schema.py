@@ -24,7 +24,7 @@ DOMAIN_ROOTS: dict[str, str] = {
     "settings": "configs",
     "endpoints": "configs",
     "user_personas": "configs",
-    "prompt_layouts": "configs",
+    "presets": "configs",
 }
 
 # Excluded tables whose rows an install derives from its own data and rebuilds on its own: the suggestion miner's output and

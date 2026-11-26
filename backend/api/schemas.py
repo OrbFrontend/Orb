@@ -250,16 +250,16 @@ class ModelConfigUpdate(_PartialUpdate):
         return v if v is None else _check_extra_body(v)
 
 
-class PromptLayoutCreate(BaseModel):
+class PresetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     copy_from: str | None = None
 
 
-class PromptLayoutRename(BaseModel):
+class PresetRename(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
-class PromptLayoutActive(BaseModel):
+class PresetActive(BaseModel):
     id: str
 
 

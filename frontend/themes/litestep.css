@@ -22,10 +22,10 @@ body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%
   letter-spacing: 0; text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important; }
 #chat-header, #chat-header .chat-title { color: #ffffff !important; }
 #chat-header .btn, #chat-header .burger-menu-item, #chat-header #mobile-sidebar-toggle,
-#sidebar-collapse-btn, #chat-header .sidebar-expand-btn { color: #d1e4fe !important; }
-:is(#sidebar-collapse-btn, #chat-header .sidebar-expand-btn):hover { color: #ffffff !important; }
+#sidebar-collapse-btn, #chat-header .sidebar-expand-btn, .preset-btn { color: #d1e4fe !important; }
+:is(#sidebar-collapse-btn, #chat-header .sidebar-expand-btn, .preset-btn:not(:disabled)):hover { color: #ffffff !important; }
 #chat-header .btn-accent, #chat-header .btn-active { color: #1a0c02 !important; }
-.sidebar-header .subtitle, .sidebar-header .theme-label { color: #d1e4fe !important; }
+.sidebar-header .theme-label { color: #d1e4fe !important; }
 .sidebar-section-header { color: #243142 !important; }
 .sidebar-section-header:hover { color: #1a1a1a !important; background: #c8ccd4 !important; }
 .btn { background: #d4d0c8 !important; border: 1px solid !important;

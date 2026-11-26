@@ -76,6 +76,17 @@ export async function persistSettings(patch, repaint = () => {}, wire = patch) {
   }
 }
 
+/**
+ * Run *request*, which answers with a full settings row the server changed by other means (a preset switch), and take that
+ * row. It runs in turn with this tab's saves: one still in flight answers first, so it cannot land after the new row.
+ */
+export async function acceptSettingsRow(request) {
+  return enqueue(async () => {
+    acceptRow(await request());
+    notify("settings", S.settings);
+  });
+}
+
 /** Change the local row without a save: a value another endpoint already stored, or an edit saved later. */
 export function applySettings(patch) {
   if (requests) {

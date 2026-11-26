@@ -18,7 +18,7 @@ import pytest
 
 from backend.database import schema
 from backend.database.schema import CREATE_TABLES_SQL
-from backend.features.presets import engine as presets
+from backend.features.backups import engine as presets
 
 _mig_0027 = importlib.import_module("backend.database.migrations.0027_rebuild_persona_lock_fks")
 
@@ -369,7 +369,7 @@ SIGNATURE_TABLES = frozenset(
         "mood_fragments",
         "interactive_fragments",
         "documents",
-        "prompt_layouts",
+        "presets",
         "prompt_blocks",
     }
 )
@@ -476,7 +476,7 @@ def _signature(path: str) -> dict:
             "fragments": q("SELECT id, label FROM mood_fragments"),
             "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
             "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
-            "prompt_layouts": q("SELECT id, name FROM prompt_layouts"),
+            "presets": q("SELECT id, name, config FROM presets"),
             "prompt_blocks": q(
                 "SELECT id, layout_id, kind, label, content, role, region, sort_order, enabled FROM prompt_blocks"
             ),
@@ -591,7 +591,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     name = (
         await client.post_json(
-            "/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": False, "label": "roundtrip"}
+            "/api/backups/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": False, "label": "roundtrip"}
         )
     )["name"]
     preset_path = presets._library_path(name)
@@ -793,7 +793,7 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
         seed.execute("UPDATE settings SET workflow_config = ?", (json.dumps(blob),))
         seed.commit()
 
-    name = (await client.post_json("/api/presets/export", json={"domains": ["characters"], "strip_keys": False}))["name"]
+    name = (await client.post_json("/api/backups/export", json={"domains": ["characters"], "strip_keys": False}))["name"]
     with closing(sqlite3.connect(presets._library_path(name))) as exported:
         stored = json.loads(exported.execute("SELECT workflow_config FROM settings WHERE id = 1").fetchone()[0])
 
@@ -873,13 +873,13 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
 
     # (a) every single domain that does NOT pull in configs -> nothing personal ships.
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
-        name = (await client.post_json("/api/presets/export", json={"domains": [domain], "strip_keys": False}))["name"]
+        name = (await client.post_json("/api/backups/export", json={"domains": [domain], "strip_keys": False}))["name"]
         blob = Path(presets._library_path(name)).read_bytes()
         leaked = [c.decode() for c in all_canaries if c in blob]
         assert leaked == [], (domain, leaked)
 
     # (b) full export with strip_keys -> only the credential sentinels must be gone.
-    name = (await client.post_json("/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True}))[
+    name = (await client.post_json("/api/backups/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True}))[
         "name"
     ]
     blob = Path(presets._library_path(name)).read_bytes()
@@ -894,5 +894,5 @@ async def test_persona_avatar_never_ships_without_the_configs_domain(client, db_
     )
 
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
-        name = (await client.post_json("/api/presets/export", json={"domains": [domain], "strip_keys": False}))["name"]
+        name = (await client.post_json("/api/backups/export", json={"domains": [domain], "strip_keys": False}))["name"]
         assert canary not in Path(presets._library_path(name)).read_bytes(), domain

@@ -110,16 +110,16 @@ async def test_repeated_wrong_passwords_lock_out_that_address_only(client, brows
 
 
 async def test_presets_never_carry_the_password_and_restore_keeps_the_live_one(client, db, db_path):
-    from backend.features.presets import ALL_DOMAINS
+    from backend.features.backups import ALL_DOMAINS
 
     await client.put_checked("/api/access/password", json={"password": "old"})
-    export = await client.post_json("/api/presets/export", json={"domains": list(ALL_DOMAINS), "strip_keys": False})
+    export = await client.post_json("/api/backups/export", json={"domains": list(ALL_DOMAINS), "strip_keys": False})
     with closing(sqlite3.connect(str(db_path.parent / "snapshots" / export["name"]))) as snapshot:
         assert snapshot.execute("SELECT COUNT(*) FROM access_password").fetchone()[0] == 0
 
     await client.put_checked("/api/access/password", json={"password": "new"})
     live_before = await db.one("SELECT password_hash FROM access_password")
-    await client.post_checked(f"/api/presets/{export['name']}/restore", json={})
+    await client.post_checked(f"/api/backups/{export['name']}/restore", json={})
 
     assert tuple(await db.one("SELECT password_hash FROM access_password")) == tuple(live_before)
 

@@ -96,7 +96,7 @@ function renderSettings() {
     ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
-      <button class="btn btn-block btn-sm" data-wf-action="presets:open">💾 Backup &amp; Presets</button>
+      <button class="btn btn-block btn-sm" data-wf-action="backups:open">💾 Backups</button>
     </div>
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);

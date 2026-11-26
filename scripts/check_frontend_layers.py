@@ -139,9 +139,11 @@ LAYERS = {
     "settings.js": 5,
     "settings_models.js": 5,
     "settings_personas.js": 5,
-    "presets.js": 5,
-    # The Prompt Layout sidebar section: the layout picker and its ordered blocks around the chat history.
+    "backups.js": 5,
+    # The Prompt Layout sidebar section: the active preset's ordered blocks around the chat history.
     "prompt_layout.js": 5,
+    # The sidebar header's global preset picker; re-runs the settings, Prompt Layout and fragment loaders after a switch.
+    "presets.js": 5,
     "state_panel.js": 5,
     "mobile.js": 5,
     "group_setup.js": 5,

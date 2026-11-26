@@ -1,17 +1,17 @@
-# Backups and Presets
+# Backups
 
 Orb stores characters, conversations, Worlds, fragments, the phrase bank,
-settings, and endpoints in one SQLite database. **Backup & Presets** saves this
-data as portable `.db` files.
+settings, and endpoints in one SQLite database. **Backups** saves this data as
+portable `.db` files.
 
-Open it from **Settings → 💾 Backup & Presets**.
+Open it from **Settings → 💾 Backups**.
 
-## Backups and presets
+## Full and partial backups
 
-Both are database snapshots stored in the same library:
+Every snapshot is stored in the same library:
 
-- A **backup** contains all domains and can restore the database to that state.
-- A **preset** contains selected domains and is useful for sharing or merging.
+- A **full backup** contains all domains and can restore the database to that state.
+- A **partial backup** contains selected domains and is useful for sharing or merging.
 
 Library entries have one of these labels:
 
@@ -64,5 +64,5 @@ older Orb snapshots to the current schema. Files from a newer Orb version are
 rejected until Orb is updated.
 
 Orb creates an automatic backup before **Apply** and **Restore**. If the result is
-wrong, restore the newest `auto` entry. For a partial preset, that backup may cover only
-the parts the preset can change. Orb keeps the 10 newest automatic backups.
+wrong, restore the newest `auto` entry. For a partial backup, that safety backup may
+cover only the parts the file can change. Orb keeps the 10 newest automatic backups.

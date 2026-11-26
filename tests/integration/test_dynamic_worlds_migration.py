@@ -19,7 +19,7 @@ import backend.api as api_module
 import backend.database.connection as db_connection
 from backend.database.migrations import MIGRATIONS
 from backend.database.schema import CREATE_TABLES_SQL
-from backend.features.presets import engine as presets
+from backend.features.backups import engine as presets
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0053_dynamic_worlds")
 

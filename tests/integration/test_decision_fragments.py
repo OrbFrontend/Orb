@@ -819,10 +819,10 @@ async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db
 
 async def test_a_preset_round_trips_a_decision_like_any_other_fragment(client, db):
     await _add_decision(client, enabled=True)
-    name = (await client.post_json("/api/presets/export", json={"domains": ["fragments"], "label": "shared"}))["name"]
+    name = (await client.post_json("/api/backups/export", json={"domains": ["fragments"], "label": "shared"}))["name"]
     await client.delete("/api/interactive-fragments/outcome")
 
-    assert (await client.post(f"/api/presets/{name}/apply")).status_code == 200
+    assert (await client.post(f"/api/backups/{name}/apply")).status_code == 200
 
     imported = next(f for f in await client.get_json("/api/interactive-fragments") if f["id"] == "outcome")
     assert imported["decision_instructions"] == DEFINITION["decision_instructions"]

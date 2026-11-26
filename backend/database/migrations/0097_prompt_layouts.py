@@ -38,6 +38,17 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
+    # 0101 renamed the layouts to presets: a schema that already has them needs only the column drops below.
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'presets'").fetchone():
+        _add_layouts(conn)
+    for table, column in _DROPPED:
+        if column in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")  # nosec B608 -- fixed identifiers
+    conn.commit()
+    print("[migrations] 0097: prompt layouts added; the system prompt is the default layout's Main prompt")
+
+
+def _add_layouts(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS prompt_layouts (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS prompt_blocks (
@@ -70,8 +81,3 @@ def migrate(conn: sqlite3.Connection) -> None:
                 for index, (key, kind, label, region, text) in enumerate(_BLOCKS)
             ],
         )
-    for table, column in _DROPPED:
-        if column in _columns(conn, table):
-            conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")  # nosec B608 -- fixed identifiers
-    conn.commit()
-    print("[migrations] 0097: prompt layouts added; the system prompt is the default layout's Main prompt")
