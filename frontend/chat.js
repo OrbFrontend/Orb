@@ -8,6 +8,7 @@ export {
 export { renderMessages } from "./chat_core.js";
 export {
   clearWorkflowPhase,
+  closeSidebarPortrait,
   loadWorkflowManifest,
   selectWorkflowPipelinePass,
   setWorkflowPhase,

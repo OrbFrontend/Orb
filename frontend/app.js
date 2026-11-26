@@ -3,6 +3,7 @@ import { onRefreshRequired, reloadPage } from "./api.js";
 import { initAssistant } from "./assistant_chat.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
+  closeSidebarPortrait,
   initAutoscroll,
   initChatKeyNav,
   initChatSwipeNav,
@@ -139,7 +140,7 @@ async function startupStep(what, load) {
 }
 
 async function initAll() {
-  initMobileUi({ closeBurger });
+  initMobileUi({ closeBurger, closeSidebarPortrait });
   setWorldProposalRefresh(refreshConversationMessages);
   initWorldProposalActions();
   initDocumentMode();

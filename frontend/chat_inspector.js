@@ -24,7 +24,7 @@ import {
   shownInjection,
   toolCallsHtml,
 } from "./message_inspector.js";
-import { revealSidebar, sidebarShown } from "./mobile.js";
+import { closeSidebarDrawer, revealSidebar, sidebarShown } from "./mobile.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { applySettings, persistSettings } from "./settings_store.js";
@@ -723,6 +723,7 @@ export async function togglePortrait() {
   if (!portrait || !img) return;
   if (!portrait.classList.contains("hidden")) {
     closePortrait();
+    closeSidebarDrawer();
     return;
   }
   const hasExpr = charactersView().find((c) => c.id === charId)?.has_expressions;
@@ -750,6 +751,14 @@ function closePortrait() {
   const restore = _restoreSidebar;
   _restoreSidebar = null;
   restore?.();
+}
+
+/** Swap the portrait back to the sidebar's own content, leaving the column open; false when it was not showing. */
+export function closeSidebarPortrait() {
+  if (_portraitHidden()) return false;
+  _restoreSidebar = null;
+  closePortrait();
+  return true;
 }
 
 // Collapsing the sidebar or closing its drawer takes the portrait with it.
