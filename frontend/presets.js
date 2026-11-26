@@ -1,9 +1,9 @@
-// The sidebar header's global preset picker. A preset is saved when it is left, so there is no Save: a switch, create or
-// delete answers the settings row now live, and the settings, Prompt Layout and fragment lists reload without a page reload.
+// The sidebar header's global preset picker; its dropdown also holds New, Copy, Rename and Delete. A preset is saved when
+// it is left, so there is no Save: a switch, create or delete answers the settings row now live, and the settings,
+// Prompt Layout and fragment lists reload without a page reload.
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { reloadDecisionConfig } from "./decisions.js";
-import { CLOSE_ICON, COPY_ICON, EDIT_ICON, PLUS_ICON } from "./icons.js";
 import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
 import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { loadPromptLayout } from "./prompt_layout.js";
@@ -23,21 +23,28 @@ export async function loadPresets() {
 
 const _active = () => _presets.find((p) => p.id === _activeId);
 
-function _button(action, icon, label, disabled = false) {
-  return `<button type="button" class="preset-btn" data-wf-action="preset:${action}" title="${label}" aria-label="${label}"${disabled ? " disabled" : ""}>${icon}</button>`;
-}
+// The picker lists the presets, then a separator and the actions on the active preset. An action entry opens its
+// dialog and the picker stays on the active preset.
+const _ACTIONS = [
+  ["new", "New…"],
+  ["duplicate", "Copy…"],
+  ["rename", "Rename…"],
+  ["delete", "Delete…"],
+];
 
 function render() {
-  const el = $("preset-bar");
+  const el = $("preset-select");
   if (!el) return;
   const options = _presets
     .map((p) => `<option value="${escAttr(p.id)}" ${p.id === _activeId ? "selected" : ""}>${esc(p.name)}</option>`)
     .join("");
-  el.innerHTML = `<select class="theme-select" aria-label="Preset" data-wf-action="preset:select" data-wf-on="change">${options}</select>
-    ${_button("new", PLUS_ICON, "New preset")}
-    ${_button("duplicate", COPY_ICON, "Duplicate preset")}
-    ${_button("rename", EDIT_ICON, "Rename preset")}
-    ${_button("delete", CLOSE_ICON, "Delete preset", _presets.length < 2)}`;
+  const actions = _ACTIONS
+    .map(
+      ([action, label]) =>
+        `<option data-action="${action}"${action === "delete" && _presets.length < 2 ? " disabled" : ""}>${label}</option>`,
+    )
+    .join("");
+  el.innerHTML = `${options}<hr>${actions}`;
 }
 
 // Runs *fn*, showing a refused request as a toast and putting the picker back on the active preset.
@@ -98,11 +105,22 @@ function deletePreset() {
   );
 }
 
-registerActions("preset", {
-  select: (el) => _attempt(() => switchTo(el.value)),
+const _actions = {
   new: () => nameModal("New Preset", "", "createNew"),
-  duplicate: () => nameModal("Duplicate Preset", `${_active()?.name || "Preset"} copy`, "createCopy"),
+  duplicate: () => nameModal("Copy Preset", `${_active()?.name || "Preset"} copy`, "createCopy"),
   rename: () => nameModal("Rename Preset", _active()?.name || "", "saveName"),
+  delete: () => deletePreset(),
+};
+
+function _select(el) {
+  const action = el.selectedOptions[0]?.dataset.action;
+  if (!action) return _attempt(() => switchTo(el.value));
+  el.value = _activeId;
+  _actions[action]();
+}
+
+registerActions("preset", {
+  select: _select,
   createNew: () => createPreset(null),
   createCopy: () => createPreset(_activeId),
   saveName: () =>
@@ -110,5 +128,4 @@ registerActions("preset", {
       await api.patch(`/presets/${encodeURIComponent(_activeId)}`, { name });
       await loadPresets();
     }),
-  delete: () => deletePreset(),
 });

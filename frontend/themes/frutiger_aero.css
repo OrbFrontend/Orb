@@ -66,8 +66,7 @@ body { background: #62c1ec var(--aero-wall) center / cover no-repeat !important;
   border-bottom: 1px solid var(--aero-edge-soft) !important;
   box-shadow: var(--aero-lip), 0 1px 0 rgba(255,255,255,0.7) !important; }
 .sidebar-header h1 { color: #0b74bd !important; text-shadow: 0 1px 0 #ffffff, 0 0 6px rgba(255,255,255,0.9) !important; }
-.theme-label, .preset-btn { color: var(--text-secondary) !important; }
-.preset-btn:hover:not(:disabled) { color: var(--text-primary) !important; }
+.theme-label { color: var(--text-secondary) !important; }
 .sidebar-section { border-bottom: 1px solid var(--aero-edge-soft) !important;
   box-shadow: 0 1px 0 rgba(255,255,255,0.7) !important; }
 

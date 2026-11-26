@@ -72,8 +72,8 @@ body { --band-red:color-mix(in srgb, var(--sig) 30%, var(--bg-deep));
 .sidebar-header .theme-select { background: var(--ink-2) !important; border: 1px solid var(--ink-rule) !important;
   color: var(--paper-on-ink) !important; }
 .sidebar-header .theme-select:focus { border-color: var(--sig) !important; }
-.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn, .preset-btn) { color: var(--muted-on-ink) !important; }
-.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn, .preset-btn:not(:disabled)):hover { color: var(--sig) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn) { color: var(--muted-on-ink) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--sig) !important; }
 
 .sidebar-section { border-bottom: 1px solid var(--border) !important; }
 .sidebar-section-header { letter-spacing: .22em !important; color: var(--ink) !important; font-weight: 600 !important; }
