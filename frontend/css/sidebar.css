@@ -1,11 +1,12 @@
-/* Boxes (the theme select here, buttons, inputs, rows and lanes below) keep an 8px gutter, the same as the gap
-   between stacked items. Text and glyphs sit on a 16px line: the section names, the collapse and section chevrons, and
-   the content 8px inside each row. The header is tighter: 12px above the title's capitals, below them and below the
-   pickers. The buttons beside the title take no height of their own so the row is exactly the cap height. */
-.sidebar-header { padding: 12px 8px 12px 16px; border-bottom: 1px solid var(--border); }
+/* Boxes (buttons, inputs, rows and lanes below) keep an 8px gutter, the same as the gap between stacked items. Text and
+   glyphs sit on a 16px line: the section names, the collapse and section chevrons, and the content 8px inside each row.
+   The header keeps an even 12px on every side, measured to the ink: the title row's emoji rises 3px above the capitals
+   and the collapse button's icon box reaches the right edge. The buttons beside the title take no height of their own. */
+.sidebar-header { padding: 15px 12px 12px; border-bottom: 1px solid var(--border); }
 .sidebar-header-top { margin-bottom: 12px; }
 .sidebar-header-top .title-row { display: flex; align-items: center; gap: 6px; }
 .sidebar-header-top .title-row > button { margin-block: -4px; }
+.sidebar-header #sidebar-collapse-btn { margin-right: -4px; }
 .sidebar-header h1 { font-family: var(--font-prose); font-size: 18px; font-weight: 600; color: var(--accent);
   letter-spacing: .5px; text-box: trim-both cap alphabetic; }
 /* The theme and preset pickers share one label column, so both selects start at the same x. */
