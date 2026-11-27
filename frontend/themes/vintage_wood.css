@@ -39,13 +39,14 @@ body { background: var(--vw-desk) !important; }
 .ui-panel, #main, #document-main { background: var(--vw-board) !important; border: none !important; }
 #chat-messages, #chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
 @media (min-width: 901px) {
-  #app { padding: 6px; gap: 0; }
-  #sidebar { margin-right: 6px; }
-  .ui-dock.open { margin-left: 6px; }
-  #sidebar, .ui-dock.open, #main, #document-main { position: relative; border-radius: 12px; overflow: clip; }
-  /* The frame lies above the sticky headers, so a scrolled list never breaks it. */
-  #sidebar::after, .ui-dock.open::after, #main::after, #document-main::after { content: ""; position: absolute;
-    inset: 5px; border: 1.5px solid var(--vw-frame); border-radius: 8px; pointer-events: none; z-index: 5; }
+  /* The frame is each board's real border, so scrolled content clips at the line instead of running past it; the
+     5px rim outside the line is an outline in the board's colour. Outlines take no room, so the gaps add both rims. */
+  #app { padding: 11px; gap: 0; }
+  #sidebar { margin-right: 16px; }
+  .ui-dock.open { margin-left: 16px; }
+  #sidebar, .ui-dock.open, #main, #document-main { position: relative; overflow: clip; border-radius: 8px;
+    border: 1.5px solid var(--vw-frame) !important; outline: 5px solid var(--vw-board); outline-offset: 0; }
+  #app.sidebar-collapsed #sidebar { outline: none; }
   /* No !important: the audio player reserves its room with an inline padding-bottom. */
   body #chat-messages { padding: 4px 10px 4px; }
   #chat-messages { margin-inline: 6px; }
@@ -199,9 +200,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 /* ── Overlays: a board laid over the others ── */
 
 .modal-overlay { background: rgba(12,7,5,0.7) !important; }
-/* Modals scroll themselves, so their frame is the edge: an inset one would have content sliding across it. */
+/* Same inset frame as the boards: the line is the border, so scrolled content clips there; the rim is an outline. */
 .modal, .modal-crop { background: var(--vw-board) !important; border: 1.5px solid var(--vw-frame) !important;
-  border-radius: 12px !important; }
+  border-radius: 8px !important; outline: 5px solid var(--vw-board); outline-offset: 0; }
 .modal h2, .modal h3 { font-family: var(--font-display) !important; font-weight: 700 !important; color: var(--vw-stamp) !important; }
 .modal > h2 { font-size: 20px !important; line-height: 1.2; text-transform: uppercase; letter-spacing: .14em;
   border-bottom: none !important; padding-bottom: 20px !important;
