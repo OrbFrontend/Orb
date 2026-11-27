@@ -161,7 +161,7 @@ def build_writer_tools_blob(
 
     Include all defined fragments so enablement never changes the cached blob. Properties expose names/types only; trailing
     requests supply enabled fragment text and narrow the live call. *judged_between* says a defined decision between
-    Director fragments reads the plan so far, which splits the combined Director call around its Judge point.
+    Director fragments can route guidance to the Director, so the combined call may fill only one segment.
     """
     enabled_tools = dict(enabled_tools)
     agent_on = agent_enabled(settings)

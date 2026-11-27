@@ -7,6 +7,7 @@ from typing import Any
 
 from ....prompting.tool_catalog import get_tool, require_tool
 from .._prompting import REASONING_GUIDANCE, field_hint, tool_call_instruction
+from ..judge import PlacedQuestion
 
 DIRECTOR_PREAMBLE = (
     "[OOC: Pause to direct the scene. Use tool calls to accomplish your task "
@@ -42,7 +43,7 @@ def build_director_tool_prompt(
     elsewhere_fields: Sequence[str] = (),
     decided_fields: Sequence[tuple[str, Any]] = (),
     fills_moods: bool = True,
-    judged_next: Sequence[str] = (),
+    questions: Sequence[PlacedQuestion] = (),
 ) -> str:
     """Build the combined Director request for one tool.
 
@@ -52,7 +53,7 @@ def build_director_tool_prompt(
 
     A turn with a Judge point between Director fragments directs the scene in several requests: *elsewhere_fields* are the
     live fields another of them fills, *decided_fields* what the earlier ones decided, and only the last fills moods.
-    *judged_next* are the Questions the Judge answers right after this request.
+    *questions* are the visible decisions for this request.
     """
     tool = get_tool(tool_name)
     if not tool:
@@ -82,7 +83,7 @@ def build_director_tool_prompt(
             parts.append(f"Interactive fields filled in another request this turn (leave empty): {', '.join(elsewhere_fields)}")
         if decided := _decided_block(decided_fields):
             parts.append(decided)
-        if upcoming := _judged_next_block(judged_next):
+        if upcoming := question_block(questions):
             parts.append(upcoming)
         if fills_moods:
             parts.append(_moods_options_block(active_moods, mood_fragments, resting))
@@ -101,15 +102,14 @@ def _decided_block(decided_fields: Sequence[tuple[str, Any]]) -> str:
     return "Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior) if prior else ""
 
 
-def _judged_next_block(questions: Sequence[str]) -> str:
-    """The Questions a Judge point answers from what this request decides, so the plan leaves them to it."""
-    if not questions:
-        return ""
-    listed = "\n".join(f"- {question}" for question in questions)
-    return (
-        "After this, the Judge answers the following from the plan so far, and later steps follow its answer. "
-        f"Leave room for any answer:\n{listed}"
-    )
+def question_block(questions: Sequence[PlacedQuestion]) -> str:
+    recipients = {
+        "writer": "The Writer follows its answer.",
+        "director": "Later Director steps follow its answer.",
+        "both": "Later Director steps and the Writer follow its answer.",
+    }
+    lines = [f"- {q.text} {recipients[q.inject]}" for q in questions if q.text]
+    return "Leave room for the Judge's answers to these questions:\n" + "\n".join(lines) if lines else ""
 
 
 def ruling_entry(label: str, guidance: str, *, overrides: bool = True) -> tuple[str, str]:
@@ -143,13 +143,12 @@ def build_director_scene_step_prompt(
     resting: frozenset[str] = frozenset(),
     value_fields: Sequence[Mapping[str, Any]] = (),
     value_priors: Mapping[str, Any] | None = None,
-    judged_next: Sequence[str] = (),
+    questions: Sequence[PlacedQuestion] = (),
 ) -> str:
     """Build one ``direct_scene`` request targeting a single output.
 
     The last request, with no *target_fragment*, fills the moods and the one-value state *value_fields*, each shown its
-    saved value from *value_priors*, so they are set with the whole scene in view. *judged_next* are the Questions the Judge
-    answers right after a fragment's request.
+    saved value from *value_priors*, so they are set with the whole scene in view. *questions* are the visible decisions for this request.
     """
     schema = tool_schema if tool_schema is not None else require_tool("direct_scene")["schema"]
     description = schema["function"]["description"]
@@ -180,8 +179,8 @@ def build_director_scene_step_prompt(
             parts.append(cast_instruction)
         if decided := _decided_block(decided_fields):
             parts.append(decided)
-        if upcoming := _judged_next_block(judged_next):
-            parts.append(upcoming)
+    if upcoming := question_block(questions):
+        parts.append(upcoming)
 
     parts.append(f'User\'s next message (context):\n"""{user_message}"""')
     return "\n\n".join(parts) + "]"

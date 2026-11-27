@@ -3,8 +3,8 @@
 from .authoring import connection_test, definition_problems
 from .cooldown import branch_baseline as decision_cooldown_baseline
 from .guidance import decision_lines
-from .judge import DecisionCandidate, InvalidDecision, JudgeConfig, JudgeResult, JudgeTurn, judge_pass
-from .points import CLOSING, OPENING, JudgePlan, JudgePoint, judge_points
+from .judge import DecisionCandidate, InvalidDecision, JudgeConfig, JudgeResult, JudgeTurn, PlacedQuestion, judge_pass
+from .points import CLOSING, OPENING, JudgePlan, JudgePoint, judge_points, recorded_point
 from .records import (
     EVALUATIONS_VERSION,
     envelope,

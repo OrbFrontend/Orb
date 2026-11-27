@@ -350,6 +350,7 @@ def turn_tools(ctx: PipelineContext, settings: Settings) -> tuple[dict[str, bool
     # Builds direct_scene plus the fragment-driven Editor and state tools from every defined fragment; must be called once so
     # all passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
     defined = ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments
+    defined_plan = judge_points(defined, ctx.fragment_sources)
     overrides, enabled_tools = build_writer_tools_blob(
         settings,
         defined,
@@ -358,8 +359,10 @@ def turn_tools(ctx: PipelineContext, settings: Settings) -> tuple[dict[str, bool
         agentic_lorebook=agent_enabled(settings) and bool(settings.get("agentic_lorebook_enabled", 0)),
         dynamic_world=bool(_proposal_world_ids(ctx, settings)),
         grouped=ctx.cast.grouped,
-        # Read over every defined row, so enabling or disabling a waiting decision never rewrites the blob.
-        judged_between=bool(judge_points(defined, ctx.fragment_sources).waits_after),
+        # Only authoring changes can alter whether the shared schema needs to support segments.
+        judged_between=any(
+            defined_plan.point_of(row["id"]).kind == "middle" and row.get("decision_inject") != "writer" for row in defined
+        ),
     )
     return enabled_tools, MappingProxyType(overrides)
 

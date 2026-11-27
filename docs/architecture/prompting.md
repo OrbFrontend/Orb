@@ -131,8 +131,9 @@ The Director stage hands the Writer `scene_guidance` and the state block.
 Writer-routed ruling at its fragment's place. The before-Writer state step and
 the closing Judge point read the same body with the Director-routed rulings
 instead. The Inspector's injection block and the state step see it under the
-fixed `**Scene Guidance**` heading. The Director's own steps read every ruling,
-the opening point's first, in their decided lists (see [KV cache](kv-cache.md)).
+fixed `**Scene Guidance**` heading. Each Director request reads the rulings
+routed to it above its fields in run order. Questions below those fields and opening Writer-only Questions also
+ride its trailing request (see [KV cache](kv-cache.md)).
 
 Lore reaches the layout the same way: `constant_lore`, `selected_lore` and
 `depth_lore` carry entry lines only, authored and Agent-managed entries in one

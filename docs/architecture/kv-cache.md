@@ -155,14 +155,12 @@ enabled or not, because upstreams that decode against the tool schema follow it
 and ignore a "Required:" line in the trailing request; a disabled required field
 is filled and dropped. Per-fragment Director mode leaves `required` empty, since
 each step fills one field, and so does a defined decision between two Director
-fragments whose Situation reads `{{scene_guidance}}`, since the combined call
-then splits into one call per segment and
-the first would otherwise be forced to fill the second's required fields before
-the ruling exists. Each segment's `json_schema` carries its own `required`, and
-its trailing request names them. Middle-ness is read over the defined rows, so
-enabling or disabling a decision never rewrites the blob; adding, deleting, or
-moving one into or out of the middle, or making its Situation start or stop
-reading the plan, rewrites it once, as an authoring change.
+fragments with Director or Both injection. A combined call can then split,
+and the first segment would otherwise be forced to fill the second segment’s
+required fields before it sees the ruling. Each segment's `json_schema` carries its own `required`, and
+its trailing request names them. Placement is read over all defined rows, so
+enabling or disabling a decision preserves the blob. Adding, moving or removing
+a middle decision, or editing its Inject setting, can change requiredness.
 `give_feedback` and `update_state` carry no
 `required`, and `give_feedback` joins the list once any feedback fragment is
 defined. A fragment-built property carries its
@@ -316,20 +314,21 @@ Every Director-routed ruling, the opening point's included, goes only in the
 decided-so-far list, in run order: the opening point's head it, ahead of the
 first fragment's value. The list sits after the per-step `Fill ONLY` line, the
 first byte where the steps already differ, so rulings add no divergence on any
-provider or lane. The step ahead of a point names that point's Questions in the
-same place, after its `Fill ONLY` line. Closing outcomes, like every
-Writer-bound line, stay in the Writer request below the layout divider.
+provider or lane. Each request names all eligible Questions still below the
+fields it fills, including closing Questions, and any opening Writer-only Questions. These
+also ride the trailing request. Closing outcomes and other Writer-bound lines
+enter the Writer request below the layout divider.
 
-In combined mode a waiting middle point splits `direct_scene` into one call per
-segment, each narrowed by its per-call `json_schema` to its own fields, the
-last one adding moods, the speaking plan and the one-value state fields. Each
-extra segment re-reads its tail: lorebook, state, attachments. On llama.cpp
-SWA/hybrid models a request resumes at its message start, so that is the whole
-tail. Only setups with a waiting middle point pay it; a ruling settled with the
-opening point joins the decided list of the call holding the fragments below
-its place, with no split. One-value state fields always
-ride the Director's last call, so in per-fragment mode they cost no step of
-their own; their lines sit after that call's `Fill ONLY` line.
+In combined mode, a middle place splits `direct_scene` only when it has
+Director-routed guidance, or a pending decision there may produce it. A known
+skip or an already-settled empty outcome adds no boundary. A waiting Writer-only
+decision reads a snapshot through its anchor after the containing call. Each
+segment has a per-call `json_schema` for its fields. The last also fills moods,
+the speaking plan and one-value state. Each extra segment re-reads its tail,
+including lorebook, state and attachments. On llama.cpp SWA/hybrid models a
+request resumes at its message start, so that is the whole tail. Individual
+processing already separates the fields. Its one-value state fields ride the
+final moods call.
 
 The gaps are only free while the Judge holds its own memory. If the Judge model
 shares a GPU with the chat model through a swapper that keeps one model loaded,

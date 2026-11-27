@@ -7,9 +7,9 @@ outcome's guidance to the passes its **Inject** setting names, at its place in
 the list.
 
 Decisions next to each other, with no Director fragment between them, are
-asked together and run independently: each sees the turn's situation, not
-another's result. Orb batches questions with the same rendered situation when
-limits allow; separate batches run at the same time. If one question depends on
+independent. Decisions asked at the same point read the same plan, and their
+guidance appears in list order. Orb batches questions with the same rendered
+situation when limits allow. Separate batches run at the same time. If one question depends on
 another's answer, combine them into a single choice or score decision, or put a
 Director fragment between them.
 
@@ -65,8 +65,8 @@ Empty guidance means that outcome adds no instructions.
 ## Order
 
 Decisions and Director fragments share one list in the Library, **Judge &
-Director**, and it runs top to bottom. Drag a decision to choose when the Judge
-asks it. A new decision starts above the Director fragments.
+Director**, and it runs top to bottom. Drag a decision to choose where its
+outcome takes effect. A new decision starts above the Director fragments.
 
 | Where the decision sits | `{{scene_guidance}}` reads | Inject **Director** reaches |
 |---|---|---|
@@ -77,35 +77,45 @@ asks it. A new decision starts above the Director fragments.
 Inject **Writer** reaches the Writer from any place. Below every Director
 fragment, **Both** reaches the Writer only.
 
-A decision between two Director fragments judges what the Director has decided
-so far, and the fragments below build on its outcome. For example, put
-**Attack** first, then a decision "Does the attack land?" whose Situation reads
-`{{scene_guidance}}`, then **Consequence**. The Director plans the attack, the
-Judge rules, and the Director writes the consequence knowing the attack missed.
-The Director's request just before the decision shows its **Question**, so the
-plan leaves room for whatever the Judge answers. Its `{{state}}` is still the
-state the turn starts from.
+For example, place **Attack**, then “Does the attack land?”, then
+**Consequence**. With **Inject Both**, the Director sees the Question while
+planning the attack. If the Judge rules that the attack misses, the Director
+plans the consequence with that ruling, and the Writer follows it. This order
+holds even if the Judge could answer before the Director started.
 
-A decision below every Director fragment judges the finished plan, after the
-before-Writer state updates. The Writer reads its outcome after the plan, so
-write guidance that settles it ("Whatever the plan says, the lunge misses.").
+Every Director request shows the Questions of eligible decisions still below
+the fields it plans, including decisions below the last fragment. Each Question
+says who follows the answer. The moods and one-value state step and the
+before-Writer state update see the closing Questions too. A decision set to
+**Writer** shows its Question throughout planning, wherever it sits, because
+its answer never reaches the Director. A Question the Judge was asked but could
+not answer, such as one that timed out, is not shown.
 
-The Writer reads **Scene guidance** in the same order as the list: mood prompts
-first, then each Director value and each decision's outcome at its place. A
-decision above every Director fragment comes before the plan; one between
-**Attack** and **Consequence** comes between them.
+Between two fragments, a Situation that reads `{{scene_guidance}}` waits for
+the fields and Director rulings above its place. At the close, a Situation
+that reads `{{scene_guidance}}` or `{{state}}` waits for the finished plan and
+the before-Writer state updates. Other
+decisions can be asked at the start of the turn and share a Judge request when
+their Situations match.
 
-A decision waits for its place only when its Situation reads something that
-changes there: `{{scene_guidance}}` between Director fragments, and
-`{{scene_guidance}}` or `{{state}}` below them. Any other decision is asked at
-the start of the turn, in the same Judge request as the decisions above the
-Director when their Situations match, and its outcome still reaches only what
-its place reaches. The Director never stops for it. Each place where a decision
-waits costs one Judge request, one after another.
+With **Individual fragment processing** off, a middle place adds one Director
+call when a ruling there can guide the fragments below. If the Judge already
+answered, only nonempty Director guidance causes a split. If the Judge needs
+the plan to answer, the split costs one extra Director call plus a near-instant
+Judge request. Decisions at the same place share the split. A Writer-only
+decision can wait until the combined call returns and still judge exactly the
+plan through its place, at the cost of the Judge request alone. Individual
+processing already has a call boundary after each fragment.
 
-If the Director fragment just above a waiting decision gives no value this
-turn, because it rests or its request failed, the decision is skipped without
-asking the Judge.
+A known skip, such as a resting decision, costs neither call. If the fragment
+above a waiting **middle** decision gives no value, the Judge request is
+skipped. A Director call already made to fill that fragment still counts.
+Closing decisions read the finished plan even if the last fragment gave no value.
+
+The Writer reads mood prompts first, then opening rulings, then Director values
+and middle rulings, and finally closing rulings. Each group keeps list order.
+A card's opening decision therefore comes before the global Director values,
+and a global closing decision comes after the card's values.
 
 The list marks a decision its place makes skip with **!**.
 
@@ -128,9 +138,11 @@ Inspector reports why.
 | **Writer** | The Writer, in Scene guidance at the decision's place |
 | **Both** | Both of the above (the default) |
 
-A decision always injects somewhere, so there is no Off setting. With
-**Writer**, the Director plans the scene without knowing the outcome; with
-**Director**, the Writer sees only the direction the Director wrote around it.
+Every decision has an Inject destination. With **Writer**, the Director can
+plan around the Question while the answer
+stays with the Writer. With **Director**, the Writer sees the direction the
+Director wrote around the ruling. At a middle place with several rulings,
+later Director steps and the Writer read their respective rulings in list order.
 
 The Director reads decisions only when the Agent and the **Direction** tool are on.
 Otherwise a **Director** decision is skipped without asking the Judge, and the

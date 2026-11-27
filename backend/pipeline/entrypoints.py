@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .. import database as db
@@ -177,7 +177,7 @@ async def _run_judge(
 
 
 async def _first_judge_pass(
-    ctx: PipelineContext, freeze: Callable[[], JudgeTurn]
+    ctx: PipelineContext, freeze: Callable[[], JudgeTurn], committed: JudgeResult | None
 ) -> AsyncIterator[CoreTurnEvent | JudgeTurn | JudgeResult]:
     """Freeze the turn's decisions, yield them for the later Judge points, then run the opening one.
 
@@ -185,6 +185,12 @@ async def _first_judge_pass(
     """
     turn = freeze()
     yield turn
+    if committed is not None:
+        result = committed.restricted_to(turn.plan.by_decision.keys())
+        if result.evaluations or result.skipped:
+            yield {"event": "decisions", "data": result.as_event_data()}
+        yield result
+        return
     async for ev in _run_judge(ctx, turn.opening()):
         yield ev
 
@@ -197,22 +203,27 @@ def _director_judge(ctx: PipelineContext, opened: _OpenedTurn) -> DirectorJudge 
     judged again: a Director run over it gets its middle rulings at their places instead.
     """
     turn, opening, macros = opened.judge_turn, opened.judge, opened.setup.macros
-    if opening is None:
-        return None
-    if turn is None:
-        committed = opening.rulings_after()
-
-        async def replay(state: TurnState, after: str, plan_so_far: str, filled: bool) -> AsyncIterator[Any]:
-            yield tuple(committed.get(after, ()))
-
-        return DirectorJudge(between=frozenset(committed), middle=replay) if committed else None
     if not turn.director_runs:
         return None
-    ids = [candidate.definition.fragment_id for candidate in turn.candidates]
-    between = frozenset(place.after for fid in ids if (place := turn.plan.point_of(fid)).kind == "middle")
-    waits = frozenset(asked.after for fid in ids if (asked := turn.plan.asked_at(fid)).kind == "middle")
-    closes = any(turn.plan.asked_at(fid) == CLOSING for fid in ids)
-    if not between and not closes:
+    order = list(turn.plan.by_decision)
+    previews = opening.questions(turn)
+    if not opening.inherited:
+        resting = cooldown.blocked(ctx.director.get("fragment_cooldowns") or {})
+        updates = (*ctx.state_contract.director_values(), *ctx.state_contract.before_writer_tool())
+        previews.update(turn.waiting_questions(resting, state_may_change=any(field.id not in resting for field in updates)))
+    questions = tuple(previews[fid] for fid in order if fid in previews)
+    splits = frozenset(q.point.after for q in questions if q.splits)
+    if opening.inherited:
+        settled = opening.rulings_after(order)
+
+        async def replay(state: TurnState, after: str, plan_so_far: str, filled: bool) -> AsyncIterator[Any]:
+            yield tuple(settled.get(after, ()))
+
+        return DirectorJudge(between=splits, splits=splits, questions=questions, middle=replay)
+    turn = replace(turn, previewed_questions=previews)
+    between = turn.plan.waits_after | splits
+    closes = CLOSING in turn.plan.asked.values()
+    if not between and not closes and not questions:
         return None
     result = opening
 
@@ -231,10 +242,12 @@ def _director_judge(ctx: PipelineContext, opened: _OpenedTurn) -> DirectorJudge 
                 yield ev
 
     async def middle(state: TurnState, after: str, plan_so_far: str, filled: bool) -> AsyncIterator[Any]:
-        async for ev in ask(state, JudgePoint("middle", after), plan_so_far, None, plan_missing=not filled):
+        async for ev in ask(
+            state, JudgePoint("middle", after), macros.resolve_prompt(plan_so_far), None, plan_missing=not filled
+        ):
             yield ev
         # Every ruling at this place, whether the Judge was asked here or with the opening point.
-        yield tuple(result.rulings_after().get(after, ()))
+        yield tuple(result.rulings_after(order).get(after, ()))
 
     async def closing(state: TurnState, plan: str) -> AsyncIterator[CoreTurnEvent]:
         judged_state = _judge_state(ctx, macros, state.state_view, prior=state.state_prior)
@@ -243,8 +256,8 @@ def _director_judge(ctx: PipelineContext, opened: _OpenedTurn) -> DirectorJudge 
 
     return DirectorJudge(
         between=between,
-        waits=waits,
-        questions={after: turn.questions_at(JudgePoint("middle", after)) for after in waits},
+        splits=splits,
+        questions=questions,
         middle=middle,
         closing=closing if closes else None,
     )
@@ -332,9 +345,8 @@ class _OpenedTurn:
     """What :func:`_open_turn` settled: the frozen per-turn context and the decisions."""
 
     setup: TurnSetup
-    judge: JudgeResult | None
-    # The decisions this turn judged afresh, for the later Judge points; None when it reuses a committed result.
-    judge_turn: JudgeTurn | None = None
+    judge: JudgeResult
+    judge_turn: JudgeTurn
 
 
 async def _open_turn(
@@ -371,40 +383,34 @@ async def _open_turn(
             yield ev
     assert setup is not None
 
-    judge = committed
+    judge: JudgeResult | None = None
     judge_turn: JudgeTurn | None = None
-    if judge is not None:
-        judge = judge.restricted_to(
-            {candidate.definition.fragment_id for candidate in ctx.decision_candidates}
-            | {broken.fragment_id for broken in ctx.invalid_decisions}
-        )
-        if judge.evaluations or judge.skipped:
-            yield {"event": "decisions", "data": judge.as_event_data()}
-    else:
-        async for ev in staged(
-            STAGE_JUDGE,
-            _first_judge_pass(
+    async for ev in staged(
+        STAGE_JUDGE,
+        _first_judge_pass(
+            ctx,
+            lambda: _judge_turn(
                 ctx,
-                lambda: _judge_turn(
-                    ctx,
-                    history=decision_history,
-                    current_request=decision_request,
-                    macros=setup.macros,
-                    anchor_message_id=decision_anchor,
-                    # The same test the Director stage makes before it runs.
-                    director_runs=agent_enabled(settings)
-                    and any(setup.merged_enabled_tools.get(name, False) for name in DIRECTOR_LOOP_TOOL_NAMES),
-                ),
+                history=decision_history,
+                current_request=decision_request,
+                macros=setup.macros,
+                anchor_message_id=decision_anchor,
+                # The same test the Director stage makes before it runs.
+                director_runs=agent_enabled(settings)
+                and any(setup.merged_enabled_tools.get(name, False) for name in DIRECTOR_LOOP_TOOL_NAMES),
             ),
-        ):
-            if isinstance(ev, JudgeTurn):
-                judge_turn = ev
-            elif isinstance(ev, JudgeResult):
-                judge = ev
-            else:
-                yield ev
+            committed,
+        ),
+    ):
+        if isinstance(ev, JudgeTurn):
+            judge_turn = ev
+        elif isinstance(ev, JudgeResult):
+            judge = ev
+        else:
+            yield ev
     if ctx.client.is_aborted:
         return
+    assert judge is not None and judge_turn is not None
     yield _OpenedTurn(setup, judge, judge_turn)
 
 
@@ -564,8 +570,7 @@ async def _generate_group_exchange(
         schema_overrides=setup.schema_overrides,
     )
     shared = open_turn_state(ctx.director, setup.macros.at("user_message").resolve_message(user_message))
-    if opened.judge is not None:
-        opened.judge.apply_to(shared)
+    opened.judge.apply_to(shared, list(opened.judge_turn.plan.by_decision))
 
     # One Director stage for the whole exchange, including its before-Writer state changes: they ride the exchange's first
     # reply, the row `consume_pipeline` anchors them to, and every speaker writes with the resulting state.

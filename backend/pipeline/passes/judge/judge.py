@@ -30,7 +30,7 @@ from ....inference import (
 )
 from ...events import DecisionsData
 from . import cooldown
-from .points import CLOSING, OPENING, JudgePlan, JudgePoint, point_name
+from .points import CLOSING, OPENING, JudgePlan, JudgePoint, point_name, recorded_point
 from .records import (
     envelope,
     invalidated_anchor,
@@ -119,13 +119,21 @@ def _rulings(rows: Sequence[Mapping[str, Any]]) -> list[tuple[str, str]]:
     return [
         (str(row.get("injection_label") or row.get("fragment_label") or row["fragment_id"]), guidance)
         for row in rows
-        if (guidance := str(row.get("guidance") or "").strip()) and row.get("inject") in ("director", "both")
+        if (guidance := str(row.get("guidance") or "").strip()) and row.get("inject", "both") in ("director", "both")
     ]
 
 
-def _placed_at_opening(row: Mapping[str, Any]) -> bool:
-    """Whether evaluation *row*'s decision sits ahead of the Director fragments; a record from before points were kept does."""
-    return "point_label" not in row and row.get("point", "opening") == "opening"
+@dataclass(frozen=True, slots=True)
+class PlacedQuestion:
+    point: JudgePoint
+    text: str
+    inject: str
+    # For a pending decision, any possible nonempty guidance; for a settled one, its actual guidance.
+    has_guidance: bool
+
+    @property
+    def splits(self) -> bool:
+        return self.point.kind == "middle" and self.inject in ("director", "both") and self.has_guidance
 
 
 def _source(card_id: str | None) -> str:
@@ -165,6 +173,8 @@ class JudgeTurn:
     point: JudgePoint = OPENING
     # A middle point whose Director fragment above gave no value: its decisions read a plan that is not there.
     plan_missing: bool = False
+    # Later Judge passes ask the exact Question already shown to the Director, including its clock macros.
+    previewed_questions: Mapping[str, PlacedQuestion] = field(default_factory=dict)
 
     def snapshot_for(self, candidate: DecisionCandidate) -> DecisionSnapshot:
         return self.card_snapshots.get(candidate.card_id or "", self.snapshot)
@@ -204,29 +214,33 @@ class JudgeTurn:
             card_snapshots={key: seen(snapshot) for key, snapshot in self.card_snapshots.items()},
         )
 
-    def questions_at(self, point: JudgePoint) -> tuple[str, ...]:
-        """The Questions the Judge asks at *point*, rendered as it will render them, for the Director steps ahead of it.
-
-        Empty when the Judge would not ask them: it is not configured, the Director does not run, or a decision rests or has
-        a definition that cannot run.
-        """
+    def waiting_questions(self, resting_fields: Collection[str], *, state_may_change: bool) -> dict[str, PlacedQuestion]:
+        """Preview pending questions with the same admission checks as the Judge, before the plan and closing state exist."""
+        questions: dict[str, PlacedQuestion] = {}
         if not self.config.configured or not self.director_runs:
-            return ()
-        resting = cooldown.blocked(self.prior_cooldowns)
-        questions: list[str] = []
-        for candidate in self.candidates:
+            return questions
+        running, _ = _eligible(self)
+        over = _over_budget(running)
+        for candidate in running:
             definition = candidate.definition
-            if self.plan.asked_at(definition.fragment_id) != point or definition.fragment_id in resting:
+            fid = definition.fragment_id
+            point = self.plan.asked_at(fid)
+            if point == OPENING or (point.kind == "middle" and point.after in resting_fields):
                 continue
-            if definition_macro_errors(definition):
-                continue
-            try:
-                question = _render_text(definition, self.snapshot_for(candidate), definition.instructions, "instructions")
-            except UnavailableMacro:
-                continue
-            if question.strip():
-                questions.append(question.strip())
-        return tuple(questions)
+            # The later plan (and at closing, state) can supply input even when the opening snapshot is empty.
+            snapshot = self.snapshot_for(candidate)
+            preview = replace(
+                snapshot, scene_guidance="?", state="?" if point == CLOSING and state_may_change else snapshot.state
+            )
+            item = _prepare(candidate, self, over_budget=fid in over, snapshot=preview)
+            if not item.skip_reason and item.question:
+                questions[fid] = PlacedQuestion(
+                    point,
+                    item.question.instructions,
+                    self.inject_of(definition),
+                    any(text.strip() for text in item.outputs.values()),
+                )
+        return questions
 
     def place_of(self, definition: DecisionDefinition) -> JudgePoint:
         """Where *definition* sits in this turn's run; without a Director every decision runs at the opening point."""
@@ -277,18 +291,41 @@ class JudgeResult:
             requests=self.requests + later.requests,
         )
 
-    def opening_rulings(self) -> list[tuple[str, str]]:
-        """The opening point's Director-routed outcomes, which head the Director's plan ahead of its first fragment."""
-        return _rulings([row for row in self.evaluations if _placed_at_opening(row)])
+    def _ordered_evaluations(self, fragment_order: Sequence[str]) -> list[dict[str, Any]]:
+        if not fragment_order:
+            return self.evaluations
+        by_id = {row["fragment_id"]: row for row in self.evaluations}
+        return [by_id[fid] for fid in fragment_order if fid in by_id]
 
-    def rulings_after(self) -> dict[str, list[tuple[str, str]]]:
+    def opening_rulings(self, fragment_order: Sequence[str] = ()) -> list[tuple[str, str]]:
+        """The opening point's Director-routed outcomes, which head the Director's plan ahead of its first fragment."""
+        return _rulings([row for row in self._ordered_evaluations(fragment_order) if recorded_point(row) == OPENING])
+
+    def rulings_after(self, fragment_order: Sequence[str] = ()) -> dict[str, list[tuple[str, str]]]:
         """Each middle point's Director-routed outcomes, by the Director fragment it follows: what the Director steps below
         that fragment build on, whenever the Judge was asked."""
         middle: dict[str, list[dict[str, Any]]] = {}
-        for row in self.evaluations:
+        for row in self._ordered_evaluations(fragment_order):
             if "point_label" in row:
                 middle.setdefault(str(row["point"]), []).append(row)
         return {after: rulings for after, rows in middle.items() if (rulings := _rulings(rows))}
+
+    def questions(self, turn: JudgeTurn) -> dict[str, PlacedQuestion]:
+        """Questions already answered; older records can lack the rendered instructions. One asked without a usable answer
+        is left out, so the Director is never told to wait for an answer that will not come."""
+        candidates = {c.definition.fragment_id: c for c in turn.candidates}
+        questions = {}
+        for row in self.evaluations:
+            fid = row["fragment_id"]
+            candidate = candidates.get(fid)
+            text = row.get("rendered_instructions")
+            if text is None and candidate is not None:
+                definition = candidate.definition
+                text = _render_text(definition, turn.snapshot_for(candidate), definition.instructions, "instructions")
+            point = recorded_point(row) if "point" in row or "outcome" in row else turn.plan.point_of(fid)
+            inject = row.get("inject") or (turn.inject_of(candidate.definition) if candidate else "both")
+            questions[fid] = PlacedQuestion(point, text or "", inject, bool(str(row.get("guidance") or "").strip()))
+        return questions
 
     def as_event_data(self) -> DecisionsData:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
@@ -297,11 +334,11 @@ class JudgeResult:
             data["inherited"] = 1
         return data
 
-    def apply_to(self, state: TurnState) -> None:
+    def apply_to(self, state: TurnState, fragment_order: Sequence[str] = ()) -> None:
         """Carry the result on *state* so persistence commits it in the reply's own INSERT."""
         state.decision_evaluations = envelope(self.evaluations, self.skipped)
         state.decision_cooldowns = dict(self.cooldowns)
-        state.director_opening_rulings = self.opening_rulings()
+        state.director_opening_rulings = self.opening_rulings(fragment_order)
 
 
 @dataclass(slots=True)
@@ -381,9 +418,11 @@ def _over_budget(running: Sequence[DecisionCandidate]) -> set[str]:
     return over
 
 
-def _prepare(candidate: DecisionCandidate, turn: JudgeTurn, *, over_budget: bool) -> _Item:
+def _prepare(
+    candidate: DecisionCandidate, turn: JudgeTurn, *, over_budget: bool, snapshot: DecisionSnapshot | None = None
+) -> _Item:
     item = _Item(candidate, resolution_policy_fingerprint(candidate.definition, scope=turn.snapshot.scope))
-    item.skip_reason = _render_question(item, turn, over_budget=over_budget)
+    item.skip_reason = _render_question(item, turn, snapshot or turn.snapshot_for(candidate), over_budget=over_budget)
     return item
 
 
@@ -398,9 +437,9 @@ def _render_text(definition: DecisionDefinition, snapshot: DecisionSnapshot, val
     )
 
 
-def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
+def _render_question(item: _Item, turn: JudgeTurn, snapshot: DecisionSnapshot, *, over_budget: bool) -> str:
     """Render *item*'s request, or return why it cannot be asked."""
-    definition, snapshot = item.definition, turn.snapshot_for(item.candidate)
+    definition = item.definition
     if definition_macro_errors(definition):
         return SkipReason.INVALID_DEFINITION
 
@@ -424,7 +463,8 @@ def _render_question(item: _Item, turn: JudgeTurn, *, over_budget: bool) -> str:
             seed=state_seed,
             pick_seed=snapshot.pick_seed(None, "state"),
         )
-        instructions = text(definition.instructions, "instructions")
+        preview = turn.previewed_questions.get(definition.fragment_id)
+        instructions = preview.text if preview is not None else text(definition.instructions, "instructions")
         if isinstance(definition.criteria, Mapping):
             criteria: Mapping[str, str] | tuple[str, ...] = {
                 key: text(value, f"criteria:{key}") for key, value in definition.criteria.items()

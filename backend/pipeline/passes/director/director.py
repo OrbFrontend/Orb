@@ -40,11 +40,11 @@ from ...events import CoreTurnEvent, StateData
 from ...failures import STAGE_DIRECTOR, step_failure_warning
 from ...timing import latency_event, timed_events
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
-from ..judge import decision_lines, stored_evaluations
+from ..judge import CLOSING, OPENING, PlacedQuestion, decision_lines, recorded_point, stored_evaluations
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
-from .prompts import build_director_scene_step_prompt, build_director_tool_prompt, ruling_entry
+from .prompts import build_director_scene_step_prompt, build_director_tool_prompt, question_block, ruling_entry
 
 if TYPE_CHECKING:
     from ....core import Macros
@@ -59,19 +59,26 @@ AfterDirector = Callable[["TurnState", str], AsyncIterator[CoreTurnEvent]]
 
 @dataclass(frozen=True, slots=True)
 class DirectorJudge:
-    """The Judge points inside the Director stage, supplied by the caller so the Director never imports the Judge.
-
-    *middle* runs the point after a Director fragment in *between*, given the plan so far and whether that fragment gave a
-    value: it yields its events, then one tuple of (label, guidance) rulings for later steps. Only a point in *waits* asks
-    the Judge there, and *questions* are what it asks, by the fragment it follows. *closing* runs after the before-Writer
-    state step, reading the finished plan.
-    """
+    """Middle callbacks run after their anchor, including skips. Only places in *splits* need separate Director calls."""
 
     between: frozenset[str] = frozenset()
-    waits: frozenset[str] = frozenset()
-    questions: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    splits: frozenset[str] = frozenset()
+    questions: tuple[PlacedQuestion, ...] = ()
     middle: Callable[[TurnState, str, str, bool], AsyncIterator[Any]] | None = None
     closing: AfterDirector | None = None
+
+    def visible_questions(self, passed: Collection[str] = (), *, finished: bool = False) -> list[PlacedQuestion]:
+        """The Questions a Director request sees: those still below it, and every Writer-only one, whose answer never
+        reaches the Director, so the Question is all it has to plan around."""
+        return [
+            *(q for q in self.questions if q.point == OPENING and q.inject == "writer"),
+            *(
+                q
+                for q in self.questions
+                if q.point.kind == "middle" and (q.inject == "writer" or (not finished and q.point.after not in passed))
+            ),
+            *(q for q in self.questions if q.point == CLOSING),
+        ]
 
 
 # The speaking plan is a director output like any interactive fragment, but it is owned by the group driver rather than by a
@@ -357,6 +364,7 @@ async def director_pass(
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
+    macros: Macros,
     attachments: Sequence[Mapping[str, Any]] | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
@@ -412,13 +420,16 @@ async def director_pass(
     scene_rows = [fragment for fragment in interactive_fragments if fragment.get("field_type") != STATE_FIELD_TYPE]
     riding_rows = [fragment for fragment in interactive_fragments if fragment.get("field_type") == STATE_FIELD_TYPE]
     riding = [fragment for fragment in riding_rows if fragment["id"] not in resting]
-    middle = judge if judge is not None and run_middle is not None else DirectorJudge()
-    between, waits, questions = middle.between, middle.waits, middle.questions
+    points = judge or DirectorJudge()
+    passed: set[str] = set()
     plan = _PlanSoFar()
     # The opening point's rulings stand ahead of the first Director fragment, so they open the plan every step and Judge
     # point reads, the way a later ruling joins it at its fragment's place.
     plan.add_rulings(opening_rulings)
     call_params = {**extract_hyperparams(settings, lane="agent"), **reasoning_cfg(reasoning_on, reasoning_prefill)}
+
+    def rolled(values: Mapping[str, Any]) -> dict[str, Any]:
+        return {fid: _resolve_random_in_value(value, macros, f"director:{fid}") for fid, value in values.items()}
 
     t0 = time.monotonic()
     for name in tool_names:
@@ -456,7 +467,7 @@ async def director_pass(
                         resting=resting,
                         value_fields=riding if stage is None else (),
                         value_priors=progressive_state,
-                        judged_next=questions.get(stage["id"], ()) if stage is not None else (),
+                        questions=points.visible_questions(passed),
                     )
                     step_tail = lorebook_prefix + notes_prefix + step_tail
                     content = build_multimodal_content(step_tail, attachments)
@@ -494,30 +505,26 @@ async def director_pass(
                         if stage is None:
                             # Reuse the shared unpacker so moods behave exactly as in the combined call.
                             active_moods, values = apply_tool_calls(parsed, active_moods, mood_ids)
-                            extra_fields.update(values)
+                            extra_fields.update(rolled(values))
                         else:
                             args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
                             val = args.get(stage["id"])
                             if keeps_director_value(stage["id"], val):
+                                val = _resolve_random_in_value(val, macros, f"director:{stage['id']}")
                                 extra_fields[stage["id"]] = val
                             plan.add_field(stage, val)
-                if run_middle is not None and stage is not None and stage["id"] in between and not client.is_aborted:
-                    async for event in _ask_judge(run_middle, stage["id"], plan, filled=stage["id"] in extra_fields):
+                if stage is not None:
+                    passed.add(stage["id"])
+                if run_middle is not None and stage is not None and stage["id"] in points.between and not client.is_aborted:
+                    async for event in _ask_judge(run_middle, stage["id"], plan, filled=bool(extra_fields.get(stage["id"]))):
                         yield event
             continue
-        # One call per segment: the Director fragments between two Judge points that wait for the plan, so a ruling reaches
-        # the fragments after it. Without one that is one call. The last one also fills moods, the speaking plan and the
-        # one-value state fields. A ruling settled with the opening point needs no split: it joins the call holding the
-        # fragments below its place.
-        segments = _segments(scene_rows, waits) if name == "direct_scene" else [[]]
+        # An answer for later Director fields requires a boundary. Writer-only waits can read the same
+        # snapshot after a combined call, as its values are added to the plan in fragment order.
+        segments = _segments(scene_rows, points.splits) if name == "direct_scene" else [[]]
         for index, segment in enumerate(segments):
             if client.is_aborted:
                 break
-            if run_middle is not None:
-                for fragment in segment:
-                    if fragment["id"] in between and fragment["id"] not in waits:
-                        async for event in _ask_judge(run_middle, fragment["id"], plan):
-                            yield event
             last = index == len(segments) - 1
             live_rows = [*(fragment for fragment in segment if fragment["id"] not in resting), *(riding if last else [])]
             if live_rows or last:
@@ -556,7 +563,7 @@ async def director_pass(
                     elsewhere_fields=elsewhere,
                     decided_fields=plan.decided,
                     fills_moods=last,
-                    judged_next=questions.get(segment[-1]["id"], ()) if segment and not last else (),
+                    questions=points.visible_questions(passed),
                 )
                 tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
                 content = build_multimodal_content(tail, attachments)
@@ -588,20 +595,20 @@ async def director_pass(
                 ):
                     yield event
                 last_raw = call.raw or last_raw
-                new_extra: dict = {}
                 if parsed := call.parsed:
                     all_calls.extend(parsed)
                     moods, new_extra = apply_tool_calls(parsed, active_moods, mood_ids)
                     if last:
                         active_moods = moods
-                    extra_fields.update(new_extra)
-                for fragment in segment:
-                    if fragment["id"] not in resting:
-                        plan.add_field(fragment, new_extra.get(fragment["id"]))
-            if run_middle is not None and not last and segment and not client.is_aborted:
-                after = segment[-1]["id"]
-                async for event in _ask_judge(run_middle, after, plan, filled=after in extra_fields):
-                    yield event
+                    extra_fields.update(rolled(new_extra))
+            for fragment in segment:
+                fid = fragment["id"]
+                passed.add(fid)
+                if fid not in resting:
+                    plan.add_field(fragment, extra_fields.get(fid))
+                if run_middle is not None and fid in points.between and not client.is_aborted:
+                    async for event in _ask_judge(run_middle, fid, plan, filled=bool(extra_fields.get(fid))):
+                        yield event
 
     yield {
         "type": "done",
@@ -704,6 +711,7 @@ async def director_stage(
             mood_fragments,
             direct_scene_fragments,
             cfg.active_tools,
+            macros=macros,
             attachments=attachments,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
@@ -792,11 +800,6 @@ async def director_stage(
     if direct_scene_enabled:
         renderable = set(state.active_moods) | set(director["active_moods"])
         inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
-        # Interactive values the director authored this turn roll fresh (per emission, not per conversation); resolving before
-        # they become state changes keeps the saved value consistent with the injected text.
-        state.extra_fields = {
-            fid: _resolve_random_in_value(val, macros, f"director:{fid}") for fid, val in state.extra_fields.items()
-        }
 
     # The Director's one-value state fields become validated state changes. An omitted or empty field keeps its value; a value
     # of the wrong shape is rejected and reported rather than coerced.
@@ -825,15 +828,20 @@ async def director_stage(
 
     def guidance_body(target: Literal["director", "writer"], *, moods: bool = True) -> str:
         """The Scene Guidance body as *target* reads it: the plan with the rulings routed to it, each at its place."""
+        evaluations = stored_evaluations(state.decision_evaluations)
+        phase = {OPENING: -1, CLOSING: 1}
+        ranks = {row["fragment_id"]: phase.get(recorded_point(row), 0) for row in evaluations}
+        # Stable within each place: opening decisions across all sources, fields and middle decisions, then closing.
+        ordered = sorted(guidance_fragments, key=lambda row: ranks.get(row["id"], 0))
         return macros.at("scene_guidance").resolve_message(
             compute_style_injection_block(
                 state.active_moods if moods else [],
                 prior_moods if moods else [],
                 inj_mood_fragments if moods else [],
-                guidance_fragments,
+                ordered,
                 direct_scene_enabled,
                 scene_extra,
-                decision_lines(stored_evaluations(state.decision_evaluations), target),
+                decision_lines(evaluations, target),
             )
         )
 
@@ -845,6 +853,7 @@ async def director_stage(
     before_writer = [fragment for fragment in state_contract.before_writer_tool() if fragment.id not in resting]
     if before_writer and direct_scene_enabled and not cfg.agent_lane.client.is_aborted:
         yield {"event": "step_start", "data": {"step": "state"}}
+        questions = question_block(judge.visible_questions(finished=True)) if judge else ""
         async for event in state_step(
             cfg.agent_lane.client,
             cfg.agent_lane.base,
@@ -853,7 +862,7 @@ async def director_stage(
             view=view,
             placement="before_writer",
             known_ids=offered_state_ids(cfg.agent_lane.base),
-            scene_direction=headed_scene_guidance(plan),
+            scene_direction="\n\n".join(part for part in (headed_scene_guidance(plan), questions) if part),
             user_message=state.user_message,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,

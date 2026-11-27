@@ -62,17 +62,26 @@ Writer. Describe the value you want and include examples when useful.
 
 Fragment text supports [macros](macros.md). A random macro in mood prompt text
 rolls once per conversation. A random macro emitted in a Director value rolls on
-each turn; a `pick` there stays fixed for that field. Put a macro in single backticks when you want the Director to see it as
-literal text.
+emission, and the Judge, later Director steps and the Writer all read that roll.
+A `pick` there stays fixed for that field. Put a macro in single backticks
+when you want the Director to see it as literal text.
 
-Fragments run from top to bottom within their stage. Earlier Director values can
-provide context for later values, and the Writer sees them in the same order,
-each decision's outcome at its place among them.
-Decisions share the Director's list, **Judge & Director**, and a decision
-between two Director fragments rules on the values above it before the Director
-fills the ones below. With **Individual fragment processing** off, the Director
-fills its fragments in one request per stretch between decisions that read its
-plan.
+The **Judge & Director** list runs top to bottom. Each Director request sees
+the Questions of eligible decisions below the fields it fills, and the guidance
+from **Director** or **Both** decisions above them, in order. The Director also
+sees every **Writer** Question, wherever it sits. Only the Writer receives
+Writer-only answers.
+The final moods and one-value state request and the before-Writer state update
+both see closing Questions.
+
+With **Individual fragment processing** off, the Director can fill several
+fields in one call. Each middle place where a Director ruling can affect later
+fields costs one extra Director call. An answer settled at the start only
+splits the call if it has guidance. A decision waiting for the plan adds a
+near-instant Judge request when asked. Writer-only waits read the fields
+through their place from the same combined call. Known skips add no call.
+Individual processing already gives each field its own call.
+
 Recast and rewrite fragments run afterward as Editor tasks and do not enter the
 Director schema or Scene Guidance.
 

@@ -50,7 +50,7 @@ class JudgePlan:
 
     @property
     def waits_after(self) -> frozenset[str]:
-        """The Director fragments the Director stops after, for a decision that reads the plan so far."""
+        """Director fragments with a middle Judge pass to settle, including skips."""
         return frozenset(point.after for point in self.asked.values() if point.kind == "middle")
 
 
@@ -95,6 +95,13 @@ def judge_points(rows: Sequence[Mapping[str, Any]], sources: Mapping[str, str] |
             reads = set(macros_used(str(row.get("decision_state_template") or "")))
             asked[str(row["id"])] = point if reads & _WAITS_FOR[point.kind] else OPENING
     return JudgePlan(by_decision, labels, asked)
+
+
+def recorded_point(row: Mapping[str, Any]) -> JudgePoint:
+    """Stored place, including legacy opening records and middle anchors named 'opening' or 'closing'."""
+    if "point_label" in row:
+        return JudgePoint("middle", str(row["point"]))
+    return CLOSING if row.get("point") == "closing" else OPENING
 
 
 def point_name(point: JudgePoint) -> str:
