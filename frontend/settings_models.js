@@ -242,7 +242,7 @@ export function renderEndpoints() {
         : ""
     }
     <div class="ep-chat-only">
-      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Agent</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+      <div class="tools-divider"><span>Agent</span></div>
       <div class="tool-card" style="margin-bottom:12px">
         <div class="tool-card-header">
           <span class="tool-card-name">Same as Writer</span>
@@ -334,7 +334,7 @@ function _judgeLaneHtml() {
   const endpoint = _judgeEndpoint();
   return `
     <div class="ep-chat-only" id="judge-lane">
-      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Judge</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+      <div class="tools-divider"><span>Judge</span></div>
       <div class="judge-note">
         Handles decision fragments.
       </div>

@@ -12,6 +12,7 @@ input[type="range"]::-moz-range-track { height: 6px; background: var(--bg-elevat
 .tools-divider:first-child { margin-top: 4px; }
 .tools-divider::before, .tools-divider::after { content: ""; flex: 1; height: 1px; background: var(--accent-dim); }
 .tools-divider span { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-dim); }
+.phrase-bank-foot { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
 .tool-card { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 8px;
   background: var(--bg-surface); transition: border-color .15s; }
 .tool-card.tool-on { border-color: var(--accent-dim); background: var(--accent-glow); }

@@ -112,3 +112,19 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 .plan-pill.active, .cast-row-summary-badge, .cast-manage-badge, .lb-tab-badge, .world-pending { color: #ffffff !important; }
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
+:is(.tools-divider, .frag-divider, .asst-sep, .pl-divider-rule)::before,
+:is(.tools-divider, .frag-divider, .asst-sep, .pl-divider-rule)::after { height: 0 !important; background: none !important;
+  border-top: 1px solid #808080 !important; border-bottom: 1px solid #f4f2ee !important; }
+.tools-divider span { color: #243142 !important; }
+:is(.ep-group, .ml-variants, .phrase-bank-foot, .asst-suggest-foot, .asst-request-foot, .asst-options-label, .group-danger,
+  .lib-manager-run, .lib-dupe-group, .lib-dupe-compare, .lb-entry-list-footer, .lb-editor-actions, #doc-footer,
+  .cb-option + .cb-status) {
+  border-top: 1px solid #808080 !important; box-shadow: inset 0 1px 0 #f4f2ee !important; }
+:is(.audit-types, .sidebar-portrait-head, .sidebar-portrait-title, .modal-title-row, .modal-heading,
+  .ce-script-toolbar, .group-speaking-plan, .lb-header, .lb-world-header, .lb-entry-search, .lb-editor-header,
+  .lb-editor-keywords, .lb-dynamic-row, .lb-layer-banner, #doc-header, #doc-help) {
+  border-bottom: 1px solid #808080 !important; box-shadow: 0 1px 0 #f4f2ee !important; }
+.sidebar-section { border-bottom: none !important; }
+.sidebar-section-header, .sidebar-section-header.stuck {
+  box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #808080 !important; }
+.message .msg-body hr { border-top: 1px solid #808080 !important; border-bottom: 1px solid #f4f2ee !important; }

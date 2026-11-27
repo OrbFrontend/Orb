@@ -64,8 +64,7 @@ export async function loadSettings() {
   updateUserBtn();
 }
 
-const divider = (label) =>
-  `<div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">${label}</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>`;
+const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
 
 function toggleCard(on, name, inputAttrs, body, cardAttrs = "", labelAttrs = "") {
   return `<div class="tool-card ${on ? "tool-on" : ""}"${cardAttrs}>
@@ -590,7 +589,6 @@ export function renderToolsPanel() {
     `<div class="tool-card-desc">Reigns the final response length by word count. MAX PARAGRAPHS is suggested to the Writer in rewrite pass.</div>${lgConfig}`,
   );
 
-  const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
   $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);
   $("tools-list").innerHTML =
     divider("Director") +
