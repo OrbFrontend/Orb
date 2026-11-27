@@ -1,3 +1,18 @@
+// Mirror analysis/text/lexical.py so summary edits use the same count as Length Guard.
+const CJK_UNITS = /[ぁ-ゖァ-ヺー-ヿ㐀-䶿一-鿿豈-﫿\u{20000}-\u{3134f}]/gu;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Python str.split() also treats U+001C through U+001F as whitespace.
+const WORD_RUNS = /[^\p{White_Space}\u001c-\u001f]+/gu;
+
+export function countWords(text) {
+  let total = 0;
+  for (const [run] of text.matchAll(WORD_RUNS)) {
+    const cjk = run.match(CJK_UNITS)?.length || 0;
+    total += cjk;
+    if (!cjk || /[\p{L}\p{N}]/u.test(run.replace(CJK_UNITS, ""))) total++;
+  }
+  return total;
+}
+
 const TERMINATORS = new Set([...".!?…。！？؟۔｡．।॥"]);
 const TIGHT_TERMINATORS = new Set([..."…。！？؟۔｡．।॥"]);
 const TRAILING_MARKERS = new Set([..."'»›」』*_)]}>”’“‘\""]);

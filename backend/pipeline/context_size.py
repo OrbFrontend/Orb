@@ -16,7 +16,7 @@ from ..prompting import (
     macro_identity,
     persona_macros,
     render_history,
-    render_state_block,
+    render_state_body,
     resolve_mood_fragment_randoms,
 )
 from ..prompting.layout import PrefixInputs, WriterInputs, prefix_block_texts, writer_block_texts
@@ -91,7 +91,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     current_state = ""
     writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
     if writer_state:
-        state_block = render_state_block(writer_state, await db.fold_path_state(cid, [m["id"] for m in messages]))
+        state_block = render_state_body(writer_state, await db.fold_path_state(cid, [m["id"] for m in messages]))
         current_state = macros.at("state").resolve_message(state_block) if state_block else ""
 
     # The Writer's lorebook block as the turn builds it; with agentic lorebook on, the part known before the Director picks.

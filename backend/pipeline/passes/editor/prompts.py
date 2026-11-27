@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
@@ -47,7 +48,9 @@ REWRITE_RULES = (
     "- Output only the reply itself, with no notes or commentary about the rewrite.\n"
 )
 
-DRAFT_BOUND_WORDS = 5
+_EXCERPT_CHARS = 48
+_EXCERPT_WORDS = 5
+_EXCERPT = re.compile(rf"\S+(?:\s+\S+){{0,{_EXCERPT_WORDS - 1}}}")
 
 SUBJECT_FIXATION_INSTRUCTION = (
     "Cut or supplant the monotonous subjects below from your single most recent reply's narration with small edits; "
@@ -121,12 +124,15 @@ def build_feedback_prompt(
     return "\n\n".join(parts) + "]"
 
 
-def draft_bounds(draft: str, words: int = DRAFT_BOUND_WORDS) -> str:
-    """Quote where *draft* starts and ends, eliding the middle when it is longer than both ends."""
-    tokens = draft.split()
-    if len(tokens) <= 2 * words:
-        return f"`{' '.join(tokens)}`"
-    return f"`{' '.join(tokens[:words])}...{' '.join(tokens[-words:])}`"
+def draft_bounds(draft: str) -> str:
+    """Quote exact source excerpts, bounded even when the draft has no word separators."""
+    text = draft.strip()
+    if len(text) <= 2 * _EXCERPT_CHARS and len(text.split()) <= 2 * _EXCERPT_WORDS:
+        return f"`{text}`"
+    head = _EXCERPT.match(text[:_EXCERPT_CHARS])
+    tail = _EXCERPT.match(text[-_EXCERPT_CHARS:][::-1])
+    assert head and tail  # Both windows start at a non-whitespace edge.
+    return f"`{head[0]}...{text[-tail.end() :]}`"
 
 
 def _fragment_prompt(preamble: str, rules: str, task: Mapping[str, Any], *, draft: str, reasoning_on: bool) -> str:

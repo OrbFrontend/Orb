@@ -112,7 +112,7 @@ that produces it still runs, and the Inspector still shows its output.
 The engine places its remaining Writer lines itself rather than as blocks. The
 group speaker frame opens the Writer request and the "write as" line closes it,
 both as user text.
-The state block, under `**Current State**`, follows `scene_guidance` and leaves
+State follows the rendered `scene_guidance` template with each fragment’s own heading. It leaves
 with it when `scene_guidance` is switched off. The tool notice, the Length Guard
 nudge and the group speaker's cue, in that order, lead `user_message`; with
 `user_message` switched off they still go, as user text just before the "write

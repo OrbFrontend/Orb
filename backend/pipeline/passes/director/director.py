@@ -29,7 +29,7 @@ from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_call
 from ....prompting import (
     compute_style_injection_block,
     headed_scene_guidance,
-    render_state_block,
+    render_state_body,
     resolve_mood_fragment_randoms,
     scene_field_text,
 )
@@ -688,7 +688,7 @@ async def director_stage(
         for fragment in state_contract.director_values()
         if view.active(fragment.id)
     }
-    director_block = render_state_block(
+    director_block = render_state_body(
         [fragment for fragment in state_contract.to_director() if fragment.id not in updating_ids], view
     )
     director_block = macros.at("director_state").resolve_message(director_block) if director_block else ""
@@ -885,7 +885,7 @@ async def director_stage(
     # The Writer's state block rides its Scene Direction whenever a fragment injects into the Writer -- independent of
     # direct_scene and of whether updates are on -- and includes this turn's before-Writer changes, a changed one-value field
     # rendering as ``old -> new``.
-    writer_block = render_state_block(state_contract.to_writer(), view, prior=state.state_prior)
+    writer_block = render_state_body(state_contract.to_writer(), view, prior=state.state_prior)
     state_text = macros.at("state").resolve_message(writer_block) if writer_block else ""
     state.writer_state_block = state_text
 

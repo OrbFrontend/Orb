@@ -2,6 +2,14 @@
 
 import backend.database as dbmod
 from backend.pipeline import handle_turn
+from backend.pipeline.passes.editor.prompts import draft_bounds
+
+
+def test_draft_bounds_quote_exact_bounded_source_excerpts():
+    assert draft_bounds("  Một\n  hai.  ") == "`Một\n  hai.`"
+    assert draft_bounds("a b c d e f g h i j k") == "`a b c d e...g h i j k`"
+    draft = "「雨が降る。」" * 200
+    assert draft_bounds(draft) == f"`{draft[:48]}...{draft[-48:]}`"
 
 
 async def _drain(agen) -> list[dict]:

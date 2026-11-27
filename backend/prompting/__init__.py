@@ -10,7 +10,7 @@ from .conversation import (
     persona_macros,
     resolve_persona_id,
 )
-from .fragment_state import STATE_BLOCK_HEADING, render_state_block, render_state_body
+from .fragment_state import render_state_body
 from .group_context import (
     largest_cast_section,
     macro_identity,

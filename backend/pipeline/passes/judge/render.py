@@ -61,7 +61,7 @@ class DecisionSnapshot:
     # The Director's plan at the decision's place: None ahead of the Director, the fields decided so far between its
     # fragments, the whole Scene Guidance body after it.
     scene_guidance: str | None = None
-    # Every enabled state fragment's entries, without the Current State heading: the turn's starting state, and with its
+    # Every enabled state fragment's entries: the turn's starting state, and with its
     # before-Writer changes, as ``old -> new``, after the Director.
     state: str = ""
     scope: str = "solo"
