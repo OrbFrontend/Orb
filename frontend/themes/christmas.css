@@ -1,7 +1,223 @@
-:root { --bg-deep:#eef3f8; --bg-primary:#f5f8fb; --bg-surface:#ffffff; --bg-elevated:#e8eff6; --bg-hover:#dce6f0;
-  --border:#b8cce0; --border-light:#cfdcea; --text-primary:#1a2b3c; --text-secondary:#3a7a48; --text-muted:#6a9a72;
-  --accent:#c8243c; --accent-dim:#9a1828; --accent-glow:rgba(200,36,60,0.12); --red:#c8243c; --warning:#8a6200;
-  --font-prose:'Playfair Display',Georgia,'Palatino Linotype',Palatino,serif;
+/* Christmas: the app is a winter greeting card. Cream tiles float over a pale sky with a ghost village on the
+   horizon; tiles wear snow on their top edge like the roofs, the title is the card's teal serif greeting between
+   holly sprigs, baubles hang beside the chat title, and the send button is an arched red front door.
+   Message prose is Lora; Playfair is only for headlines. No accent edge stripes. Static paint only. */
+:root {
+  --xm-sky:#f6f0e6; --xm-tile:#fffbf4; --xm-tile-alt:#f3ebdf; --xm-snow:#ffffff; --xm-teal:#134f56;
+  --xm-teal-hover:#1b646c; --xm-pine:#2e7a58; --xm-brick:#a8492f; --xm-door:#7b2d1f; --xm-door-hover:#93391f;
+  --xm-ghost:#e9dfd0;
+  --xm-lift:0 1px 2px rgba(92,74,60,0.08), 0 8px 22px rgba(92,74,60,0.10);
+  --xm-lift-high:0 4px 10px rgba(92,74,60,0.12), 0 24px 50px rgba(92,74,60,0.18);
+  --xm-snow-shadow:drop-shadow(0 1.5px 1px rgba(92,74,60,0.22));
+
+  --bg-deep:#f1e9dc; --bg-primary:#fffbf4; --bg-surface:#fffbf4; --bg-elevated:#f3ebdf; --bg-hover:#ece2d3;
+  --border:#e4d9c8; --border-light:#d6c9b5;
+  --text-primary:#2e2722; --text-secondary:#5b5048; --text-muted:#8a7e71;
+  --accent:#134f56; --accent-dim:#0e3d43; --accent-glow:rgba(19,79,86,0.10); --accent-muted:rgba(19,79,86,0.08);
+  --on-accent:#fbf7ef; --red:#b0412b; --warning:#97650c;
+
+  --font-display:'Playfair Display',Georgia,serif;
+  --font-prose:'Lora',Georgia,serif;
   --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-  --font-mono:'Menlo','Consolas','Courier New',monospace; --radius:6px; --font-prose-size:16px; --sidebar-width:300px;
-  --inspector-width:340px; }
+  --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:10px; --font-prose-size:15px;
+  --sidebar-width:300px; --inspector-width:340px;
+
+  --scrollbar-width:thin; --scrollbar-thumb:#d6c9b5; --scrollbar-track:transparent;
+
+  --mobile-overlay-color:rgba(46,39,34,0.35) !important;
+  --mobile-panel-shadow-left:var(--xm-lift-high) !important;
+  --mobile-panel-shadow-right:var(--xm-lift-high) !important;
+}
+
+body { background:
+    url("/static/themes/assets/christmas-skyline.svg") center bottom / max(100%, 1600px) auto no-repeat,
+    var(--xm-sky) !important; }
+
+/* ── Frame: snow-roofed tiles on the sky ── */
+
+.ui-panel { background: var(--xm-tile) !important; border: none !important; }
+#chat-messages, #chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
+@media (min-width: 901px) {
+  #app { padding: 18px 14px 14px; }
+  #sidebar { margin-right: 14px; border-radius: 14px; }
+  .ui-dock.open { margin-left: 14px; border-radius: 14px; }
+  #sidebar, .ui-dock.open { box-shadow: var(--xm-lift) !important; overflow: clip; overflow-clip-margin: 8px; }
+  .ui-dock.open { position: relative; }
+  #sidebar::after, .ui-dock.open::after { content: ""; position: absolute; left: -4px; right: -4px; top: -6px; height: 18px;
+    background: url("/static/themes/assets/christmas-snow.svg") left top / 160px 18px repeat-x;
+    border-radius: 10px 10px 0 0; filter: var(--xm-snow-shadow); pointer-events: none; z-index: 2; }
+  /* No !important: the audio player reserves its room with an inline padding-bottom. */
+  body #chat-messages { padding: 10px 14px 6px; }
+  body #chat-input-area { padding: 6px 14px 2px; }
+}
+
+/* ── Sidebar: the greeting ── */
+
+.sidebar-header { background: transparent !important; border-bottom: none !important; padding: 22px 14px 14px !important; }
+.sidebar-header h1 { font-family: var(--font-display) !important; font-weight: 700 !important; font-size: 34px !important;
+  line-height: 1 !important; letter-spacing: 0 !important; color: var(--xm-teal) !important; padding: 0 30px;
+  background: url("/static/themes/assets/christmas-sprig.svg") left center / 26px auto no-repeat; position: relative; }
+.sidebar-header h1::after { content: ""; position: absolute; right: 0; top: 50%; width: 26px; height: 22px;
+  transform: translateY(-50%) scaleX(-1); background: url("/static/themes/assets/christmas-sprig.svg") center / contain no-repeat; }
+.sidebar-header-top { margin-bottom: 14px !important; padding-bottom: 18px;
+  background: url("/static/themes/assets/christmas-lights.svg") left bottom / 120px 16px repeat-x; }
+.sidebar-header .theme-label { font-size: 10px !important; letter-spacing: .16em !important; color: var(--text-muted) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--xm-teal) !important;
+  background: var(--bg-hover) !important; border-radius: 999px; }
+
+.sidebar-section { border-bottom: none !important; }
+.sidebar-section + .sidebar-section { box-shadow: 0 -1px 0 var(--border) inset; }
+.sidebar-section-header { background: var(--xm-tile) !important; font-size: 11px !important; font-weight: 600 !important;
+  letter-spacing: .14em !important; color: var(--xm-pine) !important; padding-block: 12px !important; }
+.sidebar-section-header:hover, .sidebar-section-header[aria-expanded="true"] { color: var(--xm-teal) !important; }
+.sidebar-section-header.stuck { box-shadow: 0 8px 12px -8px rgba(92,74,60,0.25) !important; }
+
+.char-item, .group-chat-item, .doc-item, .world-item, .lb-entry-item { border: none !important; border-radius: 12px !important; }
+.char-item:hover, .group-chat-item:hover, .doc-item:hover, .world-item:hover, .lb-entry-item:hover {
+  background: var(--bg-hover) !important; }
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active {
+  background: var(--xm-teal) !important; color: var(--on-accent) !important; }
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active, .stat-card-favorite {
+  --text-primary:#fbf7ef; --text-secondary:#d7e6e3; --text-muted:#a9c6c2; --accent:#fbf7ef; --accent-dim:#fbf7ef; }
+.lb-entry-item.active, .conv-history-item.active-conv { background: var(--accent-muted) !important; border: none !important; }
+:is(.char-item, .group-chat-item, .doc-item).active :is(.char-item-name, .doc-item-name) { font-weight: 600 !important; }
+
+/* ── Chat header: the greeting line, baubles hanging beside it ── */
+
+#chat-header, #doc-header { background: transparent !important; border: none !important; box-shadow: none !important; }
+#chat-header .chat-title, #doc-header .doc-title { font-family: var(--font-display) !important; font-size: 28px !important;
+  font-weight: 700 !important; line-height: 1.15 !important; color: var(--xm-teal) !important; }
+@media (min-width: 901px) {
+  #chat-header, #doc-header { padding: 14px 20px 16px !important; }
+  #chat-header .chat-title-area { position: relative; padding-right: 92px; }
+  #chat-header .chat-title-area::after { content: ""; position: absolute; right: 0; top: -32px; width: 84px; height: 66px;
+    background: url("/static/themes/assets/christmas-baubles.svg") left top / 84px auto no-repeat; pointer-events: none; }
+}
+#chat-header .chat-avatar { width: 40px; height: 40px; border: 2px solid var(--xm-snow); box-shadow: var(--xm-lift); }
+#chat-header .chat-actions .btn, #doc-header .btn { background: var(--xm-tile) !important; box-shadow: var(--xm-lift) !important; }
+
+/* ── Controls: rounded pills, teal when chosen ── */
+
+.btn { background: var(--bg-elevated) !important; border: none !important; border-radius: 999px !important;
+  font-family: var(--font-ui) !important; font-weight: 500 !important; color: var(--text-primary) !important;
+  transition: background .12s, color .12s !important; }
+.btn:not(:disabled):hover { background: var(--bg-hover) !important; color: var(--xm-teal) !important; }
+.btn-accent { background: var(--xm-teal) !important; color: var(--on-accent) !important; }
+.btn-accent:not(:disabled):hover { background: var(--xm-teal-hover) !important; color: var(--on-accent) !important; }
+.btn-active, #chat-header .chat-actions .btn.btn-active, #doc-header .btn.btn-active {
+  background: var(--xm-teal) !important; color: var(--on-accent) !important; }
+.btn-active:not(:disabled):hover { background: var(--xm-teal-hover) !important; color: var(--on-accent) !important; }
+.btn-danger { color: var(--red) !important; }
+.btn-danger:not(:disabled):hover { background: var(--red) !important; color: var(--on-accent) !important; }
+
+/* The front door: an arched brick-red send button. */
+.ui-send { background: var(--xm-door) !important; color: var(--on-accent) !important; border: none !important;
+  border-radius: 22px 22px 6px 6px !important; box-shadow: var(--xm-lift) !important; }
+.ui-send:not(:disabled):hover { background: var(--xm-door-hover) !important; }
+#send-btn:disabled { opacity: 1 !important; background: var(--xm-ghost) !important; color: var(--text-muted) !important; }
+.ui-stop { background: var(--red) !important; color: var(--on-accent) !important; border: none !important;
+  border-radius: 22px 22px 6px 6px !important; }
+#burger-btn { background: var(--xm-tile) !important; border: none !important; border-radius: 999px !important;
+  box-shadow: var(--xm-lift) !important; }
+#burger-btn:hover { color: var(--xm-teal) !important; }
+
+input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
+textarea, select, .cb-control, .asst-compose {
+  background-color: var(--xm-tile) !important; border: 1px solid var(--border-light) !important; border-radius: 10px !important; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus,
+.cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
+  border-color: var(--xm-teal) !important; box-shadow: 0 0 0 3px var(--accent-glow) !important; outline: none; }
+#chat-input { background-color: var(--xm-tile) !important; border: none !important; border-radius: 22px !important;
+  box-shadow: var(--xm-lift) !important; padding-inline: 18px !important; }
+#chat-input:focus { box-shadow: var(--xm-lift), 0 0 0 2px var(--xm-teal) !important; }
+.cb-root .cb-control .cb-input, .cb-root .cb-control .cb-input:focus { background: transparent !important;
+  border: none !important; box-shadow: none !important; }
+.image-gen-edit[readonly] { background: transparent !important; border: none !important; color: inherit !important; }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--xm-teal); }
+
+.ui-popover { background: var(--xm-tile) !important; border: none !important; border-radius: 12px !important;
+  box-shadow: var(--xm-lift-high) !important; }
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--bg-hover) !important;
+  color: var(--xm-teal) !important; }
+
+.tog-slider { background: var(--xm-ghost) !important; border: none !important; }
+.tog-slider:before { background: var(--xm-snow) !important; box-shadow: 0 1px 2px rgba(92,74,60,0.3); }
+.tog input:checked + .tog-slider { background: var(--xm-pine) !important; }
+
+.tab { border-bottom-color: transparent !important; border-radius: 999px !important; }
+.tab.active { background: var(--xm-teal) !important; color: var(--on-accent) !important; }
+
+/* ── Messages: snow-roofed cards under a serif name ── */
+
+.message { margin-bottom: 26px !important; }
+.message:last-child { margin-bottom: 0 !important; }
+.message .msg-role { font-family: var(--font-display); font-size: 16px !important; font-weight: 700 !important;
+  text-transform: none !important; letter-spacing: 0 !important; color: var(--xm-teal) !important; margin: 0 6px 10px !important; }
+.message .msg-role :is(.msg-num, .swipe-nav, .swipe-counter, .msg-rewriting) { font-family: var(--font-ui);
+  font-size: 11px; font-weight: 400; letter-spacing: .04em; color: var(--text-muted) !important; }
+.message.user .msg-role { color: var(--xm-brick) !important; }
+.message .msg-body { position: relative; background: var(--xm-tile) !important; border: none !important;
+  border-radius: 14px !important; box-shadow: var(--xm-lift) !important; padding: 18px 22px 16px !important;
+  line-height: 1.7 !important; }
+.message .msg-body::after { content: ""; position: absolute; left: -3px; right: -3px; top: -6px; height: 18px;
+  background: url("/static/themes/assets/christmas-snow.svg") left top / 160px 18px repeat-x;
+  border-radius: 12px 12px 0 0; filter: var(--xm-snow-shadow); pointer-events: none; }
+.message.user .msg-body { background: var(--xm-tile-alt) !important; }
+.message .msg-edit-area textarea { background: var(--xm-tile) !important; }
+.message .msg-body .quoted { color: #9a3b27 !important; }
+.message .msg-body em { color: #2f6b51 !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code { background: var(--bg-deep) !important; border: none !important; }
+.message .msg-body blockquote { border-left: none !important; padding-left: 1.4em !important; color: var(--text-secondary); }
+.message .msg-body hr { border-top-color: var(--border) !important; }
+.message .msg-inspect { border: none !important; background: var(--bg-deep) !important; }
+.msg-toolbar button { border-radius: 999px !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover { background: var(--bg-hover) !important; color: var(--xm-teal) !important; }
+.msg-toolbar .msg-btn-del:hover { background: var(--red) !important; color: var(--on-accent) !important; }
+.message.prose-rewriting .msg-body { box-shadow: var(--xm-lift), 0 0 0 2px var(--xm-teal) !important; }
+.message.prose-rewriting .msg-body::before { background: var(--accent-glow) !important; }
+
+.gen-status { color: var(--text-secondary) !important; }
+.group-speaking-plan { background: var(--xm-tile) !important; border: none !important; border-radius: 14px !important;
+  box-shadow: var(--xm-lift) !important; }
+
+/* ── Overlays: a card on the mantel ── */
+
+.modal-overlay { background: rgba(46,39,34,0.35) !important; }
+.modal, .modal-crop { background: var(--xm-tile) !important; border: none !important; border-radius: 16px !important;
+  box-shadow: var(--xm-lift-high) !important; }
+.modal h2, .modal h3 { font-family: var(--font-display) !important; font-weight: 700 !important; color: var(--xm-teal) !important; }
+.modal > h2 { font-size: 26px !important; line-height: 1.15; border-bottom: none !important; padding-bottom: 22px !important;
+  background: url("/static/themes/assets/christmas-lights.svg") left bottom / 120px 16px repeat-x; }
+.conv-history-item { border-bottom: none !important; border-radius: 12px; }
+.conv-history-item + .conv-history-item { margin-top: 2px; }
+.toast { background: var(--xm-teal) !important; color: var(--on-accent) !important; border: none !important;
+  border-radius: 999px !important; box-shadow: var(--xm-lift-high) !important; }
+.toast.error { background: var(--red) !important; }
+.turn-error { background: color-mix(in srgb, var(--red) 10%, var(--xm-tile)) !important; border: none !important;
+  border-radius: 14px !important; box-shadow: var(--xm-lift) !important; }
+.field-warning { color: var(--warning) !important; }
+.tool-card, .stat-card, .wc-card { border: none !important; background: var(--xm-tile) !important; border-radius: 14px !important;
+  box-shadow: var(--xm-lift) !important; }
+.tool-card.tool-on { background: color-mix(in srgb, var(--xm-pine) 10%, var(--xm-tile)) !important; }
+.stat-card-favorite { background: var(--xm-teal) !important; }
+.stat-card-clickable:hover { box-shadow: var(--xm-lift-high) !important; }
+
+/* The app's own accent edge stripes. */
+.asst-selection, .lib-dupe-collision-note, .decision-status, .decision-problem, .doc-audit-item, .wc-op {
+  border-left: none !important; }
+
+#doc-editor-scroll { background: transparent !important; }
+#doc-page { background: var(--xm-tile) !important; border: none !important; border-radius: 14px !important;
+  box-shadow: var(--xm-lift-high) !important; }
+.doc-mode-toggle, .doc-probs-toggle { border: none !important; border-radius: 999px !important; background: var(--bg-elevated); }
+.doc-mode-opt + .doc-mode-opt { border-left: none !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active { background: var(--xm-teal) !important; color: var(--on-accent) !important; }
+
+::selection { background: #f2d7a8; color: var(--text-primary); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--xm-pine); }
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
