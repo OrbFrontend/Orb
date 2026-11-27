@@ -323,12 +323,13 @@ def test_a_trailing_assistant_block_is_the_reply_opening():
         *default_layout(),
         LayoutBlock(id="p", kind="custom", content="Sure:", role="assistant", region="writer", sort_order=30),
     )
-    inputs = WriterInputs(user_message="Hi", speaker_open="## You are writing as A\n", speaker_close="Write as A only.")
+    inputs = WriterInputs(user_message="Hi", group_turn=True, speaker_closing="Write as A only.")
 
-    request = render_writer_request(layout, inputs, None)
+    request = render_writer_request(layout, inputs, Macros("U", "A", seed="s"))
 
     # The engine's closing line stays user text ahead of the opening, which keeps no trailing whitespace.
     assert [m["role"] for m in request.messages] == ["user", "assistant"]
+    assert request.messages[0]["content"].startswith("## You are writing as A\n\n___")
     assert request.messages[0]["content"].endswith("Write as A only.")
     assert request.messages[1]["content"] == "Sure:"
     # Later passes replay the reply as the continuation of that opening, as the Writer produced it.

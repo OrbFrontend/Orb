@@ -15,6 +15,7 @@ CUSTOM_KIND = "custom"
 DEFAULT_LAYOUT_ID = "default"
 
 WRITER_MARKERS: tuple[str, ...] = (
+    "speaker",
     "selected_lore",
     "scene_guidance",
     "user_message",
@@ -28,6 +29,7 @@ MARKER_LABELS: dict[str, str] = {
     "scene_guidance": "Scene guidance",
     "user_message": "User message",
     "depth_lore": "Depth lore",
+    "speaker": "Group speaker",
 }
 
 # The engine markers whose text the user edits besides the Main prompt, each with the text a layout starts from. The text must
@@ -43,7 +45,18 @@ MARKER_TEMPLATES: dict[str, str] = {
 # The Group cast marker's text is one member's card, rendered for each member whose card the group's context mode shows, where
 # the mode places it. Its card placeholders stand for that member's fields; it names no placeholder of its own.
 CAST_TEMPLATE = "## Character: {{char}}\n{{description}}\n\n{{personality}}\n\n## Example Dialogue\n{{examples}}"
-EDITABLE_MARKERS: frozenset[str] = frozenset({"main_prompt", "cast", *MARKER_TEMPLATES})
+# The group speaker's heading over the Writer request, rendered only on a group turn, scoped to the speaker: {{char}} is the
+# speaker's name, {{instructions}} their card's post-history instructions, and {{card}} their card from the Group cast text where
+# the context mode carries it after the history (Private), else empty. A paragraph after the first naming only empty
+# placeholders is left out. The sheet line defers to the transcript without dating the sheet: reviewed mid-scene sheet updates
+# can make a scene-start label inaccurate. The engine closes the same request with its own line.
+SPEAKER_TEMPLATE = (
+    "## You are writing as {{char}}\n\n"
+    "Reference sheet for this scene. Where the transcript above shows it has changed "
+    "— appearance, dress, injuries, what they carry — follow the transcript.\n{{card}}\n\n"
+    "## Additional Instructions\n{{instructions}}"
+)
+EDITABLE_MARKERS: frozenset[str] = frozenset({"main_prompt", "cast", "speaker", *MARKER_TEMPLATES})
 
 # Placeholders a block's text may name, each standing for one card or chat section.
 SECTION_PLACEHOLDERS: tuple[str, ...] = ("description", "personality", "scenario", "examples", "instructions", "persona")
@@ -70,7 +83,7 @@ _SEED_ORDER: tuple[str, ...] = (
 )
 
 
-_MARKER_SEEDS: dict[str, str] = {"cast": CAST_TEMPLATE, **MARKER_TEMPLATES}
+_MARKER_SEEDS: dict[str, str] = {"cast": CAST_TEMPLATE, "speaker": SPEAKER_TEMPLATE, **MARKER_TEMPLATES}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,16 +112,34 @@ def marker_placeholder(kind: str) -> str:
     return "{{" + kind + "}}"
 
 
-def names_marker_placeholder(kind: str, text: str) -> bool:
-    """Whether *text* names the marker's placeholder where it renders: outside backticked literals and ``{{// ... }}`` notes."""
-    return kind in named_placeholders(text, (kind,))
-
-
 def cast_template(blocks: Iterable[LayoutBlock]) -> str:
     """The layout's member card template, switched on or off; the built-in one when the layout has no Group cast block or its
     text is blank, as a preset that blanks block text leaves it. An edit cannot blank it."""
     block = next((block for block in blocks if block.kind == "cast"), None)
-    return block.content if block and block.content.strip() else CAST_TEMPLATE
+    return marker_text(block) if block else CAST_TEMPLATE
+
+
+def marker_text(block: LayoutBlock) -> str:
+    """An editable marker's text; its built-in text while blank, as a preset that blanks block text leaves it."""
+    return block.content if block.content.strip() else _MARKER_SEEDS.get(block.kind, "")
+
+
+def required_placeholder(kind: str) -> str | None:
+    """The placeholder a *kind* marker's text must keep, standing for the engine's part; None when it keeps none."""
+    if kind in MARKER_TEMPLATES:
+        return kind
+    return "card" if kind == "speaker" else None
+
+
+def marker_text_problem(kind: str, label: str, text: str) -> str:
+    """Why *text* cannot become the text of a *kind* marker labelled *label*, or nothing."""
+    if (name := required_placeholder(kind)) and not named_placeholders(text, (name,)):
+        return f"The {label} block's text must keep {marker_placeholder(name)}, which stands for the engine's part."
+    if kind == "cast" and not text.strip():
+        return f"The {label} block needs text: it is each group member's card."
+    if kind == "speaker" and not text.strip():
+        return f"The {label} block needs text; switch it off to leave it out."
+    return ""
 
 
 def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str | None:

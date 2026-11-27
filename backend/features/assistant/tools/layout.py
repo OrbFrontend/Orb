@@ -16,11 +16,11 @@ from ....core.macros import has_clock_macros
 from ....core.prompt_layout import (
     CUSTOM_KIND,
     EDITABLE_MARKERS,
-    MARKER_TEMPLATES,
     LayoutRegion,
     default_role,
     marker_placeholder,
-    names_marker_placeholder,
+    marker_text_problem,
+    required_placeholder,
 )
 from ....database import (
     PromptLayoutError,
@@ -105,12 +105,8 @@ def block_text_problem(row: Mapping[str, Any], name: str, text: str) -> str:
         return f"That is {len(text):,} characters; a block's {name} may be at most {cap:,}."
     if name == "label" and text != text.strip():
         return "A label has no space at either end."
-    if name == "content" and row["kind"] in MARKER_TEMPLATES and not names_marker_placeholder(row["kind"], text):
-        return (
-            f"The {row['label']} block's text must keep {marker_placeholder(row['kind'])}, which stands for the engine's part."
-        )
-    if name == "content" and row["kind"] == "cast" and not text.strip():
-        return f"The {row['label']} block needs text: it is each group member's card."
+    if name == "content" and is_marker(row):
+        return marker_text_problem(row["kind"], row["label"], text)
     return ""
 
 
@@ -211,10 +207,12 @@ def build_layout_tools() -> list[AssistantTool]:
         "List the active profile's prompt layout: the blocks the chat prompt is built from, in order, on each side of the "
         "fixed Chat history divider. Blocks above it (prefix) build the system prompt every pass reads; blocks below it "
         "(writer) build the Writer's request after the chat. A block with a kind other than custom is built-in: it stands for "
-        "an engine part (main_prompt, cast, the lore markers, scene_guidance, user_message) and keeps its name and side. The "
-        "cast block's text is each group member's card, written once per member the group's context mode shows; in it "
-        "{{char}}, {{description}}, {{personality}} and {{examples}} stand for that member. Each block is sent as a message "
-        "of its role.",
+        "an engine part (main_prompt, cast, the lore markers, scene_guidance, user_message, speaker) and keeps "
+        "its name and side. The cast block's text is each group member's card, written once per member the group's context "
+        "mode shows; in it {{char}}, {{description}}, {{personality}} and {{examples}} stand for that member. The speaker "
+        "block heads the Writer request on a group turn only; in it {{char}} is the speaker, "
+        "{{instructions}} the speaker card's post-history instructions and {{card}} the speaker's card under Private. Each "
+        "block is sent as a message of its role.",
     )
     async def list_prompt_blocks(_args: NoArguments) -> ToolOutput:
         profile_id = await get_active_profile_id()
@@ -247,7 +245,7 @@ def build_layout_tools() -> list[AssistantTool]:
             "role": row["role"],
             "enabled": bool(row["enabled"]),
             "editable": text_editable(row),
-            **({"placeholder": marker_placeholder(row["kind"])} if row["kind"] in MARKER_TEMPLATES else {}),
+            **({"placeholder": marker_placeholder(name)} if (name := required_placeholder(row["kind"])) else {}),
         }
         if not text_editable(row):
             return ToolOutput(head, f"Read the {row['label']} block.", {"block_id": row["id"]})

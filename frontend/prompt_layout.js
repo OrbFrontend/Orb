@@ -37,6 +37,10 @@ const BUILT_IN = {
   },
   user_message: { about: "Your message this turn.", source: "You" },
   depth_lore: { about: "Constant lorebook entries with @ Depth.", source: "Worlds" },
+  speaker: {
+    about: "The group speaker's heading, their card under Private, and their card's post-history instructions.",
+    source: "Group chat",
+  },
 };
 
 const CLOCK_NOTE =

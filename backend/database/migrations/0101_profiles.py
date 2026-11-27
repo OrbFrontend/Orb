@@ -25,6 +25,9 @@ Then prompt blocks are keyed by (profile_id, id), as every other table a profile
 and a built-in block's id, ``'<profile id>:<key>'`` while ids were unique across profiles, becomes the bare key, the same in every
 profile. Custom block ids (uuids) stay; the (layout_id, sort_order) index goes, since the primary key leads with profile_id.
 
+Then each layout's Group cast block still holding no text takes the member card text, now editable, and a layout without a Group
+speaker block gets one first below Chat history: the group speaker's heading over the Writer request, now editable.
+
 Every step checks the current shape first, so a rerun changes nothing.
 """
 
@@ -418,6 +421,44 @@ def _key_prompt_blocks(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE prompt_blocks_0101 RENAME TO prompt_blocks")
 
 
+# Snapshots of core.prompt_layout.CAST_TEMPLATE and SPEAKER_TEMPLATE; later changes do not rewrite existing rows.
+_CAST_TEMPLATE = "## Character: {{char}}\n{{description}}\n\n{{personality}}\n\n## Example Dialogue\n{{examples}}"
+_SPEAKER_TEMPLATE = (
+    "## You are writing as {{char}}\n\n"
+    "Reference sheet for this scene. Where the transcript above shows it has changed "
+    "— appearance, dress, injuries, what they carry — follow the transcript.\n{{card}}\n\n"
+    "## Additional Instructions\n{{instructions}}"
+)
+
+
+def _group_blocks(conn: sqlite3.Connection) -> None:
+    """Fill blank Group cast text and give each layout its Group speaker block, first in the Writer request."""
+    conn.execute("UPDATE prompt_blocks SET content = ? WHERE kind = 'cast' AND content = ''", (_CAST_TEMPLATE,))
+    profiles = [
+        row[0]
+        for row in conn.execute(
+            "SELECT DISTINCT profile_id FROM prompt_blocks WHERE profile_id NOT IN "
+            "(SELECT profile_id FROM prompt_blocks WHERE kind = 'speaker')"
+        )
+    ]
+    for profile_id in profiles:
+        rows = conn.execute(
+            "SELECT id, region FROM prompt_blocks WHERE profile_id = ? ORDER BY sort_order, rowid", (profile_id,)
+        ).fetchall()
+        order = [row[0] for row in rows if row[1] == "prefix"]
+        order += ["speaker", *(row[0] for row in rows if row[1] == "writer")]
+        conn.execute(
+            "INSERT INTO prompt_blocks (profile_id, id, kind, label, content, role, region, sort_order, enabled) "
+            "VALUES (?, 'speaker', 'speaker', 'Group speaker', ?, 'user', 'writer', 0, 1)",
+            (profile_id, _SPEAKER_TEMPLATE),
+        )
+        conn.executemany(
+            "UPDATE prompt_blocks SET sort_order = ? WHERE profile_id = ? AND id = ?",
+            [(index, profile_id, block_id) for index, block_id in enumerate(order)],
+        )
+    conn.commit()
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     _make_profiles(conn)
     if "profiles" not in _tables(conn):
@@ -425,5 +466,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     rebuilt = _split_libraries(conn)
     _name_lanes(conn)
     _key_prompt_blocks(conn)
+    if "prompt_blocks" in _tables(conn):
+        _group_blocks(conn)
     count = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
     print(f"[migrations] 0101: prompt layouts are profiles; each of {count} has its own library; rebuilt {rebuilt}")

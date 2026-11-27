@@ -12,13 +12,11 @@ import aiosqlite
 from ...core.prompt_layout import (
     CUSTOM_KIND,
     EDITABLE_MARKERS,
-    MARKER_TEMPLATES,
     LayoutBlock,
     LayoutRegion,
     LayoutRole,
     default_role,
-    marker_placeholder,
-    names_marker_placeholder,
+    marker_text_problem,
 )
 from ..connection import check_expected, get_db, select_rows
 from ..models import PromptBlockRow
@@ -112,10 +110,8 @@ async def update_prompt_block(
     if "content" in data:
         if not custom and kind not in EDITABLE_MARKERS:
             raise PromptLayoutError("A built-in block cannot be edited.")
-        if kind in MARKER_TEMPLATES and not names_marker_placeholder(kind, data["content"]):
-            raise PromptLayoutError(f"Keep {marker_placeholder(kind)} in this block's text.")
-        if kind == "cast" and not data["content"].strip():
-            raise PromptLayoutError("Group cast needs text: it is each member's card.")
+        if problem := marker_text_problem(kind, row["label"], data["content"]):
+            raise PromptLayoutError(problem)
     if not custom and "label" in data:
         raise PromptLayoutError("A built-in block keeps its name.")
     updates = {column: data[column] for column in ("label", "content", "role", "enabled") if column in data}

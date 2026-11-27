@@ -395,6 +395,22 @@ async def test_the_group_cast_text_shapes_every_members_card_in_every_mode(clien
         assert "ARIA PRIVATE" not in str(aria[0]["content"])
 
 
+async def test_the_group_speaker_text_heads_each_speakers_writer_request(client, llm_mock):
+    # Under Private the speaker's card rides only this text, so it keeps {{card}}.
+    await client.expect("patch", "/api/prompt-blocks/speaker", json={"content": "As {{char}}"}, expected_status=409)
+    await client.expect(
+        "patch", "/api/prompt-blocks/speaker", json={"content": "As {{char}}:\n{{card}}\n\nRules:\n{{instructions}}"}
+    )
+    conv, _ = await _two_card_group(client, aria_extra={"post_history_instructions": "ARIA RULE"})
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    aria, kael = (str(writer["messages"][-1]["content"]) for writer in _writers(llm_mock))
+    assert aria.startswith("As Aria:\n## Character: Aria\nARIA PRIVATE") and "Rules:\nARIA RULE" in aria
+    assert aria.endswith("Write the next reply as Aria only. Do not write dialogue or actions for another cast member.")
+    # A paragraph naming only empty placeholders leaves with them.
+    assert "Rules:" not in kael and kael.endswith("as Kael only. Do not write dialogue or actions for another cast member.")
+
+
 async def test_a_cards_empty_section_takes_its_heading_with_it(client, llm_mock):
     conv, _ = await _two_card_group(client, context_mode="shared", kael_extra={"mes_example": ""})
     await _run_two_speaker_exchange(client, llm_mock, conv)

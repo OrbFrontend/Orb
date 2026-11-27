@@ -101,7 +101,7 @@ Assistant panel do not.
   not steer it.
 
 A **marker** stands for an engine block: `main_prompt`, `cast` and
-`constant_lore` in the prefix; `selected_lore`,
+`constant_lore` in the prefix; `speaker`, `selected_lore`,
 `scene_guidance`, `user_message` and `depth_lore` in the Writer
 request. Markers cannot be deleted, renamed, or moved across the divider. Each
 can be switched off like a custom block; the setting that drives it still
@@ -109,14 +109,14 @@ decides whether it has anything to render, and the group context mode decides
 what `cast` carries. A switched-off marker only leaves the prompt: the stage
 that produces it still runs, and the Inspector still shows its output.
 
-The engine places its remaining Writer lines itself rather than as blocks. The
-group speaker frame opens the Writer request and the "write as" line closes it,
-both as user text.
+The engine places its remaining Writer lines itself rather than as blocks.
 State follows the rendered `scene_guidance` template with each fragment’s own heading. It leaves
 with it when `scene_guidance` is switched off. The tool notice, the Length Guard
 nudge and the group speaker's cue, in that order, lead `user_message`; with
-`user_message` switched off they still go, as user text just before the "write
-as" line.
+`user_message` switched off they close the request as user text. On a group
+turn the engine's closing line (`pipeline.passes.writer.speaker_closing`) ends
+it after them, "Write the next reply as X only…". Both go ahead of a trailing
+run of assistant blocks.
 
 The tool notice renders whenever the Writer request carries tool schemas. The
 Writer ships the shared schemas under `tool_choice="none"` to keep the cached
@@ -155,8 +155,8 @@ The **Group cast** marker's text is one member's card (`CAST_TEMPLATE`), not a
 frame around a placeholder of its own. Each card the context mode shows is
 rendered from it, scoped to that member (`prompting.render_member_card`): under
 Shared one per member after the roster, under Classic card swap the speaker's
-after the public cast, and under Private the speaker's in the Writer request's
-speaker frame, so the text steers the Writer request too. There
+after the public cast, and under Private the speaker's as the **Group speaker**
+text's `{{card}}`, so the text steers the Writer request too. There
 `{{char}}`, `{{description}}`, `{{personality}}` and `{{examples}}` stand for
 that member's name and fields; the other sections keep their chat meaning. The
 text is filled once, as a marker's is; a paragraph after the first that names
@@ -164,8 +164,20 @@ only empty sections is left out, so a heading leaves with its section, and a
 card renders nothing while every section it names is empty. The text's own macros roll at the member's `cast`
 place. Switching the marker off leaves only the prefix section; Private's
 speaker card stays. An edit cannot blank the text; a blank one, as a preset
-that blanks block text leaves it, renders the built-in card. The public cast, the Shared roster, the speaker
-frame's own lines and a card's post-history instructions stay engine text.
+that blanks block text leaves it, renders the built-in card. The public cast and
+the Shared roster stay engine text.
+
+The **Group speaker** (`speaker`) marker heads a group turn's Writer request
+(`SPEAKER_TEMPLATE`); a solo turn does not render it. A new layout seeds it first
+below the divider. Its text resolves with the speaker's macros, so `{{char}}` is the speaker, and two
+placeholders stand for the speaker's parts (`pipeline.passes.writer.speaker_parts`):
+`{{instructions}}` is the speaker card's post-history instructions, empty under
+`prevent_prompt_overrides`, rolled at the member's `instructions` place, and
+`{{card}}` is the speaker's card from the Group cast text under Private, empty in
+the other modes. The other sections keep their chat meaning. The text is filled
+once with paragraph dropping, as the Group cast text is. The text must keep
+`{{card}}`, or Private would lose the speaker's card. An edit cannot blank it; a
+blank one renders the built-in text.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless
@@ -245,9 +257,8 @@ Rendering rules:
   Section values reach the Writer through `PipelineContext.sections`, the same
   values the prefix renders.
 - Assistant blocks that end the Writer request are the reply's opening
-  (prefill): the last keeps no trailing whitespace, and the engine's closing
-  user text (the "write as" line, and the engine lines while `user_message` is
-  switched off) goes before them. The later passes replay the reply as the
+  (prefill), and the engine lines that close the request go before them. That
+  opening keeps no trailing whitespace. The later passes replay the reply as the
   continuation of that opening (`prompting.layout.replay_reply`), the bytes the
   Writer produced; the stored reply is the model's text alone.
 - The messages go out as laid out, on every transport: a request may end on an

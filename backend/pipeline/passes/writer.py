@@ -67,15 +67,14 @@ def strip_speaker_label(text: str, speaker_name: str) -> str:
     return label.sub("", text, count=1)
 
 
-# Private perspective places identity after history for shared-prefix caching. Tell the model to prefer transcript updates over
-# the sheet without dating it: reviewed mid-scene sheet updates can make a scene-start label inaccurate.
-_SHEET_FRAMING = (
-    "Reference sheet for this scene. Where the transcript above shows it has changed "
-    "— appearance, dress, injuries, what they carry — follow the transcript."
-)
+def speaker_closing(speaker: CastMember | None) -> str:
+    """The line that ends a group speaker's Writer request; nothing on a solo turn."""
+    if speaker is None:
+        return ""
+    return f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
 
 
-def speaker_frame(
+def speaker_parts(
     speaker: CastMember | None,
     macros: Macros | None,
     context_mode: GroupContextMode,
@@ -84,24 +83,19 @@ def speaker_frame(
     *,
     prevent_prompt_overrides: bool,
 ) -> tuple[str, str, Macros | None]:
-    """The group speaker's opening and closing lines around the Writer request, and the macros scoped to the speaker. Under
-    Private the opening carries the speaker's card, rendered from the Group cast *template*."""
+    """The group speaker's card where the Writer request carries it (Private), rendered from the Group cast *template*; their
+    card's post-history instructions; and the macros scoped to the speaker. Empty parts and *macros* on a solo turn."""
     if speaker is None:
         return "", "", macros
     speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
-
-    def resolve(field: str, text: str) -> str:
-        # The places the cast section rolls the same texts at.
-        return speaker_macros.at(member_place(speaker, field)).resolve_message(text) if speaker_macros else text
-
-    opening = f"## You are writing as {speaker.name}\n"
+    card = ""
     if tail_carries_identity(context_mode):
-        if card := render_member_card(speaker, macros, macros.cast if macros else "", template, sections):
-            opening += f"{_SHEET_FRAMING}\n\n{card}\n\n"
-    if instructions := speaker_instructions(speaker, prevent_prompt_overrides=prevent_prompt_overrides):
-        opening += f"## Additional Instructions\n{resolve('instructions', instructions)}\n\n"
-    closing = f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
-    return opening, closing, speaker_macros
+        card = render_member_card(speaker, macros, macros.cast if macros else "", template, sections)
+    instructions = speaker_instructions(speaker, prevent_prompt_overrides=prevent_prompt_overrides)
+    if instructions and speaker_macros:
+        # The place the cast section rolls the same text at.
+        instructions = speaker_macros.at(member_place(speaker, "instructions")).resolve_message(instructions)
+    return card, instructions, speaker_macros
 
 
 def _with_attachments(request: WriterRequest, attachments: Sequence[Mapping[str, Any]]) -> list[ChatMessage]:
@@ -189,7 +183,7 @@ async def writer_stage(
 
     blocks = layout if layout is not None else default_layout()
     sections = sections or SectionInputs()
-    speaker_open, speaker_close, block_macros = speaker_frame(
+    card, instructions, block_macros = speaker_parts(
         speaker,
         macros,
         context_mode,
@@ -207,8 +201,10 @@ async def writer_stage(
         user_message=state.effective_msg,
         depth_lore=depth_block,
         sections=sections,
-        speaker_open=speaker_open,
-        speaker_close=speaker_close,
+        group_turn=speaker is not None,
+        speaker_card=card,
+        speaker_instructions=instructions,
+        speaker_closing=speaker_closing(speaker),
     )
     request = render_writer_request(blocks, inputs, block_macros)
     state.writer_request = _with_attachments(request, attachments)

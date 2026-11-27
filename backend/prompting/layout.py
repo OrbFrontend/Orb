@@ -15,6 +15,7 @@ from ..core.prompt_layout import (
     LayoutBlock,
     LayoutRegion,
     LayoutRole,
+    marker_text,
 )
 
 
@@ -56,7 +57,7 @@ class PrefixInputs:
 @dataclass(frozen=True, slots=True)
 class WriterInputs:
     """Each Writer-request marker's own text, the engine lines that ride a marker, the sections for placeholder blocks, and the
-    speaker frame around them."""
+    group speaker's parts."""
 
     selected_lore: str = ""
     scene_guidance: str = ""
@@ -69,8 +70,12 @@ class WriterInputs:
     user_message: str = ""
     depth_lore: str = ""
     sections: SectionInputs = field(default_factory=SectionInputs)
-    speaker_open: str = ""
-    speaker_close: str = ""
+    # A group turn renders the Group speaker block: the speaker's card where the Writer request carries it, and their card's
+    # post-history instructions. The closing line ends the request.
+    group_turn: bool = False
+    speaker_card: str = ""
+    speaker_instructions: str = ""
+    speaker_closing: str = ""
 
 
 def _render_marker(block: LayoutBlock, value: str, sections: SectionInputs, resolve: Callable[[str], str]) -> str:
@@ -85,6 +90,21 @@ def _render_marker(block: LayoutBlock, value: str, sections: SectionInputs, reso
         return ""
     text = block.content or MARKER_TEMPLATES[block.kind]
     return _fill(text, {**_section_values(text, sections), block.kind: value}, resolve)
+
+
+def _render_speaker(block: LayoutBlock, inputs: WriterInputs, resolve: Callable[[str], str]) -> str:
+    """The Group speaker block on a group turn, nothing otherwise: its text filled once, ``{{card}}`` and ``{{instructions}}`` standing
+    for the speaker's, the other sections keeping their chat meaning. A paragraph after the first naming only empty
+    placeholders is left out."""
+    if not inputs.group_turn:
+        return ""
+    text = marker_text(block)
+    values = {
+        **_section_values(text, inputs.sections),
+        "card": inputs.speaker_card,
+        "instructions": inputs.speaker_instructions,
+    }
+    return _fill(text, values, resolve, by_paragraph=True)
 
 
 def _section_values(text: str, sections: SectionInputs) -> dict[str, str]:
@@ -211,6 +231,8 @@ def _merge_content(head: str, content: str | list[ContentPart]) -> str | list[Co
 def _block_text(block: LayoutBlock, inputs: PrefixInputs | WriterInputs, resolve: Callable[[str], str]) -> str:
     if block.kind == CUSTOM_KIND:
         return _render_block(block.content, inputs.sections, resolve)
+    if block.kind == "speaker":
+        return _render_speaker(block, inputs, resolve) if isinstance(inputs, WriterInputs) else ""
     return _render_marker(block, getattr(inputs, block.kind), inputs.sections, resolve)
 
 
@@ -272,14 +294,13 @@ class WriterRequest:
 
 
 def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None) -> WriterRequest:
-    """The Writer's messages after history: the speaker frame, the Writer-request blocks in order, then the closing line.
+    """The Writer's messages after history: the Writer-request blocks in order.
 
-    The engine's lines lead the User message, or precede the closing line while the User message is switched off. The state
-    block follows Scene guidance and leaves with it.
+    The engine's lines lead the User message, or precede the group speaker's closing line while the User message is switched
+    off. The closing line is user text. The state block follows Scene guidance and leaves with it.
 
-    Each block becomes a message of its role; adjacent blocks of one role share a message. The speaker frame and the closing
-    line are user text. Custom blocks roll inline macros fresh on every build; later passes replay the built messages, so they
-    read the same rolls.
+    Each block becomes a message of its role; adjacent blocks of one role share a message. Custom blocks roll inline macros
+    fresh on every build; later passes replay the built messages, so they read the same rolls.
     """
     pieces: list[tuple[LayoutRole, str]] = []
     holder: int | None = None
@@ -292,8 +313,6 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
     cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
     engine_lines = [line for line in (inputs.tool_notice, inputs.length_nudge, cue) if line]
     writer_blocks = writer_block_texts(blocks, inputs, macros)
-    if inputs.speaker_open:
-        pieces.append(("user", inputs.speaker_open))
     for block, text in writer_blocks:
         if block.kind == "user_message":
             # The engine's own lines for this request lead the user's message wherever the layout places it.
@@ -308,8 +327,8 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
     # With the User message switched off, the engine's lines still close the request as user text.
     user_message_off = not any(block.kind == "user_message" for block, _ in writer_blocks)
     closing: list[tuple[LayoutRole, str]] = [("user", f"{line}\n\n") for line in engine_lines if user_message_off]
-    if inputs.speaker_close:
-        closing.append(("user", inputs.speaker_close))
+    if inputs.speaker_closing:
+        closing.append(("user", inputs.speaker_closing))
     # The closing lines go before a trailing run of assistant blocks, which the reply continues.
     cut = prefill_start([role for role, _ in pieces])
     pieces[cut:cut] = closing

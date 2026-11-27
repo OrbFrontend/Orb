@@ -41,7 +41,13 @@ Group cast's text is one character's card. In a group chat each card the
 **Character context** shows is written from it, with `{{char}}`,
 `{{description}}`, `{{personality}}` and `{{examples}}` standing for that
 character. Under **Private** the speaker's card goes after Chat history even
-though the block sits above it.
+though the block sits above it, where Group speaker's `{{card}}` is.
+
+Group speaker opens the Writer's request on a group turn; a solo chat leaves it
+out. In it `{{char}}` is the speaking character, `{{instructions}}` that
+character's card's post-history instructions, and `{{card}}` their card under
+Private, which must stay in the text. A paragraph whose placeholders are all
+empty is left out with them.
 
 Switching a built-in block off keeps its text out of the prompt; whatever
 produces it still runs. With the Director on and Scene guidance off, the

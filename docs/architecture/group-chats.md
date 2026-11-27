@@ -52,8 +52,9 @@ the setting **Character context**.
 | `shared` | A dossier for every member, including card text and examples | That member's post-history instructions |
 | `swap` | Every member's public profile plus the active member's card text and examples | That member's post-history instructions |
 
-Each member card is rendered from the Group cast block's text (see
-[Prompting](prompting.md#prompt-layout)). `backend/prompting/group_context.py`
+Each member card is rendered from the Group cast block's text, and the active
+speaker's trailing message opens with the Group speaker block's text and ends
+with the engine's closing line (see [Prompting](prompting.md#prompt-layout)). `backend/prompting/group_context.py`
 owns this projection. Prompt construction
 and context-size reporting use it rather than deciding card visibility locally.
 

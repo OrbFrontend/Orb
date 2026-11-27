@@ -501,15 +501,17 @@ def test_migration_turns_layouts_into_profiles_each_with_its_own_library():
     assert "is_global" not in {r[1] for r in conn.execute("PRAGMA table_info(worlds)")}
 
     assert {row[2] for row in conn.execute("PRAGMA foreign_key_list(prompt_blocks)")} == {"profiles"}
-    assert conn.execute("SELECT profile_id, id FROM prompt_blocks ORDER BY profile_id").fetchall() == [
+    assert conn.execute("SELECT profile_id, id FROM prompt_blocks ORDER BY profile_id, sort_order").fetchall() == [
         ("default", "main_prompt"),
+        ("default", "speaker"),
         ("second", "main_prompt"),
+        ("second", "speaker"),
     ]
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("DELETE FROM endpoints WHERE id = 3")
     assert conn.execute("SELECT DISTINCT writer_endpoint_id, writer_model_config_id FROM profiles").fetchall() == [(None, None)]
     conn.execute("DELETE FROM profiles WHERE id = 'second'")
-    assert conn.execute("SELECT profile_id FROM prompt_blocks").fetchall() == [("default",)]
+    assert conn.execute("SELECT DISTINCT profile_id FROM prompt_blocks").fetchall() == [("default",)]
     assert conn.execute("SELECT DISTINCT profile_id FROM mood_fragments").fetchall() == [("default",)]
 
 
