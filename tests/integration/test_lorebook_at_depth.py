@@ -131,12 +131,10 @@ async def test_context_size_accounts_for_the_depth_block(client, llm_mock):
 async def test_the_layouts_lore_text_frames_constant_and_depth_lore(client, llm_mock):
     await _import_v20(client)
     await client.expect(
-        "patch", "/api/prompt-blocks/default:constant_lore", json={"content": "## World of {{char}}\n{{constant_lore}}"}
+        "patch", "/api/prompt-blocks/constant_lore", json={"content": "## World of {{char}}\n{{constant_lore}}"}
     )
-    await client.expect("patch", "/api/prompt-blocks/default:depth_lore", json={"content": "___\n\nRules:\n{{depth_lore}}"})
-    await client.expect(
-        "patch", "/api/prompt-blocks/default:depth_lore", json={"content": "___\n\nRules only"}, expected_status=409
-    )
+    await client.expect("patch", "/api/prompt-blocks/depth_lore", json={"content": "___\n\nRules:\n{{depth_lore}}"})
+    await client.expect("patch", "/api/prompt-blocks/depth_lore", json={"content": "___\n\nRules only"}, expected_status=409)
     cid = await _make_conversation(client)
 
     llm_mock.enqueue_writer("The blade lands.")

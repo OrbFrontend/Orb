@@ -11,7 +11,7 @@ import aiosqlite
 from ...core import DECISION_COLUMNS, DECISION_FIELD_TYPE, STATE_COLUMNS, fragment_stage, is_director_fragment
 from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import InteractiveFragmentRow
-from .profiles import get_active_profile_id
+from .active_profile import get_active_profile_id
 
 # Decode decision JSON at the read boundary; malformed values remain invalid definitions instead of failing the fragment list.
 _DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs")

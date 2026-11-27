@@ -7,7 +7,7 @@ from typing import cast
 
 from ..connection import get_db, select_rows
 from ..models import PhraseBankRow, PhraseGroup
-from .profiles import get_active_profile_id
+from .active_profile import get_active_profile_id
 
 
 def _row_to_group(row) -> PhraseGroup:

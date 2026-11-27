@@ -483,7 +483,7 @@ def _signature(path: str) -> dict:
             "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
             "profiles": q("SELECT id, name, config FROM profiles"),
             "prompt_blocks": q(
-                "SELECT id, layout_id, kind, label, content, role, region, sort_order, enabled FROM prompt_blocks"
+                "SELECT profile_id, id, kind, label, content, role, region, sort_order, enabled FROM prompt_blocks"
             ),
         }
     finally:

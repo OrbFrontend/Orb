@@ -3,17 +3,14 @@ import { api } from "./api.js";
 import { initDragReorder } from "./drag_reorder.js";
 import { GRIP_ICON, ROLE_ICONS } from "./icons.js";
 import { closeModal, confirmDelete, showModal } from "./modal.js";
-import { S } from "./state.js";
 import { $, boolFlag, esc, escAttr, toast } from "./utils.js";
 
-let _activeId = "default";
 let _blocks = [];
 let _dragReady = false;
 
 // The active profile's layout; profiles.js runs this again after a switch.
 export async function loadPromptLayout() {
-  _activeId = S.settings.active_profile_id ?? "default";
-  _blocks = await api.get(`/prompt-layouts/${encodeURIComponent(_activeId)}/blocks`);
+  _blocks = await api.get("/prompt-blocks");
   render();
 }
 
@@ -112,7 +109,7 @@ async function saveOrder(container) {
     else (below ? writer : prefix).push(row.dataset.id);
   }
   await _attempt(async () => {
-    _blocks = await api.put(`/prompt-layouts/${_activeId}/order`, { prefix, writer });
+    _blocks = await api.put("/prompt-blocks/order", { prefix, writer });
   });
   render();
 }
@@ -166,7 +163,7 @@ async function saveBlock(id) {
   if ($("pl-role")) data.role = $("pl-role").value;
   await _attempt(async () => {
     if (block) Object.assign(block, await api.patch(`/prompt-blocks/${id}`, data));
-    else _blocks.push(await api.post(`/prompt-layouts/${_activeId}/blocks`, data));
+    else _blocks.push(await api.post("/prompt-blocks", data));
     closeModal();
     render();
   });

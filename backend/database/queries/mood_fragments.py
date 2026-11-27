@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from ..connection import build_set_clause, check_expected, get_db, select_rows
 from ..models import MoodFragmentRow
-from .profiles import get_active_profile_id
+from .active_profile import get_active_profile_id
 
 
 async def get_mood_fragments(profile_id: str | None = None) -> list[MoodFragmentRow]:

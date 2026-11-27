@@ -720,21 +720,12 @@ def _prune_profiles(conn: sqlite3.Connection, schema: _Schema, profiles: Mapping
 
 
 def _rename_profile(conn: sqlite3.Connection, schema: _Schema, old: str, new: str) -> None:
-    """Give profile *old* the id *new* in a working copy, with foreign keys off. The rows it owns (its prompt blocks) get fresh
-    ids, so they never take over the rows of the profile they were copied from: an id starting ``'<old>:'`` (a marker block)
-    starts ``'<new>:'``, any other a new uuid."""
+    """Give profile *old* the id *new* in a working copy, with foreign keys off: its rows in every PROFILE_SCOPED table move
+    with it, keeping their own ids."""
     for table in schema.part_tables():
-        if table in ps.PROFILE_SCOPED:
-            conn.execute(f"UPDATE {table} SET {ps.PROFILE_COLUMN} = ? WHERE {ps.PROFILE_COLUMN} = ?", (new, old))  # nosec B608 -- schema-derived identifiers
-            continue
-        t = schema.tables[table]
-        fk = t.owner_fk
-        if fk is None or fk.parent != ps.PROFILE_TABLE or t.kind != "stable" or len(t.pk) != 1:
+        if table not in ps.PROFILE_SCOPED:
             raise PresetError(f"{table} cannot move to another profile")
-        pk = t.pk[0]
-        for (row_id,) in conn.execute(f"SELECT {pk} FROM {table} WHERE {fk.from_col} = ?", (old,)).fetchall():  # nosec B608 -- schema-derived identifiers
-            fresh = f"{new}:{row_id[len(old) + 1 :]}" if str(row_id).startswith(f"{old}:") else uuid.uuid4().hex
-            conn.execute(f"UPDATE {table} SET {pk} = ?, {fk.from_col} = ? WHERE {pk} = ?", (fresh, new, row_id))  # nosec B608 -- schema-derived identifiers
+        conn.execute(f"UPDATE {table} SET {ps.PROFILE_COLUMN} = ? WHERE {ps.PROFILE_COLUMN} = ?", (new, old))  # nosec B608 -- schema-derived identifiers
     conn.execute(f"UPDATE {ps.PROFILE_TABLE} SET id = ? WHERE id = ?", (new, old))  # nosec B608 -- constant identifier
 
 

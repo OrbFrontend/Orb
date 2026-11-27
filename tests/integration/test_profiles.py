@@ -6,9 +6,14 @@ import json
 import sqlite3
 from contextlib import closing
 
-from backend.api.work_registry import work_registry
-from backend.database import get_active_layout_blocks, get_profile
+import pytest
+
+from backend.api.deps import profile_change_fence
+from backend.api.work_registry import ChatUnavailable, work_registry
+from backend.database import get_profile, get_prompt_blocks
+from backend.database.queries import profiles as profile_queries
 from backend.database.schema import CREATE_TABLES_SQL
+from backend.workflows import prose_rewriter_host
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0101_profiles")
 _LIBRARY = (
@@ -73,7 +78,7 @@ async def test_switching_round_trips_each_profile_and_skips_a_deleted_lane(clien
         "writer_config": second["active_model_config_id"],
         "model_name": "default",
     }
-    assert {block.id.split(":")[0] for block in await get_active_layout_blocks() if ":" in block.id} == {b_id}
+    assert {row["profile_id"] for row in await get_prompt_blocks()} == {b_id}
 
     await client.put_checked("/api/profiles/active", json={"id": a_id})
     assert await _live(client) == edited
@@ -208,7 +213,7 @@ async def test_deleting_in_one_profile_leaves_the_others_and_deleting_a_profile_
     assert phrase["pattern"] in {p["pattern"] for p in await client.get_json("/api/phrase-bank")}
 
 
-async def test_profiles_do_not_switch_while_a_generation_runs(client):
+async def test_profiles_do_not_switch_while_a_generation_runs_nor_a_generation_begin_mid_switch(client):
     b_id = (await client.post_json("/api/profiles", json={"name": "B"}))["id"]
     stream = await work_registry.begin_stream("some-chat", None, None)
     try:
@@ -217,6 +222,53 @@ async def test_profiles_do_not_switch_while_a_generation_runs(client):
     finally:
         work_registry.finish_stream("some-chat", stream)
     assert (await client.put_json("/api/profiles/active", json={"id": b_id}))["active_profile_id"] == b_id
+
+    with profile_change_fence():
+        with pytest.raises(ChatUnavailable) as refused:
+            await work_registry.begin_stream("some-chat", None, None)
+        assert refused.value.reason == "fenced"
+        scan = await work_registry.begin_stream("library:tagging", None, None)  # reads no profile's rows
+        work_registry.finish_stream("library:tagging", scan)
+    work_registry.finish_stream("some-chat", await work_registry.begin_stream("some-chat", None, None))
+
+
+async def test_a_switch_that_fails_partway_leaves_both_profiles_and_the_live_rows_as_they_were(client, monkeypatch):
+    a_id = (await client.get_json("/api/profiles"))["active_id"]
+    b_id = (await client.post_json("/api/profiles", json={"name": "B"}))["id"]
+    words = (await client.get_json("/api/settings"))["length_guard_max_words"]
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    await client.put_checked("/api/settings", json={"length_guard_max_words": words + 9})
+    await client.put_checked("/api/profiles/active", json={"id": a_id})
+    await client.put_checked("/api/settings", json={"length_guard_max_words": words + 1})
+    saved_a = await get_profile(a_id)
+
+    async def fail(*_args):
+        raise RuntimeError("the disk went away")
+
+    # The workflow slots are written last, after the settings row and the capture of A.
+    with monkeypatch.context() as patch, pytest.raises(RuntimeError):
+        patch.setattr(profile_queries, "_apply_workflows", fail)
+        await client.put("/api/profiles/active", json={"id": b_id})
+
+    settings = await client.get_json("/api/settings")
+    assert (settings["active_profile_id"], settings["length_guard_max_words"]) == (a_id, words + 1)
+    assert await get_profile(a_id) == saved_a
+    assert (await client.put_json("/api/profiles/active", json={"id": b_id}))["length_guard_max_words"] == words + 9
+
+
+async def test_a_switch_runs_the_runtime_effects_of_what_it_changed(client, monkeypatch):
+    seen: list[tuple[bool, bool]] = []
+
+    async def record(before, after):
+        seen.append((bool(before["document_prose_rewriter_enabled"]), bool(after["document_prose_rewriter_enabled"])))
+
+    monkeypatch.setattr(prose_rewriter_host, "settings_changed", record)
+    a_id = (await client.get_json("/api/profiles"))["active_id"]
+    b_id = (await client.post_json("/api/profiles", json={"name": "B"}))["id"]
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    await client.put_checked("/api/settings", json={"document_prose_rewriter_enabled": True})
+    await client.put_checked("/api/profiles/active", json={"id": a_id})
+    assert seen[-1] == (True, False), "leaving B switches the Document rewriter off, so its model is released"
 
 
 async def _label(client, fid: str) -> str:
@@ -255,7 +307,7 @@ async def test_a_profile_fragments_backup_comes_back_on_its_profile_or_a_new_one
     await client.put_checked("/api/profiles/active", json={"id": new["id"]})
     assert await _label(client, fid) == original
     assert await client.get_json("/api/phrase-bank"), "a new profile gets the seed bank for the parts it did not take"
-    assert {block.id.split(":")[0] for block in await get_active_layout_blocks() if ":" in block.id} == {new["id"]}
+    assert {row["profile_id"] for row in await get_prompt_blocks()} == {new["id"]}
 
 
 async def test_a_fragments_snapshot_without_configs_carries_every_profile(client, db_path):
@@ -395,11 +447,15 @@ def test_migration_turns_layouts_into_profiles_each_with_its_own_library():
     assert "is_global" not in {r[1] for r in conn.execute("PRAGMA table_info(worlds)")}
 
     assert {row[2] for row in conn.execute("PRAGMA foreign_key_list(prompt_blocks)")} == {"profiles"}
+    assert conn.execute("SELECT profile_id, id FROM prompt_blocks ORDER BY profile_id").fetchall() == [
+        ("default", "main_prompt"),
+        ("second", "main_prompt"),
+    ]
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("DELETE FROM endpoints WHERE id = 3")
     assert conn.execute("SELECT DISTINCT writer_endpoint_id, writer_model_config_id FROM profiles").fetchall() == [(None, None)]
     conn.execute("DELETE FROM profiles WHERE id = 'second'")
-    assert conn.execute("SELECT id FROM prompt_blocks").fetchall() == [("default:main_prompt",)]
+    assert conn.execute("SELECT profile_id FROM prompt_blocks").fetchall() == [("default",)]
     assert conn.execute("SELECT DISTINCT profile_id FROM mood_fragments").fetchall() == [("default",)]
 
 

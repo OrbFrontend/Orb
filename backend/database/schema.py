@@ -578,9 +578,9 @@ CREATE TABLE IF NOT EXISTS slop_mining_state (
     last_status TEXT NOT NULL DEFAULT ''
 );
 
--- Profiles: a named generation config plus the profile's prompt layout (its prompt_blocks rows), and its own fragments, phrase
--- bank and global Worlds in their tables. The settings and endpoint rows stay the live copy of the config; switching captures
--- them into the active profile and applies the next one. config is JSON (pipeline switches, agent_same_as_writer, the Judge
+-- Profiles: a named generation config, and the profile's own prompt layout, fragments, phrase bank and global Worlds in their
+-- tables (profile_id). The settings and endpoint rows stay the live copy of the config; switching captures them into the active
+-- profile and applies the next one, in one transaction. config is JSON (pipeline switches, agent_same_as_writer, the Judge
 -- model); the lane picks are foreign keys so a Backups merge renumbers them with the endpoints. On switch a NULL Writer or Agent
 -- lane keeps its live value; a NULL Judge lane turns the Judge off.
 CREATE TABLE IF NOT EXISTS profiles (
@@ -597,21 +597,20 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 -- A profile's prompt layout orders the chat prompt's blocks around the history: 'prefix' blocks build the system message and
--- any pre-history messages, 'writer' blocks build the Writer's request. Marker rows (kind = a marker id) stand for built-in
--- sections and use the id '<layout_id>:<marker>'; custom rows carry their own text.
+-- any pre-history messages, 'writer' blocks build the Writer's request. A built-in block (a marker, kind = its id, or a seeded
+-- section) has its key as id, the same in every profile; a custom block's id is a uuid, kept by a copy of its profile.
 CREATE TABLE IF NOT EXISTS prompt_blocks (
-    id TEXT PRIMARY KEY,
-    layout_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
     kind TEXT NOT NULL,
     label TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'system',
     region TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    enabled INTEGER NOT NULL DEFAULT 1
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_id, id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_prompt_blocks_layout ON prompt_blocks(layout_id, sort_order);
 
 -- The panel assistant's conversations as the model reads them, by the browser's session id; the newest few are kept.
 CREATE TABLE IF NOT EXISTS assistant_chats (

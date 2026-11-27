@@ -108,10 +108,22 @@ def active_work() -> list[str]:
     return work_registry.active_work()
 
 
-def generation_streams() -> list[str]:
-    """The chat, document and assistant streams running or settling. The library's tagging and duplicate scans are left out:
-    they read no profile's rows."""
-    return [key for key in work_registry.stream_keys() if not key.startswith("library:")]
+def _reads_profile(key: str) -> bool:
+    """Whether a stream on *key* reads the active profile's rows: chats, documents and the assistant do. The library's tagging
+    and duplicate scans read none."""
+    return not key.startswith("library:")
+
+
+@contextmanager
+def profile_change_fence() -> Iterator[None]:
+    """Hold a profile switch, create or delete with no chat, document or assistant stream running or beginning: a generation
+    reads the active profile's rows as it goes, so a switch mid-stream would mix two profiles in one reply."""
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(work_registry.admission_fence(_reads_profile))
+        except ChatUnavailable:
+            raise HTTPException(status_code=409, detail="Wait for the running generation to finish") from None
+        yield
 
 
 @asynccontextmanager
@@ -373,9 +385,10 @@ async def sse_stream(
                     cid, abort_token, getattr(request, "query_params", {}).get("operation_id")
                 )
             except ChatUnavailable as exc:
-                detail = (
-                    "This resource is being deleted" if exc.reason == "deleting" else "Another generation is already running"
-                )
+                detail = {
+                    "deleting": "This resource is being deleted",
+                    "fenced": "Wait for the profile change to finish",
+                }.get(exc.reason, "Another generation is already running")
                 yield f"event: error\ndata: {detail}\n\n"
                 return
         # A Stop that raced the request to the server shows up as a client that

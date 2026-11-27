@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import ActiveLorebookEntryRow, LorebookEntryRow, WorldChangesetRow, WorldRow
-from .profiles import get_active_profile_id
+from .active_profile import get_active_profile_id
 
 # The layer/action vocabulary, mirrored by the CHECK constraints in schema.py. Upgraded databases get these columns via ALTER,
 # which cannot carry a CHECK, so these constants are the enforcement on that path too -- every writer below funnels values

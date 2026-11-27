@@ -21,6 +21,10 @@ Last, each profile's config names its lane picks in ``config.lanes`` (the endpoi
 model name), read from its lane columns. A backup made without the endpoints leaves those columns NULL, and switching to the
 profile then finds the picks by these names.
 
+Then prompt blocks are keyed by (profile_id, id), as every other table a profile owns is: ``layout_id`` becomes ``profile_id``,
+and a built-in block's id, ``'<profile id>:<key>'`` while ids were unique across profiles, becomes the bare key, the same in every
+profile. Custom block ids (uuids) stay; the (layout_id, sort_order) index goes, since the primary key leads with profile_id.
+
 Every step checks the current shape first, so a rerun changes nothing.
 """
 
@@ -384,11 +388,42 @@ def _name_lanes(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_PROMPT_BLOCKS = """CREATE TABLE prompt_blocks_0101 (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'system',
+    region TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_id, id)
+)"""
+
+
+def _key_prompt_blocks(conn: sqlite3.Connection) -> None:
+    """Rebuild prompt_blocks keyed by (profile_id, id), a built-in block's id losing its profile prefix."""
+    if "prompt_blocks" not in _tables(conn) or "layout_id" not in _columns(conn, "prompt_blocks"):
+        return
+    conn.execute(_PROMPT_BLOCKS)
+    conn.execute(
+        "INSERT INTO prompt_blocks_0101 (profile_id, id, kind, label, content, role, region, sort_order, enabled) "
+        "SELECT layout_id, CASE WHEN substr(id, 1, length(layout_id) + 1) = layout_id || ':' "
+        "THEN substr(id, length(layout_id) + 2) ELSE id END, kind, label, content, role, region, sort_order, enabled "
+        "FROM prompt_blocks ORDER BY rowid"
+    )
+    conn.execute("DROP INDEX IF EXISTS idx_prompt_blocks_layout")
+    conn.execute("DROP TABLE prompt_blocks")
+    conn.execute("ALTER TABLE prompt_blocks_0101 RENAME TO prompt_blocks")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     _make_profiles(conn)
     if "profiles" not in _tables(conn):
         return
     rebuilt = _split_libraries(conn)
     _name_lanes(conn)
+    _key_prompt_blocks(conn)
     count = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
     print(f"[migrations] 0101: prompt layouts are profiles; each of {count} has its own library; rebuilt {rebuilt}")

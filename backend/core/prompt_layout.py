@@ -88,10 +88,6 @@ def default_role(region: LayoutRegion) -> LayoutRole:
     return "system" if region == "prefix" else "user"
 
 
-def marker_block_id(layout_id: str, kind: str) -> str:
-    return f"{layout_id}:{kind}"
-
-
 def marker_placeholder(kind: str) -> str:
     """The placeholder an editable marker's text must name."""
     return "{{" + kind + "}}"
@@ -110,20 +106,19 @@ def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str | None:
     return block.content if block.enabled else None
 
 
-def default_layout(layout_id: str = DEFAULT_LAYOUT_ID, main_prompt: str = "") -> tuple[LayoutBlock, ...]:
-    """The starting blocks: every marker and section block in the built-in order, the Main prompt holding *main_prompt*."""
+def default_layout(main_prompt: str = "") -> tuple[LayoutBlock, ...]:
+    """The starting blocks: every marker and section block in the built-in order, the Main prompt holding *main_prompt*. A
+    built-in block's id is its key, the same in every profile; a custom block's is a fresh uuid."""
     sections = {key: (label, text) for key, label, text in SECTION_BLOCKS}
     blocks: list[LayoutBlock] = []
     for index, key in enumerate(_SEED_ORDER):
         if key in sections:
             label, text = sections[key]
-            blocks.append(
-                LayoutBlock(id=marker_block_id(layout_id, key), kind=CUSTOM_KIND, label=label, content=text, sort_order=index)
-            )
+            blocks.append(LayoutBlock(id=key, kind=CUSTOM_KIND, label=label, content=text, sort_order=index))
         else:
             blocks.append(
                 LayoutBlock(
-                    id=marker_block_id(layout_id, key),
+                    id=key,
                     kind=key,
                     label=MARKER_LABELS[key],
                     content=main_prompt if key == "main_prompt" else MARKER_TEMPLATES.get(key, ""),

@@ -57,8 +57,7 @@ class Workflow:
     # The top-level keys of the config slot that belong to the active profile: each profile saves its own values and entering
     # it writes them back. Only keys of ``config_defaults``; credentials and connections to this machine's servers stay out.
     profile_config_keys: tuple[str, ...] = ()
-    # Whether the workflow's on/off flag belongs to the active profile. A switch writes the flag without the callbacks
-    # ``set_workflow_toggle`` runs, so a workflow whose toggle has one (Prose Rewriter, Image Generation) leaves it False.
+    # Whether the workflow's on/off flag belongs to the active profile: each profile saves its own and entering it writes it back.
     profile_enabled: bool = False
 
 

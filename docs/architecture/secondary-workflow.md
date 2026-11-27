@@ -543,10 +543,11 @@ the list; those stay shared. The frontend module reloads its config on the
 `profile` topic (`subscribe("profile", …)`), which fires after a switch.
 
 `profile_enabled=True` makes the workflow's on/off switch the active profile's
-as well. A switch writes the flag straight to the settings row, without the
-runtime callbacks `set_workflow_toggle` runs (warming or freeing a model,
-dropping the GPU swap plan), so declare it only on a workflow whose toggle has
-none.
+as well. A switch writes the flag with the rest of the profile in one
+transaction, then runs the same runtime effects a toggle does
+(`live_settings_changed`: warming or freeing a model, dropping the GPU swap
+plan). An effect a toggle needs belongs in `live_settings_changed`, keyed on the
+settings before and after, so every writer of the flag runs it.
 
 ## Frontend integration
 

@@ -34,15 +34,15 @@ def _wire(messages) -> str:
 
 
 async def _active_layout(client, name: str = "Custom") -> tuple[str, dict[str, dict]]:
-    """A new active preset's id and its layout's seeded blocks, markers by kind and section blocks by label."""
+    """A new active profile's id and its layout's seeded blocks, markers by kind and section blocks by label."""
     layout = await client.post_json("/api/profiles", json={"name": name})
     await client.put_checked("/api/profiles/active", json={"id": layout["id"]})
-    blocks = await client.get_json(f"/api/prompt-layouts/{layout['id']}/blocks")
+    blocks = await client.get_json("/api/prompt-blocks")
     return layout["id"], {block["label"] if block["kind"] == "custom" else block["kind"]: block for block in blocks}
 
 
-async def _add_block(client, layout_id: str, **body) -> dict:
-    return await client.post_json(f"/api/prompt-layouts/{layout_id}/blocks", json=body)
+async def _add_block(client, **body) -> dict:
+    return await client.post_json("/api/prompt-blocks", json=body)
 
 
 async def _card_conversation(client) -> str:
@@ -63,10 +63,10 @@ async def test_writer_blocks_leave_the_prefix_alone_and_the_editor_replays_them(
         "/api/settings",
         json={"enable_agent": True, "length_guard_enabled": True, "length_guard_max_words": 5},
     )
-    layout_id, _ = await _active_layout(client)
-    await _add_block(client, layout_id, content="Rule {{random::a::b::c::d::e::f}}", region="prefix")
-    note = await _add_block(client, layout_id, content="Note {{random::1::2::3::4::5::6::7::8}}", region="writer")
-    other = await _add_block(client, layout_id, content="Second note", region="writer")
+    await _active_layout(client)
+    await _add_block(client, content="Rule {{random::a::b::c::d::e::f}}", region="prefix")
+    note = await _add_block(client, content="Note {{random::1::2::3::4::5::6::7::8}}", region="writer")
+    other = await _add_block(client, content="Second note", region="writer")
     cid = await _card_conversation(client)
 
     llm_mock.enqueue_writer(_LONG_DRAFT)
@@ -95,15 +95,15 @@ async def test_writer_blocks_send_their_roles_as_laid_out_and_the_editor_replays
         "/api/settings",
         json={"enable_agent": True, "length_guard_enabled": True, "length_guard_max_words": 5},
     )
-    layout_id, seeded = await _active_layout(client)
-    system = await _add_block(client, layout_id, content="Injected sysprompt", role="system")
-    ack = await _add_block(client, layout_id, content="Injected acknowledgement", role="assistant")
-    praise = await _add_block(client, layout_id, content="Injected praise", role="user")
-    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    _, seeded = await _active_layout(client)
+    system = await _add_block(client, content="Injected sysprompt", role="system")
+    ack = await _add_block(client, content="Injected acknowledgement", role="assistant")
+    praise = await _add_block(client, content="Injected praise", role="user")
+    order = await client.get_json("/api/prompt-blocks")
     message = seeded["user_message"]["id"]
     ours = [system["id"], message, ack["id"], praise["id"]]
     await client.put_checked(
-        f"/api/prompt-layouts/{layout_id}/order",
+        "/api/prompt-blocks/order",
         json={
             "prefix": [b["id"] for b in order if b["region"] == "prefix"],
             "writer": [system["id"], message, ack["id"], praise["id"]]
@@ -147,9 +147,9 @@ def test_anthropic_refuses_a_system_message_after_the_first_turn_rather_than_mov
 
 
 async def test_offturn_prefix_matches_the_turn_prefix_under_a_custom_layout(client):
-    layout_id, seeded = await _active_layout(client)
-    await _add_block(client, layout_id, content="House rules for {{user}}.", region="prefix")
-    await _add_block(client, layout_id, content="Previously {{random::a::b::c}}", region="prefix", role="assistant")
+    _, seeded = await _active_layout(client)
+    await _add_block(client, content="House rules for {{user}}.", region="prefix")
+    await _add_block(client, content="Previously {{random::a::b::c}}", region="prefix", role="assistant")
     await client.expect("patch", f"/api/prompt-blocks/{seeded['User persona']['id']}", json={"enabled": False})
     instructions = seeded["Chat instructions"]["id"]
     cid = "layout-parity"
@@ -157,9 +157,9 @@ async def test_offturn_prefix_matches_the_turn_prefix_under_a_custom_layout(clie
     mid, _ = await add_message(cid, "assistant", "She looks up.", 0)
     mid, _ = await add_message(cid, "user", "Hello.", 1, parent_id=mid)
     await set_active_leaf(cid, mid)
-    order = [block for block in await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")]
+    order = [block for block in await client.get_json("/api/prompt-blocks")]
     await client.put_checked(
-        f"/api/prompt-layouts/{layout_id}/order",
+        "/api/prompt-blocks/order",
         json={
             "prefix": [b["id"] for b in order if b["region"] == "prefix" and b["id"] != instructions],
             "writer": [b["id"] for b in order if b["region"] == "writer"] + [instructions],
@@ -178,9 +178,9 @@ async def test_offturn_prefix_matches_the_turn_prefix_under_a_custom_layout(clie
 
 
 async def test_group_offturn_prefix_matches_the_neutral_turn_prefix_under_a_custom_layout(client):
-    layout_id, _ = await _active_layout(client)
-    await _add_block(client, layout_id, content="Scene rules for {{cast}}.", region="prefix")
-    await _add_block(client, layout_id, content="Earlier, {{char}} began.", region="prefix", role="user")
+    await _active_layout(client)
+    await _add_block(client, content="Scene rules for {{cast}}.", region="prefix")
+    await _add_block(client, content="Earlier, {{char}} began.", region="prefix", role="user")
     cards = [
         (await client.post_json("/api/characters", json={"name": name, "description": text}))["id"]
         for name, text in (("Aria", "A tired ranger."), ("Kael", "A blunt smith."))
@@ -282,15 +282,15 @@ def test_a_section_name_means_its_section_in_every_layout_text():
 
 
 async def test_prefix_blocks_keep_their_place_and_role(client):
-    layout_id, seeded = await _active_layout(client)
+    _, seeded = await _active_layout(client)
     main = seeded["main_prompt"]["id"]
     await client.expect("patch", f"/api/prompt-blocks/{main}", json={"content": "Main text", "role": "user"})
-    late = await _add_block(client, layout_id, content="Late system", region="prefix", role="system")
-    note = await _add_block(client, layout_id, content="Late note", region="prefix", role="user")
-    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    late = await _add_block(client, content="Late system", region="prefix", role="system")
+    note = await _add_block(client, content="Late note", region="prefix", role="user")
+    order = await client.get_json("/api/prompt-blocks")
     prefix = [b["id"] for b in order if b["region"] == "prefix" and b["id"] not in (late["id"], note["id"])]
     await client.put_checked(
-        f"/api/prompt-layouts/{layout_id}/order",
+        "/api/prompt-blocks/order",
         json={"prefix": [*prefix, note["id"], late["id"]], "writer": [b["id"] for b in order if b["region"] == "writer"]},
     )
     cid = "layout-role"
@@ -336,11 +336,11 @@ def test_a_trailing_assistant_block_is_the_reply_opening():
 
 
 async def test_a_section_block_below_the_history_moves_into_the_writer_request(client, llm_mock):
-    layout_id, seeded = await _active_layout(client)
+    _, seeded = await _active_layout(client)
     scenario = seeded["Scenario"]["id"]
-    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    order = await client.get_json("/api/prompt-blocks")
     await client.put_checked(
-        f"/api/prompt-layouts/{layout_id}/order",
+        "/api/prompt-blocks/order",
         json={
             "prefix": [b["id"] for b in order if b["region"] == "prefix" and b["id"] != scenario],
             "writer": [scenario] + [b["id"] for b in order if b["region"] == "writer"],
@@ -358,7 +358,7 @@ async def test_a_section_block_below_the_history_moves_into_the_writer_request(c
 
 async def test_scene_guidance_and_user_message_render_from_their_own_text(client, llm_mock):
     await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
-    layout_id, seeded = await _active_layout(client)
+    _, seeded = await _active_layout(client)
     scene, message = seeded["scene_guidance"]["id"], seeded["user_message"]["id"]
     # Text that drops its placeholder would silently drop the engine's part, so it is refused.
     await client.expect("patch", f"/api/prompt-blocks/{message}", json={"content": "___\n\nNo message"}, expected_status=409)
@@ -394,12 +394,12 @@ async def test_the_engine_lines_lead_the_user_message_wherever_it_sits(client, l
             "length_guard_enforce": True,
         },
     )
-    layout_id, seeded = await _active_layout(client)
+    _, seeded = await _active_layout(client)
     assert {"current_state", "length_nudge", "cue", "tool_notice"}.isdisjoint(seeded)
-    order = await client.get_json(f"/api/prompt-layouts/{layout_id}/blocks")
+    order = await client.get_json("/api/prompt-blocks")
     message = seeded["user_message"]["id"]
     await client.put_checked(
-        f"/api/prompt-layouts/{layout_id}/order",
+        "/api/prompt-blocks/order",
         json={
             "prefix": [b["id"] for b in order if b["region"] == "prefix"],
             "writer": [message] + [b["id"] for b in order if b["region"] == "writer" and b["id"] != message],
@@ -477,7 +477,7 @@ async def test_description_and_personality_resolve_separately_solo_and_under_a_g
 
 
 async def test_the_main_prompt_resolves_macros_and_keeps_its_bytes_without_them(client):
-    layout_id, seeded = await _active_layout(client)
+    _, seeded = await _active_layout(client)
     main = seeded["main_prompt"]
     cid = "layout-main-macros"
     await create_conversation(cid, "Main", "Iris", "")
@@ -501,8 +501,8 @@ async def test_the_summary_extends_the_turn_prefix(client, llm_mock):
         "/api/settings",
         json={"enable_agent": True, "length_guard_enabled": True, "length_guard_max_words": 5},
     )
-    layout_id, seeded = await _active_layout(client)
-    await _add_block(client, layout_id, content="House rules.", region="prefix", role="user")
+    _, seeded = await _active_layout(client)
+    await _add_block(client, content="House rules.", region="prefix", role="user")
     await client.expect("patch", f"/api/prompt-blocks/{seeded['Scenario']['id']}", json={"enabled": False})
     cid = await _card_conversation(client)
     llm_mock.enqueue_writer(_LONG_DRAFT)
@@ -522,7 +522,7 @@ async def test_the_summary_extends_the_turn_prefix(client, llm_mock):
 
 
 async def test_every_call_sends_the_prefix_it_was_built_with(client, llm_mock):
-    layout_id, seeded = await _active_layout(client)
+    _, seeded = await _active_layout(client)
     await client.expect(
         "patch",
         f"/api/prompt-blocks/{seeded['main_prompt']['id']}",

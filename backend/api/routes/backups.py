@@ -17,8 +17,9 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from ...core import maintenance_lock
+from ...database import get_settings
 from ...features import backups, profiles
-from ...workflows import gpu_swap_host
+from ...workflows import live_settings_changed
 from ..admission import dataset_maintenance
 from ..schemas import BackupApplyRequest, PresetExportRequest
 
@@ -104,6 +105,7 @@ async def api_import_backup(file: Annotated[UploadFile, File(...)]):
 async def api_apply_backup(name: str, data: BackupApplyRequest | None = None):
     choices = _choices(data)
     async with dataset_maintenance(), maintenance_lock():
+        before = await get_settings()
         active = await profiles.capture_active()
         try:
             path = backups.library_path(name)
@@ -112,8 +114,7 @@ async def api_apply_backup(name: str, data: BackupApplyRequest | None = None):
         except backups.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         await profiles.reenter(active)
-    # A backup can switch workflows on, and the GPU swap plan is off while they are off.
-    gpu_swap_host.invalidate()
+        await live_settings_changed(before)
     return {"backup": backup, "summary": summary}
 
 
@@ -121,6 +122,7 @@ async def api_apply_backup(name: str, data: BackupApplyRequest | None = None):
 async def api_restore_backup(name: str, data: BackupApplyRequest | None = None):
     choices = _choices(data)
     async with dataset_maintenance(), maintenance_lock():
+        before = await get_settings()
         active = await profiles.capture_active()
         try:
             path = backups.library_path(name)
@@ -134,7 +136,7 @@ async def api_restore_backup(name: str, data: BackupApplyRequest | None = None):
         except backups.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         await profiles.reenter(active)
-    gpu_swap_host.invalidate()
+        await live_settings_changed(before)
     return {"backup": backup, "ok": True, "summary": summary}
 
 

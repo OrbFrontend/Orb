@@ -610,8 +610,8 @@ class ProfileRow(ProfileState):
 class PromptBlockRow(TypedDict):
     """A row from ``prompt_blocks``: a marker (``kind`` is its id) or a custom block (``kind`` is ``'custom'``)."""
 
+    profile_id: str
     id: str
-    layout_id: str
     kind: str
     label: str
     content: str

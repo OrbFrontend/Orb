@@ -205,6 +205,7 @@ from .queries.profiles import (
     ProfileEditError,
     create_profile,
     delete_profile,
+    enter_profile,
     get_active_layout_blocks,
     get_active_profile_id,
     get_profile,
@@ -216,7 +217,6 @@ from .queries.profiles import (
     save_live_state,
     seed_library_statements,
     seed_missing_layouts,
-    set_active_profile_id,
 )
 from .queries.prompt_layouts import (
     PromptLayoutError,

@@ -15,7 +15,7 @@ from typing import cast
 
 from ..connection import immediate_tx, select_rows
 from ..models import SlopCardRow, SlopMiningStateRow, SlopReplyRow, SlopSuggestionDraft, SlopSuggestionRow
-from .profiles import get_active_profile_id
+from .active_profile import get_active_profile_id
 
 _MODEL_REPLIES = "m.role = 'assistant' AND m.turn_index > 0"
 

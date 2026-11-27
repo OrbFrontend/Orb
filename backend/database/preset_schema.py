@@ -22,16 +22,18 @@ DOMAIN_ROOTS: dict[str, str] = {
 
 # Profiles are backed up by profile, then by part. The profile's own row is the anchor every part needs: it is copied whenever
 # any part of the profile is, and without the "setup" part it carries only the PROFILE_ANCHOR_COLUMNS (the rest take their
-# defaults). The tables it owns (prompt_blocks) are the "setup" part.
+# defaults); its prompt blocks are the rest of the "setup" part.
 PROFILE_TABLE = "profiles"
 PROFILE_ANCHOR_COLUMNS: tuple[str, ...] = ("id", "name")
 PROFILE_PARTS: tuple[str, ...] = ("setup", "fragments", "phrase_bank", "global_lorebooks")
 # Touch when: a table gains a profile_id column. Maps each such table to its part. profile_id is a partition column, not
 # ownership: a table here is a root of its own, or the child of its other owner (profile_worlds of worlds), and its rows carry
-# the part of the profile they belong to. Suggestion keys the user dismissed are decisions about the bank, so they travel with
+# the part of the profile they belong to. Its primary key holds profile_id or a surrogate id, so moving its rows to another
+# profile is a profile_id update. Suggestion keys the user dismissed are decisions about the bank, so they travel with
 # it; the suggestions themselves are derived and excluded below.
 PROFILE_COLUMN = "profile_id"
 PROFILE_SCOPED: dict[str, str] = {
+    "prompt_blocks": "setup",
     "mood_fragments": "fragments",
     "interactive_fragments": "fragments",
     "phrase_bank": "phrase_bank",

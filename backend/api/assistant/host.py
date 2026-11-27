@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from ...core.settings import Settings
-from ...database import delete_character_card, update_settings
+from ...database import delete_character_card, get_settings, update_settings
 from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.assistant.tools import (
@@ -28,7 +28,7 @@ from ...features.assistant.tools import (
 from ...features.fragment_state import StateWriteError, state_panel
 from ...pipeline import estimate_context_size, resolve_judge_config
 from ...pipeline.passes.judge import definition_problems
-from ...workflows import gpu_swap_host, list_workflows, set_workflow_toggle
+from ...workflows import list_workflows, live_settings_changed, set_workflow_toggle
 from .. import deps
 from ..conversation_copy import checkpoint_conversation, checkpoint_title
 from ..conversation_start import DEFAULT_TITLE, start_solo_chat
@@ -156,9 +156,9 @@ class ApiHost:
 
     async def set_workflows_enabled(self, on: bool) -> None:
         # The settings route's own writer: one column, so a concurrent change to any other key is untouched.
+        before = await get_settings()
         await update_settings({"workflows_globally_enabled": int(on)})
-        # The GPU swap plan is off while workflows are, so a render right after switching them on must not read a cached "off".
-        gpu_swap_host.invalidate()
+        await live_settings_changed(before)
 
     def media_available(self, workflow_id: str) -> bool:
         return media.media_available(workflow_id)
