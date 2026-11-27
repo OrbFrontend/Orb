@@ -87,7 +87,7 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   box-shadow: inset 1px 1px 0 #f4f2ee, 4px 4px 0 rgba(0,0,0,0.35) !important; }
 .modal h2, .modal h3 { background: linear-gradient(90deg, #33507a 0%, #45658f 100%) !important;
   color: #ffffff !important; }
-.phrase-group-count { color: #663101 !important; font-weight: normal !important; }
+.phrase-suggest-badge { color: #663101 !important; font-weight: normal !important; }
 .toast { background: #fdfbd8 !important; border: 1px solid #404040 !important; color: #1a1a1a !important;
   box-shadow: 2px 2px 0 rgba(0,0,0,0.3) !important; }
 ::-webkit-scrollbar { width: 14px; height: 14px; }

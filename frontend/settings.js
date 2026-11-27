@@ -619,7 +619,7 @@ export async function showPhraseBankModal() {
         : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
       const count = isRegex ? "regex" : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
       return `
-    <div class="phrase-group-item" data-wf-action="settings:editPhraseGroup" data-id="${g.id}">
+    <div class="phrase-group-item" data-wf-action="settings:editPhraseGroup" data-id="${g.id}"${isRegex ? ` title="${esc(g.pattern)}"` : ""}>
       <div class="phrase-group-variants">${body}</div>
       <div class="phrase-group-count">${count}</div>
     </div>
@@ -638,7 +638,7 @@ export async function showPhraseBankModal() {
       </div>
     </div>
 
-    <div id="phrase-bank-list" class="phrase-bank-list">
+    <div id="phrase-bank-list" class="phrase-group-list">
       ${groupRows.length ? groupRows : '<div class="phrase-bank-empty">No phrase groups yet</div>'}
     </div>
 
@@ -661,8 +661,8 @@ function _suggestionCard(s) {
   const { stats } = s;
   const badge =
     s.lane === "new"
-      ? '<span class="phrase-group-count phrase-suggest-new">New</span>'
-      : '<span class="phrase-group-count">Long-standing</span>';
+      ? '<span class="phrase-suggest-badge phrase-suggest-new">New</span>'
+      : '<span class="phrase-suggest-badge">Long-standing</span>';
   const examples = s.examples.map((e) => `<li>${esc(e)}</li>`).join("");
   const slots = s.fillers.filter((f) => f.top.length);
   const fillers = slots

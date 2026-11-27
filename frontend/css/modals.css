@@ -234,21 +234,24 @@
 .persona-action-edit { font-size: 16px; }
 .persona-empty { padding: 22px 12px; color: var(--text-muted); font-size: 12px; text-align: center; }
 .phrase-bank-list { margin-bottom: 20px; max-height: 460px; overflow-y: auto; }
-.phrase-group-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px;
-  border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; background: var(--bg-surface);
-  cursor: pointer; transition: all .15s ease; }
-.phrase-group-item:hover { background: var(--bg-hover); border-color: var(--border-light); transform: translateY(-1px);
-}
-.phrase-group-item:active { transform: translateY(0); }
-.phrase-group-variants { flex: 1; font-size: 12px; color: var(--text-primary); display: flex; flex-wrap: wrap; gap: 4px;
-  align-items: center; }
-.phrase-variant { display: inline-block; padding: 2px 6px; background: var(--bg-elevated); border-radius: 4px;
-  font-size: 11px; border: 1px solid var(--border); white-space: nowrap; }
-.phrase-group-count { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+/* Phrase Bank: one framed list that takes the modal's spare height, a hairline between groups. */
+.phrase-group-list { flex: 0 1 auto; min-height: 160px; margin-bottom: 20px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-primary); scrollbar-width: thin; }
+.phrase-group-item { display: flex; align-items: center; gap: 12px; padding: 9px 12px; cursor: pointer;
+  border-bottom: 1px solid var(--border); transition: background .1s; }
+.phrase-group-item:last-child { border-bottom: none; }
+.phrase-group-item:hover { background: var(--bg-hover); }
+.phrase-group-variants { flex: 1; min-width: 0; font-size: 12px; color: var(--text-primary); display: flex;
+  flex-wrap: wrap; gap: 4px; align-items: center; }
+.phrase-variant { display: inline-block; padding: 1px 7px; background: var(--bg-elevated); border-radius: 4px;
+  font-size: 12px; line-height: 1.6; border: 1px solid var(--border); white-space: nowrap; }
+.phrase-group-item .phrase-regex-pattern { padding: 1px 0; border-width: 1px 0; border-color: transparent;
+  background: none; font-size: 12px; line-height: 1.6; }
+.phrase-group-count { flex-shrink: 0; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.phrase-suggest-badge { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
   color: var(--accent); background: var(--bg-elevated); border: 1px solid var(--border); padding: 2px 6px;
   border-radius: 10px; margin-left: 8px; flex-shrink: 0; }
-.phrase-bank-empty { color: var(--text-muted); text-align: center; padding: 30px 20px; font-size: 12px;
-  border: 1px dashed var(--border); border-radius: var(--radius); background: var(--bg-surface); }
+.phrase-bank-empty { color: var(--text-muted); text-align: center; padding: 30px 20px; font-size: 12px; }
 
 /* Suggested: phrases mined from model replies, offered for one-click adding. */
 .phrase-suggest-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px;
