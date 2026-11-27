@@ -23,7 +23,8 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/tools/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
 | `backend/features/assistant/tools/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
 | `backend/features/assistant/tools/fragments.py` | The fragment creates and setters, the stage each fragment type runs in and where Required applies, and the names, projections and checks the fragment reads, edits and deletes share |
-| `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The seven edit tools; the six delete tools; the proposal store, Apply, Undo and Revise |
+| `backend/features/assistant/tools/layout.py` | The prompt layout's reads, create and setter, and the block rules its edit and delete share |
+| `backend/features/assistant/tools/edits.py`, `deletes.py`, `proposals.py` | The eight edit tools; the seven delete tools; the proposal store, Apply, Undo and Revise |
 | `backend/features/assistant/tools/web.py` | The web search through the user's SearXNG server, and the page reader with its text extraction and private-address refusal |
 | `backend/features/assistant/tools/actions.py`, `media.py` | Creates, chat starts and settings, a character's world link, chat actions and handoffs; the media tools and what counts as a saved render |
 | `backend/api/assistant/` | The binding: `host.py` implements the host over the API, pipeline, workflow and peer-feature code; `__init__.py` binds `build_tools`, Apply, Undo and Revise to it |
@@ -297,9 +298,9 @@ throughout.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_image_styles`, `view_image`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `create_document`, `set_chat_world`, `set_character_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
-| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_document`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase` | Stores a proposal and carries on; the user's Apply commits it after the run. |
+| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment`, `list_prompt_blocks`, `read_prompt_block`, `list_image_styles`, `view_image`, `search_web`, `read_web_page` | Runs at once; changes nothing. |
+| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_prompt_block`, `set_prompt_block`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `create_document`, `set_chat_world`, `set_character_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `create_image`, `illustrate_reply`, `generate_speech` | Commits at once. |
+| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_document`, `edit_mood_fragment`, `edit_interactive_fragment`, `edit_prompt_block`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_banned_phrase`, `delete_prompt_block` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
 ### Tool groups
@@ -314,6 +315,7 @@ switching one off removes a whole subject:
 | Chats and messages (`chats`) | `read_messages`, `read_chat_state`, `start_chat`, `set_chat`, `checkpoint_chat`, `switch_branch`, `edit_message`, `delete_chat`, `delete_message`, and the five handoffs |
 | Worlds and lore (`lore`) | `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `create_world`, `create_lore_entry`, `set_world`, `set_lore_entry`, `set_chat_world`, `set_character_world`, `edit_lore_entry`, `delete_world`, `delete_lore_entry` |
 | Fragments (`fragments`) | The fragment reads, creates, setters and edits |
+| Prompt layout (`layout`) | `list_prompt_blocks`, `read_prompt_block`, `create_prompt_block`, `set_prompt_block`, `edit_prompt_block`, `delete_prompt_block` |
 | Settings and phrase bank (`settings`) | `read_settings`, `set_pipeline_toggle`, `set_length_guard`, `list_banned_phrases`, `add_banned_phrase`, `delete_banned_phrase` |
 | Documents (`documents`) | `list_documents`, `read_document`, `create_document`, `edit_document` |
 | Images and speech (`media`) | `list_image_styles`, `view_image`, `create_image`, `illustrate_reply`, `generate_speech` |
@@ -476,6 +478,22 @@ Auditor (on) or the Output Auditor and Length Guard (off). The result reports
 each switch it set as it now stands, with the effective value beside one a
 master overrides, and a master switch that blocks it is named, not changed. `read_settings` reports every switch under the name
 `set_pipeline_toggle` takes for it.
+
+### The prompt layout
+
+The layout tools act on the active profile's blocks (see [Prompt layout](prompting.md#prompt-layout)) and keep its rules,
+which `database/queries/prompt_layouts.py` enforces for the routes too. `list_prompt_blocks` lists both sides of Chat
+history in order, each block with its `position` on its side, kind, role, switch, whether its text is `editable`, and its
+text clipped to fit one result; `read_prompt_block` reads one whole, in pages. `create_prompt_block` adds a custom block
+at a `position` on either side. `set_prompt_block` switches a block, sets its role, and moves it within its side or, for a
+custom block, across Chat history, where a block with its old side's default role takes the new side's; it writes only
+what differs.
+
+`edit_prompt_block` proposes a custom block's label or text, or an editable built-in block's text, which must keep its
+placeholder when proposed and when revised; a fixed built-in has no text to edit and keeps its name.
+`delete_prompt_block` proposes removing a custom block; a built-in is switched off instead. Either proposal names the
+profile it was made in, so an Apply after a profile switch writes that profile's block, compared and written in one
+transaction (`update_prompt_block(expected=...)`).
 
 ## Reviewed changes
 
@@ -957,8 +975,7 @@ proposal diffs, user text and tool lines are escaped.
 Committed resources are read again by id through the loaders that own them,
 as each `mutation` arrives and after an Apply: worlds and entries, the settings
 keys a toggle wrote (through the settings store's queue), characters, personas,
-the chat list, a chat's worlds, a branch change, the mood and interactive fragment lists (the
-latter with the open chat's state), a document's row in the list and its page while it is the one open, and a message
+the chat list, a chat's worlds, a branch change, the mood and interactive fragment lists (the latter with the open chat's state), the layout window, a document's row in the list and its page while it is the one open, and a message
 or media job's chat. A document open in the editor is saved before a run sent from it starts and before an Apply or an
 Undo of a change to it, so the tools read, and Apply compares, the text on screen; an Apply that cannot save it first
 (a generation running, a save conflict) is not sent. The applied text is loaded into the page as one step of the
@@ -971,5 +988,5 @@ unchanged; nothing opens a chat or moves focus. A lore entry open in the drawer
 takes a change made elsewhere field by field. When a run ends any way other than
 `reply`, `proposal` or `handoff`, or any tool result in it came back failed, the browser
 reads again everything cheap once the run has settled: worlds, characters,
-personas, both fragment lists, the chat list, the open chat's messages, and every switch key a toggle
+personas, both fragment lists, the prompt layout, the chat list, the open chat's messages, and every switch key a toggle
 can write. Nothing is sent again.

@@ -21,6 +21,7 @@ from ....database.queries.messages import get_message_subtree_ids
 from ..contracts import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from .edits import proposal_key
 from .host import ChatGuards
+from .layout import block_field, block_label, block_of, is_marker, profile_name
 from .proposals import Proposal, ProposalKind, is_open, preview, store
 from .targets import (
     character_field,
@@ -61,6 +62,10 @@ class _WorldDelete(ToolArguments):
 class _EntryDelete(ToolArguments):
     world_id: str = world_field()
     entry_id: int = entry_field()
+
+
+class _BlockDelete(ToolArguments):
+    block_id: str = block_field()
 
 
 class _PhraseDelete(ToolArguments):
@@ -178,5 +183,22 @@ def build_delete_tools(view: ViewContext, guards: ChatGuards, held: Sequence[Pro
         detail = f"Replies may use these again: {', '.join(quoted(variant) for variant in variants) or quoted(name)}."
         target = {"kind": "phrase_group", "group_id": row["id"]}
         return propose("phrase_group", target, f"phrase group {quoted(name)}", detail)
+
+    @tools.add(
+        "confirm",
+        _BlockDelete,
+        "Propose deleting a custom block from the active profile's prompt layout. To keep it out of the prompt but keep it, "
+        "turn it off with set_prompt_block instead.",
+    )
+    async def delete_prompt_block(args: _BlockDelete) -> ToolOutput:
+        row = await block_of(args.block_id)
+        if is_marker(row):
+            raise ToolFailure(
+                f"The {row['label']} block is built-in and cannot be deleted; set_prompt_block with enabled off takes it out "
+                "of the prompt."
+            )
+        target = {"kind": "prompt_block", "profile_id": row["profile_id"], "block_id": row["id"]}
+        label = block_label(row, await profile_name(row["profile_id"]))
+        return propose("prompt_block", target, label, f"Its label and its {len(row['content']):,}-character text go.")
 
     return tools

@@ -20,7 +20,7 @@ from ...core.prompt_layout import (
     marker_placeholder,
     names_marker_placeholder,
 )
-from ..connection import get_db, select_rows
+from ..connection import check_expected, get_db, select_rows
 from ..models import PromptBlockRow
 from .active_profile import get_active_profile_id
 
@@ -95,9 +95,14 @@ async def create_prompt_block(data: Mapping[str, Any], profile_id: str | None = 
     return row
 
 
-async def update_prompt_block(block_id: str, data: Mapping[str, Any], profile_id: str | None = None) -> PromptBlockRow | None:
+async def update_prompt_block(
+    block_id: str, data: Mapping[str, Any], profile_id: str | None = None, *, expected: Mapping[str, Any] | None = None
+) -> PromptBlockRow | None:
     """Edit a block's label, text, role or switch. A marker keeps its name, only an editable marker's text changes, keeping its
-    placeholder. :func:`reorder_prompt_blocks` moves blocks."""
+    placeholder. :func:`reorder_prompt_blocks` moves blocks.
+
+    With *expected*, the named columns are compared and the update written in one transaction, raising ``StaleWrite`` if any
+    changed since the caller read them."""
     profile_id = profile_id or await get_active_profile_id()
     row = await get_prompt_block(block_id, profile_id)
     if row is None:
@@ -116,13 +121,18 @@ async def update_prompt_block(block_id: str, data: Mapping[str, Any], profile_id
         updates["label"] = updates["label"].strip()
     if "enabled" in updates:
         updates["enabled"] = int(updates["enabled"])
-    if updates:
-        sets = ", ".join(f"{column} = ?" for column in updates)
+    if updates or expected is not None:
         async with get_db() as db:
-            await db.execute(
-                f"UPDATE prompt_blocks SET {sets} WHERE profile_id = ? AND id = ?",  # nosec B608 -- columns from the fixed set above
-                [*updates.values(), profile_id, block_id],
-            )
+            owner = {"profile_id": profile_id}
+            if expected is not None and not await check_expected(db, "prompt_blocks", block_id, expected, owner=owner):
+                return None
+            if updates:
+                sets = ", ".join(f"{column} = ?" for column in updates)
+                await db.execute(
+                    f"UPDATE prompt_blocks SET {sets} WHERE profile_id = ? AND id = ?",  # nosec B608 -- columns from the fixed set above
+                    [*updates.values(), profile_id, block_id],
+                )
+            # Also ends the transaction a comparison opened.
             await db.commit()
     return await get_prompt_block(block_id, profile_id)
 

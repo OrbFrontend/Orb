@@ -221,6 +221,7 @@ from .queries.prompt_layouts import (
     PromptLayoutError,
     create_prompt_block,
     delete_prompt_block,
+    get_prompt_block,
     get_prompt_blocks,
     reorder_prompt_blocks,
     update_prompt_block,

@@ -18,6 +18,7 @@ from ....database import get_active_path, greeting_rerolls
 from ..contracts import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from .fragments import MOOD_TEXT_FIELDS, TEXT_CAPS, check_field_applies, fragment_text, fragment_text_problem
 from .host import AssistantHost
+from .layout import block_field, block_label, block_of, block_text_problem, check_block_field, profile_name
 from .proposals import DOCUMENT_TITLE_CHARS, Proposal, change_label, is_open, preview, revise, store
 from .targets import (
     CHARACTER_LIST_FIELDS,
@@ -252,6 +253,8 @@ _InteractiveFragmentEdit = _edit_args(
     ),
     outcome=(str, Field(default="", max_length=64, description="outcome_meaning and outcome_guidance: which outcome.")),
 )
+
+_PromptBlockEdit = _edit_args("_PromptBlockEdit", block_id=(str, block_field()), field=(Literal["label", "content"], ...))
 
 _GREETING_REROLLS = (
     "Message {id} is this chat's opening greeting, and it still holds random macros such as {{{{roll}}}} that roll again each "
@@ -550,5 +553,24 @@ def build_edit_tools(view: ViewContext, host: AssistantHost, held: Sequence[Prop
             return fragment_text_problem(fragment, args.field, args.outcome, text, host)
 
         return propose(target, label, args.field, stored, args, reread, check=check)
+
+    @tools.add(
+        "confirm",
+        _PromptBlockEdit,
+        "Propose an edit to a prompt block of the active profile's layout: a custom block's label or text, or an editable "
+        "built-in block's text, which must keep its placeholder (such as {{scene_guidance}}).",
+    )
+    async def edit_prompt_block(args: Any) -> ToolOutput:
+        row = await block_of(args.block_id)
+        check_block_field(row, args.field)
+        target = {"kind": "prompt_block", "profile_id": row["profile_id"], "block_id": row["id"]}
+        label = block_label(row, await profile_name(row["profile_id"]))
+        reread = "read_prompt_block reads the block whole, its text one page per text_offset."
+        required = "A block's label" if args.field == "label" else ""
+
+        def check(text: str) -> str:
+            return block_text_problem(row, args.field, text)
+
+        return propose(target, label, args.field, row[args.field], args, reread, required=required, check=check)
 
     return tools

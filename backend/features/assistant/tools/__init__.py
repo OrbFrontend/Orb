@@ -23,6 +23,7 @@ from .host import (
     SchemaName,
     ViewedImage,
 )
+from .layout import build_layout_tools
 from .media import build_media_tools
 from .proposals import Proposal, apply_proposals, open_proposals, pending_note, revise_proposal, undo_proposals
 from .reads import build_read_tools
@@ -75,6 +76,7 @@ def build_tools(
         *build_toggle_tools(host),
         *build_setter_tools(view, host),
         *build_fragment_tools(host),
+        *build_layout_tools(),
         *build_edit_tools(view, host, held),
         *build_delete_tools(view, host, held),
         *build_action_tools(view, host),
