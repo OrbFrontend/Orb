@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core import CardScripts, ChatMessage, ContentPart, Macros, TurnCast
-from ..core.prompt_layout import LayoutBlock, default_layout
+from ..core.prompt_layout import LayoutBlock, cast_template, default_layout
 from .group_context import render_cast_section
 from .layout import PrefixInputs, SectionInputs, join_history, render_prefix
 
@@ -122,13 +122,14 @@ def build_prefix(
     *system_prompt* is the raw Main prompt text; the layout resolves its macros and fills the sections it names. *sections*
     arrive resolved (``prompting.conversation_sections``). *layout* defaults to :func:`default_layout`, the built-in order.
     """
+    blocks = layout if layout is not None else default_layout()
     inputs = PrefixInputs(
         main_prompt=system_prompt,
-        cast=render_cast_section(cast, macros).lstrip("\n") if cast and cast.grouped else "",
+        cast=render_cast_section(cast, macros, cast_template(blocks), sections).lstrip("\n") if cast and cast.grouped else "",
         constant_lore=constant_lorebook_block,
         sections=sections,
     )
-    head = render_prefix(layout if layout is not None else default_layout(), inputs, macros)
+    head = render_prefix(blocks, inputs, macros)
     history = render_history(
         messages or [], macros, cast=cast, speaker_names=speaker_names, scripts=scripts, speaker_scripts=speaker_scripts
     )

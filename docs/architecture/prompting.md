@@ -140,15 +140,32 @@ list, and the Director's own request frames selected lore under its fixed
 `**Lorebook**` heading.
 
 `main_prompt` and every marker in `MARKER_TEMPLATES` hold their own text
-(`EDITABLE_MARKERS`); the API marks them `editable`. Those are the three lore
-markers, `scene_guidance` and `user_message`. Each starts from its
+(`EDITABLE_MARKERS`), as does `cast` (below); the API marks them `editable`.
+Every marker in `MARKER_TEMPLATES` (the three lore markers, `scene_guidance`
+and `user_message`) starts from its
 template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
 `{{scene_guidance}}` and so on) outside a `{{// ... }}` note and outside backticks.
 The placeholder stands for the engine's part and is filled like a section
 placeholder: the text's macros resolve, with the conversation's seed above the
 divider and fresh below it, then the value goes in literally.
 The block renders nothing while its value is empty. Writer-request text carries
-its own `___` divider. Every other marker's text is fixed; its window has no text field.
+its own `___` divider.
+
+The **Group cast** marker's text is one member's card (`CAST_TEMPLATE`), not a
+frame around a placeholder of its own. Each card the context mode shows is
+rendered from it, scoped to that member (`prompting.render_member_card`): under
+Shared one per member after the roster, under Classic card swap the speaker's
+after the public cast, and under Private the speaker's in the Writer request's
+speaker frame, so the text steers the Writer request too. There
+`{{char}}`, `{{description}}`, `{{personality}}` and `{{examples}}` stand for
+that member's name and fields; the other sections keep their chat meaning. The
+text is filled once, as a marker's is; a paragraph after the first that names
+only empty sections is left out, so a heading leaves with its section, and a
+card renders nothing while every section it names is empty. The text's own macros roll at the member's `cast`
+place. Switching the marker off leaves only the prefix section; Private's
+speaker card stays. An edit cannot blank the text; a blank one, as a preset
+that blanks block text leaves it, renders the built-in card. The public cast, the Shared roster, the speaker
+frame's own lines and a card's post-history instructions stay engine text.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless
@@ -174,10 +191,10 @@ name means its section wherever it is written, on either side of the divider:
 
 | Placeholder | Section |
 |---|---|
-| `{{description}}` | A solo card's description; empty in a group, where `cast` carries the cards |
-| `{{personality}}` | A solo card's personality; empty in a group |
+| `{{description}}` | A solo card's description; empty in a group, except in the Group cast text, where it is the member's |
+| `{{personality}}` | A solo card's personality; in a group, as `{{description}}` |
 | `{{scenario}}` | The chat's scenario |
-| `{{examples}}` | A solo card's example dialogue; empty in a group |
+| `{{examples}}` | A solo card's example dialogue; in a group, as `{{description}}` |
 | `{{instructions}}` | The chat's instructions; empty under `prevent_prompt_overrides` |
 | `{{persona}}` | The user persona's description |
 

@@ -37,11 +37,9 @@ async def test_a_block_is_created_placed_edited_and_deleted_in_the_profile_it_wa
     with pytest.raises(ToolFailure, match="stays on its side"):
         await _run(tools, "set_prompt_block", block_id="user_message", region="prefix")
 
-    # A built-in's text keeps its placeholder; a fixed built-in has none to edit and cannot be deleted.
+    # A built-in's text keeps its placeholder, and a built-in cannot be deleted.
     with pytest.raises(ToolFailure, match=r"must keep \{\{scene_guidance\}\}"):
         await _propose(tools, "edit_prompt_block", block_id="scene_guidance", field="content", mode="replace_all", text="x")
-    with pytest.raises(ToolFailure, match="cannot be edited"):
-        await _propose(tools, "edit_prompt_block", block_id="cast", field="content", mode="replace_all", text="x")
     with pytest.raises(ToolFailure, match="cannot be deleted"):
         await _propose(tools, "delete_prompt_block", block_id="main_prompt")
 

@@ -114,6 +114,8 @@ async def update_prompt_block(
             raise PromptLayoutError("A built-in block cannot be edited.")
         if kind in MARKER_TEMPLATES and not names_marker_placeholder(kind, data["content"]):
             raise PromptLayoutError(f"Keep {marker_placeholder(kind)} in this block's text.")
+        if kind == "cast" and not data["content"].strip():
+            raise PromptLayoutError("Group cast needs text: it is each member's card.")
     if not custom and "label" in data:
         raise PromptLayoutError("A built-in block keeps its name.")
     updates = {column: data[column] for column in ("label", "content", "role", "enabled") if column in data}

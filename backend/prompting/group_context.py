@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from ..core import CastMember, GroupContextMode, Macros, TurnCast, fill_original
+from .layout import SectionInputs, render_card_template
 
 CAST_HEADING = "## Cast"
-DOSSIER_HEADING = "## Character dossier: "
-ACTIVE_CARD_HEADING = "## Character: "
-EXAMPLE_HEADING = "## Example Dialogue"
-# A dossier is a `##` section, so its examples nest one level deeper or they would close the dossier they belong to.
-DOSSIER_EXAMPLE_HEADING = "### Example Dialogue"
 
 
 def carries_public_cast(mode: GroupContextMode) -> bool:
@@ -80,11 +77,6 @@ def _resolver(macros: Macros | None, place: str):
     return macros.at(place).resolve_message if macros else (lambda text: text)
 
 
-def _examples_block(text: str, heading: str) -> str:
-    """Render example dialogue under *heading*, honouring the V2 ``<START>`` marker."""
-    return text.replace("<START>", heading) if "<START>" in text else f"{heading}\n{text}"
-
-
 def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> str:
     """Render confirmed public profiles for the cast."""
     scoped = macros._replace(cast=roster) if macros else None
@@ -96,39 +88,23 @@ def _render_public_cast(cast: TurnCast, macros: Macros | None, roster: str) -> s
     return "".join(parts)
 
 
-def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> str:
-    """Render one member's identity dossier."""
+def render_member_card(member: CastMember, macros: Macros | None, roster: str, template: str, sections: SectionInputs) -> str:
+    """One member's card from the Group cast *template*: the card placeholders stand for the member's own fields, the chat's
+    sections keep their meaning. Empty while every card section the template names is empty."""
     scoped = member_macros(macros, member, roster)
-    body = []
-    if member.private_sheet:
-        body.append(_resolver(scoped, member_place(member, "private_sheet"))(member.private_sheet))
-    if member.mes_example:
-        example = _resolver(scoped, member_place(member, "mes_example"))(member.mes_example)
-        body.append(_examples_block(example, DOSSIER_EXAMPLE_HEADING))
-    if not body:
-        return ""
-    return f"\n\n{DOSSIER_HEADING}{member.name}\n" + "\n\n".join(body)
+    examples = _resolver(scoped, member_place(member, "mes_example"))(member.mes_example) if member.mes_example else ""
+    card = replace(
+        sections,
+        description=scoped.description if scoped else member.description,
+        personality=scoped.personality if scoped else member.personality,
+        character_heading=False,
+        examples=examples,
+    )
+    return render_card_template(template, card, _resolver(scoped, member_place(member, "cast")))
 
 
-def _render_active_card(speaker: CastMember, macros: Macros | None, roster: str) -> str:
-    """Classic card swap: the selected member's identity fields, card-style.
-
-    Appended after the public cast, so the speaker is described twice on purpose: the short public line the rest of the cast
-    reads about it, then its own card. The same doubling exists under Private, where the card lands in the tail instead --
-    neither mode suppresses a member's public profile just because that member happens to be speaking.
-    """
-    scoped = member_macros(macros, speaker, roster)
-    parts = [f"\n\n{ACTIVE_CARD_HEADING}{speaker.name}"]
-    if speaker.private_sheet:
-        parts.append(f"\n{_resolver(scoped, member_place(speaker, 'private_sheet'))(speaker.private_sheet)}")
-    if speaker.mes_example:
-        example = _resolver(scoped, member_place(speaker, "mes_example"))(speaker.mes_example)
-        parts.append("\n\n" + _examples_block(example, EXAMPLE_HEADING))
-    return "".join(parts)
-
-
-def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
-    """The whole group identity section of the system body, leading newlines included.
+def render_cast_section(cast: TurnCast, macros: Macros | None, template: str, sections: SectionInputs) -> str:
+    """The whole group identity section of the system body, leading newlines included; each member card from *template*.
 
     Returns ``""`` for a solo turn. In Classic card swap a *cast* with no ``speaker`` renders the neutral base every speaker's
     prefix shares: the public cast and nothing after it.
@@ -137,16 +113,18 @@ def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
         return ""
     roster = roster_names(cast)
     if not carries_public_cast(cast.context_mode):
-        # Shared keeps a names-only list ahead of the dossiers: it guarantees every active member is named even when its dossier
-        # is empty. The other two get that floor from the public cast's per-member headings.
+        # Shared keeps a names-only list ahead of the cards: it guarantees every active member is named even when its card is
+        # empty. The other two get that floor from the public cast's per-member headings.
         parts = [f"\n\n{CAST_HEADING}\n{roster}"]
-        parts.extend(render_dossier(member, macros, roster) for member in cast.members)
+        cards = (render_member_card(member, macros, roster, template, sections) for member in cast.members)
+        parts.extend(f"\n\n{card}" for card in cards if card)
         return "".join(parts)
     parts = [_render_public_cast(cast, macros, roster)]
     # Swap alone appends a card, and only once a speaker is chosen -- the Director and the pre-pipeline hooks run before that
     # and stop at the public cast, which is exactly the base each speaker then extends.
     if prefix_is_speaker_scoped(cast.context_mode) and cast.speaker is not None:
-        parts.append(_render_active_card(cast.speaker, macros, roster))
+        if card := render_member_card(cast.speaker, macros, roster, template, sections):
+            parts.append(f"\n\n{card}")
     return "".join(parts)
 
 
@@ -155,11 +133,15 @@ def speaker_instructions(member: CastMember, *, prevent_prompt_overrides: bool) 
     return "" if prevent_prompt_overrides else fill_original(member.post_history, "")
 
 
-def largest_cast_section(cast: TurnCast, macros: Macros | None) -> str:
+def largest_cast_section(cast: TurnCast, macros: Macros | None, template: str, sections: SectionInputs) -> str:
     """The cast section of the largest prefix any speaker gets: under Classic card swap, the public cast plus the largest
     unmuted speaker's card; the shared section otherwise."""
-    neutral = render_cast_section(cast._replace(speaker=None), macros)
+    neutral = render_cast_section(cast._replace(speaker=None), macros, template, sections)
     if not prefix_is_speaker_scoped(cast.context_mode):
         return neutral
-    speakers = [render_cast_section(cast._replace(speaker=member), macros) for member in cast.members if not member.muted]
+    speakers = [
+        render_cast_section(cast._replace(speaker=member), macros, template, sections)
+        for member in cast.members
+        if not member.muted
+    ]
     return max([neutral, *speakers], key=len)

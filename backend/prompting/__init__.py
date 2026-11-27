@@ -19,6 +19,7 @@ from .group_context import (
     prefix_cache_shape,
     prefix_is_speaker_scoped,
     render_cast_section,
+    render_member_card,
     speaker_instructions,
     tail_carries_identity,
 )

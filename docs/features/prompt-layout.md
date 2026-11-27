@@ -37,7 +37,11 @@ the Main prompt and a character card's system prompt included. Only a block
 built from them alone is left out when they are all empty. Outside a custom
 block, `{{examples}}` inserts every example at once, without the `<START>` lines.
 
-Group cast's text is fixed.
+Group cast's text is one character's card. In a group chat each card the
+**Character context** shows is written from it, with `{{char}}`,
+`{{description}}`, `{{personality}}` and `{{examples}}` standing for that
+character. Under **Private** the speaker's card goes after Chat history even
+though the block sits above it.
 
 Switching a built-in block off keeps its text out of the prompt; whatever
 produces it still runs. With the Director on and Scene guidance off, the

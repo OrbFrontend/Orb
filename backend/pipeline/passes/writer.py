@@ -18,10 +18,10 @@ from ...core import (
     resolve_inline,
 )
 from ...core.llm_types import ContentDelta, ReasoningDelta
-from ...core.prompt_layout import LayoutBlock, default_layout
+from ...core.prompt_layout import LayoutBlock, cast_template, default_layout
 from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, TextCallRecord, reasoning_cfg
-from ...prompting import member_macros, member_place, speaker_instructions, tail_carries_identity
+from ...prompting import member_macros, member_place, render_member_card, speaker_instructions, tail_carries_identity
 from ...prompting.layout import (
     TOOL_NOTICE,
     SectionInputs,
@@ -76,9 +76,16 @@ _SHEET_FRAMING = (
 
 
 def speaker_frame(
-    speaker: CastMember | None, macros: Macros | None, context_mode: GroupContextMode, *, prevent_prompt_overrides: bool
+    speaker: CastMember | None,
+    macros: Macros | None,
+    context_mode: GroupContextMode,
+    template: str,
+    sections: SectionInputs,
+    *,
+    prevent_prompt_overrides: bool,
 ) -> tuple[str, str, Macros | None]:
-    """The group speaker's opening and closing lines around the Writer request, and the macros scoped to the speaker."""
+    """The group speaker's opening and closing lines around the Writer request, and the macros scoped to the speaker. Under
+    Private the opening carries the speaker's card, rendered from the Group cast *template*."""
     if speaker is None:
         return "", "", macros
     speaker_macros = member_macros(macros, speaker, macros.cast if macros else "")
@@ -89,12 +96,8 @@ def speaker_frame(
 
     opening = f"## You are writing as {speaker.name}\n"
     if tail_carries_identity(context_mode):
-        if speaker.private_sheet:
-            opening += f"{_SHEET_FRAMING}\n{resolve('private_sheet', speaker.private_sheet)}\n\n"
-        if speaker.mes_example:
-            example = resolve("mes_example", speaker.mes_example)
-            heading = "## Example Dialogue"
-            opening += (example.replace("<START>", heading) if "<START>" in example else f"{heading}\n{example}") + "\n\n"
+        if card := render_member_card(speaker, macros, macros.cast if macros else "", template, sections):
+            opening += f"{_SHEET_FRAMING}\n\n{card}\n\n"
     if instructions := speaker_instructions(speaker, prevent_prompt_overrides=prevent_prompt_overrides):
         opening += f"## Additional Instructions\n{resolve('instructions', instructions)}\n\n"
     closing = f"Write the next reply as {speaker.name} only. Do not write dialogue or actions for another cast member."
@@ -184,8 +187,15 @@ async def writer_stage(
     transport_probe: ChatMessage = {"role": "user", "content": build_multimodal_content("", attachments)}
     tools_sent = cfg.writer_lane.sends_tool_schemas([transport_probe])
 
+    blocks = layout if layout is not None else default_layout()
+    sections = sections or SectionInputs()
     speaker_open, speaker_close, block_macros = speaker_frame(
-        speaker, macros, context_mode, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
+        speaker,
+        macros,
+        context_mode,
+        cast_template(blocks),
+        sections,
+        prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
     )
     inputs = WriterInputs(
         selected_lore=state.writer_lorebook_block,
@@ -196,11 +206,11 @@ async def writer_stage(
         cue=speaker_cue,
         user_message=state.effective_msg,
         depth_lore=depth_block,
-        sections=sections or SectionInputs(),
+        sections=sections,
         speaker_open=speaker_open,
         speaker_close=speaker_close,
     )
-    request = render_writer_request(layout if layout is not None else default_layout(), inputs, block_macros)
+    request = render_writer_request(blocks, inputs, block_macros)
     state.writer_request = _with_attachments(request, attachments)
     state.writer_call = TextCallRecord()
     label_buffer = ""

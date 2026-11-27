@@ -353,8 +353,8 @@ async def test_shared_dossier_gives_every_speaker_one_prefix_and_never_repeats_i
     # Best prefix sharing: both speakers read the identical cast dossier body.
     assert systems[0] == systems[1]
     for system in systems:
-        assert system.count("## Character dossier: Aria") == 1
-        assert system.count("## Character dossier: Kael") == 1
+        assert system.count("## Character: Aria") == 1
+        assert system.count("## Character: Kael") == 1
         assert "ARIA PRIVATE" in system and "KAEL PRIVATE" in system
 
     # The identity fields are in the shared body, so the tail must not re-bill them; the speaker-only guard stays.
@@ -373,6 +373,35 @@ async def test_private_perspective_keeps_the_cast_prefix_stable_and_cards_speake
     writers = _writers(llm_mock)
     assert "ARIA PRIVATE" in json.dumps(writers[0]["messages"][-1])
     assert "ARIA PRIVATE" not in json.dumps(writers[1]["messages"][-1])
+
+
+@pytest.mark.parametrize("mode", ["private", "shared", "swap"])
+async def test_the_group_cast_text_shapes_every_members_card_in_every_mode(client, llm_mock, mode):
+    # Blank text would silently drop every card, so it is refused.
+    await client.expect("patch", "/api/prompt-blocks/cast", json={"content": " \n"}, expected_status=409)
+    await client.expect(
+        "patch", "/api/prompt-blocks/cast", json={"content": "### Who: {{char}}\n{{description}}\n{{examples}}"}
+    )
+    conv, _ = await _two_card_group(
+        client, context_mode=mode, aria_extra={"mes_example": "<START>\nARIA ONE\n<START>\nARIA TWO"}
+    )
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    aria = _writers(llm_mock)[0]["messages"]
+    card = "### Who: Aria\nARIA PRIVATE\nARIA ONE\n\nARIA TWO"
+    assert card in str(aria[-1 if mode == "private" else 0]["content"])
+    assert "Example Dialogue" not in json.dumps(aria) and "<START>" not in json.dumps(aria)
+    if mode == "private":
+        assert "ARIA PRIVATE" not in str(aria[0]["content"])
+
+
+async def test_a_cards_empty_section_takes_its_heading_with_it(client, llm_mock):
+    conv, _ = await _two_card_group(client, context_mode="shared", kael_extra={"mes_example": ""})
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    system = _systems(llm_mock, "writer")[0]
+    assert system.count("## Example Dialogue") == 1
+    assert "## Character: Kael\nKAEL PRIVATE" in system
 
 
 def _assert_cards_speaker_only(lane: list[str]) -> None:
@@ -445,7 +474,7 @@ async def test_both_model_lanes_agree_on_the_cast_when_the_prefix_is_shared(clie
     assert len(set(writers)) == 1, "writer prefix diverged across speakers"
     assert len(set(editors)) == 1, "agent prefix diverged across speakers"
     # Different system prompts per lane are expected; the *cast body* is not.
-    body = "## Character dossier: Aria" if mode == "shared" else "### Aria"
+    body = "## Character: Aria" if mode == "shared" else "### Aria"
     assert body in writers[0] and body in editors[0]
 
 

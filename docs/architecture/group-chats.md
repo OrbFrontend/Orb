@@ -52,7 +52,9 @@ the setting **Character context**.
 | `shared` | A dossier for every member, including card text and examples | That member's post-history instructions |
 | `swap` | Every member's public profile plus the active member's card text and examples | That member's post-history instructions |
 
-`backend/prompting/group_context.py` owns this projection. Prompt construction
+Each member card is rendered from the Group cast block's text (see
+[Prompting](prompting.md#prompt-layout)). `backend/prompting/group_context.py`
+owns this projection. Prompt construction
 and context-size reporting use it rather than deciding card visibility locally.
 
 The following rules apply in every mode:
@@ -67,8 +69,8 @@ The following rules apply in every mode:
   member's context they are `CastMember.description` and
   `CastMember.personality`, the card's fields, or the scene override and
   nothing when `card_sheet_override` is set. Outside it there is no single card
-  to read, so they resolve to nothing. `private_sheet` and everything that renders
-  it are separate from these macros.
+  to read, so they resolve to nothing. Member cards render from these fields;
+  `private_sheet` is only the baseline scene sheet updates start from.
 - Card-linked Worlds and card fragments are scene-wide. Context mode does not
   make lore private.
 

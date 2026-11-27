@@ -40,7 +40,10 @@ MARKER_TEMPLATES: dict[str, str] = {
     "scene_guidance": "___\n\n**Scene Guidance**\n\n{{scene_guidance}}",
     "user_message": "___\n\n{{user_message}}",
 }
-EDITABLE_MARKERS: frozenset[str] = frozenset({"main_prompt", *MARKER_TEMPLATES})
+# The Group cast marker's text is one member's card, rendered for each member whose card the group's context mode shows, where
+# the mode places it. Its card placeholders stand for that member's fields; it names no placeholder of its own.
+CAST_TEMPLATE = "## Character: {{char}}\n{{description}}\n\n{{personality}}\n\n## Example Dialogue\n{{examples}}"
+EDITABLE_MARKERS: frozenset[str] = frozenset({"main_prompt", "cast", *MARKER_TEMPLATES})
 
 # Placeholders a block's text may name, each standing for one card or chat section.
 SECTION_PLACEHOLDERS: tuple[str, ...] = ("description", "personality", "scenario", "examples", "instructions", "persona")
@@ -65,6 +68,9 @@ _SEED_ORDER: tuple[str, ...] = (
     "user_persona",
     *WRITER_MARKERS,
 )
+
+
+_MARKER_SEEDS: dict[str, str] = {"cast": CAST_TEMPLATE, **MARKER_TEMPLATES}
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +104,13 @@ def names_marker_placeholder(kind: str, text: str) -> bool:
     return kind in named_placeholders(text, (kind,))
 
 
+def cast_template(blocks: Iterable[LayoutBlock]) -> str:
+    """The layout's member card template, switched on or off; the built-in one when the layout has no Group cast block or its
+    text is blank, as a preset that blanks block text leaves it. An edit cannot blank it."""
+    block = next((block for block in blocks if block.kind == "cast"), None)
+    return block.content if block and block.content.strip() else CAST_TEMPLATE
+
+
 def main_prompt_text(blocks: Iterable[LayoutBlock]) -> str | None:
     """The layout's Main prompt text: empty when the layout has none, None when the layout switches it off."""
     block = next((block for block in blocks if block.kind == "main_prompt"), None)
@@ -121,7 +134,7 @@ def default_layout(main_prompt: str = "") -> tuple[LayoutBlock, ...]:
                     id=key,
                     kind=key,
                     label=MARKER_LABELS[key],
-                    content=main_prompt if key == "main_prompt" else MARKER_TEMPLATES.get(key, ""),
+                    content=main_prompt if key == "main_prompt" else _MARKER_SEEDS.get(key, ""),
                     role=default_role(marker_region(key)),
                     region=marker_region(key),
                     sort_order=index,

@@ -119,11 +119,19 @@ def _sentinel(name: str) -> str:
     return f"\x00orb-section-{name}\x00"
 
 
-def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str], *, strip: bool = True) -> str:
+def _fill(
+    template: str,
+    values: Mapping[str, str],
+    resolve: Callable[[str], str],
+    *,
+    strip: bool = True,
+    by_paragraph: bool = False,
+) -> str:
     """Resolve *template*'s macros, then put each value in for its placeholder without a second macro pass.
 
     A backticked placeholder stays literal, and one inside a note leaves with the note. An empty section's placeholder leaves
-    with one blank-line separator beside it, the one before it when there is one.
+    with one blank-line separator beside it, the one before it when there is one. *by_paragraph* also leaves out each paragraph
+    after the first whose placeholders are all empty, so a heading leaves with its empty section.
     """
     if not values:
         return resolve(template).strip() if strip else resolve(template)
@@ -132,6 +140,9 @@ def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str
     text = resolve(marked)
     if strip:
         text = text.strip()
+    if by_paragraph:
+        head, *rest = text.split("\n\n")
+        text = "\n\n".join([head, *(paragraph for paragraph in rest if not _names_only_empty(paragraph, values))])
     for name, value in values.items():
         sentinel = re.escape(_sentinel(name))
         if not value:
@@ -139,6 +150,11 @@ def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str
     for name, value in values.items():
         text = text.replace(_sentinel(name), value)
     return text
+
+
+def _names_only_empty(paragraph: str, values: Mapping[str, str]) -> bool:
+    named = [value for name, value in values.items() if _sentinel(name) in paragraph]
+    return bool(named) and not any(named)
 
 
 def _fill_examples(template: str, values: Mapping[str, str], resolve: Callable[[str], str]) -> str:
@@ -168,6 +184,15 @@ def _render_block(content: str, sections: SectionInputs, resolve: Callable[[str]
     if _EXAMPLE_SEPARATOR in values.get("examples", ""):
         return _fill_examples(content, values, resolve)
     return _fill(content, values, resolve)
+
+
+def render_card_template(template: str, sections: SectionInputs, resolve: Callable[[str], str]) -> str:
+    """A member card from the Group cast text: filled once, as a marker's text is, the examples together. A paragraph after the
+    first naming only empty sections is left out; the card renders nothing while every section it names is empty."""
+    values = _section_values(template, sections)
+    if values and not any(values.values()):
+        return ""
+    return _fill(template, values, resolve, by_paragraph=True)
 
 
 def _join(head: str, tail: str) -> str:

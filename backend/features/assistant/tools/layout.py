@@ -109,6 +109,8 @@ def block_text_problem(row: Mapping[str, Any], name: str, text: str) -> str:
         return (
             f"The {row['label']} block's text must keep {marker_placeholder(row['kind'])}, which stands for the engine's part."
         )
+    if name == "content" and row["kind"] == "cast" and not text.strip():
+        return f"The {row['label']} block needs text: it is each group member's card."
     return ""
 
 
@@ -209,8 +211,10 @@ def build_layout_tools() -> list[AssistantTool]:
         "List the active profile's prompt layout: the blocks the chat prompt is built from, in order, on each side of the "
         "fixed Chat history divider. Blocks above it (prefix) build the system prompt every pass reads; blocks below it "
         "(writer) build the Writer's request after the chat. A block with a kind other than custom is built-in: it stands for "
-        "an engine part (main_prompt, cast, the lore markers, scene_guidance, user_message), keeps its name and side, and "
-        "only editable ones have text. Each is sent as a message of its role.",
+        "an engine part (main_prompt, cast, the lore markers, scene_guidance, user_message) and keeps its name and side. The "
+        "cast block's text is each group member's card, written once per member the group's context mode shows; in it "
+        "{{char}}, {{description}}, {{personality}} and {{examples}} stand for that member. Each block is sent as a message "
+        "of its role.",
     )
     async def list_prompt_blocks(_args: NoArguments) -> ToolOutput:
         profile_id = await get_active_profile_id()

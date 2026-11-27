@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import database as db
 from ..core import CardScripts, estimate_tokens, state_fragments_of
+from ..core.prompt_layout import cast_template
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
@@ -99,10 +100,11 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
 
     # A group bills its largest speaker: the frame around the Writer request, and the macros the request's blocks resolve with.
     speaker_open, speaker_close, block_macros = "", "", macros
+    template = cast_template(layout)
     if turn_cast.grouped:
         prevent = bool(settings.get("prevent_prompt_overrides"))
         frames = [
-            speaker_frame(member, macros, turn_cast.context_mode, prevent_prompt_overrides=prevent)
+            speaker_frame(member, macros, turn_cast.context_mode, template, sections, prevent_prompt_overrides=prevent)
             for member in turn_cast.members
             if not member.muted
         ]
@@ -111,7 +113,7 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
 
     prefix = PrefixInputs(
         main_prompt=card_text.system_prompt,
-        cast=largest_cast_section(turn_cast, macros).lstrip("\n") if turn_cast.grouped else "",
+        cast=largest_cast_section(turn_cast, macros, template, sections).lstrip("\n") if turn_cast.grouped else "",
         constant_lore=compute_constant_lorebook_block(lorebook_entries, macros),
         sections=sections,
     )
