@@ -542,8 +542,8 @@ class InteractiveFragmentRow(TypedDict):
     gate_replies: int
 
 
-class PresetModels(TypedDict):
-    """The model choices that are not lane picks; those are ``PresetLanes``."""
+class ProfileModels(TypedDict):
+    """The model choices that are not lane picks; those are ``ProfileLanes``."""
 
     agent_same_as_writer: int
     judge_model: str
@@ -560,15 +560,15 @@ class LaneRef(TypedDict, total=False):
     model_name: str
 
 
-class PresetConfig(TypedDict, total=False):
+class ProfileConfig(TypedDict, total=False):
     """``profiles.config``. Every section is optional: a config read from an older or partial file applies what it has."""
 
-    settings: dict[str, Any]  # the PRESET_SETTINGS columns, JSON ones decoded
-    models: PresetModels
+    settings: dict[str, Any]  # the PROFILE_SETTINGS columns, JSON ones decoded
+    models: ProfileModels
     lanes: dict[str, LaneRef]  # "writer", "agent" and "judge"; a lane with no pick is left out
 
 
-class PresetLanes(TypedDict):
+class ProfileLanes(TypedDict):
     """A profile's lane picks, the ``profiles`` foreign-key columns. On switch a None lane is looked up by its ``LaneRef``; one it
     does not find keeps its live value for the Writer and the Agent, and turns the Judge off."""
 
@@ -579,13 +579,13 @@ class PresetLanes(TypedDict):
     judge_endpoint_id: int | None
 
 
-class PresetState(PresetLanes):
+class ProfileState(ProfileLanes):
     """What a profile's setup holds, and what the live rows hold."""
 
-    config: PresetConfig
+    config: ProfileConfig
 
 
-class ProfileRow(PresetState):
+class ProfileRow(ProfileState):
     """A row from ``profiles``."""
 
     id: str

@@ -19,7 +19,7 @@ from typing import Any
 
 from ...core.domain_types import EndpointKind
 from ...database import (
-    PRESET_SETTINGS,
+    PROFILE_SETTINGS,
     ProfileEditError,
     get_active_profile_id,
     get_endpoint,
@@ -35,7 +35,7 @@ from ...database import (
     update_settings,
 )
 from ...database import delete_profile as remove_profile
-from ...database.models import LaneRef, PresetState, ProfileRow
+from ...database.models import LaneRef, ProfileRow, ProfileState
 
 # Serializes switches, and the captures and deletes that touch the active profile, so two never interleave capture and apply.
 _lock = asyncio.Lock()
@@ -88,11 +88,11 @@ async def _apply_judge(endpoint_id: int | None, model: str | None) -> None:
     await update_decision_config(update)
 
 
-async def apply_state(state: PresetState) -> None:
+async def apply_state(state: ProfileState) -> None:
     """Make *state* live through the settings, endpoint and Judge writers."""
     config = state["config"]
     settings: Mapping[str, Any] = config.get("settings", {})
-    update = {key: settings[key] for key in PRESET_SETTINGS if key in settings}
+    update = {key: settings[key] for key in PROFILE_SETTINGS if key in settings}
     models = config.get("models", {})
     if "agent_same_as_writer" in models:
         update["agent_same_as_writer"] = models["agent_same_as_writer"]

@@ -19,12 +19,12 @@ import aiosqlite
 from ...core import DECISION_COLUMNS, STATE_COLUMNS
 from ...core.prompt_layout import CUSTOM_KIND, DEFAULT_LAYOUT_ID, LayoutBlock, default_layout, marker_block_id
 from ..connection import get_db, immediate_tx, select_rows
-from ..models import LaneRef, PresetConfig, PresetLanes, PresetState, ProfileRow
+from ..models import LaneRef, ProfileConfig, ProfileLanes, ProfileRow, ProfileState
 from ..seeds import SEED_INTERACTIVE_FRAGMENTS, SEED_MAIN_PROMPT, SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
 from .prompt_layouts import get_prompt_blocks, insert_layout_blocks, layout_block
 
 # The settings columns a profile carries, and those of them stored as JSON.
-PRESET_SETTINGS: tuple[str, ...] = (
+PROFILE_SETTINGS: tuple[str, ...] = (
     "enable_agent",
     "enabled_tools",
     "length_guard_enabled",
@@ -40,15 +40,17 @@ PRESET_SETTINGS: tuple[str, ...] = (
 )
 _JSON_SETTINGS = frozenset({"enabled_tools", "reasoning_enabled_passes", "reasoning_prefill_passes", "editor_audit_toggles"})
 _LIVE_LANES = ("active_endpoint_id", "agent_same_as_writer", "agent_endpoint_id", "decision_endpoint_id", "decision_model")
-# The foreign-key columns holding a profile's lane picks, in PresetLanes order.
-PRESET_LANES: tuple[str, ...] = (
+# The foreign-key columns holding a profile's lane picks, in ProfileLanes order.
+PROFILE_LANES: tuple[str, ...] = (
     "writer_endpoint_id",
     "writer_model_config_id",
     "agent_endpoint_id",
     "agent_model_config_id",
     "judge_endpoint_id",
 )
-_COLUMNS = ", ".join(("id", "name", "config", *PRESET_LANES))
+_COLUMNS = ", ".join(("id", "name", "config", *PROFILE_LANES))
+# The SET clause writing a ProfileState, bound by _state_values.
+_STATE_SETS = ", ".join(f"{column} = ?" for column in ("config", *PROFILE_LANES))
 _PROFILE_ORDER = "ORDER BY id != ?, name COLLATE NOCASE"
 # The tables holding a profile's own rows, copied with it. phrase_bank's surrogate id is renumbered in the copy.
 _LIBRARY_TABLES = ("mood_fragments", "interactive_fragments", "phrase_bank", "slop_dismissals", "profile_worlds")
@@ -71,9 +73,9 @@ def _decoded(row: Any) -> ProfileRow:
     }
 
 
-def _state_values(state: PresetState) -> tuple[Any, ...]:
-    """*state* as the values of ``config`` and the PRESET_LANES columns, in that order."""
-    return (json.dumps(state["config"], ensure_ascii=False), *(state[column] for column in PRESET_LANES))
+def _state_values(state: ProfileState) -> tuple[Any, ...]:
+    """*state* as the values of ``config`` and the PROFILE_LANES columns, in that order."""
+    return (json.dumps(state["config"], ensure_ascii=False), *(state[column] for column in PROFILE_LANES))
 
 
 def _name(name: str) -> str:
@@ -116,10 +118,9 @@ async def set_active_profile_id(profile_id: str) -> None:
 async def save_live_state(profile_id: str) -> None:
     """Capture the live state into *profile_id*, reading and writing in one transaction so no endpoint or model config it names
     is deleted in between."""
-    sets = ", ".join(f"{column} = ?" for column in ("config", *PRESET_LANES))
     async with immediate_tx() as db:
         state = await read_live_state(db)
-        await db.execute(f"UPDATE profiles SET {sets} WHERE id = ?", (*_state_values(state), profile_id))  # nosec B608
+        await db.execute(f"UPDATE profiles SET {_STATE_SETS} WHERE id = ?", (*_state_values(state), profile_id))  # nosec B608
 
 
 async def _endpoint_config(db: aiosqlite.Connection, endpoint_id: int | None, column: str) -> int | None:
@@ -144,10 +145,10 @@ async def _lane_ref(db: aiosqlite.Connection, endpoint_id: int | None, config_id
     return ref
 
 
-async def read_live_state(db: aiosqlite.Connection) -> PresetState:
+async def read_live_state(db: aiosqlite.Connection) -> ProfileState:
     """The live generation state over an open connection: the config (empty without a settings row) and the lanes the live
     rows select."""
-    columns = PRESET_SETTINGS + _LIVE_LANES
+    columns = PROFILE_SETTINGS + _LIVE_LANES
     rows = list(await db.execute_fetchall(f"SELECT {', '.join(columns)} FROM settings WHERE id = 1"))  # nosec B608
     if not rows:
         return {
@@ -160,7 +161,7 @@ async def read_live_state(db: aiosqlite.Connection) -> PresetState:
         }
     row = rows[0]
     writer_id, agent_id = row["active_endpoint_id"], row["agent_endpoint_id"]
-    lanes: PresetLanes = {
+    lanes: ProfileLanes = {
         "writer_endpoint_id": writer_id,
         "writer_model_config_id": await _endpoint_config(db, writer_id, "active_model_config_id"),
         "agent_endpoint_id": agent_id,
@@ -172,17 +173,17 @@ async def read_live_state(db: aiosqlite.Connection) -> PresetState:
         "agent": await _lane_ref(db, agent_id, lanes["agent_model_config_id"]),
         "judge": await _lane_ref(db, lanes["judge_endpoint_id"], None),
     }
-    config: PresetConfig = {
-        "settings": {key: json.loads(row[key] or "{}") if key in _JSON_SETTINGS else row[key] for key in PRESET_SETTINGS},
+    config: ProfileConfig = {
+        "settings": {key: json.loads(row[key] or "{}") if key in _JSON_SETTINGS else row[key] for key in PROFILE_SETTINGS},
         "models": {"agent_same_as_writer": row["agent_same_as_writer"], "judge_model": row["decision_model"]},
         "lanes": {lane: ref for lane, ref in refs.items() if ref is not None},
     }
     return {"config": config, **lanes}
 
 
-async def _insert_profile(db: aiosqlite.Connection, profile_id: str, name: str, state: PresetState) -> None:
+async def _insert_profile(db: aiosqlite.Connection, profile_id: str, name: str, state: ProfileState) -> None:
     await db.execute(
-        f"INSERT INTO profiles ({_COLUMNS}) VALUES ({', '.join('?' * (3 + len(PRESET_LANES)))})",  # nosec B608
+        f"INSERT INTO profiles ({_COLUMNS}) VALUES ({', '.join('?' * (3 + len(PROFILE_LANES)))})",  # nosec B608
         (profile_id, name, *_state_values(state)),
     )
 
@@ -248,8 +249,7 @@ async def reset_profile(db: aiosqlite.Connection, profile_id: str) -> None:
     await db.execute("DELETE FROM prompt_blocks WHERE layout_id = ?", (profile_id,))
     for table in _LIBRARY_TABLES + ("slop_suggestions", "slop_mining_state"):
         await db.execute(f"DELETE FROM {table} WHERE profile_id = ?", (profile_id,))  # nosec B608 -- fixed names
-    sets = ", ".join(f"{column} = ?" for column in ("config", *PRESET_LANES))
-    await db.execute(f"UPDATE profiles SET {sets} WHERE id = ?", (*_state_values(await read_live_state(db)), profile_id))  # nosec B608
+    await db.execute(f"UPDATE profiles SET {_STATE_SETS} WHERE id = ?", (*_state_values(await read_live_state(db)), profile_id))  # nosec B608
     await insert_layout_blocks(db, profile_id, default_layout(profile_id, SEED_MAIN_PROMPT))
     await seed_profile_library(db, profile_id)
 

@@ -300,10 +300,7 @@ async function confirmWithTargets(name, opts, run) {
     return;
   }
   const extraHtml = opts.targets === false ? "" : targetRows(libraryByName[name], live);
-  showSubConfirmModal({ ...opts, extraHtml }, () => {
-    const profiles = chosenTargets();
-    run(profiles);
-  });
+  showSubConfirmModal({ ...opts, extraHtml }, () => run(chosenTargets()));
 }
 
 function applyPreset(name) {

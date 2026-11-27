@@ -28,12 +28,15 @@ const _active = () => _profiles.find((p) => p.id === _activeId);
 
 // The picker lists the profiles, then a separator and the actions on the active profile. An action entry opens its
 // dialog and the picker stays on the active profile.
-const _ACTIONS = [
-  ["new", "New…"],
-  ["duplicate", "Copy…"],
-  ["rename", "Rename…"],
-  ["delete", "Delete…"],
-];
+const _ACTIONS = {
+  new: { label: "New…", open: () => nameModal("New Profile", "", "createNew") },
+  duplicate: {
+    label: "Copy…",
+    open: () => nameModal("Copy Profile", `${_active()?.name || "Profile"} copy`, "createCopy"),
+  },
+  rename: { label: "Rename…", open: () => nameModal("Rename Profile", _active()?.name || "", "saveName") },
+  delete: { label: "Delete…", open: () => deleteProfile() },
+};
 
 function render() {
   const el = $("profile-select");
@@ -41,9 +44,9 @@ function render() {
   const options = _profiles
     .map((p) => `<option value="${escAttr(p.id)}" ${p.id === _activeId ? "selected" : ""}>${esc(p.name)}</option>`)
     .join("");
-  const actions = _ACTIONS
+  const actions = Object.entries(_ACTIONS)
     .map(
-      ([action, label]) =>
+      ([action, { label }]) =>
         `<option data-action="${action}"${action === "delete" && _profiles.length < 2 ? " disabled" : ""}>${label}</option>`,
     )
     .join("");
@@ -122,18 +125,11 @@ function deleteProfile() {
   );
 }
 
-const _actions = {
-  new: () => nameModal("New Profile", "", "createNew"),
-  duplicate: () => nameModal("Copy Profile", `${_active()?.name || "Profile"} copy`, "createCopy"),
-  rename: () => nameModal("Rename Profile", _active()?.name || "", "saveName"),
-  delete: () => deleteProfile(),
-};
-
 function _select(el) {
   const action = el.selectedOptions[0]?.dataset.action;
   if (!action) return _attempt(() => switchTo(el.value));
   el.value = _activeId;
-  _actions[action]();
+  _ACTIONS[action].open();
 }
 
 registerActions("profile", {

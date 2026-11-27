@@ -611,7 +611,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
             json={"domains": list(presets.ALL_DOMAINS), "profiles": every_part, "strip_keys": False, "label": "roundtrip"},
         )
     )["name"]
-    preset_path = presets._library_path(name)
+    preset_path = presets.library_path(name)
     with closing(sqlite3.connect(preset_path)) as exported:
         assert exported.execute("SELECT COUNT(*) FROM slop_suggestions").fetchone()[0] == 0
 
@@ -813,7 +813,7 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
         seed.commit()
 
     name = (await client.post_json("/api/backups/export", json={"domains": ["characters"], "strip_keys": False}))["name"]
-    with closing(sqlite3.connect(presets._library_path(name))) as exported:
+    with closing(sqlite3.connect(presets.library_path(name))) as exported:
         stored = json.loads(exported.execute("SELECT workflow_config FROM settings WHERE id = 1").fetchone()[0])
 
     assert stored["image_gen"]["external_comfy"]["api_key"] == ""
@@ -893,7 +893,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     # (a) every single domain that does NOT pull in configs, and each profile part but the setup -> nothing personal ships.
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"] + ["fragments", "phrase_bank"]:
         name = (await client.post_json("/api/backups/export", json={"domains": [domain], "strip_keys": False}))["name"]
-        blob = Path(presets._library_path(name)).read_bytes()
+        blob = Path(presets.library_path(name)).read_bytes()
         leaked = [c.decode() for c in all_canaries if c in blob]
         assert leaked == [], (domain, leaked)
 
@@ -901,7 +901,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     name = (await client.post_json("/api/backups/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True}))[
         "name"
     ]
-    blob = Path(presets._library_path(name)).read_bytes()
+    blob = Path(presets.library_path(name)).read_bytes()
     leaked_keys = [c.decode() for c in api_key_canaries if c in blob]
     assert leaked_keys == [], leaked_keys
 
@@ -914,4 +914,4 @@ async def test_persona_avatar_never_ships_without_the_configs_domain(client, db_
 
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
         name = (await client.post_json("/api/backups/export", json={"domains": [domain], "strip_keys": False}))["name"]
-        assert canary not in Path(presets._library_path(name)).read_bytes(), domain
+        assert canary not in Path(presets.library_path(name)).read_bytes(), domain

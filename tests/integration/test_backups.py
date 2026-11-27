@@ -452,7 +452,7 @@ def test_library_path_rejects_traversal():
 
     for bad in ("../secret.db", "sub/dir.db", "/etc/passwd", "..\\evil.db", "noext"):
         with pytest.raises(presets.PresetError):
-            presets._library_path(bad)
+            presets.library_path(bad)
 
 
 async def test_apply_preserves_local_workflow_toggles(client):

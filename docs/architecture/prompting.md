@@ -90,7 +90,7 @@ tail rather than the shared prefix, so it may pass `fresh=True` and roll
 A prompt layout is an ordered list of blocks around a fixed **Chat history**
 divider. `core/prompt_layout.py` holds the vocabulary (block shape, marker ids,
 section placeholders, and the blocks a new layout seeds); `prompting/layout.py`
-renders it. Chat mode reads the active preset's layout; Document mode and the
+renders it. Chat mode reads the active profile's layout; Document mode and the
 Assistant panel do not.
 
 - **Prefix** blocks (above the divider) build the system message and optional

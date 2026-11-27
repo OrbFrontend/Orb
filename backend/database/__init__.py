@@ -199,8 +199,8 @@ from .queries.phrase_bank import (
     update_phrase_group,
 )
 from .queries.profiles import (
-    PRESET_LANES,
-    PRESET_SETTINGS,
+    PROFILE_LANES,
+    PROFILE_SETTINGS,
     SEEDED_PARTS,
     ProfileEditError,
     create_profile,

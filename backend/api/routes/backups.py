@@ -17,8 +17,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from ...core import maintenance_lock
-from ...features import profiles
-from ...features.backups import engine as backups
+from ...features import backups, profiles
 from ...workflows import gpu_swap_host
 from ..admission import dataset_maintenance
 from ..schemas import BackupApplyRequest, PresetExportRequest
@@ -74,7 +73,7 @@ async def api_export_backup(data: PresetExportRequest):
 @router.get("/api/backups/{name}/download")
 async def api_download_backup(name: str):
     try:
-        path = await asyncio.to_thread(backups._library_path, name)
+        path = await asyncio.to_thread(backups.library_path, name)
     except backups.PresetError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return FileResponse(path, media_type="application/octet-stream", filename=name)
@@ -107,7 +106,7 @@ async def api_apply_backup(name: str, data: BackupApplyRequest | None = None):
     async with dataset_maintenance(), maintenance_lock():
         active = await profiles.capture_active()
         try:
-            path = backups._library_path(name)
+            path = backups.library_path(name)
             backup = await finish_thread(backups.create_snapshot, f"before applying {name}", path, choices)
             summary = await finish_thread(backups.apply_preset, path, choices=choices)
         except backups.PresetError as e:
@@ -124,7 +123,7 @@ async def api_restore_backup(name: str, data: BackupApplyRequest | None = None):
     async with dataset_maintenance(), maintenance_lock():
         active = await profiles.capture_active()
         try:
-            path = backups._library_path(name)
+            path = backups.library_path(name)
             full = backups.is_full(backups.read_meta(path))
             backup = await finish_thread(backups.create_snapshot, "before restore", None if full else path, choices)
             if full:

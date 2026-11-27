@@ -428,7 +428,7 @@ def _snapshots_dir() -> str:
     return d
 
 
-def _library_path(name: str) -> str:
+def library_path(name: str) -> str:
     """Resolve a library filename after rejecting path traversal."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}\.db", name):
         raise PresetError("Invalid backup name")
@@ -1294,10 +1294,10 @@ def _backup_scope(preset_path: str, choices: Mapping[str, Mapping] | None = None
     profiles it lands on), or None when only a full backup can undo it: a surrogate-keyed table comes back from a partial
     restore under new ids."""
     meta = read_meta(preset_path)
-    held = _meta_selection(meta) if meta else None
-    live_ids = _live_profile_ids()
-    if held is None:
+    if meta is None:
         return None
+    held = _meta_selection(meta)
+    live_ids = _live_profile_ids()
     plan = _plan_targets(held.profiles, choices, live_ids)
     profiles = {target: parts for target, parts in plan.values() if target in live_ids}
     included = held.domains
@@ -1407,7 +1407,7 @@ def _copy_over_live(prepared: str, live: str) -> None:
 
 def restore_full(name: str) -> None:
     """Replace the live database with a full preset."""
-    src = _library_path(name)
+    src = library_path(name)
     live = current_db_path()
     tmp = f"{live}.restore-{os.getpid()}"
     shutil.copyfile(src, tmp)
@@ -1484,7 +1484,7 @@ def list_library() -> list[dict]:
 
 
 def delete_library_entry(name: str) -> None:
-    os.remove(_library_path(name))
+    os.remove(library_path(name))
 
 
 def prune_auto(keep: int = 10) -> None:

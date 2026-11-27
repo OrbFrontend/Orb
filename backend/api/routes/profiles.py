@@ -6,8 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from ...core import maintenance_lock
 from ...database import get_active_profile_id, get_profile, get_settings, list_profiles
-from ...features import profiles
-from ...features.backups import engine as backups
+from ...features import backups, profiles
 from ..deps import generation_streams
 from ..schemas import ProfileActive, ProfileCreate, ProfileRename
 from .backups import finish_thread

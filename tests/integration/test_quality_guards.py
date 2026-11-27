@@ -143,7 +143,7 @@ async def test_cancelled_preset_worker_keeps_both_maintenance_guards(client, mon
             raise TimeoutError("test worker was not released")
         return {}
 
-    monkeypatch.setattr(backups.backups, "_library_path", lambda _name: "test.db")
+    monkeypatch.setattr(backups.backups, "library_path", lambda _name: "test.db")
     monkeypatch.setattr(backups.backups, "create_snapshot", lambda *_args: "before.db")
     monkeypatch.setattr(backups.backups, "read_meta", lambda _path: None)
     monkeypatch.setattr(backups.backups, "apply_preset" if operation == "apply" else "restore_full", blocked)
