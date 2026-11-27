@@ -473,5 +473,6 @@ async def test_apply_preserves_local_workflow_toggles(client):
 
     s = await get_settings()
     assert s["workflows_globally_enabled"] == 0
-    assert s.get("workflow_enabled") == {"tts": False}
+    # format_consistency's flag is the profile's, so applying the backup's active profile writes its saved on-state.
+    assert s.get("workflow_enabled") == {"tts": False, "format_consistency": True}
     assert s.get("local_ml_enabled") == {"autocomplete": False}
