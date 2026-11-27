@@ -1,0 +1,218 @@
+/* Hornet: the app is a club flyer. Borderless charcoal tiles float over a black board of moiré wave lines; the
+   chat title is the headline, speakers wear yellow name tags, and hover inverts a control to yellow with ink text.
+   No accent edge stripes anywhere; the base ones are cleared below. Static paint only. */
+:root {
+  --wp-yellow:#ffcf1f; --wp-yellow-hover:#ffdc52; --wp-ink:#141414; --wp-board:#0f0f0f; --wp-tile-bg:#1d1d1d;
+  --wp-tile:0 10px 24px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.4);
+  --wp-tile-high:0 22px 50px rgba(0,0,0,0.7), 0 4px 10px rgba(0,0,0,0.45);
+  --wp-barcode:linear-gradient(90deg, var(--wp-yellow) 0 3px, transparent 3px 7px, var(--wp-yellow) 7px 15px,
+    transparent 15px 19px, var(--wp-yellow) 19px 21px, transparent 21px 26px, var(--wp-yellow) 26px 34px,
+    transparent 34px 37px, var(--wp-yellow) 37px 40px, transparent 40px 45px, var(--wp-yellow) 45px 51px,
+    transparent 51px 54px, var(--wp-yellow) 54px 56px, transparent 56px 61px, var(--wp-yellow) 61px 70px,
+    transparent 70px 74px, var(--wp-yellow) 74px 76px, transparent 76px 80px, var(--wp-yellow) 80px 86px, transparent 86px);
+
+  --bg-deep:#141414; --bg-primary:#1d1d1d; --bg-surface:#232323; --bg-elevated:#2a2a2a; --bg-hover:#333333;
+  --border:#2c2c2c; --border-light:#3c3c3c;
+  --text-primary:#f1ede2; --text-secondary:#c2bdb0; --text-muted:#9e998c;
+  --accent:#ffcf1f; --accent-dim:#e0b200; --accent-glow:rgba(255,207,31,0.12); --accent-muted:rgba(255,207,31,0.16);
+  --on-accent:#141414; --red:#ff6b57; --warning:#ffb347;
+
+  --font-prose:'Exo 2',system-ui,sans-serif;
+  --font-ui:'Exo 2',system-ui,sans-serif;
+  --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:0px; --font-prose-size:16px;
+  --sidebar-width:300px; --inspector-width:340px;
+
+  --scrollbar-width:thin; --scrollbar-thumb:#3c3c3c; --scrollbar-track:transparent;
+
+  --mobile-overlay-color:rgba(0,0,0,0.65) !important;
+  --mobile-panel-shadow-left:12px 0 30px rgba(0,0,0,0.6) !important;
+  --mobile-panel-shadow-right:-12px 0 30px rgba(0,0,0,0.6) !important;
+}
+/* Yellow-filled surfaces: children colored by the base tokens would otherwise paint cream on yellow. */
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover, .toast, .char-item.active, .group-chat-item.active,
+.doc-item.active, .world-item.active, .stat-card-favorite {
+  --text-primary:var(--wp-ink); --text-secondary:var(--wp-ink); --text-muted:#4a3f0a; --accent:var(--wp-ink);
+  --accent-dim:var(--wp-ink); --red:var(--wp-ink); }
+*, *::before, *::after { border-radius: 0 !important; }
+
+body { background:
+    radial-gradient(70% 60% at 50% 45%, rgba(255,207,31,0.05) 0%, rgba(255,207,31,0) 70%),
+    url("/static/themes/assets/hornet-lines.svg") center / cover no-repeat,
+    var(--wp-board) !important; }
+
+/* ── Frame: tiles floating on the board, no rules between them ── */
+
+.ui-panel { background: var(--wp-tile-bg) !important; border: none !important; }
+#chat-messages, #chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
+@media (min-width: 901px) {
+  #app { padding: 14px; }
+  #sidebar { margin-right: 14px; }
+  .ui-dock.open { margin-left: 14px; }
+  #sidebar, .ui-dock.open { box-shadow: var(--wp-tile) !important; }
+  /* No !important: the audio player reserves its room with an inline padding-bottom. */
+  body #chat-messages { padding: 8px 18px 4px; }
+  body #chat-input-area { padding: 4px 18px 0; }
+}
+
+/* ── Sidebar: the lineup ── */
+
+.sidebar-header { background: transparent !important; border-bottom: none !important; padding-bottom: 18px !important; }
+.sidebar-header h1 { font-family: var(--font-ui) !important; font-weight: 700 !important; font-size: 34px !important;
+  line-height: 1 !important; text-transform: uppercase; letter-spacing: .02em !important; color: var(--wp-yellow) !important; }
+.sidebar-header-top { margin-bottom: 18px !important; }
+.sidebar-header .theme-label { font-size: 10px !important; letter-spacing: .18em !important; color: var(--text-muted) !important; }
+.sidebar-header .theme-select { background-color: transparent !important; border: none !important;
+  box-shadow: inset 0 -1px 0 var(--border-light) !important; padding-left: 0 !important; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--text-primary) !important; }
+.sidebar-header .theme-select:focus { box-shadow: inset 0 -2px 0 var(--wp-yellow) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--wp-yellow) !important;
+  background: transparent !important; }
+
+.sidebar-section { border-bottom: none !important; }
+.sidebar-section-header { background: var(--wp-tile-bg) !important; font-size: 13px !important; font-weight: 700 !important;
+  letter-spacing: .12em !important; color: var(--text-primary) !important; padding-block: 11px !important; }
+.sidebar-section-header:hover, .sidebar-section-header[aria-expanded="true"] { color: var(--wp-yellow) !important; }
+.sidebar-section-header.stuck { box-shadow: 0 8px 12px -6px rgba(0,0,0,0.7) !important; }
+
+.char-item, .group-chat-item, .doc-item, .world-item, .lb-entry-item { border: none !important; }
+.char-item:hover, .group-chat-item:hover, .doc-item:hover, .world-item:hover, .lb-entry-item:hover {
+  background: var(--bg-elevated) !important; }
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active {
+  background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+:is(.char-item, .group-chat-item, .doc-item, .world-item).active * { color: var(--wp-ink) !important; }
+.lb-entry-item.active, .conv-history-item.active-conv { background: var(--accent-muted) !important; border: none !important; }
+:is(.char-item, .group-chat-item, .doc-item).active :is(.char-item-name, .doc-item-name) { font-weight: 700 !important; }
+
+/* ── Chat header: the headline, actions as the flyer's info block ── */
+
+#chat-header, #doc-header { background: transparent !important; border: none !important; box-shadow: none !important; }
+@media (min-width: 901px) {
+  #chat-header, #doc-header { padding: 14px 18px 20px !important;
+    background: var(--wp-barcode) left 18px bottom 6px / 86px 4px no-repeat !important; }
+}
+#chat-header .chat-title, #doc-header .doc-title { font-family: var(--font-ui) !important; font-size: 30px !important;
+  font-weight: 700 !important; line-height: 1.05 !important; text-transform: uppercase; letter-spacing: .01em;
+  color: var(--wp-yellow) !important; }
+#chat-header .chat-avatar { width: 42px; height: 42px; box-shadow: var(--wp-tile); }
+#chat-header .chat-actions .btn, #doc-header .btn { background: transparent !important; box-shadow: none !important;
+  color: var(--text-secondary) !important; }
+#chat-header .chat-actions .btn:not(:disabled):hover, #doc-header .btn:not(:disabled):hover,
+#chat-header .chat-actions .btn.btn-active, #doc-header .btn.btn-active {
+  background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+
+/* ── Controls: flat tiles, uppercase labels, hover inverts to yellow ── */
+
+.btn { background: var(--bg-elevated) !important; border: none !important; font-family: var(--font-ui) !important;
+  font-weight: 700 !important; text-transform: uppercase; letter-spacing: .08em; font-size: 11px !important;
+  color: var(--text-primary) !important; box-shadow: 0 3px 8px rgba(0,0,0,0.4) !important;
+  transition: background .1s, color .1s !important; }
+.btn:not(:disabled):hover { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+.btn-accent, .ui-send { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; border: none !important; }
+.btn-accent:not(:disabled):hover, .ui-send:not(:disabled):hover { background: var(--wp-yellow-hover) !important;
+  color: var(--wp-ink) !important; }
+.btn-active { background: var(--wp-ink) !important; color: var(--wp-yellow) !important;
+  box-shadow: inset 0 0 0 2px var(--wp-yellow) !important; }
+.btn-danger { color: var(--red) !important; }
+.btn-danger:not(:disabled):hover { background: var(--red) !important; color: var(--wp-ink) !important; }
+.ui-stop { background: var(--red) !important; color: var(--wp-ink) !important; border: none !important; }
+.ui-stop:hover { background: #ff8a7a !important; }
+#burger-btn { background: var(--wp-tile-bg) !important; border: none !important; box-shadow: var(--wp-tile) !important; }
+#burger-btn:hover { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+
+input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
+textarea, select, .cb-control, .asst-compose {
+  background-color: var(--bg-deep) !important; border: none !important; box-shadow: inset 0 -1px 0 var(--border-light) !important; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus,
+.cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
+  box-shadow: inset 0 -2px 0 var(--wp-yellow) !important; outline: none; }
+#chat-input { background-color: var(--wp-tile-bg) !important; box-shadow: var(--wp-tile) !important; }
+#chat-input:focus { box-shadow: var(--wp-tile), inset 0 -2px 0 var(--wp-yellow) !important; }
+#send-btn { box-shadow: var(--wp-tile) !important; }
+#send-btn:disabled { opacity: 1 !important; background: var(--bg-elevated) !important; color: var(--text-muted) !important; }
+/* Outranks the focus underline above (0,3,1), so only the control draws one. */
+.cb-root .cb-control .cb-input, .cb-root .cb-control .cb-input:focus { background: transparent !important;
+  border: none !important; box-shadow: none !important; }
+.image-gen-edit[readonly] { background: transparent !important; box-shadow: none !important; color: inherit !important; }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--wp-yellow); }
+
+.ui-popover { background: var(--bg-elevated) !important; border: none !important; box-shadow: var(--wp-tile-high) !important; }
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--wp-yellow) !important;
+  color: var(--wp-ink) !important; }
+
+.tog-slider { background: var(--bg-deep) !important; border: none !important; }
+.tog-slider:before { background: var(--text-muted) !important; }
+.tog input:checked + .tog-slider { background: var(--wp-yellow) !important; }
+.tog input:checked + .tog-slider:before { background: var(--wp-ink) !important; }
+
+.tab { font-weight: 700 !important; text-transform: uppercase; letter-spacing: .1em; border-bottom-color: transparent !important; }
+.tab.active { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+
+/* ── Messages: borderless tiles with a yellow name tag pinned over the top edge ── */
+
+.message { margin-bottom: 22px !important; }
+.message:last-child { margin-bottom: 0 !important; }
+.message .msg-role { width: fit-content; position: relative; z-index: 1; margin: 0 0 -8px 12px !important;
+  padding: 4px 10px; background: var(--wp-yellow); color: var(--wp-ink) !important; font-family: var(--font-ui);
+  font-size: 11px !important; font-weight: 700 !important; letter-spacing: .14em !important;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.45); }
+.message .msg-role :is(.msg-num, .swipe-nav, .swipe-nav button, .swipe-counter, .msg-rewriting) { color: var(--wp-ink) !important; }
+.message .msg-role .msg-rewriting .dot { background: var(--wp-ink) !important; }
+.message.user .msg-role { margin: 0 12px -8px auto !important; background: var(--text-primary); }
+.message .msg-body { background: var(--wp-tile-bg) !important; border: none !important; box-shadow: var(--wp-tile) !important;
+  padding: 20px 22px 16px !important; }
+.message.user .msg-body { background: #262626 !important; margin-left: 12%; }
+.message.user .msg-toolbar { margin-left: 12%; }
+.message.user .msg-edit-area textarea { background: var(--bg-deep) !important; }
+.message .msg-body .quoted { color: #ffe27a !important; }
+.message .msg-body em { color: #b4ae9f !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code { background: var(--bg-deep) !important; border: none !important; }
+.message .msg-body blockquote { border-left: none !important; padding-left: 1.4em !important; color: var(--text-secondary); }
+.message .msg-body hr { border-top-color: var(--border-light) !important; }
+.message .msg-inspect { border: none !important; background: var(--bg-deep) !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+.msg-toolbar .msg-btn-del:hover { background: var(--red) !important; color: var(--wp-ink) !important; }
+.message.prose-rewriting .msg-body { box-shadow: var(--wp-tile), 0 0 0 1px var(--wp-yellow) !important; }
+
+.gen-status { color: var(--text-secondary) !important; }
+.group-speaking-plan { background: var(--wp-tile-bg) !important; border: none !important; box-shadow: var(--wp-tile) !important; }
+
+/* ── Overlays: a poster in the middle of the board ── */
+
+.modal-overlay { background: rgba(0,0,0,0.78) !important; }
+.modal, .modal-crop { background: var(--wp-tile-bg) !important; border: none !important; box-shadow: var(--wp-tile-high) !important; }
+.modal h2, .modal h3 { font-family: var(--font-ui) !important; font-weight: 700 !important; text-transform: uppercase;
+  color: var(--wp-yellow) !important; }
+.modal > h2 { font-size: 26px !important; line-height: 1.05; letter-spacing: .01em; border-bottom: none !important;
+  padding-bottom: 16px !important; background: var(--wp-barcode) left bottom / 86px 4px no-repeat; }
+.conv-history-item { border-bottom: none !important; }
+.conv-history-item + .conv-history-item { margin-top: 2px; }
+.toast { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; border: none !important;
+  box-shadow: var(--wp-tile-high) !important; font-weight: 700; }
+.toast.error { background: var(--red) !important; }
+.turn-error { background: color-mix(in srgb, var(--red) 14%, var(--wp-tile-bg)) !important; border: none !important;
+  box-shadow: var(--wp-tile) !important; }
+.field-warning { color: var(--warning) !important; }
+.tool-card, .stat-card, .wc-card { border: none !important; background: var(--bg-elevated) !important; }
+.tool-card.tool-on { background: var(--accent-muted) !important; }
+.stat-card-favorite { background: var(--wp-yellow) !important; }
+.stat-card-favorite, .stat-card-favorite * { color: var(--wp-ink) !important; }
+.stat-card-clickable:hover { box-shadow: var(--wp-tile) !important; }
+
+/* The app's own accent edge stripes. */
+.asst-selection, .lib-dupe-collision-note, .decision-status, .decision-problem, .doc-audit-item, .wc-op {
+  border-left: none !important; }
+
+#doc-editor-scroll { background: transparent !important; }
+#doc-page { background: var(--wp-tile-bg) !important; border: none !important; box-shadow: var(--wp-tile-high) !important; }
+.doc-mode-toggle, .doc-probs-toggle { border: none !important; background: var(--bg-elevated); }
+.doc-mode-opt + .doc-mode-opt { border-left: none !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active { background: var(--wp-yellow) !important; color: var(--wp-ink) !important; }
+
+::selection { background: var(--wp-yellow); color: var(--wp-ink); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-light); }
+::-webkit-scrollbar-thumb:hover { background: var(--wp-yellow); }
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
