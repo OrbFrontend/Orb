@@ -15,6 +15,7 @@ from ..core.prompt_layout import (
     LayoutBlock,
     LayoutRegion,
     LayoutRole,
+    marker_text,
 )
 
 
@@ -56,7 +57,7 @@ class PrefixInputs:
 @dataclass(frozen=True, slots=True)
 class WriterInputs:
     """Each Writer-request marker's own text, the engine lines that ride a marker, the sections for placeholder blocks, and the
-    speaker frame around them."""
+    group speaker's parts."""
 
     selected_lore: str = ""
     scene_guidance: str = ""
@@ -69,8 +70,12 @@ class WriterInputs:
     user_message: str = ""
     depth_lore: str = ""
     sections: SectionInputs = field(default_factory=SectionInputs)
-    speaker_open: str = ""
-    speaker_close: str = ""
+    # A group turn renders the Group speaker block: the speaker's card where the Writer request carries it, and their card's
+    # post-history instructions. The closing line ends the request.
+    group_turn: bool = False
+    speaker_card: str = ""
+    speaker_instructions: str = ""
+    speaker_closing: str = ""
 
 
 def _render_marker(block: LayoutBlock, value: str, sections: SectionInputs, resolve: Callable[[str], str]) -> str:
@@ -85,6 +90,21 @@ def _render_marker(block: LayoutBlock, value: str, sections: SectionInputs, reso
         return ""
     text = block.content or MARKER_TEMPLATES[block.kind]
     return _fill(text, {**_section_values(text, sections), block.kind: value}, resolve)
+
+
+def _render_speaker(block: LayoutBlock, inputs: WriterInputs, resolve: Callable[[str], str]) -> str:
+    """The Group speaker block on a group turn, nothing otherwise: its text filled once, ``{{card}}`` and ``{{instructions}}`` standing
+    for the speaker's, the other sections keeping their chat meaning. A paragraph after the first naming only empty
+    placeholders is left out."""
+    if not inputs.group_turn:
+        return ""
+    text = marker_text(block)
+    values = {
+        **_section_values(text, inputs.sections),
+        "card": inputs.speaker_card,
+        "instructions": inputs.speaker_instructions,
+    }
+    return _fill(text, values, resolve, by_paragraph=True)
 
 
 def _section_values(text: str, sections: SectionInputs) -> dict[str, str]:
@@ -119,11 +139,19 @@ def _sentinel(name: str) -> str:
     return f"\x00orb-section-{name}\x00"
 
 
-def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str], *, strip: bool = True) -> str:
+def _fill(
+    template: str,
+    values: Mapping[str, str],
+    resolve: Callable[[str], str],
+    *,
+    strip: bool = True,
+    by_paragraph: bool = False,
+) -> str:
     """Resolve *template*'s macros, then put each value in for its placeholder without a second macro pass.
 
     A backticked placeholder stays literal, and one inside a note leaves with the note. An empty section's placeholder leaves
-    with one blank-line separator beside it, the one before it when there is one.
+    with one blank-line separator beside it, the one before it when there is one. *by_paragraph* also leaves out each paragraph
+    after the first whose placeholders are all empty, so a heading leaves with its empty section.
     """
     if not values:
         return resolve(template).strip() if strip else resolve(template)
@@ -132,6 +160,9 @@ def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str
     text = resolve(marked)
     if strip:
         text = text.strip()
+    if by_paragraph:
+        head, *rest = text.split("\n\n")
+        text = "\n\n".join([head, *(paragraph for paragraph in rest if not _names_only_empty(paragraph, values))])
     for name, value in values.items():
         sentinel = re.escape(_sentinel(name))
         if not value:
@@ -139,6 +170,11 @@ def _fill(template: str, values: Mapping[str, str], resolve: Callable[[str], str
     for name, value in values.items():
         text = text.replace(_sentinel(name), value)
     return text
+
+
+def _names_only_empty(paragraph: str, values: Mapping[str, str]) -> bool:
+    named = [value for name, value in values.items() if _sentinel(name) in paragraph]
+    return bool(named) and not any(named)
 
 
 def _fill_examples(template: str, values: Mapping[str, str], resolve: Callable[[str], str]) -> str:
@@ -170,6 +206,15 @@ def _render_block(content: str, sections: SectionInputs, resolve: Callable[[str]
     return _fill(content, values, resolve)
 
 
+def render_card_template(template: str, sections: SectionInputs, resolve: Callable[[str], str]) -> str:
+    """A member card from the Group cast text: filled once, as a marker's text is, the examples together. A paragraph after the
+    first naming only empty sections is left out; the card renders nothing while every section it names is empty."""
+    values = _section_values(template, sections)
+    if values and not any(values.values()):
+        return ""
+    return _fill(template, values, resolve, by_paragraph=True)
+
+
 def _join(head: str, tail: str) -> str:
     return f"{head}\n\n{tail}" if head else tail
 
@@ -186,6 +231,8 @@ def _merge_content(head: str, content: str | list[ContentPart]) -> str | list[Co
 def _block_text(block: LayoutBlock, inputs: PrefixInputs | WriterInputs, resolve: Callable[[str], str]) -> str:
     if block.kind == CUSTOM_KIND:
         return _render_block(block.content, inputs.sections, resolve)
+    if block.kind == "speaker":
+        return _render_speaker(block, inputs, resolve) if isinstance(inputs, WriterInputs) else ""
     return _render_marker(block, getattr(inputs, block.kind), inputs.sections, resolve)
 
 
@@ -247,14 +294,13 @@ class WriterRequest:
 
 
 def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, macros: Macros | None) -> WriterRequest:
-    """The Writer's messages after history: the speaker frame, the Writer-request blocks in order, then the closing line.
+    """The Writer's messages after history: the Writer-request blocks in order.
 
-    The engine's lines lead the User message, or precede the closing line while the User message is switched off. The state
-    block follows Scene guidance and leaves with it.
+    The engine's lines lead the User message, or precede the group speaker's closing line while the User message is switched
+    off. The closing line is user text. The state block follows Scene guidance and leaves with it.
 
-    Each block becomes a message of its role; adjacent blocks of one role share a message. The speaker frame and the closing
-    line are user text. Custom blocks roll inline macros fresh on every build; later passes replay the built messages, so they
-    read the same rolls.
+    Each block becomes a message of its role; adjacent blocks of one role share a message. Custom blocks roll inline macros
+    fresh on every build; later passes replay the built messages, so they read the same rolls.
     """
     pieces: list[tuple[LayoutRole, str]] = []
     holder: int | None = None
@@ -267,8 +313,6 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
     cue = f"## Your cue\n{inputs.cue}" if inputs.cue else ""
     engine_lines = [line for line in (inputs.tool_notice, inputs.length_nudge, cue) if line]
     writer_blocks = writer_block_texts(blocks, inputs, macros)
-    if inputs.speaker_open:
-        pieces.append(("user", inputs.speaker_open))
     for block, text in writer_blocks:
         if block.kind == "user_message":
             # The engine's own lines for this request lead the user's message wherever the layout places it.
@@ -283,8 +327,8 @@ def render_writer_request(blocks: Sequence[LayoutBlock], inputs: WriterInputs, m
     # With the User message switched off, the engine's lines still close the request as user text.
     user_message_off = not any(block.kind == "user_message" for block, _ in writer_blocks)
     closing: list[tuple[LayoutRole, str]] = [("user", f"{line}\n\n") for line in engine_lines if user_message_off]
-    if inputs.speaker_close:
-        closing.append(("user", inputs.speaker_close))
+    if inputs.speaker_closing:
+        closing.append(("user", inputs.speaker_closing))
     # The closing lines go before a trailing run of assistant blocks, which the reply continues.
     cut = prefill_start([role for role, _ in pieces])
     pieces[cut:cut] = closing

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..database import set_workflow_enabled
+from ..core.settings import Settings
+from ..database import get_settings, set_workflow_enabled
 from . import gpu_swap_host, prose_rewriter_host
 from .contracts import (
     EV_ATTACH_ARTIFACT,
@@ -77,13 +78,19 @@ finalize_registry()
 
 
 async def set_workflow_toggle(workflow_id: str, enabled: bool) -> None:
-    """Store one workflow's on/off flag, then run the runtime callback its toggle owns.
-
-    The rewriter's model can hold gigabytes of VRAM: switching it off frees that now rather than after the idle timeout, and
-    switching it on warms it. Every writer of a workflow toggle goes through here so none of them skips that. The GPU swap plan
-    is off while Image Generation is, so its cached plan is dropped: a render right after switching it on must swap.
-    """
+    """Store one workflow's on/off flag, then run the runtime effects of the change."""
+    before = await get_settings()
     await set_workflow_enabled(workflow_id, enabled)
+    await live_settings_changed(before)
+
+
+async def live_settings_changed(before: Settings) -> None:
+    """Run the runtime effects of a write to the live settings, given the settings read before it. Every writer that can change
+    a switch with an effect (the settings and workflow routes, a profile switch, reset, a Backups apply) calls this after.
+
+    The rewriter's model can hold gigabytes of VRAM: once no mode uses it, it is freed now rather than after the idle timeout,
+    and once a mode does, it warms. The GPU swap plan reads the lanes, workflow switches and Image Generation's config, so its
+    cached plan is dropped: a render right after the change must not use the old one.
+    """
     gpu_swap_host.invalidate()
-    if workflow_id == prose_rewriter_host.FEATURE:
-        await prose_rewriter_host.on_enabled(enabled)
+    await prose_rewriter_host.settings_changed(before, await get_settings())

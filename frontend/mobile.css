@@ -17,18 +17,19 @@ html { height: 100%; }
 @media (max-width: 900px) {
   #app { position: relative; }
   #mobile-sidebar-toggle { display: inline-flex; }
-  #sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--mobile-sidebar-width); min-width: 0;
-    z-index: var(--mobile-sidebar-z); transform: translateX(-100%); transition: transform var(--mobile-slide-duration);
-    box-shadow: var(--mobile-panel-shadow-left); }
+  #sidebar { position: fixed; left: 0; top: var(--mobile-panel-top, 0px); bottom: 0; width: var(--mobile-sidebar-width);
+    min-width: 0; z-index: var(--mobile-sidebar-z); transform: translateX(-100%);
+    transition: transform var(--mobile-slide-duration); box-shadow: var(--mobile-panel-shadow-left); }
   #app.mobile-sidebar-open #sidebar { transform: translateX(0); }
-  #app::before { content: ""; position: fixed; inset: 0; background: var(--mobile-overlay-color); opacity: 0;
-    pointer-events: none; transition: opacity var(--mobile-slide-duration); z-index: var(--mobile-overlay-z); }
+  #app::before { content: ""; position: fixed; inset: var(--mobile-panel-top, 0px) 0 0;
+    background: var(--mobile-overlay-color); opacity: 0; pointer-events: none;
+    transition: opacity var(--mobile-slide-duration); z-index: var(--mobile-overlay-z); }
   #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open, .mobile-assistant-open)::before { opacity: 1; pointer-events: auto;
   }
   #tools-panel, #inspector, #assistant-panel {
-    position: fixed; right: 0; top: 0; bottom: 0; width: var(--mobile-panel-width); min-width: 0;
-    z-index: var(--mobile-panel-z); transform: translateX(100%); transition: transform var(--mobile-slide-duration);
-    box-shadow: var(--mobile-panel-shadow-right); pointer-events: none;
+    position: fixed; right: 0; top: var(--mobile-panel-top, 0px); bottom: 0; width: var(--mobile-panel-width);
+    min-width: 0; z-index: var(--mobile-panel-z); transform: translateX(100%);
+    transition: transform var(--mobile-slide-duration); box-shadow: var(--mobile-panel-shadow-right); pointer-events: none;
   }
   #tools-panel.open, #inspector.open, #assistant-panel.open {
     width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;

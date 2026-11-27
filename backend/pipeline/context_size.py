@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from .. import database as db
-from ..core import CardScripts, estimate_tokens, state_fragments_of
+from ..core import CardScripts, Macros, estimate_tokens, state_fragments_of
+from ..core.prompt_layout import cast_template
 from ..database.models import ConversationRow
 from ..prompting import (
     char_context,
@@ -16,13 +18,13 @@ from ..prompting import (
     macro_identity,
     persona_macros,
     render_history,
-    render_state_block,
+    render_state_body,
     resolve_mood_fragment_randoms,
 )
 from ..prompting.layout import PrefixInputs, WriterInputs, prefix_block_texts, writer_block_texts
 from ..prompting.lorebook import compute_constant_lorebook_block
 from .context import build_lorebook_turn, resolve_card_and_persona
-from .passes.writer import speaker_frame
+from .passes.writer import speaker_parts
 from .predicates import agent_enabled
 
 
@@ -91,27 +93,16 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     current_state = ""
     writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
     if writer_state:
-        state_block = render_state_block(writer_state, await db.fold_path_state(cid, [m["id"] for m in messages]))
+        state_block = render_state_body(writer_state, await db.fold_path_state(cid, [m["id"] for m in messages]))
         current_state = macros.at("state").resolve_message(state_block) if state_block else ""
 
     # The Writer's lorebook block as the turn builds it; with agentic lorebook on, the part known before the Director picks.
     lorebook = build_lorebook_turn(settings, lorebook_entries, messages, macros)
 
-    # A group bills its largest speaker: the frame around the Writer request, and the macros the request's blocks resolve with.
-    speaker_open, speaker_close, block_macros = "", "", macros
-    if turn_cast.grouped:
-        prevent = bool(settings.get("prevent_prompt_overrides"))
-        frames = [
-            speaker_frame(member, macros, turn_cast.context_mode, prevent_prompt_overrides=prevent)
-            for member in turn_cast.members
-            if not member.muted
-        ]
-        if frames:
-            speaker_open, speaker_close, block_macros = max(frames, key=lambda frame: len(frame[0]) + len(frame[1]))
-
+    template = cast_template(layout)
     prefix = PrefixInputs(
         main_prompt=card_text.system_prompt,
-        cast=largest_cast_section(turn_cast, macros).lstrip("\n") if turn_cast.grouped else "",
+        cast=largest_cast_section(turn_cast, macros, template, sections).lstrip("\n") if turn_cast.grouped else "",
         constant_lore=compute_constant_lorebook_block(lorebook_entries, macros),
         sections=sections,
     )
@@ -122,13 +113,27 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
         depth_lore=lorebook.depth_block,
         sections=sections,
     )
+    # A group bills its largest speaker: the request their parts and macros build.
+    block_macros = macros
+    if turn_cast.grouped:
+        prevent = bool(settings.get("prevent_prompt_overrides"))
+        speakers: list[tuple[WriterInputs, Macros | None]] = []
+        for member in turn_cast.members:
+            if member.muted:
+                continue
+            card, instructions, scoped = speaker_parts(
+                member, macros, turn_cast.context_mode, template, sections, prevent_prompt_overrides=prevent
+            )
+            speakers.append((replace(writer, group_turn=True, speaker_card=card, speaker_instructions=instructions), scoped))
+        if speakers:
+            writer, block_macros = max(
+                speakers, key=lambda pair: sum(len(text) for _, text in writer_block_texts(layout, pair[0], pair[1]))
+            )
     rows = [
         _row(block.id, block.label, block.kind, block.region, len(text))
         for block, text in prefix_block_texts(layout, prefix, macros)
     ]
     rows.append(_row("history", "Chat history", "history", "history", history_chars))
-    if turn_cast.grouped:
-        rows.append(_row("speaker", "Speaker", "speaker", "writer", len(speaker_open) + len(speaker_close)))
     rows += [
         _row(block.id, block.label, block.kind, block.region, len(text))
         for block, text in writer_block_texts(layout, writer, block_macros)

@@ -49,6 +49,7 @@ out requests across the whole app.
 | Feature | Description |
 |---|---|
 | [Macros](macros.md) | Insert names, dice rolls, random choices, dates, and times. |
+| [Profiles](profiles.md) | Switch between named setups, each with its own switches, models, prompt layout, fragments, phrase bank, and global Worlds. |
 | [Super-regenerate](super-regenerate.md) | Ask for a substantially different version of a reply. |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message using your instructions. |
 | [Compress History](compress-history.md) | Summarize a conversation and continue in a new one. |
@@ -61,7 +62,7 @@ out requests across the whole app.
 | [Card-Embedded Fragments](card-fragments.md) | Include scene-direction fragments in a character card. |
 | [Fetch Cards from Internet](fetch-cards.md) | Browse supported card repositories and import cards. |
 | [Library Auto-tagging](library-auto-tagging.md) | Have the Judge or Agent tag every character from a vocabulary you write. |
-| [Backups and Presets](backups-presets.md) | Back up, share, merge, and restore Orb data. |
+| [Backups](backups.md) | Back up, share, merge, and restore Orb data. |
 | [Persona Pinning](persona-pinning.md) | Keep a persona attached to a conversation or character. |
 | [Character Expressions](character-expressions.md) | Change a character avatar based on the reply's emotion. |
 | [Homepage Stats](homepage-stats.md) | View writing and usage totals on the home screen. |

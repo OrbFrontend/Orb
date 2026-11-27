@@ -100,6 +100,20 @@ CATEGORIES: tuple[ToolCategory, ...] = (
         ),
     ),
     ToolCategory(
+        "layout",
+        "Prompt layout",
+        frozenset(
+            {
+                "list_prompt_blocks",
+                "read_prompt_block",
+                "create_prompt_block",
+                "set_prompt_block",
+                "edit_prompt_block",
+                "delete_prompt_block",
+            }
+        ),
+    ),
+    ToolCategory(
         "settings",
         "Settings and phrase bank",
         frozenset(

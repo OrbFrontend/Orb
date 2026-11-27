@@ -36,6 +36,17 @@ WORKFLOW = Workflow(
     # The config carries user-authored graphs and style entries that `normalize_config` bounds and drops; without this the
     # settings panel would keep listing a workflow the render path silently ignores.
     config_normalizer=normalize_config,
+    # How images look and how the prompter works; the source, timeout and both connections (keys included) stay shared.
+    profile_config_keys=(
+        "default_style",
+        "styles",
+        "pov_mode",
+        "scene_skills_enabled",
+        "scene_skills",
+        "prompter_reasoning",
+        "prompter_reference",
+        "refine_turns",
+    ),
     subscriptions=[
         subscription(HookType.ON_DEMAND, hooks.on_demand),
         subscription(HookType.STANDALONE, standalone.standalone),

@@ -10,8 +10,9 @@ from .conversation import (
     persona_macros,
     resolve_persona_id,
 )
-from .fragment_state import STATE_BLOCK_HEADING, render_state_block, render_state_body
+from .fragment_state import render_state_body
 from .group_context import (
+    continue_context_mode,
     largest_cast_section,
     macro_identity,
     member_macros,
@@ -19,6 +20,7 @@ from .group_context import (
     prefix_cache_shape,
     prefix_is_speaker_scoped,
     render_cast_section,
+    render_member_card,
     speaker_instructions,
     tail_carries_identity,
 )

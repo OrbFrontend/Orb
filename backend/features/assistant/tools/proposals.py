@@ -24,6 +24,7 @@ from ....database import (
     DocumentConflict,
     StaleWrite,
     delete_phrase_group,
+    delete_prompt_block,
     delete_world,
     get_character_card,
     get_conversation,
@@ -31,6 +32,7 @@ from ....database import (
     get_interactive_fragment,
     get_lorebook_entry,
     get_message_by_id,
+    get_prompt_block,
     get_world,
     save_message_edit,
     sync_conversations_for_card,
@@ -39,11 +41,13 @@ from ....database import (
     update_interactive_fragment,
     update_lorebook_entry,
     update_mood_fragment,
+    update_prompt_block,
     update_user_persona,
 )
 from ..loop import settled
 from .fragments import INTERACTIVE_TEXT_COLUMNS, OUTCOME_PARTS, REQUIRED_TEXT, TEXT_CAPS, fragment_text_problem
 from .host import AppReads, AssistantHost, ChatGuards, ChatUnavailable, HostRefusal
+from .layout import block_text_problem
 from .targets import clip
 
 MAX_PROPOSALS = 32
@@ -65,6 +69,7 @@ ProposalKind = Literal[
     "mood_fragment",
     "interactive_fragment",
     "document",
+    "prompt_block",
 ]
 ProposalAction = Literal["edit", "delete"]
 FIELD_LABELS = {
@@ -386,6 +391,8 @@ async def _write(
         written: object = await update_mood_fragment(target["fragment_id"], after, expected=before)
     elif proposal.kind == "character":
         written = await update_character_card(target["character_id"], after, expected=before)
+    elif proposal.kind == "prompt_block":
+        written = await update_prompt_block(target["block_id"], after, target["profile_id"], expected=before)
     elif proposal.kind == "lorebook_entry":
         written = await update_lorebook_entry(target["entry_id"], after, expected=before, world_id=target["world_id"])
     else:
@@ -442,6 +449,10 @@ async def _delete_phrase_group(target: Mapping[str, Any], _options: Mapping[str,
     return await delete_phrase_group(target["group_id"])
 
 
+async def _delete_block(target: Mapping[str, Any], _options: Mapping[str, Any], _host: AssistantHost) -> bool:
+    return await delete_prompt_block(target["block_id"], target["profile_id"])
+
+
 _DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any], AssistantHost], Awaitable[bool]]] = {
     "character": _delete_character,
     "lorebook_entry": _delete_entry,
@@ -449,6 +460,7 @@ _DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any], AssistantHo
     "message": _delete_message,
     "world": _delete_world,
     "phrase_group": _delete_phrase_group,
+    "prompt_block": _delete_block,
 }
 
 
@@ -554,7 +566,11 @@ _FRAGMENT_KINDS = frozenset(("mood_fragment", "interactive_fragment"))
 
 
 async def _fragment_problem(proposal: Proposal, text: str, rules: AppReads) -> str:
-    """Why the user's *text* cannot become the fragment text *proposal* edits, as the edit tool would refuse it; or nothing."""
+    """Why the user's *text* cannot become the fragment or block text *proposal* edits, as the edit tool would refuse it; or
+    nothing."""
+    if proposal.kind == "prompt_block":
+        block = await get_prompt_block(proposal.target["block_id"], proposal.target["profile_id"])
+        return _MISSING if block is None else block_text_problem(block, proposal.name, text)
     if proposal.kind == "mood_fragment":
         cap = TEXT_CAPS[proposal.name]
         return f"That is {len(text):,} characters; it may be at most {cap:,}." if len(text) > cap else ""
@@ -582,7 +598,8 @@ async def revise_proposal(proposal_id: str, text: str, rules: AppReads) -> dict[
         # A message's macros resolve here, as when it was proposed, so Apply commits the text this preview shows.
         after = resolve_inline(text) if proposal.kind == "message" else text
         fragment_required = proposal.kind in _FRAGMENT_KINDS and proposal.name in REQUIRED_TEXT
-        required = proposal.name in ("name", "title") or proposal.kind == "message" or fragment_required
+        block_required = proposal.kind == "prompt_block" and proposal.name == "label"
+        required = proposal.name in ("name", "title") or proposal.kind == "message" or fragment_required or block_required
         if required and not after.strip():
             return {"proposal_id": proposal_id, "verdict": "refused", "message": "That cannot be left empty."}
         problem = await _fragment_problem(proposal, after, rules)

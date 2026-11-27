@@ -19,7 +19,7 @@ import backend.api as api_module
 import backend.database.connection as db_connection
 from backend.database.migrations import MIGRATIONS
 from backend.database.schema import CREATE_TABLES_SQL
-from backend.features.presets import engine as presets
+from backend.features.backups import engine as presets
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0053_dynamic_worlds")
 
@@ -175,7 +175,8 @@ def test_upgraded_fk_shape_matches_a_fresh_install(tmp_path):
         live = presets._build_schema_model(conn)
         canon = presets._build_schema_model(ref)
         for table in ("worlds", "lorebook_entries", "world_changesets"):
-            assert set(live.tables[table].cols) == set(canon.tables[table].cols), table
+            # 0103, which this partial upgrade does not reach, moves is_global to profile_worlds.
+            assert set(live.tables[table].cols) - {"is_global"} == set(canon.tables[table].cols), table
             assert presets._edge_set(live.tables[table]) == presets._edge_set(canon.tables[table]), table
         assert ("lorebook_entries", "supersedes_entry_id") in live.deferred
     finally:

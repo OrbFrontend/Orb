@@ -37,7 +37,17 @@ the Main prompt and a character card's system prompt included. Only a block
 built from them alone is left out when they are all empty. Outside a custom
 block, `{{examples}}` inserts every example at once, without the `<START>` lines.
 
-Group cast's text is fixed.
+Group cast's text is one character's card. In a group chat each card the
+**Character context** shows is written from it, with `{{char}}`,
+`{{description}}`, `{{personality}}` and `{{examples}}` standing for that
+character. Under **Private** the speaker's card goes after Chat history even
+though the block sits above it, where Group speaker's `{{card}}` is.
+
+Group speaker opens the Writer's request on a group turn; a solo chat leaves it
+out. In it `{{char}}` is the speaking character, `{{instructions}}` that
+character's card's post-history instructions, and `{{card}}` their card under
+Private, which must stay in the text. A paragraph whose placeholders are all
+empty is left out with them.
 
 Switching a built-in block off keeps its text out of the prompt; whatever
 produces it still runs. With the Director on and Scene guidance off, the
@@ -59,9 +69,9 @@ as system text after the chat on Anthropic; the reply then fails with the
 provider's reason. Assistant blocks at the very end start the reply, on
 providers that allow it.
 
-To use a different arrangement, create or copy a layout, or pick one from the
-list. The selected layout is the one chat uses.
+Each [profile](profiles.md) in the sidebar header has its own layout. To use a
+different arrangement, create or copy a profile there, or switch to another one.
 
 **This chat** in the character portrait shows how many tokens each switched-on
-block of the selected layout takes, in layout order, with Chat history between
+block of the active profile's layout takes, in layout order, with Chat history between
 them. A group shows its largest speaker.

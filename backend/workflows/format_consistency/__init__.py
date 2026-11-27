@@ -21,6 +21,8 @@ WORKFLOW = Workflow(
     config_schema=CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
     config_normalizer=normalize_config,
+    profile_config_keys=("voice_consistency",),
+    profile_enabled=True,
     # Fix voice and markup before Prose Rewriter (-10) polishes the result.
     # Artifact hooks (0+) then consume the final prose without another voice call.
     subscriptions=[subscription(HookType.POST_PIPELINE, hooks.post_pipeline, priority=-20)],

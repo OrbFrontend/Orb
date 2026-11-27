@@ -42,13 +42,13 @@ class DatasetAdmissionMiddleware:
             await self.app(scope, receive, send)
             return
         method = scope["method"]
-        presets = path.startswith("/api/presets/")
+        backups = path.startswith("/api/backups/")
         guarded = (
             method not in {"GET", "HEAD", "OPTIONS"}
             and not path.endswith(("/stop", "/in-flight"))
-            and not (presets and path.endswith(("/export", "/import")))
+            and not (backups and path.endswith(("/export", "/import")))
         )
-        replacing = presets and path.endswith(("/apply", "/restore"))
+        replacing = backups and path.endswith(("/apply", "/restore"))
         key = object()
         # Reserve synchronously before the first await: replacement sees even a
         # request still loading its epoch, not only requests inside a route.

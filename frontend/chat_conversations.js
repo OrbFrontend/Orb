@@ -27,6 +27,7 @@ import {
   upgradeLegacyFragment,
 } from "./state.js";
 import { refreshState } from "./state_panel.js";
+import { countWords } from "./text_segmentation.js";
 import {
   $,
   CHAT_AVATAR_ICON,
@@ -624,7 +625,7 @@ function syncCompressionControls() {
   $("compress-counter").textContent = `${c.index + 1}/${c.takes.length}`;
   $("compress-prev").disabled = !!op || c.index === 0;
   $("compress-next").disabled = !!op || c.index === c.takes.length - 1;
-  const words = take.text.trim() ? take.text.trim().split(/\s+/).length : 0;
+  const words = countWords(take.text);
   const meta = [plural(words, "word"), `~${Math.round(take.text.length / 4)} tokens`];
   if (take.keep !== keep) meta.push(`keeps ${take.keep}`);
   $("compress-meta").textContent = meta.join(" · ");

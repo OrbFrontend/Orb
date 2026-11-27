@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 import datetime
@@ -11,7 +12,10 @@ import re
 import shutil
 import sqlite3
 import time
+import uuid
+from collections.abc import Iterable, Mapping
 
+from ...database import SEEDED_PARTS, capture_uploaded_profile, seed_library_statements
 from ...database import preset_schema as ps
 from ...database.connection import checkpoint_wal, current_db_path
 from ...database.migrations import MIGRATIONS, run_pending
@@ -19,8 +23,9 @@ from ...database.schema import CREATE_TABLES_SQL
 
 META_TABLE = "orb_preset_meta"
 
-# User-facing domains, derived from the declared roots.
+# User-facing domains, derived from the declared roots, and the parts of each profile.
 ALL_DOMAINS: list[str] = sorted(set(ps.DOMAIN_ROOTS.values()))
+PROFILE_PARTS: tuple[str, ...] = ps.PROFILE_PARTS
 
 # Maximum wait for the live DB write lock during a full restore.
 RESTORE_LOCK_TIMEOUT = 15.0
@@ -33,6 +38,54 @@ def _roots_for(domain: str) -> list[str]:
 
 class PresetError(Exception):
     """Raised for caller-facing preset failures (bad file, version skew, etc.)."""
+
+
+@dataclasses.dataclass
+class Selection:
+    """What a file holds, or an export takes: the global domains, and the parts of each profile by its id."""
+
+    domains: set[str]
+    profiles: dict[str, set[str]]
+
+    def is_empty(self) -> bool:
+        return not self.domains and not self.profiles
+
+    def covers_all(self, source_profiles: Iterable[str]) -> bool:
+        return (
+            self.domains == set(ALL_DOMAINS)
+            and self.profiles.keys() == set(source_profiles)
+            and all(parts == set(PROFILE_PARTS) for parts in self.profiles.values())
+        )
+
+
+def selection(domains: Iterable[str], profiles: Mapping[str, Iterable[str]] | None, profile_ids: Iterable[str]) -> Selection:
+    """Validate a selection and close it over the domains its picks need.
+
+    Without *profiles* it is read the way a file made before profiles is: each legacy domain also stands for its part of every
+    profile in *profile_ids*, and the legacy domains ``fragments`` and ``phrase_bank`` are parts only. A profile with no parts
+    is left out.
+    """
+    wanted = set(domains)
+    if profiles is None:
+        legacy = {ps.LEGACY_DOMAIN_PARTS[d] for d in wanted if d in ps.LEGACY_DOMAIN_PARTS}
+        picked = {pid: set(legacy) for pid in profile_ids} if legacy else {}
+        wanted -= set(ps.LEGACY_DOMAIN_PARTS) - set(ALL_DOMAINS)
+    else:
+        picked = {str(pid): set(parts) for pid, parts in profiles.items()}
+    unknown = wanted - set(ALL_DOMAINS)
+    if unknown:
+        raise PresetError(f"Unknown domains: {sorted(unknown)}")
+    bad_parts = {part for parts in picked.values() for part in parts} - set(PROFILE_PARTS)
+    if bad_parts:
+        raise PresetError(f"Unknown profile parts: {sorted(bad_parts)}")
+    picked = {pid: parts for pid, parts in picked.items() if parts}
+    for parts in picked.values():
+        for part in parts:
+            wanted |= ps.PART_DOMAINS.get(part, frozenset())
+    for trigger, implied in ps.IMPLIED_DOMAINS.items():
+        if trigger in wanted:
+            wanted |= implied  # e.g. chats are meaningless without their character
+    return Selection(wanted, picked)
 
 
 #
@@ -97,6 +150,16 @@ class _Schema:
     def domain_of(self, table: str) -> str | None:
         return ps.DOMAIN_ROOTS.get(self.root_of(table).name)
 
+    def part_of(self, table: str) -> str | None:
+        """The profile part *table* belongs to: its PROFILE_SCOPED part, or "setup" for the profile row and what it owns."""
+        if table in ps.PROFILE_SCOPED:
+            return ps.PROFILE_SCOPED[table]
+        return "setup" if self.root_of(table).name == ps.PROFILE_TABLE else None
+
+    def part_tables(self) -> list[str]:
+        """Every table holding profile rows, the profile table itself excluded, in topological order."""
+        return [t for t in self.order if t != ps.PROFILE_TABLE and self.part_of(t) is not None]
+
     def domain_tables(self, domain: str) -> list[str]:
         """Tables belonging to *domain*, in topological (parent-first) order."""
         return [t for t in self.order if self.domain_of(t) == domain]
@@ -137,9 +200,11 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
         else:
             kind = "stable"
 
-        owner = next((f for f in fks if f.kind == "ownership" and f.from_col == ps.OWNERSHIP_COLUMNS.get(name)), None) or next(
-            (f for f in fks if f.kind == "ownership"), None
-        )
+        # A profile partition column is not ownership: the table stays a root, or a child of its other owner.
+        owners = [
+            f for f in fks if f.kind == "ownership" and not (name in ps.PROFILE_SCOPED and f.from_col == ps.PROFILE_COLUMN)
+        ]
+        owner = next((f for f in owners if f.from_col == ps.OWNERSHIP_COLUMNS.get(name)), None) or next(iter(owners), None)
         tables[name] = _Table(name, cols, pk, kind, fks, owner)
 
     # Second pass: resolve implicit FK targets now that every PK is known, so the fallback never depends on sqlite_master order
@@ -212,11 +277,13 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
     schema = _build_schema_model(conn)
     problems: list[str] = []
     for name, t in schema.tables.items():
-        if schema.domain_of(name) is None:
+        if schema.domain_of(name) is None and schema.part_of(name) is None:
             problems.append(
                 f"table {name!r} reaches no DOMAIN_ROOT via ownership; assign its root "
-                f"a domain in DOMAIN_ROOTS or add {name!r} to EXCLUDED_TABLES"
+                f"a domain in DOMAIN_ROOTS, a part in PROFILE_SCOPED, or add {name!r} to EXCLUDED_TABLES"
             )
+        if ps.PROFILE_COLUMN in t.cols and name not in ps.PROFILE_SCOPED:
+            problems.append(f"table {name!r} has a {ps.PROFILE_COLUMN} column but no part in PROFILE_SCOPED")
         for fk in t.fks:
             if fk.parent not in schema.tables:
                 problems.append(
@@ -265,6 +332,14 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                 problems.append(
                     f"PRESERVED_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; drop it or fix the name"
                 )
+    for table in ps.PROFILE_SCOPED:
+        if table not in schema.tables or ps.PROFILE_COLUMN not in schema.tables[table].cols:
+            problems.append(f"PROFILE_SCOPED entry {table!r} is not a table with a {ps.PROFILE_COLUMN} column")
+    if ps.PROFILE_TABLE not in schema.tables:
+        problems.append(f"PROFILE_TABLE {ps.PROFILE_TABLE!r} is not an existing non-excluded table")
+    for part in [*ps.PROFILE_SCOPED.values(), *ps.PART_DOMAINS]:
+        if part not in ps.PROFILE_PARTS:
+            problems.append(f"profile part {part!r} is not in PROFILE_PARTS")
     for trigger, implied in ps.IMPLIED_DOMAINS.items():
         if trigger not in known_domains:
             problems.append(f"IMPLIED_DOMAINS trigger {trigger!r} is not a known domain")
@@ -361,16 +436,16 @@ def _snapshots_dir() -> str:
     return d
 
 
-def _library_path(name: str) -> str:
+def library_path(name: str) -> str:
     """Resolve a library filename after rejecting path traversal."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}\.db", name):
-        raise PresetError("Invalid preset name")
+        raise PresetError("Invalid backup name")
     root = os.path.realpath(_snapshots_dir())
     path = os.path.realpath(os.path.join(root, name))
     if not path.startswith(root + os.sep):
-        raise PresetError("Invalid preset name")
+        raise PresetError("Invalid backup name")
     if not os.path.isfile(path):
-        raise PresetError("Preset not found")
+        raise PresetError("Backup not found")
     return path
 
 
@@ -386,7 +461,7 @@ def _unique_name(kind: str, label: str) -> str:
     return name
 
 
-def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind: str, keys_stripped: bool) -> None:
+def _write_meta(conn: sqlite3.Connection, sel: Selection, label: str, kind: str, keys_stripped: bool, *, full: bool) -> None:
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {META_TABLE} ("
         "  id INTEGER PRIMARY KEY CHECK (id = 1),"
@@ -394,14 +469,48 @@ def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind:
         "  created_at TEXT NOT NULL,"
         "  label TEXT NOT NULL DEFAULT '',"
         "  kind TEXT NOT NULL,"
-        "  keys_stripped INTEGER NOT NULL DEFAULT 0"
+        "  keys_stripped INTEGER NOT NULL DEFAULT 0,"
+        "  profiles TEXT,"
+        "  is_full INTEGER NOT NULL"
         ")"
     )
+    # A meta table from a file made before profiles lacks the column; NULL there means "derive the parts from the domains".
+    columns = {r[1] for r in conn.execute(f"PRAGMA table_info({META_TABLE})")}
+    if "profiles" not in columns:
+        conn.execute(f"ALTER TABLE {META_TABLE} ADD COLUMN profiles TEXT")  # nosec B608 -- constant identifier
+    if "is_full" not in columns:
+        conn.execute(f"ALTER TABLE {META_TABLE} ADD COLUMN is_full INTEGER")
     conn.execute(f"DELETE FROM {META_TABLE}")  # nosec B608 -- schema-derived identifier, values parameterised
     conn.execute(
-        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) VALUES (1, ?, ?, ?, ?, ?)",  # nosec B608 -- schema-derived identifier, values parameterised
-        (json.dumps(sorted(included)), datetime.datetime.now().isoformat(timespec="seconds"), label, kind, int(keys_stripped)),
+        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped, profiles, is_full) "  # nosec B608 -- constant identifier
+        "VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            json.dumps(sorted(sel.domains)),
+            datetime.datetime.now().isoformat(timespec="seconds"),
+            label,
+            kind,
+            int(keys_stripped),
+            json.dumps({pid: sorted(parts) for pid, parts in sel.profiles.items()}),
+            int(full),
+        ),
     )
+
+
+def _full_selection(conn: sqlite3.Connection) -> Selection:
+    """Every domain and every part of every profile *conn* holds."""
+    ids = [str(r[0]) for r in conn.execute(f"SELECT id FROM {ps.PROFILE_TABLE}")]  # nosec B608 -- constant identifier
+    return Selection(set(ALL_DOMAINS), {pid: set(PROFILE_PARTS) for pid in ids})
+
+
+def _file_profiles(conn: sqlite3.Connection) -> dict[str, str]:
+    """The profiles a file holds, id to name. A file older than profiles names its presets or layouts instead."""
+    for table in (ps.PROFILE_TABLE, "presets", "prompt_layouts"):
+        try:
+            rows = conn.execute(f"SELECT id, name FROM {table} ORDER BY id != 'default', name COLLATE NOCASE").fetchall()  # nosec B608 -- constant identifiers
+        except sqlite3.OperationalError:
+            continue
+        return {str(pid): str(name) for pid, name in rows}
+    return {}
 
 
 def _stamp_migrations(conn: sqlite3.Connection) -> None:
@@ -422,24 +531,54 @@ def _stamp_migrations(conn: sqlite3.Connection) -> None:
 
 
 def read_meta(path: str) -> dict | None:
+    """A file's meta: its global domains, and ``profiles`` as ``[{id, name, parts}]``. A file made before profiles is read as
+    its domains say (see ``selection``); one whose library rows had no profile to hold them shows the placeholder 'default',
+    which the upgrade creates."""
     conn = sqlite3.connect(path)
     try:
-        row = conn.execute(
-            f"SELECT included_domains, created_at, label, kind, keys_stripped FROM {META_TABLE} WHERE id = 1"  # nosec B608 -- schema-derived identifier, values parameterised
-        ).fetchone()
-    except sqlite3.OperationalError:
-        return None
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(f"SELECT * FROM {META_TABLE} WHERE id = 1").fetchone()  # nosec B608 -- constant identifier
+        except sqlite3.OperationalError:
+            return None
+        if not row:
+            return None
+        meta = dict(row)
+        raw = meta.get("profiles")
+        names = _file_profiles(conn)
     finally:
         conn.close()
-    if not row:
-        return None
+    stored = json.loads(raw) if raw else None
+    if stored is None and not names:
+        names = {"default": "Default"}
+    sel = selection(
+        [d for d in json.loads(meta["included_domains"]) if d in ALL_DOMAINS or d in ps.LEGACY_DOMAIN_PARTS], stored, names
+    )
+    order = [*names, *(pid for pid in sel.profiles if pid not in names)]
     return {
-        "included_domains": json.loads(row[0]),
-        "created_at": row[1],
-        "label": row[2],
-        "kind": row[3],
-        "keys_stripped": bool(row[4]),
+        # Before profile selection, a domain covered every profile. Old automatic backups covering every domain
+        # were whole-database snapshots. Other profile-aware files without a marker may have omitted a profile.
+        "is_full": bool(meta.get("is_full", stored is None or meta["kind"] == "auto")) and sel.covers_all(names),
+        "included_domains": sorted(sel.domains),
+        "profiles": [
+            {"id": pid, "name": names.get(pid, pid), "parts": [p for p in PROFILE_PARTS if p in sel.profiles[pid]]}
+            for pid in order
+            if pid in sel.profiles
+        ],
+        "created_at": meta["created_at"],
+        "label": meta["label"],
+        "kind": meta["kind"],
+        "keys_stripped": bool(meta["keys_stripped"]),
     }
+
+
+def _meta_selection(meta: Mapping) -> Selection:
+    return Selection(set(meta["included_domains"]), {p["id"]: set(p["parts"]) for p in meta["profiles"]})
+
+
+def is_full(meta: Mapping | None) -> bool:
+    """Raw databases and backups recorded with full source coverage can replace the whole database."""
+    return meta is None or meta["is_full"]
 
 
 def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
@@ -551,23 +690,90 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
         _blank_json_paths(conn, table, col, paths)
 
 
-def _clone_domains(conn: sqlite3.Connection, live: str, selected: set[str]) -> None:
-    """Copy the live schema and the selected domains' rows; dangling keys then take their ON DELETE action, as a delete would."""
+def _profile_clause(schema: _Schema, table: str, ids_sql: str, db: str = "main") -> str:
+    """A WHERE clause selecting *table*'s rows that belong to the profiles *ids_sql* names (a subquery or placeholders); an
+    owner more than one hop away is looked up in database *db*."""
+    if table == ps.PROFILE_TABLE:
+        return f"{schema.tables[table].pk[0]} IN ({ids_sql})"
+    if table in ps.PROFILE_SCOPED:
+        return f"{ps.PROFILE_COLUMN} IN ({ids_sql})"
+    fk = schema.tables[table].owner_fk
+    assert fk is not None
+    if fk.parent == ps.PROFILE_TABLE:
+        return f"{fk.from_col} IN ({ids_sql})"
+    inner = _profile_clause(schema, fk.parent, ids_sql, db)
+    return f"{fk.from_col} IN (SELECT {fk.to_col} FROM {db}.{fk.parent} WHERE {inner})"
+
+
+def _drop_part(conn: sqlite3.Connection, schema: _Schema, profile_id: str, part: str) -> None:
+    """Delete one part of a profile; without its setup the profile row keeps only its anchor columns."""
+    for table in reversed(schema.part_tables()):
+        if schema.part_of(table) == part:
+            conn.execute(f"DELETE FROM {table} WHERE {_profile_clause(schema, table, '?')}", (profile_id,))  # nosec B608 -- schema-derived identifiers
+    if part == "setup":
+        info = conn.execute(f"PRAGMA table_info({ps.PROFILE_TABLE})").fetchall()
+        blanks = [f"{r[1]} = {r[4] if r[4] is not None else 'NULL'}" for r in info if r[1] not in ps.PROFILE_ANCHOR_COLUMNS]
+        conn.execute(f"UPDATE {ps.PROFILE_TABLE} SET {', '.join(blanks)} WHERE id = ?", (profile_id,))  # nosec B608 -- schema-derived identifiers and defaults
+
+
+def _prune_profiles(conn: sqlite3.Connection, schema: _Schema, profiles: Mapping[str, set[str]]) -> None:
+    """Keep only *profiles*, each with only its parts; works with foreign keys on or off."""
+    ids = list(profiles)
+    keep = ",".join("?" * len(ids))
+    for table in [*reversed(schema.part_tables()), ps.PROFILE_TABLE]:
+        where = f" WHERE NOT ({_profile_clause(schema, table, keep)})" if ids else ""
+        conn.execute(f"DELETE FROM {table}{where}", ids)  # nosec B608 -- schema-derived identifiers
+    for profile_id, parts in profiles.items():
+        for part in PROFILE_PARTS:
+            if part not in parts:
+                _drop_part(conn, schema, profile_id, part)
+
+
+def _rename_profile(conn: sqlite3.Connection, schema: _Schema, old: str, new: str) -> None:
+    """Give profile *old* the id *new* in a working copy, with foreign keys off: its rows in every PROFILE_SCOPED table move
+    with it, keeping their own ids."""
+    for table in schema.part_tables():
+        if table not in ps.PROFILE_SCOPED:
+            raise PresetError(f"{table} cannot move to another profile")
+        conn.execute(f"UPDATE {table} SET {ps.PROFILE_COLUMN} = ? WHERE {ps.PROFILE_COLUMN} = ?", (new, old))  # nosec B608 -- schema-derived identifiers
+    conn.execute(f"UPDATE {ps.PROFILE_TABLE} SET id = ? WHERE id = ?", (new, old))  # nosec B608 -- constant identifier
+
+
+def _clone_domains(
+    conn: sqlite3.Connection, live: str, selected_domains: Iterable[str], profiles: Mapping[str, Iterable[str]] | None
+) -> tuple[Selection, bool]:
+    """Copy the live schema, the selected domains' rows and the selected profiles' rows; dangling keys then take their ON
+    DELETE action, as a delete would. The caller prunes the profiles' unselected parts."""
     conn.execute("ATTACH DATABASE ? AS live", (live,))
     conn.execute(f"PRAGMA main.page_size = {int(conn.execute('PRAGMA live.page_size').fetchone()[0])}")
     ddl = conn.execute("SELECT type, name, sql FROM live.sqlite_master WHERE sql IS NOT NULL ORDER BY rowid").fetchall()
     tables = [(name, sql) for kind, name, sql in ddl if kind == "table" and not name.startswith("sqlite_")]
     conn.execute("BEGIN")  # one read transaction on live: every table comes from the same snapshot
+    live_ids = {str(r[0]) for r in conn.execute(f"SELECT id FROM live.{ps.PROFILE_TABLE}")}  # nosec B608 -- constant identifier
+    sel = selection(selected_domains, profiles, live_ids)
+    if missing := sel.profiles.keys() - live_ids:
+        raise PresetError(f"Unknown profiles: {sorted(missing)}")
+    if sel.is_empty():
+        raise PresetError("Select at least one thing to export")
     for _name, sql in tables:
         conn.execute(sql)
     schema = _build_schema_model(conn)
     skipped = set(ps.DERIVED_TABLES) | set(ps.LOCAL_TABLES)
+    ids = list(sel.profiles)
     for name, _sql in tables:
         if name in skipped:
             continue
-        if name in schema.tables and schema.tables[name].kind != "singleton" and schema.domain_of(name) not in selected:
-            continue
-        conn.execute(f"INSERT INTO main.{name} SELECT * FROM live.{name}")  # nosec B608 -- schema-derived identifier
+        where, params = "", []
+        if name in schema.tables and schema.tables[name].kind != "singleton":
+            domain, part = schema.domain_of(name), schema.part_of(name)
+            if (domain is None and part is None) or (domain is not None and domain not in sel.domains):
+                continue
+            if part is not None:
+                if not ids:
+                    continue
+                where = f" WHERE {_profile_clause(schema, name, ','.join('?' * len(ids)), 'live')}"
+                params = ids
+        conn.execute(f"INSERT INTO main.{name} SELECT * FROM live.{name}{where}", params)  # nosec B608 -- schema-derived identifier
     if conn.execute("SELECT 1 FROM main.sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
         conn.execute("DELETE FROM main.sqlite_sequence")
         conn.execute("INSERT INTO main.sqlite_sequence SELECT * FROM live.sqlite_sequence")
@@ -597,33 +803,35 @@ def _clone_domains(conn: sqlite3.Connection, live: str, selected: set[str]) -> N
             for i in range(0, len(rowids), 500):
                 chunk = rowids[i : i + 500]
                 conn.execute(f"{action} WHERE rowid IN ({','.join('?' * len(chunk))})", chunk)
+    return sel, sel.covers_all(live_ids)
 
 
-def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str = "manual") -> str:
-    """Clone the live DB, prune unselected domains, tag with meta, store in the library. Returns the on-disk file name."""
-    selected = set(selected_domains)
-    unknown = selected - set(ALL_DOMAINS)
-    if unknown:
-        raise PresetError(f"Unknown domains: {sorted(unknown)}")
-    for trigger, implied in ps.IMPLIED_DOMAINS.items():
-        if trigger in selected:
-            selected |= implied  # e.g. chats are meaningless without their character
-    if not selected:
-        raise PresetError("Select at least one domain to export")
+def build_preset(
+    selected_domains: Iterable[str],
+    strip_keys: bool,
+    label: str = "",
+    kind: str = "manual",
+    profiles: Mapping[str, Iterable[str]] | None = None,
+) -> str:
+    """Clone the live DB, prune what was not selected, tag with meta, store in the library. Returns the on-disk file name.
 
-    tmp = os.path.join(_snapshots_dir(), f".build-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
+    *profiles* maps a profile id to the parts to save for it; without it every profile takes the parts the legacy domains name
+    (``configs`` its setup, ``fragments``, ``phrase_bank``, ``lorebooks`` its global marks)."""
     src = sqlite3.connect(current_db_path())
     try:
         assert_schema_safe(src)
     finally:
         src.close()
 
+    tmp = os.path.join(_snapshots_dir(), f".build-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
+
     keys_stripped = False
     packed = f"{tmp}.packed"
     c = _scratch_connect(tmp)
     try:
-        _clone_domains(c, current_db_path(), selected)
-        _assert_integrity(c, "the exported preset clone")
+        sel, full = _clone_domains(c, current_db_path(), selected_domains, profiles)
+        selected = sel.domains
+        _assert_integrity(c, "the exported backup clone")
         c.execute("PRAGMA foreign_keys=ON")
         schema = _build_schema_model(c)
         # Tripwire: an excluded table that carries data would be invisible to both export and merge -- its rows would silently
@@ -655,6 +863,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str 
             for root in _roots_for(domain):
                 if schema.tables[root].kind != "singleton":
                     c.execute(f"DELETE FROM {root}")  # nosec B608 -- schema-derived identifier, values parameterised
+        _prune_profiles(c, schema, sel.profiles)
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col in ps.CREDENTIAL_LEAVES):
                 c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 -- schema-derived identifier, values parameterised
@@ -664,13 +873,13 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str 
                 _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] in ps.CREDENTIAL_LEAVES))
             keys_stripped = True
         _stamp_migrations(c)
-        _write_meta(c, sorted(selected), label, kind, keys_stripped)
+        _write_meta(c, sel, label, kind, keys_stripped, full=full)
         # Repack so freed pages, stripped keys included, leave the file; in-place VACUUM costs several times VACUUM INTO.
         c.execute("VACUUM INTO ?", (packed,))
         c.close()
         chk = sqlite3.connect(packed)
         try:
-            _assert_integrity(chk, "the exported preset")
+            _assert_integrity(chk, "the exported backup")
         finally:
             chk.close()
         name = _unique_name(kind, label)
@@ -735,8 +944,9 @@ def _scope_clause(schema: _Schema, table: str, root: str) -> str:
     return f"{fk.from_col} IN (SELECT {fk.to_col} FROM main.{fk.parent} WHERE {inner})"
 
 
-def _merge_table(conn, schema, table, idmaps, cache) -> None:
-    """Insert/upsert one covered table, rewriting FKs and recording its id-map."""
+def _merge_table(conn, schema, table, idmaps, cache, insert_only: frozenset = frozenset()) -> None:
+    """Insert/upsert one covered table, rewriting FKs and recording its id-map. A stable row whose key is in *insert_only* is inserted
+    only when it is missing, never overwriting the live one."""
     t = schema.tables[table]
     cols = t.cols
     deferred = {c for (tbl, c) in schema.deferred if tbl == table}
@@ -764,6 +974,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
     if t.kind == "stable":
         # Identity is portable: upsert by primary key (the child-replace in phase B already cleared any subtree this row owns).
         ph = ",".join("?" * len(cols))
+        key = [cols.index(c) for c in t.pk]
         for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 -- schema-derived identifier, values parameterised
             vals = list(row)
             for i, c in enumerate(cols):
@@ -771,7 +982,8 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
                     vals[i] = None  # fixed up once the referenced rows exist
                 elif c in fks:
                     vals[i], _ = _resolve_fk(vals[i], fks[c], idmaps, conn, cache)
-            conn.execute(f"INSERT OR REPLACE INTO main.{table} ({','.join(cols)}) VALUES ({ph})", vals)
+            verb = "IGNORE" if tuple(row[i] for i in key) in insert_only else "REPLACE"
+            conn.execute(f"INSERT OR {verb} INTO main.{table} ({','.join(cols)}) VALUES ({ph})", vals)
         return
 
     # surrogate: reinsert dropping the autoincrement id, record old->new.
@@ -854,67 +1066,115 @@ def _reconcile_crossref(conn, fk: _FK, idmaps, remap: bool) -> None:
     )
 
 
-def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[str, int]:
+def _merge(
+    conn: sqlite3.Connection, included: set[str], replace: bool, profiles: Mapping[str, set[str]] | None = None
+) -> dict[str, int]:
+    """Merge the attached ``preset`` file's *included* domains, and the parts of each of *profiles* (its ids as the file holds
+    them), into ``main``. A profile's rows replace only that profile's rows of the same part; other profiles are untouched."""
     schema = _build_schema_model(conn)
-    inc = [t for t in schema.order if schema.domain_of(t) in included]
+    profiles = dict(profiles or {})
+    parts_in = {part for parts in profiles.values() for part in parts}
+    conn.execute("CREATE TEMP TABLE _profile_parts (profile_id TEXT NOT NULL, part TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO temp._profile_parts (profile_id, part) VALUES (?, ?)",
+        [(pid, part) for pid, parts in profiles.items() for part in parts],
+    )
+
+    def merged(table: str) -> bool:
+        if table == ps.PROFILE_TABLE:
+            return bool(profiles)
+        domain, part = schema.domain_of(table), schema.part_of(table)
+        if domain is None and part is None:
+            return False
+        return (domain is None or domain in included) and (part is None or part in parts_in)
+
+    def scope(table: str) -> str | None:
+        """The rows of ``main.table`` this file's profiles replace; None for a table not split by profile."""
+        part = schema.part_of(table)
+        if part is None or table == ps.PROFILE_TABLE:
+            return None
+        return _profile_clause(schema, table, f"SELECT profile_id FROM temp._profile_parts WHERE part = '{part}'")
+
+    inc = [t for t in schema.order if merged(t)]
     fully_replaced: set[str] = set()
 
-    # A. Restore only: empty each additive domain (one whose entity root is a
-    #    stable-key table that apply merges by upsert) so it ends up matching the
-    #    file exactly. Domains with no stable root -- configs (singleton + replaced
-    #    surrogate roots), phrase_bank -- are already full replacements on apply, so
-    #    they are left to phase B.
+    # A. Restore only: empty each additive domain or profile part (one whose entity roots are stable-key tables that apply
+    #    merges by upsert) so it ends up matching the file exactly. Those with no stable root -- configs (singleton + replaced
+    #    surrogate roots), a profile's phrase bank -- are already full replacements on apply, so they are left to phase B. A
+    #    table split by profile loses only the file's profiles' rows, and the rows whose owner does not come back.
     if replace:
         for domain in included:
             roots = _roots_for(domain)
             if roots and all(schema.tables[r].kind == "stable" for r in roots):
                 for table in reversed(schema.domain_tables(domain)):
-                    conn.execute(f"DELETE FROM main.{table}")  # nosec B608 -- schema-derived identifier, values parameterised
+                    where = scope(table)
+                    if where is not None:
+                        where = f"({where}) OR NOT ({_scope_clause(schema, table, schema.root_of(table).name)})"
+                    conn.execute(f"DELETE FROM main.{table}" + (f" WHERE {where}" if where else ""))  # nosec B608 -- schema-derived identifier, values parameterised
+                    fully_replaced.add(table)
+        for part in parts_in:
+            tables = [t for t in schema.part_tables() if schema.part_of(t) == part and schema.domain_of(t) is None]
+            roots = [t for t in tables if schema.tables[t].owner_fk is None]
+            if roots and all(schema.tables[r].kind == "stable" for r in roots):
+                for table in reversed(tables):
+                    conn.execute(f"DELETE FROM main.{table} WHERE {scope(table)}")  # nosec B608 -- schema-derived identifier
                     fully_replaced.add(table)
 
     # B. Child-replace: clear the subtree each incoming entity supersedes, child
     #    first. A table whose entity root is stable is replaced per-root (scoped to
     #    the incoming ids); the stable root itself is left for the upsert. A table
-    #    whose root is surrogate (endpoints/model_configs, user_personas,
-    #    phrase_bank) has no portable identity, so it is wiped wholesale.
+    #    whose root is surrogate (endpoints/model_configs, user_personas) has no
+    #    portable identity, so it is wiped wholesale; a profile's phrase bank is
+    #    wiped for the file's profiles only.
     for table in reversed(inc):
         t = schema.tables[table]
         if t.kind == "singleton" or table in fully_replaced:
             continue
         root = schema.root_of(table)
+        where = scope(table)
         if root.kind == "stable":
             if table != root.name:
-                conn.execute(f"DELETE FROM main.{table} WHERE {_scope_clause(schema, table, root.name)}")  # nosec B608 -- schema-derived identifier, values parameterised
+                owned = _scope_clause(schema, table, root.name)
+                conn.execute(f"DELETE FROM main.{table} WHERE {owned}" + (f" AND ({where})" if where else ""))  # nosec B608 -- schema-derived identifier, values parameterised
+        elif where is not None:
+            conn.execute(f"DELETE FROM main.{table} WHERE {where}")  # nosec B608 -- schema-derived identifier
         else:
             conn.execute(f"DELETE FROM main.{table}")  # nosec B608 -- schema-derived identifier, values parameterised
             fully_replaced.add(table)
 
-    # C. Insert/upsert in topological order so every parent precedes its children.
+    # C. Insert/upsert in topological order so every parent precedes its children. A profile the file holds without its setup
+    #    is only an anchor for its other parts: it is added when missing, and never overwrites the live profile.
     cache: dict[str, set] = {}
     idmaps: dict[str, dict[int, int]] = {}
+    anchors = frozenset((pid,) for pid, parts in profiles.items() if "setup" not in parts)
     for table in inc:
-        _merge_table(conn, schema, table, idmaps, cache)
+        _merge_table(conn, schema, table, idmaps, cache, anchors if table == ps.PROFILE_TABLE else frozenset())
 
     # D. Fix up deferred self/cycle back-pointers now that every id-map exists.
     for table, col in schema.deferred:
-        if schema.domain_of(table) in included:
+        if merged(table):
             _fixup_deferred(conn, schema, table, col, idmaps, cache)
 
-    # E. Reconcile cross-domain soft pointers into any fully-replaced parent.
+    # E. Reconcile soft pointers into any fully-replaced parent: cross-domain ones, and same-domain SET NULL ones in rows the
+    #    merge kept (a live preset the file lacks still names endpoints phase B removed, so it loses them as a delete would).
     for t in schema.tables.values():
         for fk in t.fks:
             if (
                 fk.kind == "crossref"
                 and (t.name, fk.from_col) not in schema.deferred
                 and fk.parent in fully_replaced
-                and schema.domain_of(t.name) != schema.domain_of(fk.parent)
+                and (
+                    schema.domain_of(t.name) != schema.domain_of(fk.parent)
+                    or (fk.on_delete == "SET NULL" and t.name not in fully_replaced)
+                )
             ):
                 # Rows of a merged child domain were already FK-rewritten in phase
                 # C; only remap the parent map for child tables left untouched.
-                _reconcile_crossref(conn, fk, idmaps, remap=schema.domain_of(t.name) not in included)
+                _reconcile_crossref(conn, fk, idmaps, remap=not merged(t.name))
+    conn.execute("DROP TABLE temp._profile_parts")
 
-    # Row counts per merged domain (configs, anchored on its singleton, reports 1).
-    summary: dict[str, int] = {}
+    # Row counts per merged domain (configs, anchored on its singleton, reports 1), and the profiles merged.
+    summary: dict[str, int] = {"profiles": len(profiles)} if profiles else {}
     for domain in included:
         roots = _roots_for(domain)
         if any(schema.tables[r].kind == "singleton" for r in roots):
@@ -924,13 +1184,68 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
     return summary
 
 
-def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
-    """Merge a preset into the live database by identity."""
+# How a file's profile lands: on the profile with the same id, or on a new one.
+TARGETS: tuple[str, ...] = ("same", "new")
+
+
+def _live_profile_ids() -> set[str]:
+    conn = sqlite3.connect(current_db_path())
+    try:
+        return {str(r[0]) for r in conn.execute(f"SELECT id FROM {ps.PROFILE_TABLE}")}  # nosec B608 -- constant identifier
+    finally:
+        conn.close()
+
+
+def _plan_targets(
+    held: Mapping[str, set[str]], choices: Mapping[str, Mapping] | None, live_ids: set[str]
+) -> dict[str, tuple[str, set[str]]]:
+    """Each profile a file holds, as (the live profile id it lands on, the parts to take). *choices* maps a file profile id to
+    ``{"target": "same" | "new", "parts": [...]}``; a profile it does not name takes every part it holds, onto the same profile
+    when that id exists here and onto a new one otherwise. A profile with no parts taken is left out."""
+    choices = choices or {}
+    unknown = set(choices) - set(held)
+    if unknown:
+        raise PresetError(f"The file holds no profiles {sorted(unknown)}")
+    plan: dict[str, tuple[str, set[str]]] = {}
+    for pid, parts in held.items():
+        choice = choices.get(pid, {})
+        target = choice.get("target") or ("same" if pid in live_ids else "new")
+        if target not in TARGETS:
+            raise PresetError(f"Unknown target: {target!r}")
+        taken = set(parts) if choice.get("parts") is None else set(choice["parts"]) & set(parts)
+        if taken:
+            plan[pid] = (pid if target == "same" else uuid.uuid4().hex, taken)
+    return plan
+
+
+def _retarget(work: str, plan: Mapping[str, tuple[str, set[str]]]) -> dict[str, set[str]]:
+    """Prune a working copy to the planned parts and move each profile onto its target id; returns the parts by target."""
+    conn = _scratch_connect(work)
+    try:
+        schema = _build_schema_model(conn)
+        conn.execute("BEGIN")
+        _prune_profiles(conn, schema, {pid: parts for pid, (_target, parts) in plan.items()})
+        for pid, (target, _parts) in plan.items():
+            if target != pid:
+                _rename_profile(conn, schema, pid, target)
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+    return {target: parts for target, parts in plan.values()}
+
+
+def apply_preset(preset_path: str, *, replace: bool = False, choices: Mapping[str, Mapping] | None = None) -> dict:
+    """Merge a preset into the live database by identity; *choices* says where each of its profiles lands (``_plan_targets``).
+    A profile the merge creates gets the seed fragments and phrase bank for the parts it did not take, as a new profile does."""
     work = os.path.join(_snapshots_dir(), f".apply-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
     shutil.copyfile(preset_path, work)
     try:
         check_and_upgrade(work)  # quick_check + validate + migrate, all on the copy
-        included = set(preset_domains(work))
+        held = file_selection(work)
+        included = held.domains
+        live_ids = _live_profile_ids()
+        profiles = _retarget(work, _plan_targets(held.profiles, choices, live_ids))
+        created = {target: set(SEEDED_PARTS) - parts for target, parts in profiles.items() if target not in live_ids}
 
         conn = sqlite3.connect(current_db_path(), isolation_level=None)
         summary: dict[str, int] = {}
@@ -939,7 +1254,10 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
             conn.execute("PRAGMA foreign_keys=OFF")
             conn.execute("ATTACH DATABASE ? AS preset", (work,))
             conn.execute("BEGIN")
-            summary = _merge(conn, included, replace)
+            summary = _merge(conn, included, replace, profiles)
+            for target, missing in created.items():
+                for sql, params in seed_library_statements(target, missing):
+                    conn.execute(sql, params)
             problems = conn.execute("PRAGMA foreign_key_check").fetchall()
             if problems:
                 conn.execute("ROLLBACK")
@@ -965,19 +1283,27 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
                     os.remove(p)
 
 
-def restore_partial(preset_path: str) -> dict:
-    """Roll the covered domains back to a partial file (domain-scoped restore).
+def restore_partial(preset_path: str, choices: Mapping[str, Mapping] | None = None) -> dict:
+    """Roll the covered domains and profile parts back to a partial file (scoped restore).
 
-    Replaces each domain the file carries to match it exactly and leaves the
-    rest untouched. The full-coverage counterpart is ``restore_full``.
+    Replaces each domain and each profile part the file carries to match it exactly and leaves the rest untouched. The
+    full-coverage counterpart is ``restore_full``.
     """
-    return apply_preset(preset_path, replace=True)
+    return apply_preset(preset_path, replace=True, choices=choices)
 
 
-def _backup_scope(preset_path: str) -> set[str] | None:
-    """Domains a merge of ``preset_path`` can write (its own plus any pointing into them), or None when only a full backup can
-    undo it: a surrogate-keyed table comes back from a partial restore under new ids."""
-    included = set(preset_domains(preset_path)) & set(ALL_DOMAINS)
+def _backup_scope(preset_path: str, choices: Mapping[str, Mapping] | None = None) -> Selection | None:
+    """What a merge of ``preset_path`` can write (its own domains plus any pointing into them, and the parts of the live
+    profiles it lands on), or None when only a full backup can undo it: a surrogate-keyed table comes back from a partial
+    restore under new ids."""
+    meta = read_meta(preset_path)
+    if meta is None:
+        return None
+    held = _meta_selection(meta)
+    live_ids = _live_profile_ids()
+    plan = _plan_targets(held.profiles, choices, live_ids)
+    profiles = {target: parts for target, parts in plan.values() if target in live_ids}
+    included = held.domains
     conn = sqlite3.connect(current_db_path())
     try:
         schema = _build_schema_model(conn)
@@ -991,18 +1317,20 @@ def _backup_scope(preset_path: str) -> set[str] | None:
     for trigger, implied in ps.IMPLIED_DOMAINS.items():
         if trigger in scope:
             scope |= implied
-    if not scope or scope >= set(ALL_DOMAINS):
+    if (not scope and not profiles) or scope >= set(ALL_DOMAINS):
         return None
-    if any(schema.tables[t].kind == "surrogate" for domain in scope for t in schema.domain_tables(domain)):
+    tables = [t for domain in scope for t in schema.domain_tables(domain)]
+    tables += [t for t in schema.part_tables() if any(schema.part_of(t) in parts for parts in profiles.values())]
+    if any(schema.tables[t].kind == "surrogate" for t in tables):
         return None
-    return scope
+    return Selection(scope, profiles)
 
 
-def create_snapshot(label: str = "", merging: str | None = None) -> str:
-    """Back up the live DB (or, before merging a partial file, the domains that merge can write) into the pruned library."""
-    scope = _backup_scope(merging) if merging else None
+def create_snapshot(label: str = "", merging: str | None = None, choices: Mapping[str, Mapping] | None = None) -> str:
+    """Back up the live DB (or, before merging a partial file, what that merge can write) into the pruned library."""
+    scope = _backup_scope(merging, choices) if merging else None
     if scope:
-        name = build_preset(scope, False, label, kind="auto")
+        name = build_preset(scope.domains, False, label, kind="auto", profiles=scope.profiles)
         prune_auto()
         return name
     name = _unique_name("auto", label)
@@ -1018,9 +1346,17 @@ def create_snapshot(label: str = "", merging: str | None = None) -> str:
         _assert_integrity(c, "the snapshot")
         _drop_local_rows(c)
         _stamp_migrations(c)
-        _write_meta(c, ALL_DOMAINS, label, "auto", False)
+        _write_meta(c, _full_selection(c), label, "auto", False, full=True)
     finally:
         c.close()
+    prune_auto()
+    return name
+
+
+def snapshot_profile(profile_id: str, label: str = "") -> str:
+    """Back up one profile on its own: its setup, fragments and phrase bank. Its global marks need the Worlds they point at,
+    so they stay out rather than pulling in every lorebook."""
+    name = build_preset([], False, label, kind="auto", profiles={profile_id: ["setup", "fragments", "phrase_bank"]})
     prune_auto()
     return name
 
@@ -1074,7 +1410,7 @@ def _copy_over_live(prepared: str, live: str) -> None:
 
 def restore_full(name: str) -> None:
     """Replace the live database with a full preset."""
-    src = _library_path(name)
+    src = library_path(name)
     live = current_db_path()
     tmp = f"{live}.restore-{os.getpid()}"
     shutil.copyfile(src, tmp)
@@ -1131,14 +1467,16 @@ def list_library() -> list[dict]:
         if not fn.endswith(".db") or fn.startswith("."):
             continue
         path = os.path.join(_snapshots_dir(), fn)
-        meta = read_meta(path) or {}
+        meta = read_meta(path) or {"is_full": True}
         st = os.stat(path)
         out.append(
             {
                 "name": fn,
+                "is_full": is_full(meta),
                 "label": meta.get("label", ""),
                 "kind": meta.get("kind", "unknown"),
                 "included_domains": meta.get("included_domains", []),
+                "profiles": meta.get("profiles", []),
                 "keys_stripped": meta.get("keys_stripped", False),
                 "created_at": meta.get("created_at"),
                 "size": st.st_size,
@@ -1150,7 +1488,7 @@ def list_library() -> list[dict]:
 
 
 def delete_library_entry(name: str) -> None:
-    os.remove(_library_path(name))
+    os.remove(library_path(name))
 
 
 def prune_auto(keep: int = 10) -> None:
@@ -1185,16 +1523,22 @@ def check_and_upgrade(path: str) -> None:
     unknown = applied - set(MIGRATIONS)
     if unknown:
         raise PresetError(
-            "This preset was made with a newer version of Orb "
+            "This backup was made with a newer version of Orb "
             f"(unknown migrations: {sorted(unknown)}). Update Orb to import it."
         )
     run_pending(path)
 
 
-def preset_domains(path: str) -> list[str]:
-    """Domains a file declares, or all domains for a raw (meta-less) Orb DB."""
+def file_selection(path: str) -> Selection:
+    """What a file declares, or everything for a raw (meta-less) Orb DB."""
     meta = read_meta(path)
-    return meta["included_domains"] if meta else list(ALL_DOMAINS)
+    if meta is not None:
+        return _meta_selection(meta)
+    conn = sqlite3.connect(path)
+    try:
+        return _full_selection(conn)
+    finally:
+        conn.close()
 
 
 def ingest_upload(tmp_path: str, label: str) -> str:
@@ -1204,12 +1548,22 @@ def ingest_upload(tmp_path: str, label: str) -> str:
     """
     check_and_upgrade(tmp_path)
     existing = read_meta(tmp_path)
-    included = existing["included_domains"] if existing else ALL_DOMAINS
+    if existing is None:
+        # This worker owns the uploaded file. Use the same capture as a live switch before publishing it.
+        asyncio.run(capture_uploaded_profile(tmp_path))
     keys_stripped = existing["keys_stripped"] if existing else False
     label = existing["label"] if existing and existing["label"] else label
     c = sqlite3.connect(tmp_path, isolation_level=None)
     try:
-        _write_meta(c, included, label, "imported", keys_stripped)
+        # Read after the upgrade, a file made before profiles now names the profiles that hold its library.
+        _write_meta(
+            c,
+            _meta_selection(existing) if existing else _full_selection(c),
+            label,
+            "imported",
+            keys_stripped,
+            full=is_full(existing),
+        )
     finally:
         c.close()
     name = _unique_name("imported", label)

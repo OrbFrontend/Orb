@@ -14,6 +14,7 @@ from ..database import get_workflow_character_state as _db_get_workflow_characte
 from ..database import get_workflow_config as _db_get_workflow_config
 from ..database import get_workflow_message_state as _db_get_workflow_message_state
 from ..database import get_workflow_state as _db_get_workflow_state
+from ..database import register_profile_workflow_keys
 from ..database import set_workflow_character_state as _db_set_workflow_character_state
 from ..database import set_workflow_config as _db_set_workflow_config
 from ..database import set_workflow_message_state as _db_set_workflow_message_state
@@ -53,6 +54,11 @@ class Workflow:
     produces_artifacts: bool = False
     subscriptions: list[Subscription[WorkflowHook]] = field(default_factory=list)
     config_normalizer: Callable[[Any], dict] | None = None
+    # The top-level keys of the config slot that belong to the active profile: each profile saves its own values and entering
+    # it writes them back. Only keys of ``config_defaults``; credentials and connections to this machine's servers stay out.
+    profile_config_keys: tuple[str, ...] = ()
+    # Whether the workflow's on/off flag belongs to the active profile: each profile saves its own and entering it writes it back.
+    profile_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -134,6 +140,9 @@ def register_workflow(w: Workflow) -> None:
             f"workflow id {w.id!r} must be 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or digit"
         )
     subscriptions = _declared_subscriptions(w)
+    stray = [key for key in w.profile_config_keys if key not in w.config_defaults]
+    if stray:
+        raise WorkflowDeclarationError(f"workflow {w.id!r} profile_config_keys {stray!r} are not keys of its config_defaults")
 
     seen_tool_names: set[str] = set()
     for spec in w.tools:
@@ -179,6 +188,7 @@ def register_workflow(w: Workflow) -> None:
 
     w.subscriptions[:] = subscriptions
     _WORKFLOWS_BY_ID[w.id] = w
+    register_profile_workflow_keys(w.id, w.profile_config_keys, w.config_defaults, enablement=w.profile_enabled)
 
 
 def register_plugins(package: str, directory: Path) -> None:

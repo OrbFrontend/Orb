@@ -1,7 +1,7 @@
 """Test helpers for workflow hook coverage and workflow_attachments rows.
 
 ``register_for_test`` snapshots ``_registry._WORKFLOWS_BY_ID`` and the tool catalog on enter and restores them through
-catalog-owned operations on exit, so a failed assertion inside the ``with`` block cannot leak registry mutations into adjacent
+catalog-owned operations on exit, with the profile config keys registration declares, so a failed assertion inside the ``with`` block cannot leak registry mutations into adjacent
 tests. The same ``Workflow`` instance is held by both the test and the registry (see clear at end of ``register_for_test``).
 """
 
@@ -11,7 +11,12 @@ from copy import deepcopy
 
 import pytest
 
-from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
+from backend.database import (
+    add_message,
+    insert_workflow_attachment_row,
+    register_profile_workflow_keys,
+    set_active_leaf,
+)
 from backend.database.queries.conversations import get_workflow_state, set_workflow_state
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
 from backend.prompting.tool_catalog import restore_catalog, snapshot_catalog
@@ -75,6 +80,19 @@ async def must_get_workflow_attachment(att_id: int) -> dict:
     return row
 
 
+def restore_workflows(snapshot: dict[str, Workflow]) -> None:
+    """Put the registry back to *snapshot*, with the profile config keys and enablement its workflows declare: registering a
+    stand-in for a real workflow id replaces that id's keys and flag, and a stand-in declares neither."""
+    for workflow_id in _registry._WORKFLOWS_BY_ID.keys() - snapshot.keys():
+        register_profile_workflow_keys(workflow_id, (), {})
+    _registry._WORKFLOWS_BY_ID.clear()
+    _registry._WORKFLOWS_BY_ID.update(snapshot)
+    for workflow in snapshot.values():
+        register_profile_workflow_keys(
+            workflow.id, workflow.profile_config_keys, workflow.config_defaults, enablement=workflow.profile_enabled
+        )
+
+
 @pytest.fixture(autouse=True)
 def _restore_registry():
     """Snapshot the global workflow registry and tool tables, restore on exit.
@@ -87,8 +105,7 @@ def _restore_registry():
     by_id_snapshot = {k: deepcopy(v) for k, v in _registry._WORKFLOWS_BY_ID.items()}
     catalog_snapshot = snapshot_catalog()
     yield
-    _registry._WORKFLOWS_BY_ID.clear()
-    _registry._WORKFLOWS_BY_ID.update(by_id_snapshot)
+    restore_workflows(by_id_snapshot)
     restore_catalog(catalog_snapshot)
 
 
@@ -157,8 +174,7 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
     try:
         yield workflow
     finally:
-        _registry._WORKFLOWS_BY_ID.clear()
-        _registry._WORKFLOWS_BY_ID.update(by_id_snapshot)
+        restore_workflows(by_id_snapshot)
         restore_catalog(catalog_snapshot)
         # register_workflow stores the same Workflow instance the test holds, so workflow.subscriptions is identity-shared with
         # the registry's record. Restoring the dict to the deepcopied snapshot above does not touch the original list. Clearing

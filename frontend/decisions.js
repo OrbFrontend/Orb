@@ -21,6 +21,12 @@ export function loadDecisionConfig() {
   return _request;
 }
 
+/** Load the config again, after a profile switch changed the Judge endpoint or model. */
+export function reloadDecisionConfig() {
+  _request = null;
+  return loadDecisionConfig();
+}
+
 /** Record a config the caller already has in hand (a PUT response). */
 export function setDecisionConfig(payload) {
   _config = payload;

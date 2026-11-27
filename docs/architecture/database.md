@@ -50,8 +50,13 @@ A schema change touches these together:
 | `backend/database/schema.py` | The same table or column, so a fresh install matches an upgraded one |
 | `backend/database/seeds.py` | Any default rows the migration inserts |
 | `backend/database/models.py` | The row `TypedDict` the queries return |
-| `backend/database/preset_schema.py` | A domain or exclusion for a new table, and any column that holds a secret |
+| `backend/database/preset_schema.py` | A domain or exclusion for a new table, a `PROFILE_SCOPED` part for a table with a `profile_id` column, and any column that holds a secret |
 | `backend/api/schemas.py` | Request and response models, where the column is exposed |
+
+A migration that creates or rebuilds a table writes its DDL out rather than
+reading `table_create_sql`, which follows the current schema: a later change to
+the table would otherwise change what the old migration builds on an install it
+has not reached yet (0076 and 0101 hold their own copies for this reason).
 
 The runner picks up every `NNNN_*.py` file in the migrations directory, so a
 migration needs no registration. `test_preset_schema_coverage.py` fails until a

@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import ActiveLorebookEntryRow, LorebookEntryRow, WorldChangesetRow, WorldRow
+from .active_profile import get_active_profile_id
 
 # The layer/action vocabulary, mirrored by the CHECK constraints in schema.py. Upgraded databases get these columns via ALTER,
 # which cannot carry a CHECK, so these constants are the enforcement on that path too -- every writer below funnels values
@@ -53,30 +54,46 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# A World row with ``is_global`` read for one profile; binds the profile id.
+_WORLD_COLUMNS = (
+    "w.*, EXISTS (SELECT 1 FROM profile_worlds pw WHERE pw.world_id = w.id AND pw.profile_id = ?) AS is_global FROM worlds w"
+)
+
+
 async def get_worlds() -> list[WorldRow]:
-    rows = await select_rows("SELECT * FROM worlds ORDER BY created_at ASC")
+    """Every World, ``is_global`` for the active profile."""
+    rows = await select_rows(
+        f"SELECT {_WORLD_COLUMNS} ORDER BY w.created_at ASC",  # nosec B608 -- constant fragment
+        (await get_active_profile_id(),),
+    )
     return [cast(WorldRow, dict(r)) for r in rows]
 
 
 async def get_world(world_id: str) -> WorldRow | None:
-    rows = await select_rows("SELECT * FROM worlds WHERE id = ?", (world_id,))
+    """The World, ``is_global`` for the active profile."""
+    rows = await select_rows(
+        f"SELECT {_WORLD_COLUMNS} WHERE w.id = ?",  # nosec B608 -- constant fragment
+        (await get_active_profile_id(), world_id),
+    )
     return cast(WorldRow, dict(rows[0])) if rows else None
 
 
-async def insert_world(db, data: Mapping[str, Any], now: str) -> str:
+async def _set_global(db, world_id: str, profile_id: str, is_global: Any) -> None:
+    if is_global:
+        await db.execute("INSERT OR IGNORE INTO profile_worlds (profile_id, world_id) VALUES (?, ?)", (profile_id, world_id))
+    else:
+        await db.execute("DELETE FROM profile_worlds WHERE profile_id = ? AND world_id = ?", (profile_id, world_id))
+
+
+async def insert_world(db, data: Mapping[str, Any], now: str, profile_id: str | None = None) -> str:
+    """Insert a World; ``is_global`` in *data* marks it global for *profile_id*, the active profile when None."""
     world_id = data.get("id") or str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO worlds (id, name, is_global, dynamic_enabled, content_revision, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, 0, ?, ?)",
-        (
-            world_id,
-            data["name"],
-            1 if data.get("is_global", False) else 0,
-            1 if data.get("dynamic_enabled", False) else 0,
-            now,
-            now,
-        ),
+        "INSERT INTO worlds (id, name, dynamic_enabled, content_revision, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+        (world_id, data["name"], 1 if data.get("dynamic_enabled", False) else 0, now, now),
     )
+    if data.get("is_global", False):
+        await _set_global(db, str(world_id), profile_id or await get_active_profile_id(), True)
     return str(world_id)
 
 
@@ -90,52 +107,61 @@ async def create_world(data: dict) -> WorldRow:
 
 
 async def update_world(world_id: str, data: dict) -> WorldRow | None:
-    """Update a World's own fields. Never touches ``content_revision``.
+    """Update a World's own fields, and with ``is_global`` the active profile's mark. Never touches ``content_revision``.
 
-    ``name``/``enabled``/``dynamic_enabled`` describe the container, not the
+    ``name``/``is_global``/``dynamic_enabled`` describe the container, not the
     lore, so none of them invalidates a pending proposal (see module docstring).
     """
+    profile_id = await get_active_profile_id()
     async with get_db() as db:
-        allowed = ["name", "is_global", "dynamic_enabled"]
-        sets, vals = build_set_clause(allowed, data)
-        if sets:
+        if not list(await db.execute_fetchall("SELECT 1 FROM worlds WHERE id = ?", (world_id,))):
+            return None
+        sets, vals = build_set_clause(["name", "dynamic_enabled"], data)
+        if "is_global" in data and data["is_global"] is not None:
+            await _set_global(db, world_id, profile_id, data["is_global"])
             sets.append("updated_at = ?")
             vals.append(_now())
+        elif sets:
+            sets.append("updated_at = ?")
+            vals.append(_now())
+        if sets:
             vals.append(world_id)
             await db.execute(
                 f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
-            await db.commit()
+        await db.commit()
         return await get_world(world_id)
 
 
-# Whether World ``w`` is on by default in a conversation: global, or linked to
-# its card or an active group member's. Binds the conversation id twice.
+# Whether World ``w`` is on by default in a conversation: global in the profile, or linked to its card or an active group
+# member's. Binds the profile id, then the conversation id twice.
 _DEFAULT_ON_SQL = (
-    "(w.is_global = 1 OR w.id IN (SELECT world_id FROM character_cards WHERE id IN ("
+    "(w.id IN (SELECT world_id FROM profile_worlds WHERE profile_id = ?) "
+    "OR w.id IN (SELECT world_id FROM character_cards WHERE id IN ("
     "SELECT character_card_id FROM conversations WHERE id = ? "
     "UNION SELECT character_card_id FROM group_members WHERE conversation_id = ? AND active = 1)))"
 )
 
 
 async def get_effective_world_ids(cid: str) -> list[str]:
-    """Explicit scene choices override global and cast-linked defaults."""
+    """Explicit scene choices override the active profile's global and cast-linked defaults."""
     rows = await select_rows(
         "SELECT w.id FROM worlds w LEFT JOIN conversation_worlds cw ON cw.world_id = w.id AND cw.conversation_id = ? "
         f"WHERE COALESCE(cw.enabled, {_DEFAULT_ON_SQL}) = 1 ORDER BY w.id",  # nosec B608 -- constant fragment
-        (cid, cid, cid),
+        (cid, await get_active_profile_id(), cid, cid),
     )
     return [str(row[0]) for row in rows]
 
 
 async def set_conversation_world(cid: str, world_id: str, enabled: bool) -> None:
     """Store only overrides, so future default changes reach the scene."""
+    profile_id = await get_active_profile_id()
     async with immediate_tx() as db:
         rows = list(
             await db.execute_fetchall(
                 f"SELECT {_DEFAULT_ON_SQL} FROM worlds w WHERE w.id = ?",  # nosec B608 -- constant fragment
-                (cid, cid, world_id),
+                (profile_id, cid, cid, world_id),
             )
         )
         if not rows:

@@ -29,7 +29,9 @@ let _ctx = null; // { getContent, applyPatchedRun, selectRange } injected by doc
 
 export function initDocAudit(ctx) {
   _ctx = ctx;
-  subscribe("local-ml", () => S.documentMode && isUtilityPanelOpen("tools-panel") && renderDocAuditPane());
+  const repaint = () => S.documentMode && isUtilityPanelOpen("tools-panel") && renderDocAuditPane();
+  subscribe("local-ml", repaint);
+  subscribe("profile", repaint);
   $("doc-workflow-btn")?.addEventListener("click", toggleDocWorkflowPanel);
   $("doc-workflow-mobile-btn")?.addEventListener("click", toggleDocWorkflowPanel);
 }

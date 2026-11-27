@@ -250,16 +250,16 @@ class ModelConfigUpdate(_PartialUpdate):
         return v if v is None else _check_extra_body(v)
 
 
-class PromptLayoutCreate(BaseModel):
+class ProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     copy_from: str | None = None
 
 
-class PromptLayoutRename(BaseModel):
+class ProfileRename(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
-class PromptLayoutActive(BaseModel):
+class ProfileActive(BaseModel):
     id: str
 
 
@@ -1007,10 +1007,27 @@ class DuplicateResolveGroupRequest(BaseModel):
         return self
 
 
+BackupPart = Literal["setup", "fragments", "phrase_bank", "global_lorebooks"]
+
+
 class PresetExportRequest(BaseModel):
     domains: list[str]
+    # Profile id -> the parts to save for it. Without it, every profile takes the parts its domains name.
+    profiles: dict[str, list[BackupPart]] | None = None
     strip_keys: bool = True
     label: str = ""
+
+
+class BackupProfileChoice(BaseModel):
+    """Where one of a file's profiles lands, and which of its parts are taken."""
+
+    target: Literal["same", "new"]
+    parts: list[BackupPart]
+
+
+class BackupApplyRequest(BaseModel):
+    # File profile id -> its choice. A profile left out takes every part, onto the same profile when that id exists.
+    profiles: dict[str, BackupProfileChoice] = Field(default_factory=dict)
 
 
 class AssistantViewContext(BaseModel):

@@ -53,6 +53,7 @@ import {
   restoreUtilityPanel,
   watchUtilityPanel,
 } from "./panels.js";
+import { loadPromptLayout } from "./prompt_layout.js";
 import { renderToolsPanel } from "./settings.js";
 import { loadPersonas } from "./settings_personas.js";
 import { persistSettings, reloadSettingKeys } from "./settings_store.js";
@@ -365,6 +366,8 @@ const REFRESHERS = {
   mood_fragment: () => ["mood_fragments", loadMoodFragments],
   // Its loader also reads the open chat's state again, which a state fragment's change can alter.
   interactive_fragment: () => ["interactive_fragments", loadInteractiveFragments],
+  // The layout window shows the active profile's blocks; a change to another profile's leaves it as it is.
+  prompt_block: () => ["prompt_layout", loadPromptLayout],
   conversation: (r) =>
     r.deleted
       ? [`chat-gone:${r.conversation_id}`, () => forgetConversation(r.conversation_id)]
@@ -407,6 +410,7 @@ function refreshEverything() {
     { kind: "persona" },
     { kind: "mood_fragment" },
     { kind: "interactive_fragment" },
+    { kind: "prompt_block" },
     { kind: "conversation" },
     ...(S.activeConvId ? [{ kind: "message", conversation_id: S.activeConvId }] : []),
     { kind: "settings", keys: SWITCH_KEYS },
@@ -1230,6 +1234,8 @@ export function initAssistant() {
   subscribe("conversations", paintControls);
   subscribe("documents", paintControls);
   subscribe("lorebook", paintControls);
+  // The options are the profile's: an open pane shows the one now active.
+  subscribe("profile", () => !$("assistant-options").classList.contains("hidden") && paintOptions());
   // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.
   watchUtilityPanel(PANEL, (open) => {
     S.assistant.open = open;

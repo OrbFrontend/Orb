@@ -1,0 +1,515 @@
+"""Profiles own their layout and library rows. Settings, workflow config and endpoint picks stay live in their original
+tables. Switching captures that live state and applies the incoming profile in one write transaction. Lane and persona
+references also carry portable names for backups that omit endpoints or personas.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from collections.abc import Collection, Mapping
+from typing import Any, cast
+
+import aiosqlite
+
+from ...core import DECISION_COLUMNS, STATE_COLUMNS, workflow_config_lock
+from ...core.domain_types import EndpointKind
+from ...core.prompt_layout import DEFAULT_LAYOUT_ID, LayoutBlock, default_layout
+from ..connection import build_set_clause, get_db, immediate_tx, select_rows
+from ..models import LaneRef, PersonaRef, ProfileConfig, ProfileRow, ProfileState
+from ..seeds import SEED_INTERACTIVE_FRAGMENTS, SEED_MAIN_PROMPT, SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
+from .active_profile import PROFILE_ORDER, active_profile_id
+from .prompt_layouts import get_prompt_blocks, insert_layout_blocks, layout_block
+
+# The settings columns a profile carries, and those of them stored as JSON.
+PROFILE_SETTINGS: tuple[str, ...] = (
+    "enable_agent",
+    "enabled_tools",
+    "length_guard_enabled",
+    "length_guard_enforce",
+    "length_guard_max_words",
+    "length_guard_max_paragraphs",
+    "agentic_lorebook_enabled",
+    "director_individual_fragments",
+    "prevent_prompt_overrides",
+    "hide_streaming_until_baked",
+    "reasoning_enabled_passes",
+    "reasoning_prefill_passes",
+    "editor_audit_toggles",
+    "document_audit_enabled",
+    "document_audit_autopatch",
+    "document_audit_toggles",
+    "document_prose_rewriter_enabled",
+    "assistant_instructions",
+    "assistant_reasoning",
+    "assistant_tool_groups",
+)
+_JSON_SETTINGS = frozenset(
+    {
+        "enabled_tools",
+        "reasoning_enabled_passes",
+        "reasoning_prefill_passes",
+        "editor_audit_toggles",
+        "document_audit_toggles",
+        "assistant_tool_groups",
+    }
+)
+# The foreign-key columns holding a profile's lane picks, in ProfileLanes order.
+PROFILE_LANES: tuple[str, ...] = (
+    "writer_endpoint_id",
+    "writer_model_config_id",
+    "agent_endpoint_id",
+    "agent_model_config_id",
+    "judge_endpoint_id",
+)
+# Every foreign-key column of a profile's state: the lanes, then its persona.
+_LINKS = (*PROFILE_LANES, "persona_id")
+_COLUMNS = ", ".join(("id", "name", "config", *_LINKS))
+# The SET clause writing a ProfileState, bound by _state_values.
+_STATE_SETS = ", ".join(f"{column} = ?" for column in ("config", *_LINKS))
+# The tables holding a profile's own rows, copied with it. A copy keeps each row's id but phrase_bank's surrogate one.
+_LIBRARY_TABLES = (
+    "prompt_blocks",
+    "mood_fragments",
+    "interactive_fragments",
+    "phrase_bank",
+    "slop_dismissals",
+    "profile_worlds",
+)
+# By workflow id, the top-level keys of its config slot that belong to the profile, and the workflows whose on/off flag does.
+# The workflow registry fills both as each workflow registers, since the workflows sit above this layer.
+_WORKFLOW_DEFAULTS: dict[str, dict[str, Any]] = {}
+_WORKFLOW_ENABLEMENT: set[str] = set()
+
+
+def register_profile_workflow_keys(
+    workflow_id: str, keys: Collection[str], defaults: Mapping[str, Any], *, enablement: bool = False
+) -> None:
+    """Declare which top-level keys of *workflow_id*'s config slot each profile saves and applies, and whether its on/off flag
+    is the profile's too; no keys and no enablement drops the workflow."""
+    if keys:
+        _WORKFLOW_DEFAULTS[workflow_id] = {key: defaults[key] for key in keys}
+    else:
+        _WORKFLOW_DEFAULTS.pop(workflow_id, None)
+    if enablement:
+        _WORKFLOW_ENABLEMENT.add(workflow_id)
+    else:
+        _WORKFLOW_ENABLEMENT.discard(workflow_id)
+
+
+class ProfileEditError(ValueError):
+    """A profile edit the rules refuse; the message is safe to show."""
+
+
+def _decoded(row: aiosqlite.Row) -> ProfileRow:
+    profile = dict(row)
+    profile["config"] = json.loads(profile["config"] or "{}")
+    return cast(ProfileRow, profile)
+
+
+async def _profile_on(db: aiosqlite.Connection, profile_id: str) -> ProfileRow | None:
+    async with db.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)) as cursor:
+        row = await cursor.fetchone()
+    return _decoded(row) if row else None
+
+
+def _state_values(state: ProfileState) -> tuple[Any, ...]:
+    """*state* as the values of ``config`` and the _LINKS columns, in that order."""
+    return (json.dumps(state["config"], ensure_ascii=False), *(state[column] for column in _LINKS))
+
+
+def _name(name: str) -> str:
+    name = name.strip()
+    if not name:
+        raise ProfileEditError("A profile needs a name.")
+    return name
+
+
+async def list_profiles() -> list[ProfileRow]:
+    rows = await select_rows(f"SELECT {_COLUMNS} FROM profiles {PROFILE_ORDER}", (DEFAULT_LAYOUT_ID,))  # nosec B608
+    return [_decoded(row) for row in rows]
+
+
+async def get_profile(profile_id: str) -> ProfileRow | None:
+    async with get_db() as db:
+        return await _profile_on(db, profile_id)
+
+
+async def get_active_layout_blocks() -> tuple[LayoutBlock, ...]:
+    """The active profile's blocks in order; the built-in order when no layout rows exist."""
+    rows = await get_prompt_blocks()
+    return tuple(layout_block(row) for row in rows) if rows else default_layout(main_prompt=SEED_MAIN_PROMPT)
+
+
+async def capture_active_profile() -> str:
+    """Capture and return the active profile from the same write transaction."""
+    async with immediate_tx() as db:
+        active = await active_profile_id(db)
+        await _save_live_state(db, active)
+        return active
+
+
+async def _save_live_state(db: aiosqlite.Connection, profile_id: str) -> None:
+    state = await _read_live_state(db)
+    await db.execute(f"UPDATE profiles SET {_STATE_SETS} WHERE id = ?", (*_state_values(state), profile_id))  # nosec B608
+
+
+async def capture_uploaded_profile(path: str) -> None:
+    """Capture the live setup of a private, upgraded raw database before it enters the backup library."""
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        await _save_live_state(db, await active_profile_id(db))
+        await db.commit()
+
+
+async def switch_profile(profile_id: str) -> bool:
+    async with workflow_config_lock(), immediate_tx() as db:
+        profile = await _profile_on(db, profile_id)
+        if profile is None:
+            return False
+        active = await active_profile_id(db)
+        if active != profile_id:
+            await _save_live_state(db, active)
+            await _activate(db, profile)
+        return True
+
+
+async def _read_live_state(db: aiosqlite.Connection) -> ProfileState:
+    """Read the selected lanes and their portable names together with the profile settings."""
+    columns = ", ".join(f"s.{key}" for key in PROFILE_SETTINGS)
+    async with db.execute(f"""
+        SELECT {columns}, s.agent_same_as_writer, s.decision_model, s.workflow_config, s.workflow_enabled,
+               s.active_endpoint_id AS writer_endpoint_id, w.url AS writer_url,
+               w.active_model_config_id AS writer_model_config_id, wm.model_name AS writer_model_name,
+               s.agent_endpoint_id, a.url AS agent_url,
+               a.agent_active_model_config_id AS agent_model_config_id, am.model_name AS agent_model_name,
+               s.decision_endpoint_id AS judge_endpoint_id, j.url AS judge_url, p.id AS persona_id, p.name AS persona_name
+        FROM settings s
+        LEFT JOIN endpoints w ON w.id = s.active_endpoint_id
+        LEFT JOIN model_configs wm ON wm.id = w.active_model_config_id
+        LEFT JOIN endpoints a ON a.id = s.agent_endpoint_id
+        LEFT JOIN model_configs am ON am.id = a.agent_active_model_config_id
+        LEFT JOIN endpoints j ON j.id = s.decision_endpoint_id
+        LEFT JOIN user_personas p ON p.id = s.active_persona_id
+        WHERE s.id = 1
+    """) as cursor:  # nosec B608 -- fixed settings columns
+        row = await cursor.fetchone()
+    if row is None:
+        return cast(ProfileState, {"config": {}, **dict.fromkeys(_LINKS)})
+
+    refs: dict[str, LaneRef] = {}
+    for lane in ("writer", "agent", "judge"):
+        if row[f"{lane}_url"] is None:
+            continue
+        ref: LaneRef = {"endpoint_id": row[f"{lane}_endpoint_id"], "url": row[f"{lane}_url"]}
+        if lane != "judge" and row[f"{lane}_model_name"] is not None:
+            ref["model_config_id"] = row[f"{lane}_model_config_id"]
+            ref["model_name"] = row[f"{lane}_model_name"]
+        refs[lane] = ref
+
+    persona_id = row["persona_id"]
+    flags = _json_object(row["workflow_enabled"])
+    config: ProfileConfig = {
+        "settings": {key: json.loads(row[key] or "{}") if key in _JSON_SETTINGS else row[key] for key in PROFILE_SETTINGS},
+        "models": {"agent_same_as_writer": row["agent_same_as_writer"], "judge_model": row["decision_model"]},
+        "lanes": refs,
+        "persona": {"persona_id": persona_id, "name": row["persona_name"]} if persona_id is not None else None,
+        "workflows": _profile_workflow_config(row["workflow_config"]),
+        "workflow_enabled": {workflow: bool(flags.get(workflow, True)) for workflow in sorted(_WORKFLOW_ENABLEMENT)},
+    }
+    return cast(ProfileState, {"config": config, **{key: row[key] for key in _LINKS}})
+
+
+def _json_object(raw: str | None) -> dict:
+    try:
+        value = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _profile_workflow_config(raw: str | None) -> dict[str, dict[str, Any]]:
+    """Capture explicit overrides. Missing keys take the workflow's defaults when restored."""
+    slots = _json_object(raw)
+    picked: dict[str, dict[str, Any]] = {}
+    for workflow_id, keys in _WORKFLOW_DEFAULTS.items():
+        slot = slots.get(workflow_id)
+        if isinstance(slot, dict) and (values := {key: slot[key] for key in keys if key in slot}):
+            picked[workflow_id] = values
+    return picked
+
+
+async def _ids(db: aiosqlite.Connection, sql: str, params: tuple[Any, ...]) -> list[int]:
+    return [int(row[0]) for row in await db.execute_fetchall(sql, params)]
+
+
+async def _endpoint_kind(db: aiosqlite.Connection, endpoint_id: int) -> str | None:
+    rows = list(await db.execute_fetchall("SELECT kind FROM endpoints WHERE id = ?", (endpoint_id,)))
+    return str(rows[0][0]) if rows else None
+
+
+def _pick(matches: list[int], preferred: int | None) -> int | None:
+    return preferred if preferred in matches else next(iter(matches), None)
+
+
+async def _resolve_lane(
+    db: aiosqlite.Connection,
+    endpoint_id: int | None,
+    config_id: int | None,
+    ref: LaneRef | None,
+    kind: EndpointKind,
+    role: str | None,
+) -> tuple[int | None, int | None]:
+    """The lane's endpoint and model config ids, a NULL one filled from *ref*: the live *kind* endpoint with its URL (its own
+    id first), and that endpoint's *role* model config with its model name (its own id first)."""
+    ref = ref or {}
+    url, model_name = ref.get("url"), ref.get("model_name")
+    if endpoint_id is None and url:
+        matches = await _ids(db, "SELECT id FROM endpoints WHERE kind = ? AND url = ? ORDER BY id", (kind, url))
+        endpoint_id = _pick(matches, ref.get("endpoint_id"))
+    if endpoint_id is not None and config_id is None and role is not None and model_name:
+        matches = await _ids(
+            db,
+            "SELECT id FROM model_configs WHERE endpoint_id = ? AND role = ? AND model_name = ? ORDER BY id",
+            (endpoint_id, role, model_name),
+        )
+        config_id = _pick(matches, ref.get("model_config_id"))
+    return endpoint_id, config_id
+
+
+async def _chat_lane_update(
+    db: aiosqlite.Connection, endpoint_id: int | None, config_id: int | None, role: str, setting: str, column: str
+) -> dict[str, int]:
+    """Select the lane's model config on its endpoint, and return the settings change that selects the endpoint; {} when the
+    lane is NULL or no longer fits (a chat endpoint, and a *role* model config of it)."""
+    if endpoint_id is None or await _endpoint_kind(db, endpoint_id) != "chat":
+        return {}
+    if config_id is not None:
+        sql = "SELECT id FROM model_configs WHERE id = ? AND endpoint_id = ? AND role = ?"
+        if not await _ids(db, sql, (config_id, endpoint_id, role)):
+            return {}
+        await db.execute(f"UPDATE endpoints SET {column} = ? WHERE id = ?", (config_id, endpoint_id))  # nosec B608 -- fixed names
+    return {setting: endpoint_id}
+
+
+async def _judge_update(db: aiosqlite.Connection, endpoint_id: int | None, model: str | None) -> dict[str, Any]:
+    """The settings change selecting the profile's Judge; off when it had none or its endpoint is gone."""
+    judge = endpoint_id is not None and await _endpoint_kind(db, endpoint_id) == "judge"
+    update: dict[str, Any] = {"decision_endpoint_id": endpoint_id if judge else None}
+    if model is not None:
+        update["decision_model"] = model
+    return update
+
+
+async def _persona_update(db: aiosqlite.Connection, persona_id: int | None, config: ProfileConfig) -> dict[str, int | None]:
+    """The settings change selecting the profile's persona; {} when the profile never saved one, or names one that is gone."""
+    if "persona" not in config:
+        return {}
+    ref: PersonaRef | None = config["persona"]
+    if persona_id is not None and await _ids(db, "SELECT id FROM user_personas WHERE id = ?", (persona_id,)):
+        return {"active_persona_id": persona_id}
+    if ref is None:
+        return {"active_persona_id": None}
+    matches = await _ids(db, "SELECT id FROM user_personas WHERE name = ? ORDER BY id", (ref["name"],))
+    found = _pick(matches, ref["persona_id"])
+    return {} if found is None else {"active_persona_id": found}
+
+
+async def _apply_workflows(
+    db: aiosqlite.Connection, saved: Mapping[str, Mapping[str, Any]], enabled: Mapping[str, bool]
+) -> None:
+    """Write each workflow's saved keys into its live config slot, and its saved on/off flag, only what it declares a
+    profile's today."""
+    for workflow_id in sorted(_WORKFLOW_ENABLEMENT):
+        if workflow_id in enabled:
+            await db.execute(
+                "UPDATE settings SET workflow_enabled = json_set(COALESCE(workflow_enabled, '{}'), '$.' || ?, json(?)) "
+                "WHERE id = 1",
+                (workflow_id, json.dumps(bool(enabled[workflow_id]))),
+            )
+    for workflow_id, defaults in _WORKFLOW_DEFAULTS.items():
+        overrides = saved.get(workflow_id, {})
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT json_extract(workflow_config, '$.' || ?) FROM settings WHERE id = 1", (workflow_id,)
+            )
+        )
+        raw = rows[0][0] if rows else None
+        if not raw and not overrides:
+            continue  # An empty live slot already reads as the workflow's complete defaults.
+        slot = json.loads(raw) if isinstance(raw, str) else {}
+        values = {key: overrides.get(key, default) for key, default in defaults.items()}
+        await db.execute(
+            "UPDATE settings SET workflow_config = json_set(COALESCE(workflow_config, '{}'), '$.' || ?, json(?)) WHERE id = 1",
+            (workflow_id, json.dumps({**(slot if isinstance(slot, dict) else {}), **values}, ensure_ascii=False)),
+        )
+
+
+async def _activate(db: aiosqlite.Connection, state: ProfileRow) -> None:
+    """Write *state* into the live settings, endpoint and workflow rows over *db*."""
+    config = state["config"]
+    settings: Mapping[str, Any] = config.get("settings", {})
+    update: dict[str, Any] = {key: settings[key] for key in PROFILE_SETTINGS if key in settings}
+    models = config.get("models", {})
+    if "agent_same_as_writer" in models:
+        update["agent_same_as_writer"] = models["agent_same_as_writer"]
+    refs = config.get("lanes", {})
+    writer = await _resolve_lane(
+        db, state["writer_endpoint_id"], state["writer_model_config_id"], refs.get("writer"), "chat", "writer"
+    )
+    agent = await _resolve_lane(
+        db, state["agent_endpoint_id"], state["agent_model_config_id"], refs.get("agent"), "chat", "agent"
+    )
+    judge, _ = await _resolve_lane(db, state["judge_endpoint_id"], None, refs.get("judge"), "judge", None)
+    update |= await _chat_lane_update(db, *writer, "writer", "active_endpoint_id", "active_model_config_id")
+    update |= await _chat_lane_update(db, *agent, "agent", "agent_endpoint_id", "agent_active_model_config_id")
+    update |= await _judge_update(db, judge, models.get("judge_model"))
+    update |= await _persona_update(db, state["persona_id"], config)
+    update["active_profile_id"] = state["id"]
+    sets, values = build_set_clause(list(update), update, json_fields=_JSON_SETTINGS)
+    await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", values)  # nosec B608 -- names from fixed sets
+    await _apply_workflows(db, config.get("workflows", {}), config.get("workflow_enabled", {}))
+
+
+async def _insert_profile(db: aiosqlite.Connection, profile_id: str, name: str, state: ProfileState) -> None:
+    await db.execute(
+        f"INSERT INTO profiles ({_COLUMNS}) VALUES ({', '.join('?' * (3 + len(_LINKS)))})",  # nosec B608
+        (profile_id, name, *_state_values(state)),
+    )
+
+
+# The parts of a profile's library the seeds fill: "fragments" (mood and interactive) and "phrase_bank".
+SEEDED_PARTS: tuple[str, ...] = ("fragments", "phrase_bank")
+
+
+def seed_library_statements(profile_id: str, parts: Collection[str] = SEEDED_PARTS) -> list[tuple[str, tuple[Any, ...]]]:
+    """The inserts that give *profile_id* the seed rows of *parts*, as (sql, params) for any connection to run."""
+    statements: list[tuple[str, tuple[Any, ...]]] = []
+    if "fragments" in parts:
+        for f in SEED_MOOD_FRAGMENTS:
+            statements.append(
+                (
+                    "INSERT INTO mood_fragments (profile_id, id, label, description, prompt_text, negative_prompt) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (profile_id, f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"]),
+                )
+            )
+        columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
+        columns += DECISION_COLUMNS + STATE_COLUMNS
+        sql = (
+            f"INSERT INTO interactive_fragments (profile_id, {', '.join(columns)}) "  # nosec B608 -- fixed columns
+            f"VALUES (?, {', '.join('?' * len(columns))})"
+        )
+        for seed in SEED_INTERACTIVE_FRAGMENTS:
+            row = {"description": "", "enabled": True, **seed}
+            values = [row.get(column) for column in columns]
+            params = (profile_id, *(json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for v in values))
+            statements.append((sql, params))
+    if "phrase_bank" in parts:
+        # A seed entry is either a raw regex pattern (str) or a list of literal variant phrases.
+        sql = "INSERT INTO phrase_bank (profile_id, variants, kind, pattern) VALUES (?, ?, ?, ?)"
+        for entry in SEED_PHRASE_BANK:
+            params = (
+                (profile_id, "[]", "regex", entry)
+                if isinstance(entry, str)
+                else (profile_id, json.dumps(entry), "literal", None)
+            )
+            statements.append((sql, params))
+    return statements
+
+
+async def _seed_profile(db: aiosqlite.Connection, profile_id: str) -> None:
+    """Install the built-in layout, fragments and phrase bank."""
+    await insert_layout_blocks(db, profile_id, default_layout(SEED_MAIN_PROMPT))
+    for sql, params in seed_library_statements(profile_id):
+        await db.execute(sql, params)
+
+
+async def seed_default_profile(db: aiosqlite.Connection, name: str) -> None:
+    """The 'default' profile over an open connection: the built-in layout, the seed library, and the state the seeded settings
+    and endpoint hold."""
+    await _insert_profile(db, DEFAULT_LAYOUT_ID, name, await _read_live_state(db))
+    await _seed_profile(db, DEFAULT_LAYOUT_ID)
+    await db.execute("UPDATE settings SET active_profile_id = ? WHERE id = 1", (DEFAULT_LAYOUT_ID,))
+
+
+async def reset_profile(db: aiosqlite.Connection, profile_id: str) -> None:
+    """Put *profile_id*'s layout and library back to the built-in ones and its state to the live one, over an open connection;
+    the caller has reset the live rows."""
+    for table in _LIBRARY_TABLES + ("slop_suggestions", "slop_mining_state"):
+        await db.execute(f"DELETE FROM {table} WHERE profile_id = ?", (profile_id,))  # nosec B608 -- fixed names
+    await _save_live_state(db, profile_id)
+    await _seed_profile(db, profile_id)
+
+
+async def _columns(db: aiosqlite.Connection, table: str) -> list[str]:
+    return [str(row[1]) for row in await db.execute_fetchall(f"PRAGMA table_info({table})")]  # nosec B608 -- fixed names
+
+
+async def _copy_library(db: aiosqlite.Connection, source: str, target: str) -> None:
+    for table in _LIBRARY_TABLES:
+        columns = [c for c in await _columns(db, table) if c != "profile_id" and not (table == "phrase_bank" and c == "id")]
+        names = ", ".join(columns)
+        await db.execute(
+            f"INSERT INTO {table} (profile_id, {names}) SELECT ?, {names} FROM {table} "  # nosec B608 -- schema-derived names
+            "WHERE profile_id = ? ORDER BY rowid",
+            (target, source),
+        )
+
+
+async def create_profile(name: str, copy_from: str | None = None) -> ProfileRow | None:
+    """A new profile. With *copy_from*, a copy of that profile: its layout, library and global Worlds, and its state (the live
+    one when it is the active profile). Without, the built-in layout and seed library, no global Worlds, and the live state.
+    None when *copy_from* is missing."""
+    name = _name(name)
+    profile_id = uuid.uuid4().hex
+    async with immediate_tx() as db:
+        state: ProfileState
+        if copy_from is not None:
+            source = await _profile_on(db, copy_from)
+            if source is None:
+                return None
+            state = await _read_live_state(db) if copy_from == await active_profile_id(db) else source
+        else:
+            state = await _read_live_state(db)
+        await _insert_profile(db, profile_id, name, state)
+        if copy_from is None:
+            await _seed_profile(db, profile_id)
+        else:
+            await _copy_library(db, copy_from, profile_id)
+        return await _profile_on(db, profile_id)
+
+
+async def rename_profile(profile_id: str, name: str) -> ProfileRow | None:
+    name = _name(name)
+    async with immediate_tx() as db:
+        await db.execute("UPDATE profiles SET name = ? WHERE id = ?", (name, profile_id))
+        return await _profile_on(db, profile_id)
+
+
+async def delete_profile(profile_id: str) -> bool:
+    """Delete and, if needed, enter the first remaining profile in the same transaction."""
+    async with workflow_config_lock(), immediate_tx() as db:
+        if profile_id == await active_profile_id(db):
+            async with db.execute(
+                f"SELECT * FROM profiles WHERE id != ? {PROFILE_ORDER} LIMIT 1", (profile_id, DEFAULT_LAYOUT_ID)
+            ) as cursor:  # nosec B608
+                remaining = await cursor.fetchone()
+            if not remaining:
+                raise ProfileEditError("The last profile cannot be deleted.")
+            await _activate(db, _decoded(remaining))
+        removed = await db.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+        return removed.rowcount > 0
+
+
+async def reenter_profile(profile_id: str) -> None:
+    """After restore, fill missing layouts and apply the saved profile or its surviving fallback."""
+    async with workflow_config_lock(), immediate_tx() as db:
+        rows = await db.execute_fetchall(
+            "SELECT id FROM profiles WHERE id NOT IN (SELECT DISTINCT profile_id FROM prompt_blocks)"
+        )
+        for (missing_id,) in rows:
+            await insert_layout_blocks(db, missing_id, default_layout(SEED_MAIN_PROMPT))
+        profile = await _profile_on(db, profile_id) or await _profile_on(db, await active_profile_id(db))
+        if profile:
+            await _activate(db, profile)

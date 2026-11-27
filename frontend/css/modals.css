@@ -272,6 +272,15 @@
 .snapshot-modal .field .modal-checkbox-label:last-child { margin-bottom: 0; }
 .snapshot-modal .preset-warning .modal-checkbox-label { margin: 8px 0 0; }
 .snapshot-modal .modal-actions { margin-top: 16px; }
+/* One profile per row: its name, then a checkbox per part, then (Apply and Restore) where it lands. */
+.backup-profiles { margin-top: 12px; }
+.backup-profile { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 10px; margin-bottom: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-surface); }
+.backup-profile:last-child { margin-bottom: 0; }
+.backup-profile-name { flex: 1 0 100%; font-size: 13px; color: var(--text-primary); overflow-wrap: anywhere; }
+.backup-profile-parts { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.snapshot-modal .backup-profile .modal-checkbox-label, .backup-profile .modal-checkbox-label { margin: 0; }
+.backup-profile-target { margin-left: auto; }
 .preset-hint { color: var(--text-muted); font-size: 11px; }
 .preset-warning { margin: 10px 0; padding: 10px 12px; font-size: 12px; color: var(--text-secondary);
   background: var(--bg-surface); border: 1px solid var(--accent-dim, var(--border)); border-radius: var(--radius); }

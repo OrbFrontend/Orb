@@ -61,6 +61,7 @@ let _mobileBackArmed = false;
 let _handlingMobilePop = false;
 let _initialized = false;
 let _closeBurger = () => {};
+let _closeSidebarPortrait = () => false;
 
 function getElement(id) {
   return $(id);
@@ -104,9 +105,21 @@ function closeMobileSidebar() {
   setAppState(APP_STATE.sidebarOpen, false);
 }
 
+// Slide-overs start under the visible toggle header (the lorebook drawer covers the chat's), so the opening tap closes.
+const PANEL_TOGGLE_HEADERS = ["#lorebook-drawer:not(.hidden) .lb-header", "#doc-header", "#chat-header"];
+
+function syncMobilePanelTop() {
+  const header = PANEL_TOGGLE_HEADERS.map((sel) => document.querySelector(sel)).find(
+    (el) => el?.getClientRects().length,
+  );
+  const top = header ? Math.max(0, Math.round(header.getBoundingClientRect().bottom)) : 0;
+  getApp()?.style.setProperty("--mobile-panel-top", `${top}px`);
+}
+
 function syncMobilePanelState() {
   const app = getApp();
   if (!app) return;
+  syncMobilePanelTop();
 
   if (!isMobileSidebarViewport()) {
     for (const panel of MOBILE_SIDE_PANELS) {
@@ -165,9 +178,17 @@ function closeTopMobileOverlay() {
 function toggleMobileSidebar() {
   if (!isMobileSidebarViewport()) return;
   closeMobileUtilityPanels();
-  setAppState(APP_STATE.sidebarOpen, !hasAppState(APP_STATE.sidebarOpen));
+  syncMobilePanelTop();
+  // The portrait shares the drawer: from it, the menu button switches to the menu rather than closing.
+  const sidebarOpen = hasAppState(APP_STATE.sidebarOpen);
+  if (!(sidebarOpen && _closeSidebarPortrait())) setAppState(APP_STATE.sidebarOpen, !sidebarOpen);
   _closeBurger();
   armMobileBackIfNeeded();
+}
+
+/** Close the narrow layout's sidebar drawer; the wide layout's column is left as it is. */
+export function closeSidebarDrawer() {
+  if (isMobileSidebarViewport()) closeMobileSidebar();
 }
 
 /** Whether the sidebar column is on screen: the open drawer when narrow, the uncollapsed column otherwise. */
@@ -304,11 +325,15 @@ export function initMobileUi(deps) {
   if (_initialized) return;
   _initialized = true;
   _closeBurger = deps.closeBurger;
+  _closeSidebarPortrait = deps.closeSidebarPortrait;
   trackVisualViewport();
   preventIosFocusZoom();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);
+  window.addEventListener("resize", () => {
+    if (hasOpenMobileOverlay()) syncMobilePanelTop();
+  });
   bindViewportListener(handleViewportChange);
 
   observeClassChanges(

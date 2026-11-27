@@ -52,7 +52,10 @@ the setting **Character context**.
 | `shared` | A dossier for every member, including card text and examples | That member's post-history instructions |
 | `swap` | Every member's public profile plus the active member's card text and examples | That member's post-history instructions |
 
-`backend/prompting/group_context.py` owns this projection. Prompt construction
+Each member card is rendered from the Group cast block's text, and the active
+speaker's trailing message opens with the Group speaker block's text and ends
+with the engine's closing line (see [Prompting](prompting.md#prompt-layout)). `backend/prompting/group_context.py`
+owns this projection. Prompt construction
 and context-size reporting use it rather than deciding card visibility locally.
 
 The following rules apply in every mode:
@@ -67,15 +70,19 @@ The following rules apply in every mode:
   member's context they are `CastMember.description` and
   `CastMember.personality`, the card's fields, or the scene override and
   nothing when `card_sheet_override` is set. Outside it there is no single card
-  to read, so they resolve to nothing. `private_sheet` and everything that renders
-  it are separate from these macros.
+  to read, so they resolve to nothing. Member cards render from these fields;
+  `private_sheet` is only the baseline scene sheet updates start from: the
+  override, else the card's description and personality with a blank line
+  between them, the bytes the built-in Group cast text renders.
 - Card-linked Worlds and card fragments are scene-wide. Context mode does not
   make lore private.
 
 Private and Swap protect the same information: a member's full card is visible
 only to that member. They differ in placement. Private puts it after history;
 Swap puts it before history so it can cache per speaker. Shared deliberately
-opens the cards to the whole cast.
+opens the cards to the whole cast. A Continue that rebuilds its prompt sends no
+Writer request, so under Private it renders the speaker's prefix as Swap does
+(`prompting.continue_context_mode`).
 
 The roster is ordered by `sort_order, id`. Muted members remain in the cast but
 cannot speak; removed members are tombstoned so old messages keep their names.

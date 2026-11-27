@@ -13,6 +13,7 @@ from backend.database import (
     set_active_leaf,
     update_settings,
 )
+from backend.pipeline import handle_continue_reply
 from backend.workflows.toolkit import build_offturn_prefix
 
 
@@ -353,8 +354,8 @@ async def test_shared_dossier_gives_every_speaker_one_prefix_and_never_repeats_i
     # Best prefix sharing: both speakers read the identical cast dossier body.
     assert systems[0] == systems[1]
     for system in systems:
-        assert system.count("## Character dossier: Aria") == 1
-        assert system.count("## Character dossier: Kael") == 1
+        assert system.count("## Character: Aria") == 1
+        assert system.count("## Character: Kael") == 1
         assert "ARIA PRIVATE" in system and "KAEL PRIVATE" in system
 
     # The identity fields are in the shared body, so the tail must not re-bill them; the speaker-only guard stays.
@@ -373,6 +374,51 @@ async def test_private_perspective_keeps_the_cast_prefix_stable_and_cards_speake
     writers = _writers(llm_mock)
     assert "ARIA PRIVATE" in json.dumps(writers[0]["messages"][-1])
     assert "ARIA PRIVATE" not in json.dumps(writers[1]["messages"][-1])
+
+
+@pytest.mark.parametrize("mode", ["private", "shared", "swap"])
+async def test_the_group_cast_text_shapes_every_members_card_in_every_mode(client, llm_mock, mode):
+    # Blank text would silently drop every card, so it is refused.
+    await client.expect("patch", "/api/prompt-blocks/cast", json={"content": " \n"}, expected_status=409)
+    await client.expect(
+        "patch", "/api/prompt-blocks/cast", json={"content": "### Who: {{char}}\n{{description}}\n{{examples}}"}
+    )
+    conv, _ = await _two_card_group(
+        client, context_mode=mode, aria_extra={"mes_example": "<START>\nARIA ONE\n<START>\nARIA TWO"}
+    )
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    aria = _writers(llm_mock)[0]["messages"]
+    card = "### Who: Aria\nARIA PRIVATE\nARIA ONE\n\nARIA TWO"
+    assert card in str(aria[-1 if mode == "private" else 0]["content"])
+    assert "Example Dialogue" not in json.dumps(aria) and "<START>" not in json.dumps(aria)
+    if mode == "private":
+        assert "ARIA PRIVATE" not in str(aria[0]["content"])
+
+
+async def test_the_group_speaker_text_heads_each_speakers_writer_request(client, llm_mock):
+    # Under Private the speaker's card rides only this text, so it keeps {{card}}.
+    await client.expect("patch", "/api/prompt-blocks/speaker", json={"content": "As {{char}}"}, expected_status=409)
+    await client.expect(
+        "patch", "/api/prompt-blocks/speaker", json={"content": "As {{char}}:\n{{card}}\n\nRules:\n{{instructions}}"}
+    )
+    conv, _ = await _two_card_group(client, aria_extra={"post_history_instructions": "ARIA RULE"})
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    aria, kael = (str(writer["messages"][-1]["content"]) for writer in _writers(llm_mock))
+    assert aria.startswith("As Aria:\n## Character: Aria\nARIA PRIVATE") and "Rules:\nARIA RULE" in aria
+    assert aria.endswith("Write the next reply as Aria only. Do not write dialogue or actions for another cast member.")
+    # A paragraph naming only empty placeholders leaves with them.
+    assert "Rules:" not in kael and kael.endswith("as Kael only. Do not write dialogue or actions for another cast member.")
+
+
+async def test_a_cards_empty_section_takes_its_heading_with_it(client, llm_mock):
+    conv, _ = await _two_card_group(client, context_mode="shared", kael_extra={"mes_example": ""})
+    await _run_two_speaker_exchange(client, llm_mock, conv)
+
+    system = _systems(llm_mock, "writer")[0]
+    assert system.count("## Example Dialogue") == 1
+    assert "## Character: Kael\nKAEL PRIVATE" in system
 
 
 def _assert_cards_speaker_only(lane: list[str]) -> None:
@@ -399,6 +445,24 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
     shared_head = commonprefix([*systems, director])
     assert "### Aria" in shared_head and "### Kael" in shared_head, shared_head
     assert "ARIA PRIVATE" not in shared_head and "KAEL PRIVATE" not in shared_head
+
+
+@pytest.mark.kv_divergence_expected
+async def test_a_rebuilt_continue_under_private_reads_only_the_speakers_card(client, llm_mock):
+    """No Writer request rides a rebuilt Continue, so Private's speaker card has to reach it through the prefix."""
+    ep = await client.post_json("/api/endpoints", json={"url": "http://llama.local", "api_key": ""})
+    await client.put(f"/api/endpoints/{ep['id']}", json={"completion_mode": "text"})
+    await client.put("/api/settings", json={"active_endpoint_id": ep["id"]})
+    conv, members = await _two_card_group(client)
+    aria = next(member for member in members if member["display_name"] == "Aria")
+    *_, reply_id = await _chain(conv["id"], [("user", "Hello", None), ("assistant", "I found ", aria["id"])])
+    llm_mock.enqueue_writer("tracks.")
+
+    events = [event async for event in handle_continue_reply(conv["id"], reply_id)]
+
+    assert events[-1] == {"event": "done"}, events
+    system = str(llm_mock.captured[-1]["messages"][0]["content"])
+    assert "ARIA PRIVATE" in system and "KAEL PRIVATE" not in system and "### Kael" in system
 
 
 _GUARDED = {
@@ -445,7 +509,7 @@ async def test_both_model_lanes_agree_on_the_cast_when_the_prefix_is_shared(clie
     assert len(set(writers)) == 1, "writer prefix diverged across speakers"
     assert len(set(editors)) == 1, "agent prefix diverged across speakers"
     # Different system prompts per lane are expected; the *cast body* is not.
-    body = "## Character dossier: Aria" if mode == "shared" else "### Aria"
+    body = "## Character: Aria" if mode == "shared" else "### Aria"
     assert body in writers[0] and body in editors[0]
 
 
@@ -615,7 +679,7 @@ async def _sheet_group(client, **kwargs) -> tuple[dict, list[dict]]:
 def _sheet_calls(llm_mock) -> list[str]:
     """Every sheet-update call's user message, in order."""
     texts = [str(call["messages"][-1]["content"]) for call in llm_mock.captured if call["pass"] == "workflow"]
-    return [text for text in texts if "reference sheet" in text]
+    return [text for text in texts if "current sheet:" in text]
 
 
 async def _proposals(client, conv, status: str | None = None) -> list[dict]:

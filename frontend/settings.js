@@ -96,7 +96,7 @@ function renderSettings() {
     ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
-      <button class="btn btn-block btn-sm" data-wf-action="presets:open">💾 Backup &amp; Presets</button>
+      <button class="btn btn-block btn-sm" data-wf-action="backups:open">💾 Backups</button>
     </div>
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
@@ -1048,8 +1048,8 @@ async function showResetConfirmModal() {
     {
       title: "Reset to Defaults",
       message:
-        "This will reset Mood Fragments, Interactive Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost. Characters, conversations and lorebooks are kept.",
-      confirmText: "Reset Everything",
+        "This will reset the active profile's fragments, phrase bank, Prompt Layout and switches, and all Settings and endpoints, to their original default values. Other profiles, characters, conversations and lorebooks are kept.",
+      confirmText: "Reset",
     },
     async () => {
       try {

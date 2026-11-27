@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
 from ..core.prompt_layout import LayoutRegion, LayoutRole
@@ -380,7 +380,7 @@ class WorldRow(TypedDict):
 
     id: str
     name: str
-    is_global: int
+    is_global: int  # whether the active profile marks it global; profile_worlds holds the marks
     dynamic_enabled: int
     content_revision: int
     created_at: str
@@ -508,8 +508,9 @@ class UserPersonaRow(TypedDict):
 
 
 class InteractiveFragmentRow(TypedDict):
-    """A row from ``interactive_fragments`` (``SELECT *``)."""
+    """A row from ``interactive_fragments`` (``SELECT *``). A card-embedded fragment has no ``profile_id``."""
 
+    profile_id: NotRequired[str]
     id: str
     label: str
     description: str
@@ -541,8 +542,66 @@ class InteractiveFragmentRow(TypedDict):
     gate_replies: int
 
 
-class PromptLayoutRow(TypedDict):
-    """A row from ``prompt_layouts``."""
+class ProfileModels(TypedDict):
+    """The model choices that are not lane picks; those are ``ProfileLanes``."""
+
+    agent_same_as_writer: int
+    judge_model: str
+
+
+class LaneRef(TypedDict, total=False):
+    """What a lane pick named when it was saved. A backup made without the endpoints leaves the lane's foreign keys NULL, so on
+    switch a NULL lane goes to the live endpoint of the lane's kind with this URL, preferring the one with this id, and to its
+    model config of the lane's role with this model name, preferring the one with this id."""
+
+    endpoint_id: int
+    url: str
+    model_config_id: int
+    model_name: str
+
+
+class PersonaRef(TypedDict):
+    """What a profile's persona was when it was saved. A backup made without the personas leaves ``persona_id`` NULL, so on
+    switch a NULL persona goes to the live persona with this name, preferring the one with this id."""
+
+    persona_id: int
+    name: str
+
+
+class ProfileConfig(TypedDict, total=False):
+    """``profiles.config``. Every section is optional: a config read from an older or partial file applies what it has."""
+
+    settings: dict[str, Any]  # the PROFILE_SETTINGS columns, JSON ones decoded
+    models: ProfileModels
+    lanes: dict[str, LaneRef]  # "writer", "agent" and "judge"; a lane with no pick is left out
+    persona: PersonaRef | None  # None: the profile has no active persona
+    # By workflow id, the top-level keys of its config slot the workflow declares per-profile; a workflow whose live slot was
+    # empty is left out.
+    workflows: dict[str, dict[str, Any]]
+    # By workflow id, the on/off flag of each workflow that declares its flag per-profile.
+    workflow_enabled: dict[str, bool]
+
+
+class ProfileLanes(TypedDict):
+    """A profile's lane picks, the ``profiles`` foreign-key columns. On switch a None lane is looked up by its ``LaneRef``; one it
+    does not find keeps its live value for the Writer and the Agent, and turns the Judge off."""
+
+    writer_endpoint_id: int | None
+    writer_model_config_id: int | None
+    agent_endpoint_id: int | None
+    agent_model_config_id: int | None
+    judge_endpoint_id: int | None
+
+
+class ProfileState(ProfileLanes):
+    """What a profile's setup holds, and what the live rows hold."""
+
+    config: ProfileConfig
+    persona_id: int | None
+
+
+class ProfileRow(ProfileState):
+    """A row from ``profiles``."""
 
     id: str
     name: str
@@ -551,8 +610,8 @@ class PromptLayoutRow(TypedDict):
 class PromptBlockRow(TypedDict):
     """A row from ``prompt_blocks``: a marker (``kind`` is its id) or a custom block (``kind`` is ``'custom'``)."""
 
+    profile_id: str
     id: str
-    layout_id: str
     kind: str
     label: str
     content: str
@@ -563,8 +622,9 @@ class PromptBlockRow(TypedDict):
 
 
 class MoodFragmentRow(TypedDict):
-    """A row from ``mood_fragments`` (``SELECT *``)."""
+    """A row from ``mood_fragments`` (``SELECT *``). A card-embedded fragment has no ``profile_id``."""
 
+    profile_id: NotRequired[str]
     id: str
     label: str
     description: str

@@ -183,6 +183,13 @@ def _in_use(settings: Settings) -> bool:
     return _local_ml_on(settings) and chat_or_document
 
 
+async def settings_changed(before: Settings, after: Settings) -> None:
+    """After a write that may have changed any of the rewriter's switches: warm or release the engine when whether a mode
+    uses it changed."""
+    if _in_use(before) != (in_use := _in_use(after)):
+        await on_enabled(in_use)
+
+
 async def on_enabled(enabled: bool) -> None:
     """After a switch is stored: warm the engine when one turned on, release its memory once no mode uses it."""
     if _in_use(await get_settings()):

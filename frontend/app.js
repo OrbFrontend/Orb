@@ -3,6 +3,7 @@ import { onRefreshRequired, reloadPage } from "./api.js";
 import { initAssistant } from "./assistant_chat.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
+  closeSidebarPortrait,
   initAutoscroll,
   initChatKeyNav,
   initChatSwipeNav,
@@ -28,7 +29,8 @@ import { initMessageHtmlActions } from "./message_html.js";
 import { initMobileUi } from "./mobile.js";
 import { isUtilityPanelOpen, restoreUtilityPanel } from "./panels.js";
 // Imported for the actions it registers.
-import "./presets.js";
+import "./backups.js";
+import { loadProfiles } from "./profiles.js";
 import { loadPromptLayout } from "./prompt_layout.js";
 import { initTheme, initThemeList, loadSettings, renderToolsPanel } from "./settings.js";
 import { restoreSections, toggleSection } from "./sidebar_sections.js";
@@ -138,7 +140,7 @@ async function startupStep(what, load) {
 }
 
 async function initAll() {
-  initMobileUi({ closeBurger });
+  initMobileUi({ closeBurger, closeSidebarPortrait });
   setWorldProposalRefresh(refreshConversationMessages);
   initWorldProposalActions();
   initDocumentMode();
@@ -155,6 +157,7 @@ async function initAll() {
     // itself when S.conversations is not set yet.
     startupStep("load conversations", loadConversations).then(() => startupStep("load characters", loadCharacters)),
     startupStep("load worlds", loadWorlds),
+    startupStep("load profiles", loadProfiles),
     // These render against state loadSettings fills in (the Agent switch and
     // enabled tools gate the fragment lists), so they wait for it.
     settings.then(() =>

@@ -57,8 +57,9 @@ Open **Inspector → State** to see saved facts and who last changed them. You c
 Your edits belong to the latest message. Wait until reply generation finishes
 before editing.
 
-Disabled fragments keep their saved facts but show them read-only. Deleted
-fragments also leave their saved facts here; **Delete saved state** removes those
+Disabled fragments keep their saved facts but show them read-only. Fragments
+deleted from the active profile, or missing from it, also leave their saved facts
+here; **Delete saved state** removes those
 facts from every branch of the conversation.
 
 ## When updates run

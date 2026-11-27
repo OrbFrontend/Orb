@@ -119,7 +119,7 @@ entries and changeset history with the World.
 ## Conversation-scoped World choices
 
 Navigation reads `GET /conversations/{cid}/worlds` and never writes World state.
-`worlds.is_global` supplies an on default in every chat; a card-linked World also
+A World the active profile marks global (`profile_worlds`) supplies an on default in every chat; a card-linked World also
 defaults on for that conversation's cast, including every active group member.
 `conversation_worlds(conversation_id, world_id, enabled)` overrides either default.
 Saving a choice equal to its current default removes the override. Entry `enabled`
@@ -134,4 +134,4 @@ World off in the originating chat suppresses its proposal.
 Forks copy overrides. Presets assign the two-parent table to the chats domain and
 drop choices referencing missing Worlds on a partial import. Migration 0076 turns
 linked legacy Worlds into non-global defaults and preserves floating Worlds'
-previous activation as `is_global`.
+previous activation as `is_global`, which migration 0101 turns into a `profile_worlds` row for every profile.

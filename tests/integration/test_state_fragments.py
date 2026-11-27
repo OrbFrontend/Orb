@@ -120,7 +120,7 @@ async def test_after_reply_entries_update_replays_the_reply_and_commits_with_it(
         ("threads", "add", _THREAD, "agent", "entries")
     ]
     # An after-reply change reaches the Writer on the next reply, not this one.
-    assert "Current State" not in _injection(events)
+    assert _THREAD not in _injection(events)
     llm_mock.enqueue_writer("Later.")
     llm_mock.enqueue_state(_state_call())
     assert f"Threads:\n- {_THREAD}" in _injection(await _drain(handle_turn(cid, "next")))
@@ -140,6 +140,9 @@ async def test_before_writer_entries_update_reaches_the_same_replys_writer(clien
     order = [p for p, _ in llm_mock.calls]
     assert order.index("director") < order.index("state") < order.index("writer")
     assert f"Threads:\n- {_THREAD}" in _injection(events)
+    writer_request = _requests(llm_mock, "writer")[0]
+    assert f"Threads:\n- {_THREAD}" in writer_request
+    assert "**Current State**" not in writer_request
     # The step sees the user's message and the scene direction it reflects on.
     assert '"""hello"""' in _requests(llm_mock, "state")[0]
     assert await _active_state(cid) == {"threads": [_THREAD]}
@@ -177,7 +180,7 @@ async def test_before_writer_value_rides_direct_scene_with_old_to_new_for_the_wr
     assert "* trust: wary" in director_request
     # The description is stated once, in the parameter list, not again beside the saved value.
     assert director_request.count("Track the trust.") == 1
-    assert "Current State" not in director_request
+    assert "Trust: wary" not in director_request
     # The one value keeps its entry id across sets.
     rows = await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"])
     assert [(r["op"], r["entry_id"], r["text"]) for r in rows] == [("revise", first_id, "warming")]

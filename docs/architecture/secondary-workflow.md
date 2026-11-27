@@ -532,6 +532,23 @@ does not merge partial stored configuration with defaults. A workflow that adds
 settings over time supplies missing values in its normalizer. Clearing the
 stored config with `{}` restores the defaults.
 
+`profile_config_keys` names the top-level keys of the slot that belong to the
+active profile, each a key of `config_defaults`. Leaving a profile saves those
+keys of the live slot into it; entering one writes them back under
+`workflow_config_lock`, leaving the slot's other keys alone. Each missing
+profile key takes its value from the workflow's `config_defaults`. The
+normalizer supplies any shared defaults when a stored slot holds only the
+profile's keys. Keep credentials and connections to this machine's servers out of
+the list; those stay shared. The frontend module reloads its config on the
+`profile` topic (`subscribe("profile", …)`), which fires after a switch.
+
+`profile_enabled=True` makes the workflow's on/off switch the active profile's
+as well. A switch writes the flag with the rest of the profile in one
+transaction, then runs the same runtime effects a toggle does
+(`live_settings_changed`: warming or freeing a model, dropping the GPU swap
+plan). An effect a toggle needs belongs in `live_settings_changed`, keyed on the
+settings before and after, so every writer of the flag runs it.
+
 ## Frontend integration
 
 At boot, the frontend fetches the manifest and imports

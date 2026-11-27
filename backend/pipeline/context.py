@@ -12,6 +12,7 @@ from ..core import (
     CardScripts,
     CastMember,
     ChatMessage,
+    GroupContextMode,
     Macros,
     TurnCast,
     is_decision_row,
@@ -266,12 +267,16 @@ def build_turn_prefix(
     history: Sequence[Mapping[str, Any]],
     *,
     speaker: CastMember | None = None,
+    context_mode: GroupContextMode | None = None,
 ) -> list[ChatMessage]:
     """Build the prefix every lane of the turn shares.
 
-    *speaker* applies to every pass, so the Editor's lane sees the same cast as the Writer it is auditing.
+    *speaker* applies to every pass, so the Editor's lane sees the same cast as the Writer it is auditing. *context_mode*
+    renders the cast as that mode rather than the group's own.
     """
-    cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
+    cast = (
+        ctx.cast._replace(speaker=speaker, context_mode=context_mode or ctx.cast.context_mode) if ctx.cast.grouped else ctx.cast
+    )
     return build_prefix(
         ctx.system_prompt,
         ctx.sections,

@@ -4,6 +4,7 @@ import {
   registerAttachmentRenderer,
   registerWorkflowMessageButton,
   registerWorkflowToolsPanelCard,
+  subscribe,
 } from "/static/workflow_api.js";
 import { configPanelRenderer, initConfigPanel, refreshCardReadiness, refreshCardStyles } from "./config_panel.js";
 import { attachmentRenderer, createButtonRenderer, initWidget } from "./widget.js";
@@ -36,7 +37,11 @@ initConfigPanel(config);
 registerWorkflowMessageButton(WORKFLOW_ID, createButtonRenderer);
 registerAttachmentRenderer(WORKFLOW_ID, attachmentRenderer);
 registerWorkflowToolsPanelCard(WORKFLOW_ID, configPanelRenderer);
-loadConfig().then(() => {
-  refreshCardReadiness();
-  refreshCardStyles();
-});
+const refresh = () =>
+  loadConfig().then(() => {
+    refreshCardReadiness();
+    refreshCardStyles();
+  });
+refresh();
+// Styles, skills and the prompter's options are the active profile's.
+subscribe("profile", refresh);

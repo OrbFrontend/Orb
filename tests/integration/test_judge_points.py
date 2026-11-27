@@ -109,8 +109,8 @@ def test_a_committed_result_keeps_its_middle_rulings_by_place():
         {},
     )
     assert committed.rulings_after() == {"attack": [("Lands", "The lunge misses.")]}
-    # The opening block a Director run again reads holds the opening outcome only.
-    assert "Settled." in committed.director_guidance and "misses" not in committed.director_guidance
+    # A Director run again opens its plan with the opening outcome only.
+    assert committed.opening_rulings() == [("First", "Settled.")]
 
 
 def test_a_cards_legacy_runs_setting_becomes_its_place_in_the_list():

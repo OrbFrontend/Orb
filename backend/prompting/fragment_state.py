@@ -6,17 +6,9 @@ from collections.abc import Sequence
 
 from ..core import StateFragment, StateView
 
-STATE_BLOCK_HEADING = "**Current State**"
-
-
-def render_state_block(fragments: Sequence[StateFragment], view: StateView, *, prior: StateView | None = None) -> str:
-    """Render injected state under its heading, showing before-Writer changes as ``old -> new``."""
-    body = render_state_body(fragments, view, prior=prior)
-    return f"{STATE_BLOCK_HEADING}\n\n{body}" if body else ""
-
 
 def render_state_body(fragments: Sequence[StateFragment], view: StateView, *, prior: StateView | None = None) -> str:
-    """The state block's fragments without its heading; empty when no fragment holds anything."""
+    """Render populated state fragments, showing before-Writer changes as ``old -> new``."""
     parts: list[str] = []
     for fragment in fragments:
         entries = view.active(fragment.id)

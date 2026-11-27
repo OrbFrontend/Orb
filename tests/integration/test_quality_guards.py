@@ -9,7 +9,7 @@ import uuid
 import pytest
 
 from backend import database
-from backend.api.routes import characters, presets
+from backend.api.routes import backups, characters
 from backend.core import maintenance_lock
 from backend.features.cards.parsing import to_png
 from backend.pipeline import persistence
@@ -137,17 +137,17 @@ async def test_cancelled_preset_worker_keeps_both_maintenance_guards(client, mon
     release = threading.Event()
     loop = asyncio.get_running_loop()
 
-    def blocked(*_args):
+    def blocked(*_args, **_kwargs):
         loop.call_soon_threadsafe(started.set)
         if not release.wait(5):
             raise TimeoutError("test worker was not released")
         return {}
 
-    monkeypatch.setattr(presets.presets, "_library_path", lambda _name: "test.db")
-    monkeypatch.setattr(presets.presets, "create_snapshot", lambda *_args: "before.db")
-    monkeypatch.setattr(presets.presets, "read_meta", lambda _path: {})
-    monkeypatch.setattr(presets.presets, "apply_preset" if operation == "apply" else "restore_full", blocked)
-    route = presets.api_apply_preset if operation == "apply" else presets.api_restore_preset
+    monkeypatch.setattr(backups.backups, "library_path", lambda _name: "test.db")
+    monkeypatch.setattr(backups.backups, "create_snapshot", lambda *_args: "before.db")
+    monkeypatch.setattr(backups.backups, "read_meta", lambda _path: None)
+    monkeypatch.setattr(backups.backups, "apply_preset" if operation == "apply" else "restore_full", blocked)
+    route = backups.api_apply_backup if operation == "apply" else backups.api_restore_backup
     task = asyncio.create_task(route("test.db"))
 
     async def competing_lock():

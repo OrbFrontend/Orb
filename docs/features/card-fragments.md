@@ -3,22 +3,23 @@
 Card-embedded fragments let a character card include its own mood and interactive
 fragments. The fragments travel with the card when you export or share it.
 
-They are the same fragments used by [Scene Direction](director.md). Global
-fragments live in your library; card fragments are specific to the character.
+They are the same fragments used by [Scene Direction](director.md). Your own
+fragments belong to the active [profile](profiles.md); card fragments are specific
+to the character.
 
 ## Which fragments are used
 
 For a conversation, Orb combines:
 
-1. Enabled global fragments
+1. The active profile's enabled fragments
 2. Enabled fragments from the character card
 
-Global fragments take priority when IDs conflict. In a group chat, the first card
+The active profile's fragments take priority when IDs conflict. In a group chat, the first card
 in the cast keeps an ID when two cards conflict. Card fragments are scene-wide, so
 a mood from one character can affect the next speaker too.
 
-Changing your global fragments affects the next turn. Card fragments remain in the
-card and are not copied into your global library.
+Changing the active profile's fragments affects the next turn. Card fragments
+remain in the card and are not copied into any profile.
 
 ## Add fragments to a card
 
@@ -28,9 +29,9 @@ card and are not copied into your global library.
 4. Enable or disable fragments as needed.
 5. Save the character.
 
-The editor uses the same fields and validation as the global fragment editor. An
+The editor uses the same fields and validation as the profile's fragment editor. An
 ID must match `[a-z0-9][a-z0-9_-]{0,63}`. A card cannot use an ID already used by
-one of your global fragments.
+one of the active profile's fragments.
 
 Both editors accept up to 200 characters in labels and injection labels, 10,000
 in descriptions, and 50,000 in each mood prompt field. Recast and rewrite gate
@@ -40,8 +41,8 @@ questions accept up to 4,000 characters.
 
 Card fragments are stored in V2 card data under `extensions.orb.fragments`. They
 are included when the card is exported as a PNG and loaded again when the card is
-imported. The character's owner can edit them; they do not become global
-fragments.
+imported. The character's owner can edit them; they do not become fragments of
+any profile.
 
 ## Safety limits
 
@@ -147,5 +148,5 @@ Card creators can add fragments under the card's `data.extensions` object:
 ```
 
 `mood` and `interactive` can be omitted or empty. Card fragments appear after
-global fragments in their respective stage. Writer fragment types become
+the active profile's fragments in their respective stage. Writer fragment types become
 Director fields and Scene Guidance; feedback, recast and rewrite types remain Editor-only.

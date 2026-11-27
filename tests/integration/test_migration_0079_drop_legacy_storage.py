@@ -54,17 +54,17 @@ def test_drops_the_columns_keeps_the_row_and_reruns_as_a_no_op():
 
 @pytest.mark.parametrize("action", ["apply", "restore"])
 async def test_a_backup_carrying_the_columns_still_imports(client, db_path, action):
-    from backend.features.presets import ALL_DOMAINS
+    from backend.features.backups import ALL_DOMAINS
 
     before = await get_settings()
     export = {"domains": list(ALL_DOMAINS), "strip_keys": False}
-    name = (await client.post_json("/api/presets/export", json=export))["name"]
+    name = (await client.post_json("/api/backups/export", json=export))["name"]
     with closing(sqlite3.connect(str(db_path.parent / "snapshots" / name))) as backup:
         _add_legacy_columns(backup)
         backup.execute("DELETE FROM schema_migrations WHERE id = ?", (_NAME,))
         backup.commit()
 
-    await client.post_checked(f"/api/presets/{name}/{action}", json={})
+    await client.post_checked(f"/api/backups/{name}/{action}", json={})
 
     with closing(sqlite3.connect(str(db_path))) as live:
         assert not _columns(live) & _LEGACY_NAMES

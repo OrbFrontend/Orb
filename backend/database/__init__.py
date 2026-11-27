@@ -13,6 +13,7 @@ from .connection import (
     open_wal_anchor,
 )
 from .queries.access import clear_access_password, get_access_password, set_access_password
+from .queries.active_profile import get_active_profile_id
 from .queries.assistant_chats import delete_assistant_chat, get_assistant_chat, put_assistant_chat
 from .queries.avatar_focus import (
     AVATAR_FOCUS_MANUAL,
@@ -198,19 +199,31 @@ from .queries.phrase_bank import (
     get_phrase_bank_rows,
     update_phrase_group,
 )
+from .queries.profiles import (
+    PROFILE_LANES,
+    PROFILE_SETTINGS,
+    SEEDED_PARTS,
+    ProfileEditError,
+    capture_active_profile,
+    capture_uploaded_profile,
+    create_profile,
+    delete_profile,
+    get_active_layout_blocks,
+    get_profile,
+    list_profiles,
+    reenter_profile,
+    register_profile_workflow_keys,
+    rename_profile,
+    seed_library_statements,
+    switch_profile,
+)
 from .queries.prompt_layouts import (
     PromptLayoutError,
     create_prompt_block,
-    create_prompt_layout,
     delete_prompt_block,
-    delete_prompt_layout,
-    get_active_layout_blocks,
-    get_active_prompt_layout_id,
+    get_prompt_block,
     get_prompt_blocks,
-    list_prompt_layouts,
-    rename_prompt_layout,
     reorder_prompt_blocks,
-    set_active_prompt_layout,
     update_prompt_block,
 )
 from .queries.reply_prompts import get_reply_prompt, set_reply_prompt

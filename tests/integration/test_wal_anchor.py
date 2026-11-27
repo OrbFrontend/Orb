@@ -369,9 +369,9 @@ async def test_full_restore_succeeds_with_the_idle_anchor(client, db_path):
     """``restore_full`` copies over the live database through SQLite's online
     backup, which takes a write transaction on the live file. The anchor must
     neither block it nor keep serving pre-restore content afterwards."""
-    from backend.features.presets import engine as presets
+    from backend.features.backups import engine as presets
 
-    from .test_presets import _full_snapshot
+    from .test_backups import _full_snapshot
 
     await client.post("/api/characters", json={"name": "Before"})
     snap = await _full_snapshot(client, "anchored")
@@ -435,9 +435,9 @@ async def test_vacuum_does_not_strand_a_database_sized_wal(db_path, db, monkeypa
 async def test_full_restore_does_not_strand_a_database_sized_wal(client, db_path, db):
     """The restore's online backup writes the whole prepared file into the live
     database as one transaction, so every page of it lands in the WAL."""
-    from backend.features.presets import engine as presets
+    from backend.features.backups import engine as presets
 
-    from .test_presets import _full_snapshot
+    from .test_backups import _full_snapshot
 
     await _bulk_up(db)
     snap = await _full_snapshot(client, "bulky")
@@ -455,9 +455,9 @@ async def test_full_restore_does_not_strand_a_database_sized_wal(client, db_path
 async def test_replacing_preset_merge_does_not_strand_a_large_wal(client, db_path, db):
     """``restore_partial`` replaces whole domains in one transaction, which is
     the same database-sized write in a different shape."""
-    from backend.features.presets import engine as presets
+    from backend.features.backups import engine as presets
 
-    from .test_presets import _full_snapshot, _snap_dir
+    from .test_backups import _full_snapshot, _snap_dir
 
     await _bulk_up(db)
     snap = await _full_snapshot(client, "partial")

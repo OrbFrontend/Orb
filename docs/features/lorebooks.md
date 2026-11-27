@@ -5,10 +5,12 @@ Each entry has text, an enabled state, and optional trigger keywords.
 
 ## Worlds and entries
 
-Worlds are enabled globally. Every enabled entry in an enabled World is available
-to chats. You can link a World to a character; opening that character's chat
-enables the linked World and disables the previous character's linked World.
-Entries and Worlds must both be enabled.
+A World can be global: it is on in every chat that makes no choice of its own.
+Which Worlds are global belongs to the active [profile](profiles.md); the Worlds
+and their entries are shared by every profile. Every enabled entry in an enabled
+World is available to chats. You can link a World to a character; opening that
+character's chat enables the linked World and disables the previous character's
+linked World. Entries and Worlds must both be enabled.
 
 ## Where Orb inserts an entry
 

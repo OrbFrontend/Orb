@@ -52,18 +52,21 @@ CREATE TABLE IF NOT EXISTS settings (
     -- The Judge has a dedicated endpoint and model; its route is derived from the URL.
     decision_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     decision_model TEXT NOT NULL DEFAULT 'typesafe/jev-1.13',
-    -- NULL reads as the seeded 'default' prompt layout.
-    active_prompt_layout_id TEXT DEFAULT NULL
+    -- Seeded with the first profile; NULL or a missing id reads as the first profile ('default', then by name).
+    active_profile_id TEXT DEFAULT NULL
 );
 
+-- Each profile has its own copy of every fragment; a fragment keeps its id across profiles, so chat state naming it carries.
 CREATE TABLE IF NOT EXISTS mood_fragments (
-    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
     label TEXT NOT NULL,
     description TEXT NOT NULL,
     prompt_text TEXT NOT NULL,
     negative_prompt TEXT NOT NULL DEFAULT '',
     cooldown_turns INTEGER NOT NULL DEFAULT 0,
-    enabled BOOLEAN NOT NULL DEFAULT 1
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_id, id)
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -209,7 +212,8 @@ CREATE TABLE IF NOT EXISTS director_state (
 );
 
 CREATE TABLE IF NOT EXISTS interactive_fragments (
-    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
     label TEXT NOT NULL,
     description TEXT NOT NULL,
     field_type TEXT NOT NULL DEFAULT 'string',
@@ -237,7 +241,8 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     -- Recast and rewrite only: the Judge question that must answer yes for the fragment to run; '' always runs.
     gate_question TEXT NOT NULL DEFAULT '',
     -- Recast and rewrite only: how many previous replies the gate shows the Judge before the draft.
-    gate_replies INTEGER NOT NULL DEFAULT 0
+    gate_replies INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile_id, id)
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (
@@ -265,10 +270,13 @@ CREATE INDEX IF NOT EXISTS idx_conversation_logs_message ON conversation_logs(me
 
 CREATE TABLE IF NOT EXISTS phrase_bank (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     variants TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'literal',
     pattern TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_phrase_bank_profile ON phrase_bank(profile_id);
 
 CREATE TABLE IF NOT EXISTS user_personas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -348,12 +356,20 @@ CREATE TABLE IF NOT EXISTS model_configs (
 CREATE TABLE IF NOT EXISTS worlds (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    is_global INTEGER NOT NULL DEFAULT 0,
     dynamic_enabled INTEGER NOT NULL DEFAULT 0,
     content_revision INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- The Worlds a profile turns on in every chat that makes no choice of its own.
+CREATE TABLE IF NOT EXISTS profile_worlds (
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    PRIMARY KEY (profile_id, world_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_worlds_world ON profile_worlds(world_id);
 
 CREATE TABLE IF NOT EXISTS conversation_worlds (
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -528,59 +544,73 @@ CREATE TABLE IF NOT EXISTS duplicate_dismissals (
     PRIMARY KEY (card_a, card_b)
 );
 
--- Phrase Bank suggestions mined from model replies across every chat. Derived:
--- each run replaces the table wholesale, and nothing here reaches the bank until
--- the user accepts a row. ``key`` is the mined key ('n:= a beat'), stable across
--- runs; ``pattern`` is the bank-ready regex exactly as it was scored.
+-- Phrase Bank suggestions mined from model replies across every chat, against one profile's bank. Derived: each run
+-- replaces that profile's rows, and nothing here reaches the bank until the user accepts a row. ``key`` is the mined key
+-- ('n:= a beat'), stable across runs; ``pattern`` is the bank-ready regex exactly as it was scored.
 CREATE TABLE IF NOT EXISTS slop_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT NOT NULL UNIQUE,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
     lane TEXT NOT NULL CHECK (lane IN ('new', 'longstanding')),
     label TEXT NOT NULL,
     pattern TEXT NOT NULL,
     stats TEXT NOT NULL DEFAULT '{}',
     fillers TEXT NOT NULL DEFAULT '[]',
     examples TEXT NOT NULL DEFAULT '[]',
-    mined_at TEXT NOT NULL
+    mined_at TEXT NOT NULL,
+    UNIQUE (profile_id, key)
 );
 
--- Suggestion keys the user dismissed; a run never suggests them again. These are
--- user decisions, so they travel with the phrase bank in presets and backups.
+-- Suggestion keys the user dismissed in a profile; a run for it never suggests them again. These are user decisions, so they
+-- travel with the profile's phrase bank in backups.
 CREATE TABLE IF NOT EXISTS slop_dismissals (
-    key TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
     pattern TEXT NOT NULL,
-    dismissed_at TEXT NOT NULL
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (profile_id, key)
 );
 
--- The suggestion miner's one bookkeeping row: when it last ran and why the last
--- run suggested nothing or failed.
+-- The suggestion miner's bookkeeping, one row per profile: when it last ran and why the last run suggested nothing or failed.
 CREATE TABLE IF NOT EXISTS slop_mining_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
     last_run_at TEXT,
     last_status TEXT NOT NULL DEFAULT ''
 );
 
--- Prompt layouts order the chat prompt's blocks around the history: 'prefix' blocks build the system message and any
--- pre-history messages, 'writer' blocks build the Writer's request. Marker rows (kind = a marker id) stand for built-in
--- sections and use the id '<layout_id>:<marker>'; custom rows carry their own text.
-CREATE TABLE IF NOT EXISTS prompt_layouts (
+-- Profiles: a named generation config, and the profile's own prompt layout, fragments, phrase bank and global Worlds in their
+-- tables (profile_id). The settings and endpoint rows stay the live copy of the config; switching captures them into the active
+-- profile and applies the next one, in one transaction. config is JSON (pipeline switches, agent_same_as_writer, the Judge
+-- model); the lane picks are foreign keys so a Backups merge renumbers them with the endpoints. On switch a NULL Writer or Agent
+-- lane keeps its live value; a NULL Judge lane turns the Judge off.
+CREATE TABLE IF NOT EXISTS profiles (
     id TEXT PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    writer_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    writer_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
+    agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    agent_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
+    judge_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    -- The profile's active persona; config.persona names it too, so a backup without the personas can find it again.
+    persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
 );
 
+-- A profile's prompt layout orders the chat prompt's blocks around the history: 'prefix' blocks build the system message and
+-- any pre-history messages, 'writer' blocks build the Writer's request. A built-in block (a marker, kind = its id, or a seeded
+-- section) has its key as id, the same in every profile; a custom block's id is a uuid, kept by a copy of its profile.
 CREATE TABLE IF NOT EXISTS prompt_blocks (
-    id TEXT PRIMARY KEY,
-    layout_id TEXT NOT NULL REFERENCES prompt_layouts(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
     kind TEXT NOT NULL,
     label TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'system',
     region TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    enabled INTEGER NOT NULL DEFAULT 1
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_id, id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_prompt_blocks_layout ON prompt_blocks(layout_id, sort_order);
 
 -- The panel assistant's conversations as the model reads them, by the browser's session id; the newest few are kept.
 CREATE TABLE IF NOT EXISTS assistant_chats (

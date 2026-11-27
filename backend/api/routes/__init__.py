@@ -6,6 +6,7 @@ from . import (
     access,
     api_docs,
     assistant,
+    backups,
     characters,
     conversations,
     decisions,
@@ -19,7 +20,7 @@ from . import (
     misc,
     personas,
     phrase_bank,
-    presets,
+    profiles,
     prompt_layouts,
     settings,
     slop_suggestions,
@@ -37,6 +38,7 @@ ROUTERS = [
     settings.router,
     endpoints.router,
     fragments.router,
+    profiles.router,
     prompt_layouts.router,
     decisions.router,
     worlds.router,
@@ -51,7 +53,7 @@ ROUTERS = [
     # Library-wide maintenance tools. /api/library/* collides with no other
     # pattern; placed beside characters because it is the same modal's surface.
     library.router,
-    presets.router,
+    backups.router,
     messages.router,
     workflows.router,
     local_ml.router,

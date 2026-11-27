@@ -8,11 +8,18 @@ const DOMAINS = [
   { id: "characters", label: "Characters" },
   { id: "chats", label: "Chats", requires: "characters", note: "needs Characters" },
   { id: "lorebooks", label: "Lorebooks" },
-  { id: "fragments", label: "Fragments" },
-  { id: "phrase_bank", label: "Phrase bank" },
   { id: "documents", label: "Documents" },
   { id: "configs", label: "Settings & endpoints" },
 ];
+
+// What a backup holds of each profile. Global lorebooks are marks on Worlds, so they need the Lorebooks domain.
+const PARTS = [
+  { id: "setup", label: "Setup" },
+  { id: "fragments", label: "Fragments" },
+  { id: "phrase_bank", label: "Phrase bank" },
+  { id: "global_lorebooks", label: "Global lorebooks", requires: "lorebooks" },
+];
+const partLabel = (id) => PARTS.find((p) => p.id === id)?.label || id;
 
 let libraryByName = {};
 
@@ -37,13 +44,13 @@ function showPresetsModal() {
   showModal(`
     <div class="modal-title-row">
       <div>
-        <h2>Backup &amp; Presets</h2>
-        <p class="modal-subtitle">Snapshot your data, import a preset (merged into your data), or restore a full backup.</p>
+        <h2>Backups</h2>
+        <p class="modal-subtitle">Snapshot your data, import a backup (merged into your data), or restore a full backup.</p>
       </div>
       <div id="preset-top-actions" class="modal-title-actions">
-        <button class="btn btn-sm" data-wf-action="presets:snapshot">📸 Snapshot current</button>
-        <button class="btn btn-sm" data-wf-action="presets:import">⬆ Import file…</button>
-        <input type="file" id="preset-import-input" accept=".db" style="display:none" data-wf-action="presets:importFile" data-wf-on="change">
+        <button class="btn btn-sm" data-wf-action="backups:snapshot">📸 Snapshot current</button>
+        <button class="btn btn-sm" data-wf-action="backups:import">⬆ Import file…</button>
+        <input type="file" id="preset-import-input" accept=".db" style="display:none" data-wf-action="backups:importFile" data-wf-on="change">
       </div>
     </div>
     <div id="preset-status" class="preset-status hidden" role="status" aria-live="polite">
@@ -97,12 +104,52 @@ function presetTitle(name) {
   return libraryByName[name]?.label || name;
 }
 
-function showSnapshotModal() {
+async function liveProfiles() {
+  return (await api.get("/profiles")).profiles;
+}
+
+/** One profile's row: its name and a checkbox per part in *parts*, each checked when *checked* says so. */
+function profileRow(profile, parts, checked, extra = "") {
+  const boxes = parts
+    .map(
+      (part) => `
+      <label class="modal-checkbox-label">
+        <input type="checkbox" data-part="${part}" ${checked(part) ? "checked" : ""}
+               data-wf-action="backups:part" data-wf-on="change"> ${esc(partLabel(part))}
+      </label>`,
+    )
+    .join("");
+  return `
+    <div class="backup-profile" data-profile="${escAttr(profile.id)}">
+      <div class="backup-profile-name">${esc(profile.name)}</div>
+      <div class="backup-profile-parts">${boxes}</div>
+      ${extra}
+    </div>`;
+}
+
+/** The parts checked in each profile row under *root*, by profile id; a profile with none is left out. */
+function checkedParts(root) {
+  const out = {};
+  for (const row of root.querySelectorAll(".backup-profile")) {
+    const parts = [...row.querySelectorAll("input[data-part]:checked")].map((input) => input.dataset.part);
+    if (parts.length) out[row.dataset.profile] = parts;
+  }
+  return out;
+}
+
+async function showSnapshotModal() {
+  let profiles;
+  try {
+    profiles = await liveProfiles();
+  } catch (e) {
+    toast(e.message, true);
+    return;
+  }
   const rows = DOMAINS.map(
     (d) => `
     <label class="modal-checkbox-label">
       <input type="checkbox" id="exp-${d.id}" data-domain="${d.id}" ${d.requires ? `data-requires="${d.requires}"` : ""}
-             ${d.id === "configs" ? "" : "checked"} data-wf-action="presets:domain" data-wf-on="change">
+             ${d.id === "configs" ? "" : "checked"} data-wf-action="backups:domain" data-wf-on="change">
       ${esc(d.label)}${d.note ? ` <span class="preset-hint">(${esc(d.note)})</span>` : ""}
     </label>`,
   ).join("");
@@ -114,6 +161,18 @@ function showSnapshotModal() {
     <div class="field">
       <label>Include</label>
       ${rows}
+    </div>
+    <div class="field" id="exp-profiles">
+      <label>Profiles</label>
+      ${profiles
+        .map((p) =>
+          profileRow(
+            p,
+            PARTS.map((part) => part.id),
+            (part) => part !== "setup",
+          ),
+        )
+        .join("")}
     </div>
     <div id="preset-key-warning" class="preset-warning hidden">
       ⚠️ This snapshot includes your endpoints. API keys are sensitive.
@@ -127,7 +186,7 @@ function showSnapshotModal() {
     </div>
     <div class="modal-actions">
       <button class="btn" data-wf-action="modal:closeSub">Cancel</button>
-      <button class="btn btn-accent" data-wf-action="presets:createSnapshot">Create</button>
+      <button class="btn btn-accent" data-wf-action="backups:createSnapshot">Create</button>
     </div>
     </div>
   `);
@@ -141,14 +200,25 @@ function onPresetDomainChange(cb) {
   }
   if (!cb.checked) {
     const dependent = DOMAINS.find((d) => d.requires === domain);
+    const part = PARTS.find((p) => p.requires === domain);
     if (dependent && $(`exp-${dependent.id}`)?.checked) {
       cb.checked = true;
       toast(`${DOMAINS.find((d) => d.id === domain).label} is required by ${dependent.label}`, true);
+    } else if (part && $("exp-profiles")?.querySelector(`input[data-part="${part.id}"]:checked`)) {
+      cb.checked = true;
+      toast(`${DOMAINS.find((d) => d.id === domain).label} is required by ${part.label}`, true);
     }
   }
   if (domain === "configs") {
     $("preset-key-warning").classList.toggle("hidden", !cb.checked);
   }
+}
+
+/** A part checkbox in the Snapshot dialog checks the domain it needs. */
+function onPartChange(cb) {
+  const requires = PARTS.find((p) => p.id === cb.dataset.part)?.requires;
+  const domain = requires && $(`exp-${requires}`);
+  if (cb.checked && domain) domain.checked = true;
 }
 
 function selectedDomains() {
@@ -157,7 +227,8 @@ function selectedDomains() {
 
 async function doCreateSnapshot() {
   const domains = selectedDomains();
-  if (!domains.length) {
+  const profiles = checkedParts($("exp-profiles"));
+  if (!domains.length && !Object.keys(profiles).length) {
     toast("Select at least one thing to save", true);
     return;
   }
@@ -165,7 +236,7 @@ async function doCreateSnapshot() {
   const label = $("exp-label")?.value.trim() || "";
   closeSubModal();
   await runPresetOp("Creating snapshot…", null, "Snapshot failed", async () => {
-    await api.post("/presets/export", { domains, strip_keys: strip, label });
+    await api.post("/backups/export", { domains, profiles, strip_keys: strip, label });
     setStatus();
     if (!$("preset-status")) toast("Snapshot saved");
     await refreshPresetLibrary();
@@ -181,7 +252,7 @@ async function handlePresetImportFile(inp) {
   if (!f) return;
   inp.value = "";
   await runPresetOp(`Importing “${f.name}”…`, null, "Import failed", async () => {
-    await api.upload("/presets/import", f);
+    await api.upload("/backups/import", f);
     setStatus();
     if (!$("preset-status")) toast("Added to library");
     await refreshPresetLibrary();
@@ -189,42 +260,88 @@ async function handlePresetImportFile(inp) {
 }
 
 function downloadPreset(name) {
-  downloadBlob(name, `/api/presets/${encodeURIComponent(name)}/download`);
+  downloadBlob(name, `/api/backups/${encodeURIComponent(name)}/download`);
+}
+
+/** The file's profiles, each with the parts it holds and where it lands: the profile with its id, or a new one. */
+function targetRows(entry, live) {
+  const rows = (entry?.profiles || []).map((p) => {
+    const same = live.find((l) => l.id === p.id);
+    const options = [
+      ...(same ? [`<option value="same">${esc(same.name)}</option>`] : []),
+      '<option value="new">New profile</option>',
+    ].join("");
+    const target = `<select class="backup-profile-target" aria-label="Apply to">${options}</select>`;
+    return profileRow(p, p.parts, () => true, target);
+  });
+  return rows.length ? `<div class="backup-profiles" id="backup-targets">${rows.join("")}</div>` : "";
+}
+
+/** The target and checked parts of each file profile in the open Apply or Restore dialog. */
+function chosenTargets() {
+  const root = $("backup-targets");
+  if (!root) return {};
+  const out = {};
+  for (const row of root.querySelectorAll(".backup-profile")) {
+    out[row.dataset.profile] = {
+      target: row.querySelector(".backup-profile-target").value,
+      parts: [...row.querySelectorAll("input[data-part]:checked")].map((input) => input.dataset.part),
+    };
+  }
+  return out;
+}
+
+async function confirmWithTargets(name, opts, run) {
+  let live;
+  try {
+    live = await liveProfiles();
+  } catch (e) {
+    toast(e.message, true);
+    return;
+  }
+  const extraHtml = opts.targets === false ? "" : targetRows(libraryByName[name], live);
+  showSubConfirmModal({ ...opts, extraHtml }, () => run(chosenTargets()));
 }
 
 function applyPreset(name) {
-  showSubConfirmModal(
+  confirmWithTargets(
+    name,
     {
-      title: "Apply preset",
+      title: "Apply backup",
       message: `Merge "${esc(name)}" into your current data? Matching items are overwritten, new ones added. An automatic backup is taken first.`,
       confirmText: "Apply",
       confirmClass: "btn-accent",
     },
-    () =>
+    (profiles) =>
       runPresetOp(`Applying “${presetTitle(name)}”…`, name, "Apply failed", async () => {
-        const r = await api.post(`/presets/${encodeURIComponent(name)}/apply`, {});
+        const r = await api.post(`/backups/${encodeURIComponent(name)}/apply`, { profiles });
         finishApply(r);
       }),
   );
 }
 
 function restorePreset(name) {
-  const domains = libraryByName[name]?.included_domains || [];
-  const full = !domains.length || domains.length >= DOMAINS.length;
-  const labels = domains.map((d) => DOMAINS.find((x) => x.id === d)?.label || d).join(", ");
+  const entry = libraryByName[name];
+  const full = entry.is_full;
+  const labels = (entry?.included_domains || []).map((d) => DOMAINS.find((x) => x.id === d)?.label || d);
+  const what = labels.length
+    ? `<b>${esc(labels.join(", "))}</b> and the profile parts below`
+    : "the profile parts below";
   const message = full
     ? `Replace ALL current data with "${esc(name)}"? This is a full rollback. An automatic backup of the current state is taken first.`
-    : `Restore <b>${esc(labels)}</b> from "${esc(name)}"? This <b>replaces</b> them to exactly match the backup — anything added since is removed. Other data is left untouched. An automatic backup is taken first.`;
-  showSubConfirmModal(
+    : `Restore ${what} from "${esc(name)}"? This <b>replaces</b> them to exactly match the backup — anything added since is removed. Other data is left untouched. An automatic backup is taken first.`;
+  confirmWithTargets(
+    name,
     {
       title: "Restore backup",
       message,
       confirmText: "Restore",
       confirmClass: "btn-danger",
+      targets: !full,
     },
-    () =>
+    (profiles) =>
       runPresetOp(`Restoring “${presetTitle(name)}”…`, name, "Restore failed", async () => {
-        await api.post(`/presets/${encodeURIComponent(name)}/restore`, {});
+        await api.post(`/backups/${encodeURIComponent(name)}/restore`, { profiles });
         setStatus({ text: "Restored — reloading…", busy: true, row: name });
         setTimeout(reloadPage, 600);
       }),
@@ -236,7 +353,7 @@ function deletePreset(name) {
     { title: "Delete file", message: `Delete "${esc(name)}" from the library?`, confirmText: "Delete" },
     async () => {
       try {
-        await api.del(`/presets/${encodeURIComponent(name)}`);
+        await api.del(`/backups/${encodeURIComponent(name)}`);
         refreshPresetLibrary();
       } catch (e) {
         toast(e.message, true);
@@ -257,10 +374,10 @@ async function refreshPresetLibrary() {
   const el = $("preset-library-list");
   if (!el) return;
   try {
-    const items = await api.get("/presets");
+    const items = await api.get("/backups");
     libraryByName = Object.fromEntries(items.map((it) => [it.name, it]));
     if (!items.length) {
-      el.innerHTML = '<div class="phrase-bank-empty">No presets or backups yet</div>';
+      el.innerHTML = '<div class="phrase-bank-empty">No backups yet</div>';
       return;
     }
     items.sort((a, b) => (b.mtime || 0) - (a.mtime || 0)); // newest first
@@ -272,7 +389,10 @@ async function refreshPresetLibrary() {
 }
 
 function presetRow(it) {
-  const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
+  const chips = [
+    ...(it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`),
+    ...(it.profiles || []).map((p) => `<span class="preset-chip preset-chip-profile">${esc(p.name)}</span>`),
+  ].join("");
   const title = it.label || it.name;
   return `
     <div class="preset-item" data-name="${escAttr(it.name)}">
@@ -285,21 +405,22 @@ function presetRow(it) {
           <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
         </div>
         <div class="preset-item-actions">
-          <button class="btn btn-sm btn-square" data-wf-action="presets:download" data-name="${escAttr(it.name)}" title="Download" aria-label="Download preset">${DOWNLOAD_ICON}</button>
-          <button class="btn btn-sm" data-wf-action="presets:apply" data-name="${escAttr(it.name)}" title="Merge into current data">Apply</button>
-          <button class="btn btn-sm" data-wf-action="presets:restore" data-name="${escAttr(it.name)}" title="Replace everything">Restore</button>
-          <button class="btn btn-sm btn-danger btn-square" data-wf-action="presets:delete" data-name="${escAttr(it.name)}" title="Delete" aria-label="Delete preset">${CLOSE_ICON}</button>
+          <button class="btn btn-sm btn-square" data-wf-action="backups:download" data-name="${escAttr(it.name)}" title="Download" aria-label="Download backup">${DOWNLOAD_ICON}</button>
+          <button class="btn btn-sm" data-wf-action="backups:apply" data-name="${escAttr(it.name)}" title="Merge into current data">Apply</button>
+          <button class="btn btn-sm" data-wf-action="backups:restore" data-name="${escAttr(it.name)}" title="${it.is_full ? "Replace everything" : "Restore selected data"}">Restore</button>
+          <button class="btn btn-sm btn-danger btn-square" data-wf-action="backups:delete" data-name="${escAttr(it.name)}" title="Delete" aria-label="Delete backup">${CLOSE_ICON}</button>
         </div>
       </div>
       <div class="preset-chips">${chips}</div>
     </div>`;
 }
 
-registerActions("presets", {
+registerActions("backups", {
   open: () => showPresetsModal(),
   snapshot: () => showSnapshotModal(),
   createSnapshot: () => doCreateSnapshot(),
   domain: (el) => onPresetDomainChange(el),
+  part: (el) => onPartChange(el),
   import: () => triggerPresetImport(),
   importFile: (el) => handlePresetImportFile(el),
   download: (el) => downloadPreset(el.dataset.name),

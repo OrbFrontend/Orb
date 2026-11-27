@@ -90,8 +90,8 @@ tail rather than the shared prefix, so it may pass `fresh=True` and roll
 A prompt layout is an ordered list of blocks around a fixed **Chat history**
 divider. `core/prompt_layout.py` holds the vocabulary (block shape, marker ids,
 section placeholders, and the blocks a new layout seeds); `prompting/layout.py`
-renders it. Chat mode reads the active layout; Document mode and the Assistant
-panel do not.
+renders it. Chat mode reads the active profile's layout; Document mode and the
+Assistant panel do not.
 
 - **Prefix** blocks (above the divider) build the system message and optional
   pre-history messages. Every pass and off-turn workflow call reads them.
@@ -101,7 +101,7 @@ panel do not.
   not steer it.
 
 A **marker** stands for an engine block: `main_prompt`, `cast` and
-`constant_lore` in the prefix; `selected_lore`,
+`constant_lore` in the prefix; `speaker`, `selected_lore`,
 `scene_guidance`, `user_message` and `depth_lore` in the Writer
 request. Markers cannot be deleted, renamed, or moved across the divider. Each
 can be switched off like a custom block; the setting that drives it still
@@ -109,14 +109,14 @@ decides whether it has anything to render, and the group context mode decides
 what `cast` carries. A switched-off marker only leaves the prompt: the stage
 that produces it still runs, and the Inspector still shows its output.
 
-The engine places its remaining Writer lines itself rather than as blocks. The
-group speaker frame opens the Writer request and the "write as" line closes it,
-both as user text.
-The state block, under `**Current State**`, follows `scene_guidance` and leaves
+The engine places its remaining Writer lines itself rather than as blocks.
+State follows the rendered `scene_guidance` template with each fragment’s own heading. It leaves
 with it when `scene_guidance` is switched off. The tool notice, the Length Guard
 nudge and the group speaker's cue, in that order, lead `user_message`; with
-`user_message` switched off they still go, as user text just before the "write
-as" line.
+`user_message` switched off they close the request as user text. On a group
+turn the engine's closing line (`pipeline.passes.writer.speaker_closing`) ends
+it after them, "Write the next reply as X only…". Both go ahead of a trailing
+run of assistant blocks.
 
 The tool notice renders whenever the Writer request carries tool schemas. The
 Writer ships the shared schemas under `tool_choice="none"` to keep the cached
@@ -131,9 +131,8 @@ The Director stage hands the Writer `scene_guidance` and the state block.
 Writer-routed ruling at its fragment's place. The before-Writer state step and
 the closing Judge point read the same body with the Director-routed rulings
 instead. The Inspector's injection block and the state step see it under the
-fixed `**Scene Guidance**` heading. The Director's own steps read the opening
-point's rulings under `**Major Decisions**`, the same block in every step, and
-later rulings in their decided lists (see [KV cache](kv-cache.md)).
+fixed `**Scene Guidance**` heading. The Director's own steps read every ruling,
+the opening point's first, in their decided lists (see [KV cache](kv-cache.md)).
 
 Lore reaches the layout the same way: `constant_lore`, `selected_lore` and
 `depth_lore` carry entry lines only, authored and Agent-managed entries in one
@@ -141,15 +140,44 @@ list, and the Director's own request frames selected lore under its fixed
 `**Lorebook**` heading.
 
 `main_prompt` and every marker in `MARKER_TEMPLATES` hold their own text
-(`EDITABLE_MARKERS`); the API marks them `editable`. Those are the three lore
-markers, `scene_guidance` and `user_message`. Each starts from its
+(`EDITABLE_MARKERS`), as does `cast` (below); the API marks them `editable`.
+Every marker in `MARKER_TEMPLATES` (the three lore markers, `scene_guidance`
+and `user_message`) starts from its
 template and must keep its own placeholder, `{{<kind>}}` (`{{constant_lore}}`,
 `{{scene_guidance}}` and so on) outside a `{{// ... }}` note and outside backticks.
 The placeholder stands for the engine's part and is filled like a section
 placeholder: the text's macros resolve, with the conversation's seed above the
 divider and fresh below it, then the value goes in literally.
 The block renders nothing while its value is empty. Writer-request text carries
-its own `___` divider. Every other marker's text is fixed; its window has no text field.
+its own `___` divider.
+
+The **Group cast** marker's text is one member's card (`CAST_TEMPLATE`), not a
+frame around a placeholder of its own. Each card the context mode shows is
+rendered from it, scoped to that member (`prompting.render_member_card`): under
+Shared one per member after the roster, under Classic card swap the speaker's
+after the public cast, and under Private the speaker's as the **Group speaker**
+text's `{{card}}`, so the text steers the Writer request too. There
+`{{char}}`, `{{description}}`, `{{personality}}` and `{{examples}}` stand for
+that member's name and fields; the other sections keep their chat meaning. The
+text is filled once, as a marker's is; a paragraph after the first that names
+only empty sections is left out, so a heading leaves with its section, and a
+card renders nothing while every section it names is empty. The text's own macros roll at the member's `cast`
+place. Switching the marker off leaves only the prefix section; Private's
+speaker card stays. An edit cannot blank the text; a blank one, as a preset
+that blanks block text leaves it, renders the built-in card. The public cast and
+the Shared roster stay engine text.
+
+The **Group speaker** (`speaker`) marker heads a group turn's Writer request
+(`SPEAKER_TEMPLATE`); a solo turn does not render it. A new layout seeds it first
+below the divider. Its text resolves with the speaker's macros, so `{{char}}` is the speaker, and two
+placeholders stand for the speaker's parts (`pipeline.passes.writer.speaker_parts`):
+`{{instructions}}` is the speaker card's post-history instructions, empty under
+`prevent_prompt_overrides`, rolled at the member's `instructions` place, and
+`{{card}}` is the speaker's card from the Group cast text under Private, empty in
+the other modes. The other sections keep their chat meaning. The text is filled
+once with paragraph dropping, as the Group cast text is. The text must keep
+`{{card}}`, or Private would lose the speaker's card. An edit cannot blank it; a
+blank one renders the built-in text.
 
 The **Main prompt** marker holds the system prompt text in its `content`. A
 character card's own `system_prompt` replaces that text unless
@@ -175,11 +203,11 @@ name means its section wherever it is written, on either side of the divider:
 
 | Placeholder | Section |
 |---|---|
-| `{{description}}` | A solo card's description; empty in a group, where `cast` carries the cards |
-| `{{personality}}` | A solo card's personality; empty in a group |
+| `{{description}}` | A solo card's description; empty in a group, except in the Group cast text, where it is the member's |
+| `{{personality}}` | A solo card's personality; in a group, as `{{description}}` |
 | `{{scenario}}` | The chat's scenario |
-| `{{examples}}` | A solo card's example dialogue; empty in a group |
-| `{{instructions}}` | The chat's instructions; empty under `prevent_prompt_overrides` |
+| `{{examples}}` | A solo card's example dialogue; in a group, as `{{description}}` |
+| `{{instructions}}` | The chat's instructions, in a group the scene's, the Group cast text included; in the Group speaker text, the speaker card's post-history instructions; empty under `prevent_prompt_overrides` |
 | `{{persona}}` | The user persona's description |
 
 `{{description}}` and `{{personality}}` are also general macros carrying the
@@ -229,9 +257,8 @@ Rendering rules:
   Section values reach the Writer through `PipelineContext.sections`, the same
   values the prefix renders.
 - Assistant blocks that end the Writer request are the reply's opening
-  (prefill): the last keeps no trailing whitespace, and the engine's closing
-  user text (the "write as" line, and the engine lines while `user_message` is
-  switched off) goes before them. The later passes replay the reply as the
+  (prefill), and the engine lines that close the request go before them. That
+  opening keeps no trailing whitespace. The later passes replay the reply as the
   continuation of that opening (`prompting.layout.replay_reply`), the bytes the
   Writer produced; the stored reply is the model's text alone.
 - The messages go out as laid out, on every transport: a request may end on an
@@ -278,14 +305,13 @@ shares one prefix (`pipeline.context.build_turn_prefix`). The summarizer reads
 the same neutral prefix over the summarized history
 (`pipeline.context.offturn_config`), so it renders the active layout too.
 
-The HTTP surface lives in `api/routes/prompt_layouts.py`:
+Each profile owns one layout: its `prompt_blocks` rows, keyed by the
+profile's id. `api/routes/profiles.py` creates, renames, deletes and switches
+profiles (`features/profiles`); the block surface lives in
+`api/routes/prompt_layouts.py`, where `{id}` is a profile id:
 
 | Route | Purpose |
 |---|---|
-| `GET /api/prompt-layouts` | Layouts and the active id |
-| `POST /api/prompt-layouts` | Create a layout; `{copy_from}` duplicates one |
-| `PATCH`, `DELETE /api/prompt-layouts/{id}` | Rename or delete (not the last layout); deleting the active layout activates the first one left |
-| `PUT /api/prompt-layouts/active` | Set the active layout |
 | `GET`, `POST /api/prompt-layouts/{id}/blocks` | List blocks, or add a custom block |
 | `PATCH`, `DELETE /api/prompt-blocks/{id}` | Edit a block's label, text, role or switch (a marker only its role, its switch, and its text when editable), or delete a custom block; a refused edit is a 409 |
 | `PUT /api/prompt-layouts/{id}/order` | Place every block: `{prefix: [...ids], writer: [...ids]}` |

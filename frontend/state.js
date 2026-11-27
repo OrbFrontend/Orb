@@ -224,6 +224,11 @@ export function turnActive(state = S) {
   return state.turn.phase !== "idle";
 }
 
+/** Is a chat turn running in any conversation, on screen or not? */
+export function anyTurnActive() {
+  return turnActive(S) || [...S.conversationStates.values()].some((state) => turnActive(state));
+}
+
 /** A turn or a prose rewrite holds the conversation's stream; Stop shows in place of Send. */
 export function streamBusy(state = S) {
   return turnActive(state) || !!state.proseRewriteMsgId;
@@ -356,6 +361,8 @@ const TOPICS = new Set([
   "expression-playback",
   "avatars",
   "context-size",
+  "turns", // a chat turn began or ended, in any conversation
+  "profile", // another profile became active, and the settings, layout and library lists have reloaded
 ]);
 
 const _subscribers = new Map(); // topic -> listeners

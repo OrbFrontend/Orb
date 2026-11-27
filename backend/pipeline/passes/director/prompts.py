@@ -112,9 +112,12 @@ def _judged_next_block(questions: Sequence[str]) -> str:
     )
 
 
-def ruling_entry(label: str, guidance: str) -> tuple[str, str]:
-    """A Judge ruling between Director fragments, as a decided-so-far line: it stands where it differs from the plan."""
-    return f"Judge ruling ({label})", f"{guidance} Where it differs from the plan above, the ruling stands."
+def ruling_entry(label: str, guidance: str, *, overrides: bool = True) -> tuple[str, str]:
+    """A Judge ruling as a decided-so-far line; with *overrides* (a plan above it) it stands where it differs from that plan."""
+    return (
+        f"Judge ruling ({label})",
+        f"{guidance} Where it differs from the plan above, the ruling stands." if overrides else guidance,
+    )
 
 
 def _value_field_lines(fragment: Mapping[str, Any], prior: Any) -> list[str]:

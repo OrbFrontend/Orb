@@ -8,7 +8,7 @@ All admission checks and reservations run without yielding on the event loop.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Coroutine, Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -29,9 +29,9 @@ class WorkPhase(StrEnum):
 
 
 class ChatUnavailable(Exception):
-    """Admission failed because deletion or existing lane ownership blocks it."""
+    """Admission failed because deletion, existing lane ownership, or an admission fence blocks it."""
 
-    def __init__(self, reason: Literal["deleting", "busy"], key: str):
+    def __init__(self, reason: Literal["deleting", "busy", "fenced"], key: str):
         self.reason = reason
         self.key = key
         super().__init__(reason)
@@ -101,6 +101,8 @@ class _ResourceWork:
 class WorkRegistry:
     def __init__(self) -> None:
         self._resources: dict[str, _ResourceWork] = {}
+        # Each held admission fence's test of a resource key; a stream on a key any of them names cannot begin.
+        self._fences: list[Callable[[str], bool]] = []
 
     def _resource(self, key: str) -> _ResourceWork:
         if key not in self._resources:
@@ -142,6 +144,10 @@ class WorkRegistry:
         state = self._resources.get(key)
         return state is not None and any(job.message_id == message_id for job in state.jobs.values())
 
+    def stream_keys(self) -> list[str]:
+        """The resources with a stream running or settling."""
+        return [key for key, state in self._resources.items() if state.stream is not None]
+
     def active_work(self) -> list[str]:
         labels = {
             WorkPhase.STREAMING: "Generation",
@@ -176,6 +182,18 @@ class WorkRegistry:
             for key, state in states.items():
                 state.deleting = False
                 self._discard_idle(key, state)
+
+    @contextmanager
+    def admission_fence(self, covers: Callable[[str], bool]) -> Iterator[None]:
+        """Hold the body with no stream running or beginning on a key *covers* names. Raises busy, naming the first such
+        stream, when one runs or settles now; a stream that tries to begin meanwhile is refused as fenced."""
+        if busy := next((key for key in self.stream_keys() if covers(key)), None):
+            raise ChatUnavailable("busy", busy)
+        self._fences.append(covers)
+        try:
+            yield
+        finally:
+            self._fences.remove(covers)
 
     @contextmanager
     def message_deletion_fence(self, key: str, message_ids: set[int]) -> Iterator[None]:
@@ -228,6 +246,8 @@ class WorkRegistry:
             self._discard_idle(key, state)
 
     async def begin_stream(self, key: str, token: AbortToken | None, operation_id: str | None) -> ActiveStream:
+        if any(covers(key) for covers in self._fences):
+            raise ChatUnavailable("fenced", key)
         state = await self._take_idle_lane(key)
         stream = ActiveStream(token, operation_id)
         state.stream = stream

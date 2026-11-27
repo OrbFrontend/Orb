@@ -3,6 +3,10 @@
 Length Guard limits the size of assistant replies. It checks word count after the
 Writer finishes and asks the **Editor** to rewrite an overlong reply.
 
+Length Guard and the Compress History preview count whitespace-separated runs. Within a run,
+each Han or kana character counts as one, and any remaining letters or digits together count as one more.
+For example, `猫です。` counts as three and `Hello 猫！` counts as two.
+
 ## Configure it
 
 Open the tools panel and enable **Length Guard**. Set:
