@@ -163,7 +163,7 @@ export function renderEndpoints() {
             <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}"${aliasListId ? ` list="${aliasListId}"` : ""} autocomplete="off" ${save}>
             <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
           </div>
-          <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
+          <div class="cb-dropdown ui-popover" hidden><div class="cb-list"></div></div>
         </div>
         ${aliasListId ? `<datalist id="${aliasListId}"><option value="sonnet"><option value="opus"><option value="haiku"></datalist>` : ""}
         ${warningHtml}
@@ -344,7 +344,7 @@ function _judgeLaneHtml() {
             <input type="text" class="cb-input" value="${escAttr(endpoint?.url || "")}" data-key="judge_endpoint_url" placeholder="https://openrouter.ai/api/alpha/decisions" autocomplete="off">
             <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
           </div>
-          <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
+          <div class="cb-dropdown ui-popover" hidden><div class="cb-list"></div></div>
         </div>
       </div>
       <div class="field"><label>Judge API Key</label>

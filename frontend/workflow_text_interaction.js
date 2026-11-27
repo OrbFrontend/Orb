@@ -164,7 +164,7 @@ function _openPopover(claimants, ctx, anchorRect) {
     return;
   }
   const pop = document.createElement("div");
-  pop.className = "wf-claim-popover";
+  pop.className = "wf-claim-popover ui-popover";
   for (const h of claimants) {
     const item = document.createElement("button");
     item.type = "button";

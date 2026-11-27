@@ -1,5 +1,5 @@
 
-:root { --mobile-header-button-size: 34px;
+:where(:root) { --mobile-header-button-size: 34px;
   --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px); --mobile-overlay-z: 80;
   --mobile-sidebar-z: 90; --mobile-panel-z: 95; --mobile-overlay-color: rgba(0, 0, 0, .45);
   --mobile-panel-shadow-left: 10px 0 28px rgba(0, 0, 0, .45);

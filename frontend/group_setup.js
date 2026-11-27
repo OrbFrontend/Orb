@@ -103,7 +103,7 @@ function titleFromNames(names) {
 
 function pickCardHtml(card) {
   return `<button type="button" class="cast-pick" data-group-card-id="${escAttr(card.id)}" aria-pressed="false">
-    <span class="cast-pick-avatar">${avatarCell(escAttr(avatarUrl(card.id)), {
+    <span class="cast-pick-avatar ui-avatar">${avatarCell(escAttr(avatarUrl(card.id)), {
       icon: "👤",
       attrs: 'loading="lazy" decoding="async"',
     })}</span>

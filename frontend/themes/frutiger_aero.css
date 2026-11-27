@@ -10,7 +10,7 @@
   --font-ui:'Segoe UI','Frutiger','Helvetica Neue',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
   --font-mono:'Consolas','Segoe UI Mono','Menlo','DejaVu Sans Mono','Lucida Console',monospace; --radius:9px;
   --font-prose-size:16px;
-  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px;
+  --sidebar-width:300px; --inspector-width:340px;
   --scrollbar-width:thin; --scrollbar-thumb:#58b4e4; --scrollbar-track:rgba(255,255,255,0.3);
 
   /* Materials. A gel is a two-band gloss: bright upper half, a hard break at the middle, a glow rising below. */
@@ -45,19 +45,19 @@ body { background: #62c1ec var(--aero-wall) center / cover no-repeat !important;
 
 /* ── Panes ── */
 
-#sidebar, #inspector, #tools-panel, #assistant-panel {
+.ui-panel {
   background: var(--aero-milk),
     var(--aero-frost) calc(var(--aero-wall-x) / var(--aero-z)) center / calc(var(--aero-wall-w) / var(--aero-z)) auto
     no-repeat #d7eef9 !important; }
-#inspector, #tools-panel, #assistant-panel {
+.ui-dock {
   background-position: 0 0, right calc(var(--aero-wall-x) / var(--aero-z)) center !important; }
 #lorebook-drawer { background: var(--aero-milk), var(--aero-frost) center / cover no-repeat #d7eef9 !important; }
 #sidebar { border-right: 1px solid rgba(255,255,255,0.8) !important; }
-#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 1px solid rgba(255,255,255,0.8) !important; }
+.ui-dock.open { border-left: 1px solid rgba(255,255,255,0.8) !important; }
 @media (min-width: 901px) {
   #sidebar { --aero-z: var(--sidebar-scale, 1); box-shadow: 1px 0 0 var(--aero-edge), 2px 0 7px rgba(12,62,100,0.2); }
-  #inspector, #tools-panel, #assistant-panel { --aero-z: var(--panel-scale, 1); }
-  #inspector.open, #tools-panel.open, #assistant-panel.open {
+  .ui-dock { --aero-z: var(--panel-scale, 1); }
+  .ui-dock.open {
     box-shadow: -1px 0 0 var(--aero-edge), -2px 0 7px rgba(12,62,100,0.2); }
 }
 /* Both top bars break their gloss 28px down, on the line their titles share, so it reads as one sheet of glass. */
@@ -107,22 +107,22 @@ body { background: #62c1ec var(--aero-wall) center / cover no-repeat !important;
   box-shadow: inset 0 1px 3px rgba(12,62,100,0.3) !important; }
 .btn:disabled, .btn:disabled:hover { background: var(--aero-gel) !important; border-color: #86bfe0 !important;
   box-shadow: var(--aero-lip) !important; }
-.btn-accent, .btn-active, #send-btn, .asst-send, .tab-button-active, .tab-button-active:hover {
+.btn-accent, .btn-active, .ui-send, .tab-button-active, .tab-button-active:hover {
   background: var(--aero-blue-gel) !important; border: 1px solid #0f73b4 !important; color: #ffffff !important;
   text-shadow: 0 -1px 0 rgba(0,46,82,0.4) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 3px rgba(12,62,100,0.35) !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover {
+.btn-accent:hover, .btn-active:hover, .ui-send:hover {
   background: var(--aero-blue-gel-hover) !important; border-color: #0f73b4 !important; color: #ffffff !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 1px 4px rgba(12,62,100,0.35),
   0 0 0 2px rgba(60,180,245,0.3) !important;
 }
-.btn-accent:active, .btn-active:active, #send-btn:active, .asst-send:active {
+.btn-accent:active, .btn-active:active, .ui-send:active {
   background: linear-gradient(180deg, #0f7fca, #36aeea) !important;
   box-shadow: inset 0 1px 4px rgba(0,46,82,0.45) !important; }
-.btn-danger, #stop-btn, .asst-send.asst-stop { background: var(--aero-red-gel) !important;
+.btn-danger, .ui-stop { background: var(--aero-red-gel) !important;
   border: 1px solid #b23a1f !important; color: #ffffff !important; text-shadow: 0 -1px 0 rgba(70,12,0,0.35) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 1px 3px rgba(150,50,30,0.32) !important; }
-.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover {
+.btn-danger:hover, .ui-stop:hover {
   background: linear-gradient(180deg, #fbb9a8 0%, #ea6c52 48%, #d54e30 52%, #f38a70 100%) !important;
   border-color: #b23a1f !important; color: #ffffff !important; filter: none !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 1px 4px rgba(150,50,30,0.35),
@@ -181,8 +181,7 @@ input[type="range"] { background: linear-gradient(180deg, #c9dfee, #e8f4fb) !imp
   color: #33701f !important; }
 .group-chat-count { background: var(--aero-gel) !important; color: var(--text-secondary) !important;
   box-shadow: inset 0 0 0 1px #9ccbe6 !important; }
-.chat-avatar, .char-avatar-sm, .char-avatar-lg, .cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar,
-.world-avatar, .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
+.ui-avatar {
   border-color: #5fb0dc !important; box-shadow: 0 1px 2px rgba(12,62,100,0.28) !important;
 }
 .tool-card, .workflow-card, .lib-tool { background: rgba(255,255,255,0.74) !important;
@@ -195,7 +194,7 @@ input[type="range"] { background: linear-gradient(180deg, #c9dfee, #e8f4fb) !imp
 .inspect-chip { background: rgba(255,255,255,0.7) !important; }
 .inspect-chip.active { background: var(--aero-gel-hover) !important; border-color: #4aa9de !important;
   color: #0b5f9c !important; }
-.cb-dropdown, #burger-dropdown, .wf-claim-popover, #doc-prob-popup {
+.ui-popover {
   background: linear-gradient(180deg, #ffffff, #f1f9fe) !important; border: 1px solid var(--aero-edge) !important;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.9), 0 6px 18px rgba(12,62,100,0.3) !important; }
 

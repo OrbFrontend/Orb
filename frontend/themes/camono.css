@@ -4,7 +4,7 @@
   --font-prose:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
   --font-ui:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
   --font-mono:'Fira Code','Cascadia Code','Courier New',Consolas,monospace; --radius:0px; --font-prose-size:14px;
-  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px; }
+  --sidebar-width:300px; --inspector-width:340px; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 0; }

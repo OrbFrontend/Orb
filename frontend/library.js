@@ -311,7 +311,7 @@ function showCharCreateModal() {
   showModal(
     `
     <div class="modal-char-header">
-      <div id="cc-avatar-preview" class="char-avatar-lg" data-wf-action="library:avatarCrop" data-prefix="cc"
+      <div id="cc-avatar-preview" class="char-avatar-lg ui-avatar" data-wf-action="library:avatarCrop" data-prefix="cc"
            title="Click to set avatar" style="cursor:pointer">${NO_AVATAR_ICON}</div>
       <div style="flex:1">
         <div class="field" style="margin-bottom:4px">
@@ -458,7 +458,7 @@ export async function showCharEditModal(idOrData) {
     `
     <div class="modal-char-header">
       <div class="char-avatar-edit">
-        <div id="ce-avatar-preview" class="char-avatar-lg" data-wf-action="library:avatarCrop" data-prefix="ce"
+        <div id="ce-avatar-preview" class="char-avatar-lg ui-avatar" data-wf-action="library:avatarCrop" data-prefix="ce"
              title="Click to change avatar" style="cursor:pointer">${av}</div>
         ${!isNew ? `<button type="button" class="btn btn-sm avatar-focus-btn" data-wf-action="library:avatarFocus" data-char-id="${escAttr(c.id)}" title="Choose the focus for avatars">${FOCUS_ICON}Focus</button>` : ""}
       </div>

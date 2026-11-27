@@ -1,6 +1,7 @@
 
 /* Keep component imports ordered; later files override earlier ones. */
 
+@import "css/tokens.css";
 @import "css/base.css";
 @import "css/sidebar.css";
 @import "css/chat.css";

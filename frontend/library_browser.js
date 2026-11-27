@@ -474,7 +474,7 @@ function renderCharBrowserCard(c) {
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) : "", { deferred: true });
   return `
     <div class="char-browser-card" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${escAttr(c.id)}">
-      <div class="char-browser-avatar">${av}</div>
+      <div class="char-browser-avatar ui-avatar">${av}</div>
       <div class="char-browser-card-name">${esc(c.name)}</div>
     </div>`;
 }
@@ -486,7 +486,7 @@ function renderCharBrowserListItem(c) {
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
     <div class="char-browser-list-item" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${escAttr(c.id)}">
-      <div class="char-browser-list-avatar">${av}</div>
+      <div class="char-browser-list-avatar ui-avatar">${av}</div>
       <div class="char-browser-list-info">
         <div class="char-browser-list-name">${esc(c.name)}</div>
         ${tags}
@@ -656,7 +656,7 @@ function renderInternetResultCard(item) {
       : "";
   return `
     <div class="char-browser-card internet-result-card">
-      <div class="char-browser-avatar" title="${tooltip}">${av}</div>
+      <div class="char-browser-avatar ui-avatar" title="${tooltip}">${av}</div>
       <div class="char-browser-card-name">${esc(item.name || "")}</div>
       <div class="internet-result-meta">
         <div class="internet-result-creator">${item.creator ? `by ${esc(item.creator)}` : ""}</div>

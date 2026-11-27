@@ -317,7 +317,7 @@ function renderSpotlightCard(sp) {
   return `<div class="stat-card stat-card-favorite stat-card-spotlight-${esc(sp.theme)}${sp.card_id ? " stat-card-clickable" : ""}"${clickable}>
       <div class="stat-fav-eyebrow">${esc(eyebrow)}</div>
       <div class="stat-fav-body">
-        <div class="stat-fav-avatar">${av}</div>
+        <div class="stat-fav-avatar ui-avatar">${av}</div>
         <div class="stat-fav-text">
           <div class="stat-fav-name">${esc(sp.name)}</div>
           <div class="stat-fav-count">${msgs} · ${convs}</div>

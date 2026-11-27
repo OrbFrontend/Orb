@@ -90,7 +90,7 @@ function showUserModal() {
         : "Only available for saved characters";
       return `
       <div class="persona-item${isActive ? " persona-item-active" : ""}" data-wf-action="personas:activate" data-persona-id="${p.id}">
-        <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${avatarInner}</div>
+        <div class="persona-avatar ui-avatar" style="background:${avatarBg};color:${avatarTextColor}">${avatarInner}</div>
         <div class="persona-info">
           <div class="persona-name-row">
             <span class="persona-name">${esc(p.name)}</span>
@@ -157,7 +157,7 @@ function showPersonaEditModal(personaId) {
   showModal(`
     <h2>${isEdit ? "Edit persona" : "New persona"}</h2>
     <div class="persona-edit-avatar" id="persona-avatar-controls">
-      <div class="persona-avatar persona-avatar-lg" id="persona-avatar-preview">${personaPreviewHtml(persona)}</div>
+      <div class="persona-avatar persona-avatar-lg ui-avatar" id="persona-avatar-preview">${personaPreviewHtml(persona)}</div>
       <div class="persona-avatar-actions">
         <button type="button" class="btn btn-sm" data-action="choose">Choose image</button>
         <button type="button" class="btn btn-sm" data-action="remove"${persona?.has_avatar ? "" : " disabled"}>Remove</button>

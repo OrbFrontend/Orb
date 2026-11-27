@@ -3,7 +3,7 @@
   --accent:#c29a66; --accent-dim:#7a5f3e; --accent-glow:rgba(194,154,102,0.14); --red:#9e4642;
   --font-prose:'Lora',Georgia,'Palatino Linotype',Palatino,serif;
   --font-ui:Optima,Candara,'Segoe UI',system-ui,sans-serif; --font-mono:'Courier New',Courier,monospace; --radius:4px;
-  --font-prose-size:16px; --sidebar-width:300px; --inspector-width:340px; --tools-width:260px; }
+  --font-prose-size:16px; --sidebar-width:300px; --inspector-width:340px; }
 
 /* One brass family carries every accent: the theme accent, corner brackets, inlays, plates and selected fills.
    Chat boxes are flat walnut with brass corner brackets; yours sit a shade darker with a faint full inlay, both 5px
@@ -50,7 +50,7 @@
   background: var(--vw-corners-sm), var(--vw-selected) !important; }
 
 /* ── Pop-ups: flat fill and a brass hairline instead of a drop shadow. ── */
-.cb-dropdown, #burger-dropdown, .wf-claim-popover, #doc-prob-popup, .toast {
+.ui-popover, .toast {
   background: var(--bg-elevated) !important; border: 1px solid var(--vw-brass-line) !important; box-shadow: none !important; }
 .toast.error { border-color: var(--red) !important; }
 .turn-error { box-shadow: none !important; }
@@ -78,9 +78,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
   color: #d8c8bb !important; box-shadow: none !important; }
 .btn:not(:disabled):hover, #burger-btn:hover { background: var(--bg-elevated) !important;
   border-color: var(--vw-brass) !important; color: var(--text-primary) !important; }
-.btn-accent, #send-btn, .asst-send { background: var(--vw-plate) !important; border: 1px solid var(--vw-plate) !important;
+.btn-accent, .ui-send { background: var(--vw-plate) !important; border: 1px solid var(--vw-plate) !important;
   color: var(--vw-plate-ink) !important; font-weight: 600; }
-.btn-accent:not(:disabled):hover, #send-btn:not(:disabled):hover, .asst-send:not(:disabled):hover {
+.btn-accent:not(:disabled):hover, .ui-send:not(:disabled):hover {
   background: var(--vw-plate-hover) !important; border-color: var(--vw-plate-hover) !important;
   color: var(--vw-plate-ink) !important; }
 .btn-active { background: var(--vw-selected) !important; border-color: var(--vw-brass-line) !important;
@@ -90,6 +90,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .btn-danger { color: var(--vw-danger) !important; }
 .btn-danger:not(:disabled):hover { background: rgba(158,70,66,0.22) !important; border-color: #a5463f !important;
   color: var(--vw-danger) !important; }
-#stop-btn, .asst-send.asst-stop { background: #7e332e !important; border: 1px solid #a5463f !important;
+.ui-stop { background: #7e332e !important; border: 1px solid #a5463f !important;
   color: #f3e2d6 !important; filter: none !important; }
-#stop-btn:hover, .asst-send.asst-stop:hover { background: #8f3b35 !important; border-color: #b8564d !important; }
+.ui-stop:hover { background: #8f3b35 !important; border-color: #b8564d !important; }

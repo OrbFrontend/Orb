@@ -15,7 +15,7 @@
   --font-prose:'Exo 2',system-ui,sans-serif;
   --font-ui:'Fira Code','Cascadia Code',Consolas,monospace;
   --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:0px; --font-prose-size:15px;
-  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px;
+  --sidebar-width:300px; --inspector-width:340px;
 
   --scrollbar-width:thin; --scrollbar-thumb:var(--ink); --scrollbar-track:transparent;
 
@@ -46,16 +46,15 @@ body { --band-red:color-mix(in srgb, var(--sig) 30%, var(--bg-deep));
 
 /* ── Frame ── */
 
-#sidebar, #inspector, #tools-panel, #assistant-panel { background: var(--bg-primary) !important; }
+.ui-panel { background: var(--bg-primary) !important; }
 #sidebar { border-right: 2px solid var(--ink) !important; }
-#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 2px solid var(--ink) !important; }
+.ui-dock.open { border-left: 2px solid var(--ink) !important; }
 
 @media (min-width: 901px) {
   #app { padding: 10px; }
   #sidebar { margin-right: 10px; }
-  #inspector.open, #tools-panel.open, #assistant-panel.open { margin-left: 10px; }
-  #sidebar, #inspector.open, #tools-panel.open, #assistant-panel.open,
-  #chat-header, #doc-header, #chat-input-area, #doc-footer {
+  .ui-dock.open { margin-left: 10px; }
+  #sidebar, .ui-dock.open, #chat-header, #doc-header, #chat-input-area, #doc-footer {
     border: 2px solid var(--ink) !important; box-shadow: var(--shadow-hard) !important; }
   #chat-header, #doc-header { margin-bottom: 6px; }
   #doc-footer { margin-top: 10px; }
@@ -98,21 +97,21 @@ body { --band-red:color-mix(in srgb, var(--sig) 30%, var(--bg-deep));
 .btn { background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; color: var(--ink) !important;
   transition: background .12s, color .12s, transform .08s, box-shadow .08s !important; }
 .btn:not(:disabled):hover { background: var(--ink) !important; color: var(--paper-on-ink) !important; }
-.btn-accent, #send-btn, .asst-send { background: var(--sig) !important; border: 2px solid var(--ink) !important;
+.btn-accent, .ui-send { background: var(--sig) !important; border: 2px solid var(--ink) !important;
   color: var(--ink) !important; font-weight: 700 !important; box-shadow: var(--shadow-hard) !important; }
-.btn-accent:not(:disabled):hover, #send-btn:not(:disabled):hover, .asst-send:not(:disabled):hover {
+.btn-accent:not(:disabled):hover, .ui-send:not(:disabled):hover {
   background: var(--sig-hover) !important; color: var(--ink) !important;
   transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink) !important; }
-.btn-accent:not(:disabled):active, #send-btn:not(:disabled):active, .asst-send:not(:disabled):active {
+.btn-accent:not(:disabled):active, .ui-send:not(:disabled):active {
   transform: translate(3px, 3px); box-shadow: 0 0 0 transparent !important; }
 .btn-active { background: var(--sig-tint) !important; border-color: var(--ink) !important; color: var(--ink) !important;
   box-shadow: inset 0 -3px 0 var(--sig) !important; }
 .btn-active:not(:disabled):hover { background: var(--ink) !important; color: var(--sig) !important; }
-.btn-danger, #stop-btn, .asst-send.asst-stop { background: var(--ink) !important; border: 2px solid var(--ink) !important;
+.btn-danger, .ui-stop { background: var(--ink) !important; border: 2px solid var(--ink) !important;
   color: var(--sig) !important; box-shadow: 3px 3px 0 var(--sig) !important; }
-.btn-danger:not(:disabled):hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: var(--ink-2) !important;
+.btn-danger:not(:disabled):hover, .ui-stop:hover { background: var(--ink-2) !important;
   color: var(--sig-hover) !important; }
-#burger-btn, #mobile-sidebar-toggle, #doc-mobile-sidebar-toggle {
+#burger-btn, .ui-sidebar-toggle {
   background: var(--bg-elevated) !important; border: 1px solid var(--ink) !important; color: var(--ink) !important; }
 #burger-btn:hover { background: var(--ink) !important; color: var(--paper-on-ink) !important; }
 
@@ -129,7 +128,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
   color: inherit !important; }
 ::placeholder { color: var(--text-muted) !important; }
 
-.cb-dropdown, #burger-dropdown, .wf-claim-popover, #doc-prob-popup {
+.ui-popover {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
   box-shadow: 6px 6px 0 var(--sig) !important; }
 .cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--ink) !important;
@@ -143,8 +142,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .tab { letter-spacing: .12em; text-transform: uppercase; }
 .tab.active { color: var(--ink) !important; border-bottom: 3px solid var(--sig) !important; }
 
-.chat-avatar, .char-avatar-sm, .char-avatar-lg, .cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar,
-.world-avatar, .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
+.ui-avatar {
   border: 1px solid var(--ink) !important; background: var(--bg-elevated) !important; }
 
 /* ── Messages ── */
@@ -216,6 +214,6 @@ textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn-accent:hover, #send-btn:hover, .asst-send:hover, .btn-accent:active, #send-btn:active, .asst-send:active {
+  .btn-accent:hover, .ui-send:hover, .btn-accent:active, .ui-send:active {
     transform: none; }
 }

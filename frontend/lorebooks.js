@@ -138,7 +138,7 @@ function _worldItemHtml(w) {
   return `
   <div class="world-item${active ? " active" : ""}">
     <div class="world-item-main" ${mainAction}>
-      <div class="world-avatar${haloClass}"${haloTitle}>${esc(initials)}</div>
+      <div class="world-avatar ui-avatar${haloClass}"${haloTitle}>${esc(initials)}</div>
       <span class="world-name">${esc(w.name)}</span>
       ${pending ? `<span class="world-pending" title="World changes awaiting review">${pending}</span>` : ""}
     </div>

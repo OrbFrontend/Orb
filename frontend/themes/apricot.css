@@ -19,7 +19,7 @@
   --font-prose:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
   --font-ui:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace;
   --font-mono:'Fira Code','JetBrains Mono','Cascadia Code',ui-monospace,monospace; --radius:12px;
-  --font-prose-size:14px; --sidebar-width:300px; --inspector-width:340px; --tools-width:260px;
+  --font-prose-size:14px; --sidebar-width:300px; --inspector-width:340px;
 
   --scrollbar-width:thin; --scrollbar-thumb:#cba57e; --scrollbar-track:transparent;
 }
@@ -38,9 +38,9 @@ body {
     !important;
   background-attachment: fixed !important;
 }
-#sidebar, #inspector, #tools-panel, #assistant-panel { background: var(--bg-primary) !important; }
+.ui-panel { background: var(--bg-primary) !important; }
 #sidebar { border-right: 2px solid var(--ink) !important; }
-#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 2px solid var(--ink) !important; }
+.ui-dock.open { border-left: 2px solid var(--ink) !important; }
 .sidebar-header, #chat-header, #doc-header { background: var(--band) !important;
   border-bottom: 2px solid var(--ink) !important; }
 #chat-header .chat-title, #doc-header .doc-title { color: var(--ink) !important; }
@@ -50,8 +50,8 @@ body {
 @media (min-width: 901px) {
   #app { padding: 12px; }
   #sidebar { margin-right: 12px; }
-  #inspector.open, #tools-panel.open, #assistant-panel.open { margin-left: 12px; }
-  #sidebar, #inspector.open, #tools-panel.open, #assistant-panel.open {
+  .ui-dock.open { margin-left: 12px; }
+  #sidebar, .ui-dock.open {
     border: 2px solid var(--ink) !important; border-radius: 16px !important; box-shadow: var(--shadow-card) !important;
   }
   #chat-header, #doc-header, #chat-input-area, #doc-footer { border: 2px solid var(--ink) !important;
@@ -67,29 +67,27 @@ body {
   border-radius: 999px !important; color: var(--ink) !important; font-weight: 500;
   box-shadow: var(--shadow-btn) !important; transition: background .15s, transform .08s, box-shadow .08s !important; }
 .btn:hover { background: var(--bg-hover) !important; }
-.btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover,
-.btn-danger:hover, #stop-btn:hover, #burger-btn:hover {
+.btn:hover, .btn-accent:hover, .btn-active:hover, .ui-send:hover, .btn-danger:hover, .ui-stop:hover, #burger-btn:hover {
   transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--shadow-ink) !important;
 }
-.btn:active, .btn-accent:active, .btn-active:active, #send-btn:active, .asst-send:active,
-.btn-danger:active, #stop-btn:active, #burger-btn:active {
+.btn:active, .btn-accent:active, .btn-active:active, .ui-send:active, .btn-danger:active, .ui-stop:active,
+#burger-btn:active {
   transform: translate(2px, 2px); box-shadow: 0 0 0 transparent !important;
 }
-.btn-accent, .btn-active, #send-btn, .asst-send { background: var(--mint) !important; border: 2px solid var(--ink) !important;
+.btn-accent, .btn-active, .ui-send { background: var(--mint) !important; border: 2px solid var(--ink) !important;
   color: var(--ink) !important; text-shadow: none !important; box-shadow: var(--shadow-btn) !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover { background: #d5ecbb !important; color: var(--ink) !important; }
-.btn-danger, #stop-btn, .asst-send.asst-stop { background: var(--coral) !important; border: 2px solid var(--ink) !important;
+.btn-accent:hover, .btn-active:hover, .ui-send:hover { background: #d5ecbb !important; color: var(--ink) !important; }
+.btn-danger, .ui-stop { background: var(--coral) !important; border: 2px solid var(--ink) !important;
   color: var(--ink) !important; box-shadow: var(--shadow-btn) !important; }
-.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: #f5b49d !important; color: var(--ink) !important; }
+.btn-danger:hover, .ui-stop:hover { background: #f5b49d !important; color: var(--ink) !important; }
 #send-btn, #stop-btn { border-radius: 999px !important; }
 #burger-btn { background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
   border-radius: 999px !important; color: var(--ink) !important; box-shadow: var(--shadow-btn) !important; }
 #burger-btn:hover { background: var(--bg-hover) !important; color: var(--ink) !important; }
-.chat-avatar, .char-avatar-sm, .char-avatar-lg, .cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar,
-.world-avatar, .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
+.ui-avatar {
   border: 2px solid var(--ink) !important; background: var(--bg-elevated) !important;
 }
-#mobile-sidebar-toggle, #doc-mobile-sidebar-toggle {
+.ui-sidebar-toggle {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 999px !important;
   color: var(--ink) !important; }
 input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
@@ -113,7 +111,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .asst-compose:focus-within { box-shadow: 0 0 0 3px var(--accent-glow) !important; }
 .cb-root .cb-input { background: transparent !important; border: none !important; color: var(--ink) !important; }
 .cb-arrow { color: var(--text-secondary) !important; }
-.cb-dropdown, #burger-dropdown, .wf-claim-popover {
+.ui-popover {
   background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important; border-radius: 14px !important;
   box-shadow: var(--shadow-pop) !important;
 }
@@ -174,8 +172,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 .doc-mode-opt + .doc-mode-opt { border-left: 2px solid var(--ink) !important; }
 .doc-mode-opt.active, .doc-probs-toggle.active { background: var(--mint) !important; color: var(--ink) !important;
   box-shadow: none !important; }
-#doc-prob-popup { background: var(--bg-elevated) !important; border: 2px solid var(--ink) !important;
-  border-radius: 14px !important; box-shadow: var(--shadow-pop) !important; }
 .toast { background: #f2e7fb !important; border: 2px solid var(--ink) !important; border-radius: 14px !important;
   color: var(--ink) !important; box-shadow: var(--shadow-pop) !important; }
 .toast.error { background: #fdeadf !important; }
@@ -202,10 +198,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:f
 ::-webkit-scrollbar-thumb:hover { background: #b9906a; background-clip: padding-box; }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn:hover, .btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover, .btn-danger:hover, #stop-btn:hover,
-  #burger-btn:hover, .stat-card-clickable:hover, .btn:active, .btn-accent:active, .btn-active:active,
-  #send-btn:active, .asst-send:active, .btn-danger:active, #stop-btn:active, #burger-btn:active,
-  .stat-card-clickable:active {
+  .btn:hover, .btn-accent:hover, .btn-active:hover, .ui-send:hover, .btn-danger:hover, .ui-stop:hover,
+  #burger-btn:hover, .stat-card-clickable:hover, .btn:active, .btn-accent:active, .btn-active:active, .ui-send:active,
+  .btn-danger:active, .ui-stop:active, #burger-btn:active, .stat-card-clickable:active {
     transform: none;
   }
 }

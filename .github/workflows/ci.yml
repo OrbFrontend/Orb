@@ -46,6 +46,7 @@ jobs:
               - 'scripts/lint.sh'
               - 'scripts/format_frontend.sh'
               - 'scripts/check_frontend_layers.py'
+              - 'scripts/check_themes.py'
               - '.github/workflows/ci.yml'
             requirements:
               - 'requirements.txt'
@@ -176,6 +177,9 @@ jobs:
 
       - name: Frontend layer check
         run: python3 scripts/check_frontend_layers.py
+
+      - name: Theme selector check
+        run: python3 scripts/check_themes.py
 
       - name: Frontend tests
         run: node --test tests/frontend/*.test.js

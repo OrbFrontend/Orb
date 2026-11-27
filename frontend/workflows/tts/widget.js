@@ -93,7 +93,7 @@ function openMenu(caret) {
   const chip = caret.closest(".tts-speech-chip");
   if (!chip) return;
   const menu = document.createElement("div");
-  menu.className = "wf-claim-popover tts-menu";
+  menu.className = "wf-claim-popover tts-menu ui-popover";
   menu.setAttribute("role", "menu");
   menu.innerHTML = chip.querySelector("template.tts-menu-items")?.innerHTML || "";
   document.body.appendChild(menu);

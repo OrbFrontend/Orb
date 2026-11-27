@@ -6,7 +6,7 @@
   --accent:#00d4ee; --accent-dim:#006878; --accent-glow:color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
   --red:#ff1a5e; --font-prose:'Exo 2',system-ui,sans-serif; --font-ui:'Fira Code','Cascadia Code',Consolas,monospace;
   --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:3px; --font-prose-size:16px;
-  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px;
+  --sidebar-width:300px; --inspector-width:340px;
   --scrollbar-width:thin; --scrollbar-thumb:var(--border-light); --scrollbar-track:transparent;
 
   --nc-pink:#ff4d94; --nc-pink-dim:#8a2a5c; --nc-cyan-edge:rgba(0,212,238,0.42); --nc-pink-edge:rgba(255,77,148,0.55);
@@ -30,16 +30,16 @@ body { background:
 
 .btn:not(:disabled):hover, #burger-btn:hover { border-color: var(--accent-dim) !important; }
 .btn-danger:not(:disabled):hover { border-color: color-mix(in srgb, var(--red) 55%, var(--bg-surface)) !important; }
-.btn-accent, #send-btn, .asst-send {
+.btn-accent, .ui-send {
   background: linear-gradient(180deg, #19c9e2 0%, #0097ad 100%) !important; border-color: #4fe6f7 !important;
   color: #021418 !important; box-shadow: 0 0 10px rgba(0,212,238,0.2) !important; }
-.btn-accent:not(:disabled):hover, #send-btn:not(:disabled):hover, .asst-send:not(:disabled):hover {
+.btn-accent:not(:disabled):hover, .ui-send:not(:disabled):hover {
   background: linear-gradient(180deg, #45e2f6 0%, #06acc4 100%) !important; border-color: #8ff2fc !important;
   box-shadow: 0 0 14px rgba(0,212,238,0.38) !important; }
 .btn-active:hover { border-color: var(--accent) !important; color: #eaffff !important; }
-#stop-btn, .asst-send.asst-stop { background: linear-gradient(180deg, #e22c63 0%, #b01546 100%) !important;
+.ui-stop { background: linear-gradient(180deg, #e22c63 0%, #b01546 100%) !important;
   border-color: #ff6b96 !important; color: #fff !important; box-shadow: 0 0 10px rgba(255,26,94,0.22) !important; }
-#stop-btn:hover, .asst-send.asst-stop:hover { background: linear-gradient(180deg, #f54379 0%, #c41c52 100%) !important;
+.ui-stop:hover { background: linear-gradient(180deg, #f54379 0%, #c41c52 100%) !important;
   box-shadow: 0 0 14px rgba(255,26,94,0.38) !important; }
 .tog input:checked + .tog-slider { box-shadow: 0 0 8px rgba(0,212,238,0.32) !important; }
 .tog input:checked + .tog-slider:before { background: #eaffff !important; }

@@ -1,7 +1,7 @@
 /* Decision editor, Judge settings, and Inspector styles. */
 
 /* Use the theme warning color when available. */
-:root { --dec-warn: var(--warning, #c8a84b); }
+:where(:root) { --dec-warn: var(--warning, #c8a84b); }
 
 /* ── Editor ───────────────────────────────────────────────────────────────── */
 

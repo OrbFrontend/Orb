@@ -306,7 +306,7 @@ function resolutionField(style, { preset = null, comfy = false } = {}) {
         <input id="${escAttr(inputId)}" type="text" class="cb-input" ${styleField("size")} value="${escAttr(current)}" placeholder="1024x1024" autocomplete="off" aria-autocomplete="list" aria-controls="${escAttr(inputId)}-list">
         <button type="button" class="cb-arrow ig-resolution-arrow" data-wf-action="image_gen:resolutionToggle" aria-label="Show resolution presets" aria-expanded="false"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"></polyline></svg></button>
       </div>
-      <div class="cb-dropdown" hidden><div id="${escAttr(inputId)}-list" class="cb-list" role="listbox">${options}<div class="cb-empty" hidden>No matching resolutions</div></div></div>
+      <div class="cb-dropdown ui-popover" hidden><div id="${escAttr(inputId)}-list" class="cb-list" role="listbox">${options}<div class="cb-empty" hidden>No matching resolutions</div></div></div>
     </div>
   </div>`;
 }

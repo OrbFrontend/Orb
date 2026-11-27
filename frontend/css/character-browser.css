@@ -20,7 +20,7 @@
   font-size: 11px; background: var(--bg-elevated); border: none; color: var(--text-muted); cursor: pointer;
   transition: all .15s; }
 .view-toggle-btn:hover { background: var(--bg-hover); }
-.view-toggle-btn.active { background: var(--accent-dim); color: #fff; }
+.view-toggle-btn.active { background: var(--accent-dim); color: var(--on-accent); }
 .view-toggle-btn + .view-toggle-btn { border-left: 1px solid var(--border); }
 .char-browser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 12px; }
 .char-browser-card { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 8px;

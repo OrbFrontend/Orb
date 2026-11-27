@@ -29,7 +29,7 @@
 .internet-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .internet-stat-rating .ui-icon { color: var(--warning, #c8a84b); }
 .internet-import-btn { width: 100%; margin-top: auto; padding: 5px 0; font-size: 12px; border-radius: 4px;
-  background: var(--accent-dim); color: #fff; border: none; cursor: pointer; transition: opacity .15s; }
+  background: var(--accent-dim); color: var(--on-accent); border: none; cursor: pointer; transition: opacity .15s; }
 .internet-import-btn:hover { opacity: 0.85; }
 .internet-loading { text-align: center; padding: 32px; color: var(--text-muted); }
 .internet-load-more { display: block; margin: 12px auto 0; padding: 6px 24px; }

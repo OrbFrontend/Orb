@@ -512,7 +512,10 @@ function paintControls() {
   send.setAttribute("aria-label", label);
   send.title = applying ? label : busy ? "Stop" : "Send (Enter)";
   send.disabled = stopping || applying;
-  send.classList.toggle("asst-stop", busy && !applying);
+  const stop = busy && !applying;
+  send.classList.toggle("asst-stop", stop);
+  send.classList.toggle("ui-send", !stop);
+  send.classList.toggle("ui-stop", stop);
   // Clearing mid-run would drop the entries the run is still writing to.
   $("assistant-clear").disabled = busy || !S.assistant.items.length;
   $("assistant-status").textContent = applying ? "Saving the change…" : busy ? run?.status || "Working…" : "";

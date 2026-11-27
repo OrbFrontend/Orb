@@ -25,5 +25,9 @@ echo "Running frontend layer + plugin-boundary check..."
 python scripts/check_frontend_layers.py
 
 echo ""
+echo "Running theme selector check..."
+python scripts/check_themes.py
+
+echo ""
 echo "Running frontend Biome check..."
 node_modules/.bin/biome check frontend/

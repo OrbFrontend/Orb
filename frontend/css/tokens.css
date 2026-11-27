@@ -1,0 +1,11 @@
+/* Theme token defaults. :where() keeps them at zero specificity, so any theme's :root wins though it loads first. */
+:where(:root) {
+  --bg-deep: #0a0a0c; --bg-primary: #111115; --bg-surface: #18181e; --bg-elevated: #1f1f28; --bg-hover: #262630;
+  --border: #2a2a36; --border-light: #333342;
+  --text-primary: #edeae5; --text-secondary: #b2afa8; --text-muted: #a09d95;
+  --accent: #cdb06e; --accent-dim: #8a7448; --accent-glow: rgba(201, 168, 108, 0.12); --on-accent: #fff; --red: #c45d5d;
+  --font-prose: 'Lora', Georgia, 'Palatino Linotype', Palatino, serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Menlo', 'Consolas', 'Courier New', monospace; --font-prose-size: 16px; --radius: 6px;
+  --sidebar-width: 300px; --inspector-width: 340px;
+}

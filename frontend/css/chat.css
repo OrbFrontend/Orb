@@ -304,7 +304,7 @@
   width: var(--composer-line); height: var(--composer-line); padding: 0; display: flex; align-items: center;
   justify-content: center; border-radius: var(--radius); transition: background .15s; flex-shrink: 0;
 }
-#send-btn { background: var(--accent-dim); color: #fff; }
+#send-btn { background: var(--accent-dim); color: var(--on-accent); }
 #send-btn:hover { background: var(--accent); }
 #send-btn:disabled { opacity: .4; cursor: not-allowed; }
 #stop-btn { background: #8b3a3a; color: #fff; display: none; }

@@ -13,7 +13,7 @@
 </head>
 <body>
 <div id="app">
-  <div id="sidebar">
+  <div id="sidebar" class="ui-panel">
     <div class="sidebar-header">
       <div class="sidebar-header-top"><div class="title-row"><h1>Orb</h1><button id="mode-switch-btn" data-wf-action="document:toggleMode" title="Switch to Document mode">💬</button><button id="sidebar-collapse-btn" data-wf-action="sidebar:toggleCollapsed" title="Collapse sidebar" aria-label="Collapse sidebar" aria-controls="sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m11 17-5-5 5-5M18 17l-5-5 5-5"/></svg></button></div></div>
       <div class="header-pickers">
@@ -131,8 +131,8 @@
     <div id="chat-header">
       <div class="chat-title-area">
         <button class="sidebar-expand-btn" data-wf-action="sidebar:toggleCollapsed" title="Expand sidebar" aria-label="Expand sidebar" aria-controls="sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 17 5-5-5-5M13 17l5-5-5-5"/></svg></button>
-        <button id="mobile-sidebar-toggle" data-wf-action="mobile:toggleSidebar" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-        <div class="chat-avatar" id="chat-avatar">📜</div>
+        <button id="mobile-sidebar-toggle" class="ui-sidebar-toggle" data-wf-action="mobile:toggleSidebar" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <div class="chat-avatar ui-avatar" id="chat-avatar">📜</div>
         <button class="chat-title chat-header-title" id="chat-header-title" data-wf-action="inspector:togglePortrait" title="Show chat details">Select a character</button>
       </div>
       <div class="chat-actions">
@@ -156,7 +156,7 @@
       </div>
     </div>
     <div id="chat-input-area">
-      <div id="burger-dropdown">
+      <div id="burger-dropdown" class="ui-popover">
         <div class="burger-menu-item" data-wf-action="conversations:newHere"><span class="burger-icon"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg></span>New conversation</div>
         <div class="burger-menu-item" data-chat-action="convert-to-group" hidden><span class="burger-icon">👥</span>Convert to group</div>
         <div class="burger-menu-item" data-wf-action="conversations:history"><span class="burger-icon">📋</span>Conversations</div>
@@ -175,15 +175,15 @@
           <textarea id="chat-input" placeholder="Write your message..." rows="1" disabled></textarea>
           <div id="chat-ghost" aria-hidden="true"></div>
         </div>
-        <button id="send-btn" data-wf-action="chat:send" disabled title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
-        <button id="stop-btn" data-wf-action="chat:stop" title="Stop generation"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+        <button id="send-btn" class="ui-send" data-wf-action="chat:send" disabled title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+        <button id="stop-btn" class="ui-stop" data-wf-action="chat:stop" title="Stop generation"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
       </div>
     </div>
   </div>
   <div id="document-main">
     <div id="doc-header">
       <button class="sidebar-expand-btn" data-wf-action="sidebar:toggleCollapsed" title="Expand sidebar" aria-label="Expand sidebar" aria-controls="sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 17 5-5-5-5M13 17l5-5-5-5"/></svg></button>
-      <button id="doc-mobile-sidebar-toggle" data-wf-action="mobile:toggleSidebar" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <button id="doc-mobile-sidebar-toggle" class="ui-sidebar-toggle" data-wf-action="mobile:toggleSidebar" title="Toggle sidebar" aria-label="Toggle sidebar"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div class="doc-title" id="doc-title-text">No document</div>
       <button class="doc-title-edit" id="doc-title-edit-btn" data-wf-action="document:renameActive" title="Rename document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M12 20H5a1 1 0 0 1-1-1v-7"/><path d="m16.5 3.5 4 4L11 17l-4 1 1-4 9.5-9.5z"/></svg></button>
       <div class="doc-header-status">
@@ -240,9 +240,9 @@ Write a haiku about the sea.&lt;|im_end|&gt;
         <button class="btn btn-sm hidden" id="doc-stop-btn" data-wf-action="document:stop" title="Stop (Esc)">■ Stop</button>
       </div>
     </div>
-    <div id="doc-prob-popup" class="hidden"></div>
+    <div id="doc-prob-popup" class="ui-popover hidden"></div>
   </div>
-  <div id="tools-panel"><div class="tools-inner">
+  <div id="tools-panel" class="ui-panel ui-dock"><div class="tools-inner">
     <div class="inspector-title">Workflows</div>
     <div class="tab-row">
       <button type="button" class="tab-button tab-button-active" id="tools-tab-main" data-wf-action="inspector:toolsTab" data-tab="main">Main</button>
@@ -265,7 +265,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
     <div id="tools-pane-secondary" class="hidden"><div id="tools-list-secondary"></div></div>
     <div id="tools-pane-doc"></div>
   </div></div>
-  <div id="inspector"><div class="inspector-inner">
+  <div id="inspector" class="ui-panel ui-dock"><div class="inspector-inner">
     <div class="inspector-title">Inspector</div>
     <div class="tab-row hidden" id="inspector-tab-row">
       <button type="button" class="tab-button tab-button-active" id="inspector-tab-main" data-inspector-tab="main">Main</button>
@@ -277,7 +277,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
     </div>
     <div id="inspector-pane-state" class="hidden"><div id="state-panel-content"></div></div>
   </div></div>
-  <section id="assistant-panel" aria-label="Assistant"><div class="asst-inner">
+  <section id="assistant-panel" class="ui-panel ui-dock" aria-label="Assistant"><div class="asst-inner">
     <div class="asst-head">
       <span class="inspector-title asst-title">Assistant</span>
       <button type="button" class="btn btn-xs asst-head-btn asst-gear" id="assistant-gear" data-wf-action="assistant:options" title="Assistant options" aria-label="Assistant options" aria-expanded="false" aria-controls="assistant-options"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Options</span></button>
@@ -306,7 +306,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
       <textarea id="assistant-input" rows="1" placeholder="Ask about your library…" aria-label="Message to the assistant"></textarea>
       <div class="asst-compose-foot">
         <span class="asst-scope" id="assistant-scope"></span>
-        <button type="button" class="asst-send" id="assistant-send" data-wf-action="assistant:send" data-state="send" title="Send (Enter)" aria-label="Send to the assistant"><svg class="ui-icon asst-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="ui-icon asst-stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+        <button type="button" class="asst-send ui-send" id="assistant-send" data-wf-action="assistant:send" data-state="send" title="Send (Enter)" aria-label="Send to the assistant"><svg class="ui-icon asst-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="ui-icon asst-stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
       </div>
     </div>
   </div></section>

@@ -3,10 +3,10 @@ button { font-family: var(--font-ui); cursor: pointer; border: none; outline: no
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-weight: 500;
   border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border); transition: all .15s; }
 .btn:hover { background: var(--bg-hover); border-color: var(--border-light); }
-.btn-accent { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+.btn-accent { background: var(--accent-dim); border-color: var(--accent); color: var(--on-accent); }
 .btn-accent:hover { background: var(--accent); }
 .btn-active { background: var(--accent-glow); border-color: var(--accent-dim); color: var(--accent); }
-.btn-active:hover { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+.btn-active:hover { background: var(--accent-dim); border-color: var(--accent); color: var(--on-accent); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px; display: inline-flex; align-items: center; justify-content: center; }
 .btn-icon:hover { color: var(--text-primary); }
@@ -49,7 +49,7 @@ input[type="checkbox"], input[type="radio"] {
    every engine insets the value by its own amount, so a native select never lines up with the inputs beside it.
    Laid out like an input, it takes the same height and text inset in every browser. Card HTML keeps its own. */
 /* The caret matches the model pickers' chevron (.cb-arrow): about 10px wide with its stroke, 9px in from the edge. */
-:root {
+:where(:root) {
   --select-caret: linear-gradient(45deg, transparent 37%, var(--text-secondary) 37% 63%, transparent 63%),
     linear-gradient(135deg, transparent 37%, var(--text-secondary) 37% 63%, transparent 63%);
   --select-caret-position: right 14px center, right 9px center;

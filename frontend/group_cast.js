@@ -194,7 +194,7 @@ export function speakerAvatarCell(msg) {
     const colour = safePersonaColour(messagePersona(msg)?.avatar_color);
     if (colour) style = ` style="background:${colour};color:${readableInk(colour)}"`;
   }
-  return `<div class="msg-avatar"${style}>${inner}</div>`;
+  return `<div class="msg-avatar ui-avatar"${style}>${inner}</div>`;
 }
 
 export function eligibleMembers() {
@@ -214,7 +214,7 @@ export function memberAvatar(member) {
     : member.member_kind === "narrator"
       ? "✒️"
       : "👤";
-  return `<span class="cast-avatar">${inner}</span>`;
+  return `<span class="cast-avatar ui-avatar">${inner}</span>`;
 }
 
 export function castClickSpeaksNow(hasDraft = false) {
