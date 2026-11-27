@@ -188,7 +188,7 @@ def register_workflow(w: Workflow) -> None:
 
     w.subscriptions[:] = subscriptions
     _WORKFLOWS_BY_ID[w.id] = w
-    register_profile_workflow_keys(w.id, w.profile_config_keys, enablement=w.profile_enabled)
+    register_profile_workflow_keys(w.id, w.profile_config_keys, w.config_defaults, enablement=w.profile_enabled)
 
 
 def register_plugins(package: str, directory: Path) -> None:

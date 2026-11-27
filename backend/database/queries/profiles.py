@@ -97,17 +97,19 @@ _LIBRARY_TABLES = (
 )
 # By workflow id, the top-level keys of its config slot that belong to the profile, and the workflows whose on/off flag does.
 # The workflow registry fills both as each workflow registers, since the workflows sit above this layer.
-_WORKFLOW_KEYS: dict[str, tuple[str, ...]] = {}
+_WORKFLOW_DEFAULTS: dict[str, dict[str, Any]] = {}
 _WORKFLOW_ENABLEMENT: set[str] = set()
 
 
-def register_profile_workflow_keys(workflow_id: str, keys: Collection[str], *, enablement: bool = False) -> None:
+def register_profile_workflow_keys(
+    workflow_id: str, keys: Collection[str], defaults: Mapping[str, Any], *, enablement: bool = False
+) -> None:
     """Declare which top-level keys of *workflow_id*'s config slot each profile saves and applies, and whether its on/off flag
     is the profile's too; no keys and no enablement drops the workflow."""
     if keys:
-        _WORKFLOW_KEYS[workflow_id] = tuple(keys)
+        _WORKFLOW_DEFAULTS[workflow_id] = {key: defaults[key] for key in keys}
     else:
-        _WORKFLOW_KEYS.pop(workflow_id, None)
+        _WORKFLOW_DEFAULTS.pop(workflow_id, None)
     if enablement:
         _WORKFLOW_ENABLEMENT.add(workflow_id)
     else:
@@ -116,7 +118,7 @@ def register_profile_workflow_keys(workflow_id: str, keys: Collection[str], *, e
 
 def profile_workflow_keys() -> dict[str, tuple[str, ...]]:
     """By workflow id, the config keys a profile carries."""
-    return dict(_WORKFLOW_KEYS)
+    return {workflow_id: tuple(defaults) for workflow_id, defaults in _WORKFLOW_DEFAULTS.items()}
 
 
 def profile_enabled_workflows() -> frozenset[str]:
@@ -180,6 +182,14 @@ async def save_live_state(profile_id: str) -> None:
 async def _save_live_state(db: aiosqlite.Connection, profile_id: str) -> None:
     state = await read_live_state(db)
     await db.execute(f"UPDATE profiles SET {_STATE_SETS} WHERE id = ?", (*_state_values(state), profile_id))  # nosec B608
+
+
+async def capture_uploaded_profile(path: str) -> None:
+    """Capture the live setup of a private, upgraded raw database before it enters the backup library."""
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        await _save_live_state(db, await active_profile_id(db))
+        await db.commit()
 
 
 async def enter_profile(profile_id: str, *, save_leaving: bool) -> bool:
@@ -274,8 +284,7 @@ async def _persona_ref(db: aiosqlite.Connection, persona_id: int | None) -> Pers
 
 
 def _profile_workflow_config(raw: str | None) -> dict[str, dict[str, Any]]:
-    """The per-profile keys of each registered workflow's live config slot; a workflow with an empty slot is left out, so
-    entering the profile leaves it at its live config."""
+    """Capture explicit per-profile workflow settings. An absent key uses the workflow's default when restored."""
     try:
         slots = json.loads(raw or "{}")
     except ValueError:
@@ -283,7 +292,7 @@ def _profile_workflow_config(raw: str | None) -> dict[str, dict[str, Any]]:
     if not isinstance(slots, dict):
         return {}
     picked: dict[str, dict[str, Any]] = {}
-    for workflow_id, keys in _WORKFLOW_KEYS.items():
+    for workflow_id, keys in _WORKFLOW_DEFAULTS.items():
         slot = slots.get(workflow_id)
         if isinstance(slot, dict) and (values := {key: slot[key] for key in keys if key in slot}):
             picked[workflow_id] = values
@@ -389,17 +398,18 @@ async def _apply_workflows(
                 "WHERE id = 1",
                 (workflow_id, json.dumps(bool(enabled[workflow_id]))),
             )
-    for workflow_id, keys in _WORKFLOW_KEYS.items():
-        values = {key: saved[workflow_id][key] for key in keys if key in saved.get(workflow_id, {})}
-        if not values:
-            continue
+    for workflow_id, defaults in _WORKFLOW_DEFAULTS.items():
+        overrides = saved.get(workflow_id, {})
         rows = list(
             await db.execute_fetchall(
                 "SELECT json_extract(workflow_config, '$.' || ?) FROM settings WHERE id = 1", (workflow_id,)
             )
         )
         raw = rows[0][0] if rows else None
+        if not raw and not overrides:
+            continue  # An empty live slot already reads as the workflow's complete defaults.
         slot = json.loads(raw) if isinstance(raw, str) else {}
+        values = {key: overrides.get(key, default) for key, default in defaults.items()}
         await db.execute(
             "UPDATE settings SET workflow_config = json_set(COALESCE(workflow_config, '{}'), '$.' || ?, json(?)) WHERE id = 1",
             (workflow_id, json.dumps({**(slot if isinstance(slot, dict) else {}), **values}, ensure_ascii=False)),

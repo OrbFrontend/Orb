@@ -88,9 +88,11 @@ def restore_workflows(snapshot: dict[str, Workflow]) -> None:
     _registry._WORKFLOWS_BY_ID.clear()
     _registry._WORKFLOWS_BY_ID.update(snapshot)
     for workflow_id in (profile_workflow_keys().keys() | profile_enabled_workflows()) - snapshot.keys():
-        register_profile_workflow_keys(workflow_id, ())
+        register_profile_workflow_keys(workflow_id, (), {})
     for workflow in snapshot.values():
-        register_profile_workflow_keys(workflow.id, workflow.profile_config_keys, enablement=workflow.profile_enabled)
+        register_profile_workflow_keys(
+            workflow.id, workflow.profile_config_keys, workflow.config_defaults, enablement=workflow.profile_enabled
+        )
 
 
 @pytest.fixture(autouse=True)

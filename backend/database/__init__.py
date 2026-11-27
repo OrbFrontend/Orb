@@ -203,6 +203,7 @@ from .queries.profiles import (
     PROFILE_SETTINGS,
     SEEDED_PARTS,
     ProfileEditError,
+    capture_uploaded_profile,
     create_profile,
     delete_profile,
     enter_profile,

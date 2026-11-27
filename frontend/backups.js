@@ -320,14 +320,9 @@ function applyPreset(name) {
   );
 }
 
-function isFull(entry) {
-  const domains = entry?.included_domains || [];
-  return domains.length >= DOMAINS.length && (entry?.profiles || []).every((p) => p.parts.length >= PARTS.length);
-}
-
 function restorePreset(name) {
   const entry = libraryByName[name];
-  const full = !entry || isFull(entry);
+  const full = entry.is_full;
   const labels = (entry?.included_domains || []).map((d) => DOMAINS.find((x) => x.id === d)?.label || d);
   const what = labels.length
     ? `<b>${esc(labels.join(", "))}</b> and the profile parts below`
@@ -412,7 +407,7 @@ function presetRow(it) {
         <div class="preset-item-actions">
           <button class="btn btn-sm btn-square" data-wf-action="backups:download" data-name="${escAttr(it.name)}" title="Download" aria-label="Download backup">${DOWNLOAD_ICON}</button>
           <button class="btn btn-sm" data-wf-action="backups:apply" data-name="${escAttr(it.name)}" title="Merge into current data">Apply</button>
-          <button class="btn btn-sm" data-wf-action="backups:restore" data-name="${escAttr(it.name)}" title="Replace everything">Restore</button>
+          <button class="btn btn-sm" data-wf-action="backups:restore" data-name="${escAttr(it.name)}" title="${it.is_full ? "Replace everything" : "Restore selected data"}">Restore</button>
           <button class="btn btn-sm btn-danger btn-square" data-wf-action="backups:delete" data-name="${escAttr(it.name)}" title="Delete" aria-label="Delete backup">${CLOSE_ICON}</button>
         </div>
       </div>

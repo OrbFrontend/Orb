@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 import datetime
@@ -14,7 +15,7 @@ import time
 import uuid
 from collections.abc import Iterable, Mapping
 
-from ...database import SEEDED_PARTS, seed_library_statements
+from ...database import SEEDED_PARTS, capture_uploaded_profile, seed_library_statements
 from ...database import preset_schema as ps
 from ...database.connection import checkpoint_wal, current_db_path
 from ...database.migrations import MIGRATIONS, run_pending
@@ -48,6 +49,13 @@ class Selection:
 
     def is_empty(self) -> bool:
         return not self.domains and not self.profiles
+
+    def covers_all(self, source_profiles: Iterable[str]) -> bool:
+        return (
+            self.domains == set(ALL_DOMAINS)
+            and self.profiles.keys() == set(source_profiles)
+            and all(parts == set(PROFILE_PARTS) for parts in self.profiles.values())
+        )
 
 
 def selection(domains: Iterable[str], profiles: Mapping[str, Iterable[str]] | None, profile_ids: Iterable[str]) -> Selection:
@@ -453,7 +461,7 @@ def _unique_name(kind: str, label: str) -> str:
     return name
 
 
-def _write_meta(conn: sqlite3.Connection, sel: Selection, label: str, kind: str, keys_stripped: bool) -> None:
+def _write_meta(conn: sqlite3.Connection, sel: Selection, label: str, kind: str, keys_stripped: bool, *, full: bool) -> None:
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {META_TABLE} ("
         "  id INTEGER PRIMARY KEY CHECK (id = 1),"
@@ -462,16 +470,20 @@ def _write_meta(conn: sqlite3.Connection, sel: Selection, label: str, kind: str,
         "  label TEXT NOT NULL DEFAULT '',"
         "  kind TEXT NOT NULL,"
         "  keys_stripped INTEGER NOT NULL DEFAULT 0,"
-        "  profiles TEXT"
+        "  profiles TEXT,"
+        "  is_full INTEGER NOT NULL"
         ")"
     )
     # A meta table from a file made before profiles lacks the column; NULL there means "derive the parts from the domains".
-    if "profiles" not in {r[1] for r in conn.execute(f"PRAGMA table_info({META_TABLE})")}:  # nosec B608 -- constant identifier
+    columns = {r[1] for r in conn.execute(f"PRAGMA table_info({META_TABLE})")}
+    if "profiles" not in columns:
         conn.execute(f"ALTER TABLE {META_TABLE} ADD COLUMN profiles TEXT")  # nosec B608 -- constant identifier
+    if "is_full" not in columns:
+        conn.execute(f"ALTER TABLE {META_TABLE} ADD COLUMN is_full INTEGER")
     conn.execute(f"DELETE FROM {META_TABLE}")  # nosec B608 -- schema-derived identifier, values parameterised
     conn.execute(
-        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped, profiles) "  # nosec B608 -- schema-derived identifier, values parameterised
-        "VALUES (1, ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped, profiles, is_full) "  # nosec B608 -- constant identifier
+        "VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
         (
             json.dumps(sorted(sel.domains)),
             datetime.datetime.now().isoformat(timespec="seconds"),
@@ -479,6 +491,7 @@ def _write_meta(conn: sqlite3.Connection, sel: Selection, label: str, kind: str,
             kind,
             int(keys_stripped),
             json.dumps({pid: sorted(parts) for pid, parts in sel.profiles.items()}),
+            int(full),
         ),
     )
 
@@ -523,37 +536,39 @@ def read_meta(path: str) -> dict | None:
     which the upgrade creates."""
     conn = sqlite3.connect(path)
     try:
+        conn.row_factory = sqlite3.Row
         try:
-            row = conn.execute(
-                f"SELECT included_domains, created_at, label, kind, keys_stripped FROM {META_TABLE} WHERE id = 1"  # nosec B608 -- schema-derived identifier, values parameterised
-            ).fetchone()
+            row = conn.execute(f"SELECT * FROM {META_TABLE} WHERE id = 1").fetchone()  # nosec B608 -- constant identifier
         except sqlite3.OperationalError:
             return None
         if not row:
             return None
-        try:
-            (raw,) = conn.execute(f"SELECT profiles FROM {META_TABLE} WHERE id = 1").fetchone()  # nosec B608 -- constant identifier
-        except sqlite3.OperationalError:
-            raw = None
+        meta = dict(row)
+        raw = meta.get("profiles")
         names = _file_profiles(conn)
     finally:
         conn.close()
     stored = json.loads(raw) if raw else None
     if stored is None and not names:
         names = {"default": "Default"}
-    sel = selection([d for d in json.loads(row[0]) if d in ALL_DOMAINS or d in ps.LEGACY_DOMAIN_PARTS], stored, names)
+    sel = selection(
+        [d for d in json.loads(meta["included_domains"]) if d in ALL_DOMAINS or d in ps.LEGACY_DOMAIN_PARTS], stored, names
+    )
     order = [*names, *(pid for pid in sel.profiles if pid not in names)]
     return {
+        # Before profile selection, a domain covered every profile. Old automatic backups covering every domain
+        # were whole-database snapshots. Other profile-aware files without a marker may have omitted a profile.
+        "is_full": bool(meta.get("is_full", stored is None or meta["kind"] == "auto")) and sel.covers_all(names),
         "included_domains": sorted(sel.domains),
         "profiles": [
             {"id": pid, "name": names.get(pid, pid), "parts": [p for p in PROFILE_PARTS if p in sel.profiles[pid]]}
             for pid in order
             if pid in sel.profiles
         ],
-        "created_at": row[1],
-        "label": row[2],
-        "kind": row[3],
-        "keys_stripped": bool(row[4]),
+        "created_at": meta["created_at"],
+        "label": meta["label"],
+        "kind": meta["kind"],
+        "keys_stripped": bool(meta["keys_stripped"]),
     }
 
 
@@ -562,13 +577,8 @@ def _meta_selection(meta: Mapping) -> Selection:
 
 
 def is_full(meta: Mapping | None) -> bool:
-    """Whether a file with *meta* (None: a raw database) holds every domain and every part of each of its profiles, so a
-    restore replaces the whole database with it."""
-    if meta is None:
-        return True
-    return set(meta["included_domains"]) >= set(ALL_DOMAINS) and all(
-        set(p["parts"]) >= set(PROFILE_PARTS) for p in meta["profiles"]
-    )
+    """Raw databases and backups recorded with full source coverage can replace the whole database."""
+    return meta is None or meta["is_full"]
 
 
 def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
@@ -729,7 +739,9 @@ def _rename_profile(conn: sqlite3.Connection, schema: _Schema, old: str, new: st
     conn.execute(f"UPDATE {ps.PROFILE_TABLE} SET id = ? WHERE id = ?", (new, old))  # nosec B608 -- constant identifier
 
 
-def _clone_domains(conn: sqlite3.Connection, live: str, sel: Selection) -> None:
+def _clone_domains(
+    conn: sqlite3.Connection, live: str, selected_domains: Iterable[str], profiles: Mapping[str, Iterable[str]] | None
+) -> tuple[Selection, bool]:
     """Copy the live schema, the selected domains' rows and the selected profiles' rows; dangling keys then take their ON
     DELETE action, as a delete would. The caller prunes the profiles' unselected parts."""
     conn.execute("ATTACH DATABASE ? AS live", (live,))
@@ -737,6 +749,12 @@ def _clone_domains(conn: sqlite3.Connection, live: str, sel: Selection) -> None:
     ddl = conn.execute("SELECT type, name, sql FROM live.sqlite_master WHERE sql IS NOT NULL ORDER BY rowid").fetchall()
     tables = [(name, sql) for kind, name, sql in ddl if kind == "table" and not name.startswith("sqlite_")]
     conn.execute("BEGIN")  # one read transaction on live: every table comes from the same snapshot
+    live_ids = {str(r[0]) for r in conn.execute(f"SELECT id FROM live.{ps.PROFILE_TABLE}")}  # nosec B608 -- constant identifier
+    sel = selection(selected_domains, profiles, live_ids)
+    if missing := sel.profiles.keys() - live_ids:
+        raise PresetError(f"Unknown profiles: {sorted(missing)}")
+    if sel.is_empty():
+        raise PresetError("Select at least one thing to export")
     for _name, sql in tables:
         conn.execute(sql)
     schema = _build_schema_model(conn)
@@ -785,6 +803,7 @@ def _clone_domains(conn: sqlite3.Connection, live: str, sel: Selection) -> None:
             for i in range(0, len(rowids), 500):
                 chunk = rowids[i : i + 500]
                 conn.execute(f"{action} WHERE rowid IN ({','.join('?' * len(chunk))})", chunk)
+    return sel, sel.covers_all(live_ids)
 
 
 def build_preset(
@@ -801,16 +820,8 @@ def build_preset(
     src = sqlite3.connect(current_db_path())
     try:
         assert_schema_safe(src)
-        live_ids = [str(r[0]) for r in src.execute(f"SELECT id FROM {ps.PROFILE_TABLE}")]  # nosec B608 -- constant identifier
     finally:
         src.close()
-    sel = selection(selected_domains, profiles, live_ids)
-    missing = set(sel.profiles) - set(live_ids)
-    if missing:
-        raise PresetError(f"Unknown profiles: {sorted(missing)}")
-    if sel.is_empty():
-        raise PresetError("Select at least one thing to export")
-    selected = sel.domains
 
     tmp = os.path.join(_snapshots_dir(), f".build-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
 
@@ -818,7 +829,8 @@ def build_preset(
     packed = f"{tmp}.packed"
     c = _scratch_connect(tmp)
     try:
-        _clone_domains(c, current_db_path(), sel)
+        sel, full = _clone_domains(c, current_db_path(), selected_domains, profiles)
+        selected = sel.domains
         _assert_integrity(c, "the exported backup clone")
         c.execute("PRAGMA foreign_keys=ON")
         schema = _build_schema_model(c)
@@ -861,7 +873,7 @@ def build_preset(
                 _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] in ps.CREDENTIAL_LEAVES))
             keys_stripped = True
         _stamp_migrations(c)
-        _write_meta(c, sel, label, kind, keys_stripped)
+        _write_meta(c, sel, label, kind, keys_stripped, full=full)
         # Repack so freed pages, stripped keys included, leave the file; in-place VACUUM costs several times VACUUM INTO.
         c.execute("VACUUM INTO ?", (packed,))
         c.close()
@@ -1334,7 +1346,7 @@ def create_snapshot(label: str = "", merging: str | None = None, choices: Mappin
         _assert_integrity(c, "the snapshot")
         _drop_local_rows(c)
         _stamp_migrations(c)
-        _write_meta(c, _full_selection(c), label, "auto", False)
+        _write_meta(c, _full_selection(c), label, "auto", False, full=True)
     finally:
         c.close()
     prune_auto()
@@ -1455,11 +1467,12 @@ def list_library() -> list[dict]:
         if not fn.endswith(".db") or fn.startswith("."):
             continue
         path = os.path.join(_snapshots_dir(), fn)
-        meta = read_meta(path) or {}
+        meta = read_meta(path) or {"is_full": True}
         st = os.stat(path)
         out.append(
             {
                 "name": fn,
+                "is_full": is_full(meta),
                 "label": meta.get("label", ""),
                 "kind": meta.get("kind", "unknown"),
                 "included_domains": meta.get("included_domains", []),
@@ -1535,12 +1548,22 @@ def ingest_upload(tmp_path: str, label: str) -> str:
     """
     check_and_upgrade(tmp_path)
     existing = read_meta(tmp_path)
+    if existing is None:
+        # This worker owns the uploaded file. Use the same capture as a live switch before publishing it.
+        asyncio.run(capture_uploaded_profile(tmp_path))
     keys_stripped = existing["keys_stripped"] if existing else False
     label = existing["label"] if existing and existing["label"] else label
     c = sqlite3.connect(tmp_path, isolation_level=None)
     try:
         # Read after the upgrade, a file made before profiles now names the profiles that hold its library.
-        _write_meta(c, _meta_selection(existing) if existing else _full_selection(c), label, "imported", keys_stripped)
+        _write_meta(
+            c,
+            _meta_selection(existing) if existing else _full_selection(c),
+            label,
+            "imported",
+            keys_stripped,
+            full=is_full(existing),
+        )
     finally:
         c.close()
     name = _unique_name("imported", label)

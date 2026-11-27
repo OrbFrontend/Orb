@@ -177,13 +177,15 @@ async def test_export_without_configs_scrubs_keys(client, db_path):
 async def test_restore_is_full_rollback(client, db):
     await client.post("/api/characters", json={"name": "Before"})
     snap = await _full_snapshot(client, "safe")
-
+    assert (await client.get_json("/api/backups"))[0]["is_full"]
+    later = await client.create("/api/profiles", json={"name": "After snapshot"})
     await client.post("/api/characters", json={"name": "After"})
     await client.post(f"/api/backups/{snap}/restore", json={})
 
     names = {c["name"] for c in await client.get_json("/api/characters")}
     assert "Before" in names
     assert "After" not in names  # full replace drops post-snapshot additions
+    assert later not in {p["id"] for p in (await client.get_json("/api/profiles"))["profiles"]}
 
 
 async def test_restore_succeeds_with_open_connection(client, db_path):

@@ -13,6 +13,7 @@ from backend.api.work_registry import ChatUnavailable, work_registry
 from backend.database import get_profile, get_prompt_blocks
 from backend.database.queries import profiles as profile_queries
 from backend.database.schema import CREATE_TABLES_SQL
+from backend.features.backups import ALL_DOMAINS, PROFILE_PARTS
 from backend.workflows import prose_rewriter_host
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0101_profiles")
@@ -99,6 +100,19 @@ async def test_a_profile_without_a_judge_turns_the_judge_off(client):
 
     assert (await client.put_json("/api/profiles/active", json={"id": b_id}))["decision_endpoint_id"] is None
     assert (await client.put_json("/api/profiles/active", json={"id": a_id}))["decision_endpoint_id"] == judge["id"]
+
+
+async def test_switch_restores_untouched_workflow_defaults(client):
+    a_id = (await client.get_json("/api/profiles"))["active_id"]
+    b_id = await client.create("/api/profiles", json={"name": "Copy", "copy_from": a_id})
+    path = "/api/workflows/format_consistency/config"
+    assert (await client.get_json(path))["config"]["voice_consistency"] is False
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    await client.put_checked(path, json={"config": {"voice_consistency": True}})
+    await client.put_checked("/api/profiles/active", json={"id": a_id})
+    assert (await client.get_json(path))["config"]["voice_consistency"] is False
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    assert (await client.get_json(path))["config"]["voice_consistency"] is True
 
 
 async def test_a_profile_carries_its_persona_document_assistant_and_workflow_settings(client):
@@ -308,6 +322,46 @@ async def test_a_profile_fragments_backup_comes_back_on_its_profile_or_a_new_one
     assert await _label(client, fid) == original
     assert await client.get_json("/api/phrase-bank"), "a new profile gets the seed bank for the parts it did not take"
     assert {row["profile_id"] for row in await get_prompt_blocks()} == {new["id"]}
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["current", "without-coverage-marker"])
+async def test_all_domains_with_an_omitted_profile_restore_only_the_selection(client, db_path, legacy):
+    a_id = (await client.get_json("/api/profiles"))["active_id"]
+    b_id = await client.create("/api/profiles", json={"name": "B"})
+    name = (await client.post_json("/api/backups/export", json={"domains": ALL_DOMAINS, "profiles": {a_id: PROFILE_PARTS}}))[
+        "name"
+    ]
+    path = db_path.parent / "snapshots" / name
+    if legacy:
+        with closing(sqlite3.connect(path)) as conn:
+            conn.execute("ALTER TABLE orb_preset_meta DROP COLUMN is_full")
+    blob = path.read_bytes()
+    imported = (await client.post_json("/api/backups/import", files={"file": ("selection.db", blob)}))["name"]
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    await client.put_checked("/api/settings", json={"assistant_instructions": "B's own setup"})
+    await client.post_checked(f"/api/backups/{imported}/restore", json={})
+    profiles = await client.get_json("/api/profiles")
+    assert {p["id"] for p in profiles["profiles"]} == {a_id, b_id}
+    assert profiles["active_id"] == b_id
+    assert (await client.get_json("/api/settings"))["assistant_instructions"] == "B's own setup"
+    entries = await client.get_json("/api/backups")
+    assert all(not e["is_full"] for e in entries if e["name"] in (name, imported))
+
+
+async def test_raw_upload_captures_its_own_active_setup(client, db_path):
+    a_id = (await client.get_json("/api/profiles"))["active_id"]
+    b_id = await client.create("/api/profiles", json={"name": "B"})
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    await client.put_checked("/api/settings", json={"assistant_instructions": "Latest in uploaded B"})
+    raw = db_path.parent / "raw.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("VACUUM INTO ?", (str(raw),))
+    await client.put_checked("/api/profiles/active", json={"id": a_id})
+    name = (await client.post_json("/api/backups/import", files={"file": ("raw.db", raw.read_bytes())}))["name"]
+    await client.post_checked(f"/api/backups/{name}/restore", json={})
+    assert (await client.get_json("/api/profiles"))["active_id"] == a_id
+    row = await client.put_json("/api/profiles/active", json={"id": b_id})
+    assert row["assistant_instructions"] == "Latest in uploaded B"
 
 
 async def test_a_fragments_snapshot_without_configs_carries_every_profile(client, db_path):

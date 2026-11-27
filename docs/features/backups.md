@@ -12,6 +12,7 @@ Every snapshot is stored in the same library:
 - A **full backup** contains all domains and every part of every profile, and can
   restore the database to that state.
 - A **partial backup** contains what you selected and is useful for sharing or merging.
+  Leaving out even one profile makes the backup partial.
 
 Library entries have one of these labels:
 
@@ -57,7 +58,8 @@ overwritten and new items are added. Other items stay unchanged.
 
 Use **Restore** to replace the domains covered by the file. A full backup replaces
 the whole database. A partial file replaces only its included domains and profile
-parts; everything else stays unchanged.
+parts. Older backups with profile selections use a partial restore when Orb
+cannot verify that the export included every source profile.
 
 Apply and Restore list each profile in the file with its parts. Clear a part to
 leave it out, and choose where the profile goes: onto the profile it came from,
@@ -82,7 +84,9 @@ that URL and its model configuration with that name.
 
 **Import file** adds an external `.db` to the library without changing live data.
 You must later choose **Apply** or **Restore**. Orb validates the file and updates
-older Orb snapshots to the current schema. Files from a newer Orb version are
+older Orb snapshots to the current schema. When you import a raw Orb database,
+its active profile includes the settings that were live when the copy was made.
+Files from a newer Orb version are
 rejected until Orb is updated.
 
 Orb creates an automatic backup before **Apply** and **Restore**. If the result is
