@@ -209,6 +209,7 @@ from .queries.profiles import (
     get_active_profile_id,
     get_profile,
     list_profiles,
+    profile_enabled_workflows,
     profile_workflow_keys,
     register_profile_workflow_keys,
     rename_profile,

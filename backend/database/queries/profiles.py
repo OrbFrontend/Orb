@@ -34,6 +34,7 @@ PROFILE_SETTINGS: tuple[str, ...] = (
     "agentic_lorebook_enabled",
     "director_individual_fragments",
     "prevent_prompt_overrides",
+    "hide_streaming_until_baked",
     "reasoning_enabled_passes",
     "reasoning_prefill_passes",
     "editor_audit_toggles",
@@ -56,7 +57,7 @@ _JSON_SETTINGS = frozenset(
     }
 )
 _LIVE_LANES = ("active_endpoint_id", "agent_same_as_writer", "agent_endpoint_id", "decision_endpoint_id", "decision_model")
-_LIVE_OTHER = ("active_persona_id", "workflow_config")
+_LIVE_OTHER = ("active_persona_id", "workflow_config", "workflow_enabled")
 # The foreign-key columns holding a profile's lane picks, in ProfileLanes order.
 PROFILE_LANES: tuple[str, ...] = (
     "writer_endpoint_id",
@@ -73,22 +74,33 @@ _STATE_SETS = ", ".join(f"{column} = ?" for column in ("config", *_LINKS))
 _PROFILE_ORDER = "ORDER BY id != ?, name COLLATE NOCASE"
 # The tables holding a profile's own rows, copied with it. phrase_bank's surrogate id is renumbered in the copy.
 _LIBRARY_TABLES = ("mood_fragments", "interactive_fragments", "phrase_bank", "slop_dismissals", "profile_worlds")
-# By workflow id, the top-level keys of its config slot that belong to the profile. The workflow registry fills it as each
-# workflow registers, since the workflows sit above this layer.
+# By workflow id, the top-level keys of its config slot that belong to the profile, and the workflows whose on/off flag does.
+# The workflow registry fills both as each workflow registers, since the workflows sit above this layer.
 _WORKFLOW_KEYS: dict[str, tuple[str, ...]] = {}
+_WORKFLOW_ENABLEMENT: set[str] = set()
 
 
-def register_profile_workflow_keys(workflow_id: str, keys: Collection[str]) -> None:
-    """Declare which top-level keys of *workflow_id*'s config slot each profile saves and applies; none drops the workflow."""
+def register_profile_workflow_keys(workflow_id: str, keys: Collection[str], *, enablement: bool = False) -> None:
+    """Declare which top-level keys of *workflow_id*'s config slot each profile saves and applies, and whether its on/off flag
+    is the profile's too; no keys and no enablement drops the workflow."""
     if keys:
         _WORKFLOW_KEYS[workflow_id] = tuple(keys)
     else:
         _WORKFLOW_KEYS.pop(workflow_id, None)
+    if enablement:
+        _WORKFLOW_ENABLEMENT.add(workflow_id)
+    else:
+        _WORKFLOW_ENABLEMENT.discard(workflow_id)
 
 
 def profile_workflow_keys() -> dict[str, tuple[str, ...]]:
     """By workflow id, the config keys a profile carries."""
     return dict(_WORKFLOW_KEYS)
+
+
+def profile_enabled_workflows() -> frozenset[str]:
+    """The workflows whose on/off flag a profile carries."""
+    return frozenset(_WORKFLOW_ENABLEMENT)
 
 
 class ProfileEditError(ValueError):
@@ -217,6 +229,7 @@ async def read_live_state(db: aiosqlite.Connection) -> ProfileState:
         "lanes": {lane: ref for lane, ref in refs.items() if ref is not None},
         "persona": persona,
         "workflows": _profile_workflow_config(row["workflow_config"]),
+        "workflow_enabled": _profile_workflow_enabled(row["workflow_enabled"]),
     }
     return {"config": config, **lanes, "persona_id": persona["persona_id"] if persona else None}
 
@@ -243,6 +256,17 @@ def _profile_workflow_config(raw: str | None) -> dict[str, dict[str, Any]]:
         if isinstance(slot, dict) and (values := {key: slot[key] for key in keys if key in slot}):
             picked[workflow_id] = values
     return picked
+
+
+def _profile_workflow_enabled(raw: str | None) -> dict[str, bool]:
+    """The live on/off flag of each workflow whose flag is the profile's; a missing flag reads as on, as everywhere."""
+    try:
+        flags = json.loads(raw or "{}")
+    except ValueError:
+        flags = {}
+    if not isinstance(flags, dict):
+        flags = {}
+    return {workflow_id: bool(flags.get(workflow_id, True)) for workflow_id in sorted(_WORKFLOW_ENABLEMENT)}
 
 
 async def _insert_profile(db: aiosqlite.Connection, profile_id: str, name: str, state: ProfileState) -> None:

@@ -542,6 +542,12 @@ the rest. Keep credentials and connections to this machine's servers out of
 the list; those stay shared. The frontend module reloads its config on the
 `profile` topic (`subscribe("profile", …)`), which fires after a switch.
 
+`profile_enabled=True` makes the workflow's on/off switch the active profile's
+as well. A switch writes the flag straight to the settings row, without the
+runtime callbacks `set_workflow_toggle` runs (warming or freeing a model,
+dropping the GPU swap plan), so declare it only on a workflow whose toggle has
+none.
+
 ## Frontend integration
 
 At boot, the frontend fetches the manifest and imports

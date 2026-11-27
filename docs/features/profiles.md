@@ -6,8 +6,15 @@ title. Each profile owns:
 - the pipeline switches: Agent, tools, Length Guard, agentic lorebook, individual
   Director fragments, Prevent prompt overrides, reasoning, and the Editor's audit
   checks
+- whether a reply streams or appears when it is done
 - the model each lane uses: the Writer's and the Agent's endpoint and model, and
   the Judge's endpoint and model
+- the active persona
+- Document mode's audit, autopatch, audit checks, and Prose Rewriter switches
+- the assistant's instructions, reasoning, and tool groups
+- Format Consistency on or off, and its voice check
+- Prose Rewriter's **Rewrite every reply automatically**
+- Image Generation's styles, camera, scene skills, and prompter options
 - its own [Prompt Layout](prompt-layout.md)
 - its own fragments: mood, state, decision, recast, and rewrite
 - its own [phrase bank](anti-slop.md), with its suggestions and dismissals
@@ -24,8 +31,10 @@ Shared by every profile:
 - sampler values (temperature and the rest), which belong to the model
   configuration
 - characters, the fragments inside character cards, chats, and documents
-- personas, endpoints, and the other settings: your name, display options,
-  Document mode, the assistant, workflows, and Local ML
+- the personas themselves, endpoints, and the other settings: your name, the
+  other display options, Secondary Workflows and the other workflows' on/off
+  switches, Image Generation's backend and connections, text-to-speech playback,
+  web search, and Local ML
 
 Changes save to the active profile as you make them; there is no Save button.
 Switching profiles loads the other profile's setup in place. The picker is off

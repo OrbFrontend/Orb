@@ -578,6 +578,8 @@ class ProfileConfig(TypedDict, total=False):
     # By workflow id, the top-level keys of its config slot the workflow declares per-profile; a workflow whose live slot was
     # empty is left out.
     workflows: dict[str, dict[str, Any]]
+    # By workflow id, the on/off flag of each workflow that declares its flag per-profile.
+    workflow_enabled: dict[str, bool]
 
 
 class ProfileLanes(TypedDict):

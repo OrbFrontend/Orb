@@ -14,7 +14,9 @@ profile had no persona.
 
 A workflow declares which top-level keys of its config slot are a profile's (the creative ones; credentials and the
 connections to this machine's servers stay shared). Entering a profile writes those keys into the live slot under the config
-lock, leaving the slot's other keys as they are.
+lock, leaving the slot's other keys as they are. A workflow can declare its on/off flag a profile's too; entering writes the
+flag straight to the settings row, without the runtime callbacks the workflow toggle route runs, so only a workflow whose
+toggle has none declares it.
 """
 
 from __future__ import annotations
@@ -37,11 +39,13 @@ from ...database import (
     get_user_personas,
     get_workflow_config,
     list_profiles,
+    profile_enabled_workflows,
     profile_workflow_keys,
     save_live_state,
     seed_missing_layouts,
     set_active_profile_id,
     set_workflow_config,
+    set_workflow_enabled,
     update_decision_config,
     update_endpoint,
     update_settings,
@@ -114,8 +118,12 @@ async def _persona_update(persona_id: int | None, config: ProfileConfig) -> dict
     return {} if found is None else {"active_persona_id": found}
 
 
-async def _apply_workflows(saved: Mapping[str, Mapping[str, Any]]) -> None:
-    """Write each workflow's saved keys into its live config slot, only the keys it declares a profile's today."""
+async def _apply_workflows(saved: Mapping[str, Mapping[str, Any]], enabled: Mapping[str, bool]) -> None:
+    """Write each workflow's saved keys into its live config slot, and its saved on/off flag, only what it declares a
+    profile's today."""
+    for workflow_id in profile_enabled_workflows():
+        if workflow_id in enabled:
+            await set_workflow_enabled(workflow_id, enabled[workflow_id])
     for workflow_id, keys in profile_workflow_keys().items():
         values = {key: saved[workflow_id][key] for key in keys if key in saved.get(workflow_id, {})}
         if not values:
@@ -144,7 +152,7 @@ async def apply_state(state: ProfileState) -> None:
     update |= await _persona_update(state["persona_id"], config)
     if update:
         await update_settings(update)
-    await _apply_workflows(config.get("workflows", {}))
+    await _apply_workflows(config.get("workflows", {}), config.get("workflow_enabled", {}))
 
 
 async def _enter(profile: ProfileRow) -> None:
