@@ -549,16 +549,28 @@ class PresetModels(TypedDict):
     judge_model: str
 
 
+class LaneRef(TypedDict, total=False):
+    """What a lane pick named when it was saved. A backup made without the endpoints leaves the lane's foreign keys NULL, so on
+    switch a NULL lane goes to the live endpoint of the lane's kind with this URL, preferring the one with this id, and to its
+    model config of the lane's role with this model name, preferring the one with this id."""
+
+    endpoint_id: int
+    url: str
+    model_config_id: int
+    model_name: str
+
+
 class PresetConfig(TypedDict, total=False):
     """``profiles.config``. Every section is optional: a config read from an older or partial file applies what it has."""
 
     settings: dict[str, Any]  # the PRESET_SETTINGS columns, JSON ones decoded
     models: PresetModels
+    lanes: dict[str, LaneRef]  # "writer", "agent" and "judge"; a lane with no pick is left out
 
 
 class PresetLanes(TypedDict):
-    """A profile's lane picks, the ``profiles`` foreign-key columns. On switch a None Writer or Agent lane keeps its live value; a
-    None Judge lane turns the Judge off."""
+    """A profile's lane picks, the ``profiles`` foreign-key columns. On switch a None lane is looked up by its ``LaneRef``; one it
+    does not find keeps its live value for the Writer and the Agent, and turns the Judge off."""
 
     writer_endpoint_id: int | None
     writer_model_config_id: int | None

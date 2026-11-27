@@ -14,6 +14,7 @@ import time
 import uuid
 from collections.abc import Iterable, Mapping
 
+from ...database import SEEDED_PARTS, seed_library_statements
 from ...database import preset_schema as ps
 from ...database.connection import checkpoint_wal, current_db_path
 from ...database.migrations import MIGRATIONS, run_pending
@@ -1231,14 +1232,17 @@ def _retarget(work: str, plan: Mapping[str, tuple[str, set[str]]]) -> dict[str, 
 
 
 def apply_preset(preset_path: str, *, replace: bool = False, choices: Mapping[str, Mapping] | None = None) -> dict:
-    """Merge a preset into the live database by identity; *choices* says where each of its profiles lands (``_plan_targets``)."""
+    """Merge a preset into the live database by identity; *choices* says where each of its profiles lands (``_plan_targets``).
+    A profile the merge creates gets the seed fragments and phrase bank for the parts it did not take, as a new profile does."""
     work = os.path.join(_snapshots_dir(), f".apply-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
     shutil.copyfile(preset_path, work)
     try:
         check_and_upgrade(work)  # quick_check + validate + migrate, all on the copy
         held = file_selection(work)
         included = held.domains
-        profiles = _retarget(work, _plan_targets(held.profiles, choices, _live_profile_ids()))
+        live_ids = _live_profile_ids()
+        profiles = _retarget(work, _plan_targets(held.profiles, choices, live_ids))
+        created = {target: set(SEEDED_PARTS) - parts for target, parts in profiles.items() if target not in live_ids}
 
         conn = sqlite3.connect(current_db_path(), isolation_level=None)
         summary: dict[str, int] = {}
@@ -1248,6 +1252,9 @@ def apply_preset(preset_path: str, *, replace: bool = False, choices: Mapping[st
             conn.execute("ATTACH DATABASE ? AS preset", (work,))
             conn.execute("BEGIN")
             summary = _merge(conn, included, replace, profiles)
+            for target, missing in created.items():
+                for sql, params in seed_library_statements(target, missing):
+                    conn.execute(sql, params)
             problems = conn.execute("PRAGMA foreign_key_check").fetchall()
             if problems:
                 conn.execute("ROLLBACK")

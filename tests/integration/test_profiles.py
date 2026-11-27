@@ -6,6 +6,7 @@ import json
 import sqlite3
 from contextlib import closing
 
+from backend.api.work_registry import work_registry
 from backend.database import get_active_layout_blocks, get_profile
 from backend.database.schema import CREATE_TABLES_SQL
 
@@ -122,7 +123,10 @@ async def test_a_backups_apply_renumbers_profile_lanes_with_the_endpoints(client
 async def test_deleting_in_one_profile_leaves_the_others_and_deleting_a_profile_backs_it_up(client):
     a_id = (await client.get_json("/api/profiles"))["active_id"]
     world = await client.post_json("/api/worlds", json={"name": "Shared", "is_global": True})
+    judge = await client.post_json("/api/endpoints", json={"url": "http://judge/v1", "kind": "judge"})
+    await client.put_checked("/api/decisions/config", json={"decision_endpoint_id": judge["id"]})
     b_id = (await client.post_json("/api/profiles", json={"name": "B", "copy_from": a_id}))["id"]
+    await client.put_checked("/api/decisions/config", json={"decision_endpoint_id": None})
     fragment = (await client.get_json("/api/fragments"))[0]["id"]
     phrase = (await client.get_json("/api/phrase-bank"))[0]
 
@@ -144,9 +148,21 @@ async def test_deleting_in_one_profile_leaves_the_others_and_deleting_a_profile_
         f"/api/backups/{backup['name']}/apply", json={"profiles": {b_id: {"target": "same", "parts": parts}}}
     )
     assert {p["id"] for p in (await client.get_json("/api/profiles"))["profiles"]} == {a_id, b_id}
-    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    # The backup holds no endpoints, so B's lane columns came back NULL; its Judge is found again by the pick's name.
+    assert (await client.put_json("/api/profiles/active", json={"id": b_id}))["decision_endpoint_id"] == judge["id"]
     assert fragment in {f["id"] for f in await client.get_json("/api/fragments")}
     assert phrase["pattern"] in {p["pattern"] for p in await client.get_json("/api/phrase-bank")}
+
+
+async def test_profiles_do_not_switch_while_a_generation_runs(client):
+    b_id = (await client.post_json("/api/profiles", json={"name": "B"}))["id"]
+    stream = await work_registry.begin_stream("some-chat", None, None)
+    try:
+        response = await client.put("/api/profiles/active", json={"id": b_id})
+        assert response.status_code == 409
+    finally:
+        work_registry.finish_stream("some-chat", stream)
+    assert (await client.put_json("/api/profiles/active", json={"id": b_id}))["active_profile_id"] == b_id
 
 
 async def _label(client, fid: str) -> str:
@@ -184,6 +200,7 @@ async def test_a_profile_fragments_backup_comes_back_on_its_profile_or_a_new_one
     assert await _label(client, fid) == "Edited in B"
     await client.put_checked("/api/profiles/active", json={"id": new["id"]})
     assert await _label(client, fid) == original
+    assert await client.get_json("/api/phrase-bank"), "a new profile gets the seed bank for the parts it did not take"
     assert {block.id.split(":")[0] for block in await get_active_layout_blocks() if ":" in block.id} == {new["id"]}
 
 
@@ -354,4 +371,5 @@ def test_migration_finishes_a_database_that_has_global_presets():
         ("default", "calm", 1),
         ("second", "calm", 0),
     ]
-    assert [json.loads(c) for (c,) in conn.execute("SELECT config FROM profiles")] == [{"models": {}}, {"models": {}}]
+    # The maps leave the configs, and the lane picks are named (none here).
+    assert [json.loads(c) for (c,) in conn.execute("SELECT config FROM profiles")] == [{"models": {}, "lanes": {}}] * 2

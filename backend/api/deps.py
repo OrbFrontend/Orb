@@ -108,6 +108,12 @@ def active_work() -> list[str]:
     return work_registry.active_work()
 
 
+def generation_streams() -> list[str]:
+    """The chat, document and assistant streams running or settling. The library's tagging and duplicate scans are left out:
+    they read no profile's rows."""
+    return [key for key in work_registry.stream_keys() if not key.startswith("library:")]
+
+
 @asynccontextmanager
 async def deleting_resources(keys: Sequence[str]):
     """Close admission, settle work, then take lanes for the final delete."""

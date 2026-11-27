@@ -66,6 +66,14 @@ only that profile's parts; other profiles are untouched. The active profile stay
 active, and its switches and lane models stay as they were unless the file
 restores its setup.
 
+A **New profile** gets the built-in fragments and phrase bank for the parts it
+did not take, and the built-in Prompt Layout without **Setup**, as **New…** in
+the picker does.
+
+A setup saved without **Settings & endpoints** names each lane's endpoint by its
+URL and its model by name. Switching to the profile picks the endpoint here with
+that URL and its model configuration with that name.
+
 !!! danger "Restore removes data"
     Restore removes items added after the snapshot in the domains it covers. Use
     Apply when you want to combine data.

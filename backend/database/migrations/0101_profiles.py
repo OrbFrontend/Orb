@@ -12,7 +12,13 @@ its configs, first gets the placeholder profile 'default'.
 
 A database from before this fold may hold a presets table, settings.active_preset_id and ``config.fragments`` enabled maps: a
 fragment copy takes ``enabled`` from its profile's map (the active profile's copies, and a fragment the map does not name, keep
-the live value), and the maps leave every config. Every step checks the current shape first, so a rerun changes nothing.
+the live value), and the maps leave every config.
+
+Last, each profile's config names its lane picks in ``config.lanes`` (the endpoint's id and URL, and the model config's id and
+model name), read from its lane columns. A backup made without the endpoints leaves those columns NULL, and switching to the
+profile then finds the picks by these names.
+
+Every step checks the current shape first, so a rerun changes nothing.
 """
 
 from __future__ import annotations
@@ -338,10 +344,45 @@ def _split_libraries(conn: sqlite3.Connection) -> str:
     return ", ".join(rebuilt) or "nothing"
 
 
+def _lane_ref(conn: sqlite3.Connection, endpoint_id: int | None, config_id: int | None) -> dict | None:
+    if endpoint_id is None:
+        return None
+    row = conn.execute("SELECT url FROM endpoints WHERE id = ?", (endpoint_id,)).fetchone()
+    if row is None:
+        return None
+    ref = {"endpoint_id": endpoint_id, "url": row[0]}
+    if config_id is not None:
+        row = conn.execute("SELECT model_name FROM model_configs WHERE id = ?", (config_id,)).fetchone()
+        if row is not None:
+            ref |= {"model_config_id": config_id, "model_name": row[0]}
+    return ref
+
+
+def _name_lanes(conn: sqlite3.Connection) -> None:
+    """Give every config without ``lanes`` the names of its profile's lane picks."""
+    if not {"endpoints", "model_configs"} <= _tables(conn):
+        return
+    columns = [column for column, _ in _LANE_COLUMNS]
+    rows = conn.execute(f"SELECT id, config, {', '.join(columns)} FROM profiles").fetchall()  # nosec B608 -- fixed names
+    for pid, raw, writer, writer_config, agent, agent_config, judge in rows:
+        config = _decoded(raw)
+        if "lanes" in config:
+            continue
+        refs = {
+            "writer": _lane_ref(conn, writer, writer_config),
+            "agent": _lane_ref(conn, agent, agent_config),
+            "judge": _lane_ref(conn, judge, None),
+        }
+        config["lanes"] = {lane: ref for lane, ref in refs.items() if ref is not None}
+        conn.execute("UPDATE profiles SET config = ? WHERE id = ?", (json.dumps(config, ensure_ascii=False), pid))
+    conn.commit()
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     _make_profiles(conn)
     if "profiles" not in _tables(conn):
         return
     rebuilt = _split_libraries(conn)
+    _name_lanes(conn)
     count = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
     print(f"[migrations] 0101: prompt layouts are profiles; each of {count} has its own library; rebuilt {rebuilt}")

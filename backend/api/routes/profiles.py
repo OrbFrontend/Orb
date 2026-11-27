@@ -8,6 +8,7 @@ from ...core import maintenance_lock
 from ...database import get_active_profile_id, get_profile, get_settings, list_profiles
 from ...features import profiles
 from ...features.backups import engine as backups
+from ..deps import generation_streams
 from ..schemas import ProfileActive, ProfileCreate, ProfileRename
 from .backups import finish_thread
 from .endpoints import public_settings
@@ -19,6 +20,13 @@ def _missing() -> HTTPException:
     return HTTPException(status_code=404, detail="Profile not found")
 
 
+def _refuse_while_generating() -> None:
+    """A generation reads the active profile's rows as it goes, so a switch mid-stream would mix two profiles in one reply.
+    Creating and deleting lead to a switch, so they wait too."""
+    if generation_streams():
+        raise HTTPException(status_code=409, detail="Wait for the running generation to finish")
+
+
 @router.get("/api/profiles")
 async def api_list_profiles():
     rows = await list_profiles()
@@ -28,6 +36,7 @@ async def api_list_profiles():
 @router.post("/api/profiles")
 async def api_create_profile(data: ProfileCreate):
     """A new profile with fresh defaults, or with ``copy_from`` a copy of that profile and everything it owns."""
+    _refuse_while_generating()
     row = await profiles.create_profile(data.name, data.copy_from)
     if row is None:
         raise _missing()
@@ -37,6 +46,7 @@ async def api_create_profile(data: ProfileCreate):
 @router.put("/api/profiles/active")
 async def api_switch_profile(data: ProfileActive):
     """Switch profiles; answers the settings row the switch left live."""
+    _refuse_while_generating()
     if not await profiles.switch_profile(data.id):
         raise _missing()
     return public_settings(await get_settings())
@@ -54,6 +64,7 @@ async def api_rename_profile(profile_id: str, data: ProfileRename):
 async def api_delete_profile(profile_id: str):
     """Delete a profile, backing it up first since its fragments go with it; answers the settings row, which changes when the
     active profile was deleted."""
+    _refuse_while_generating()
     row = await get_profile(profile_id)
     if row is None:
         raise _missing()

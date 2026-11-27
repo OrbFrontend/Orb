@@ -201,6 +201,7 @@ from .queries.phrase_bank import (
 from .queries.profiles import (
     PRESET_LANES,
     PRESET_SETTINGS,
+    SEEDED_PARTS,
     ProfileEditError,
     create_profile,
     delete_profile,
@@ -210,6 +211,7 @@ from .queries.profiles import (
     list_profiles,
     rename_profile,
     save_live_state,
+    seed_library_statements,
     seed_missing_layouts,
     set_active_profile_id,
 )

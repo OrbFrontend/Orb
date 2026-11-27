@@ -5,8 +5,10 @@ exist. Leaving a profile captures the live state into it (that is the auto-save)
 existing writers. Fragments, the phrase bank and the global World marks need no capture: they are the profile's own rows, read
 straight from the active profile.
 
-A profile's lane picks are foreign-key columns, NULL once their endpoint or model config is deleted. A NULL Writer or Agent
-lane keeps its live value; a NULL Judge lane turns the Judge off, as clearing it or deleting the live Judge endpoint does.
+A profile's lane picks are foreign-key columns, NULL once their endpoint or model config is deleted, or when a backup came
+without the endpoints. ``config.lanes`` names each pick by URL and model name too, so a NULL lane first goes to the live
+endpoint and model config those name. A lane that names none keeps its live value for the Writer and the Agent, and turns the
+Judge off, as clearing it or deleting the live Judge endpoint does.
 """
 
 from __future__ import annotations
@@ -15,11 +17,13 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+from ...core.domain_types import EndpointKind
 from ...database import (
     PRESET_SETTINGS,
     ProfileEditError,
     get_active_profile_id,
     get_endpoint,
+    get_endpoints,
     get_model_configs,
     get_profile,
     list_profiles,
@@ -31,10 +35,31 @@ from ...database import (
     update_settings,
 )
 from ...database import delete_profile as remove_profile
-from ...database.models import PresetState, ProfileRow
+from ...database.models import LaneRef, PresetState, ProfileRow
 
 # Serializes switches, and the captures and deletes that touch the active profile, so two never interleave capture and apply.
 _lock = asyncio.Lock()
+
+
+def _pick(matches: list[int], preferred: int | None) -> int | None:
+    return preferred if preferred in matches else next(iter(matches), None)
+
+
+async def _resolve_lane(
+    endpoint_id: int | None, config_id: int | None, ref: LaneRef | None, kind: EndpointKind, role: str | None
+) -> tuple[int | None, int | None]:
+    """The lane's endpoint and model config ids, a NULL one filled from *ref*: the live *kind* endpoint with its URL (its own
+    id first), and that endpoint's *role* model config with its model name (its own id first)."""
+    ref = ref or {}
+    url, model_name = ref.get("url"), ref.get("model_name")
+    if endpoint_id is None and url:
+        matches = [e["id"] for e in await get_endpoints(kind) if e["url"] == url]
+        endpoint_id = _pick(matches, ref.get("endpoint_id"))
+    if endpoint_id is not None and config_id is None and role is not None and model_name:
+        configs = await get_model_configs(endpoint_id)
+        matches = [mc["id"] for mc in configs if mc["role"] == role and mc["model_name"] == model_name]
+        config_id = _pick(matches, ref.get("model_config_id"))
+    return endpoint_id, config_id
 
 
 async def _chat_lane_update(
@@ -71,13 +96,15 @@ async def apply_state(state: PresetState) -> None:
     models = config.get("models", {})
     if "agent_same_as_writer" in models:
         update["agent_same_as_writer"] = models["agent_same_as_writer"]
-    update |= await _chat_lane_update(
-        state["writer_endpoint_id"], state["writer_model_config_id"], "writer", "active_endpoint_id", "active_model_config_id"
+    refs = config.get("lanes", {})
+    writer = await _resolve_lane(
+        state["writer_endpoint_id"], state["writer_model_config_id"], refs.get("writer"), "chat", "writer"
     )
-    update |= await _chat_lane_update(
-        state["agent_endpoint_id"], state["agent_model_config_id"], "agent", "agent_endpoint_id", "agent_active_model_config_id"
-    )
-    await _apply_judge(state["judge_endpoint_id"], models.get("judge_model"))
+    agent = await _resolve_lane(state["agent_endpoint_id"], state["agent_model_config_id"], refs.get("agent"), "chat", "agent")
+    judge, _ = await _resolve_lane(state["judge_endpoint_id"], None, refs.get("judge"), "judge", None)
+    update |= await _chat_lane_update(*writer, "writer", "active_endpoint_id", "active_model_config_id")
+    update |= await _chat_lane_update(*agent, "agent", "agent_endpoint_id", "agent_active_model_config_id")
+    await _apply_judge(judge, models.get("judge_model"))
     if update:
         await update_settings(update)
 

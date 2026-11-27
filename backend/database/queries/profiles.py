@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Collection
 from dataclasses import replace
 from typing import Any
 
@@ -18,7 +19,7 @@ import aiosqlite
 from ...core import DECISION_COLUMNS, STATE_COLUMNS
 from ...core.prompt_layout import CUSTOM_KIND, DEFAULT_LAYOUT_ID, LayoutBlock, default_layout, marker_block_id
 from ..connection import get_db, immediate_tx, select_rows
-from ..models import PresetConfig, PresetLanes, PresetState, ProfileRow
+from ..models import LaneRef, PresetConfig, PresetLanes, PresetState, ProfileRow
 from ..seeds import SEED_INTERACTIVE_FRAGMENTS, SEED_MAIN_PROMPT, SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
 from .prompt_layouts import get_prompt_blocks, insert_layout_blocks, layout_block
 
@@ -128,6 +129,21 @@ async def _endpoint_config(db: aiosqlite.Connection, endpoint_id: int | None, co
     return rows[0][0] if rows else None
 
 
+async def _lane_ref(db: aiosqlite.Connection, endpoint_id: int | None, config_id: int | None) -> LaneRef | None:
+    """What the lane pick names, so a backup that leaves out the endpoints can still find them; None without a pick."""
+    if endpoint_id is None:
+        return None
+    rows = list(await db.execute_fetchall("SELECT url FROM endpoints WHERE id = ?", (endpoint_id,)))
+    if not rows:
+        return None
+    ref: LaneRef = {"endpoint_id": endpoint_id, "url": rows[0][0]}
+    if config_id is not None:
+        rows = list(await db.execute_fetchall("SELECT model_name FROM model_configs WHERE id = ?", (config_id,)))
+        if rows:
+            ref |= {"model_config_id": config_id, "model_name": rows[0][0]}
+    return ref
+
+
 async def read_live_state(db: aiosqlite.Connection) -> PresetState:
     """The live generation state over an open connection: the config (empty without a settings row) and the lanes the live
     rows select."""
@@ -151,9 +167,15 @@ async def read_live_state(db: aiosqlite.Connection) -> PresetState:
         "agent_model_config_id": await _endpoint_config(db, agent_id, "agent_active_model_config_id"),
         "judge_endpoint_id": row["decision_endpoint_id"],
     }
+    refs = {
+        "writer": await _lane_ref(db, writer_id, lanes["writer_model_config_id"]),
+        "agent": await _lane_ref(db, agent_id, lanes["agent_model_config_id"]),
+        "judge": await _lane_ref(db, lanes["judge_endpoint_id"], None),
+    }
     config: PresetConfig = {
         "settings": {key: json.loads(row[key] or "{}") if key in _JSON_SETTINGS else row[key] for key in PRESET_SETTINGS},
         "models": {"agent_same_as_writer": row["agent_same_as_writer"], "judge_model": row["decision_model"]},
+        "lanes": {lane: ref for lane, ref in refs.items() if ref is not None},
     }
     return {"config": config, **lanes}
 
@@ -165,32 +187,50 @@ async def _insert_profile(db: aiosqlite.Connection, profile_id: str, name: str, 
     )
 
 
+# The parts of a profile's library the seeds fill: "fragments" (mood and interactive) and "phrase_bank".
+SEEDED_PARTS: tuple[str, ...] = ("fragments", "phrase_bank")
+
+
+def seed_library_statements(profile_id: str, parts: Collection[str] = SEEDED_PARTS) -> list[tuple[str, tuple[Any, ...]]]:
+    """The inserts that give *profile_id* the seed rows of *parts*, as (sql, params) for any connection to run."""
+    statements: list[tuple[str, tuple[Any, ...]]] = []
+    if "fragments" in parts:
+        for f in SEED_MOOD_FRAGMENTS:
+            statements.append(
+                (
+                    "INSERT INTO mood_fragments (profile_id, id, label, description, prompt_text, negative_prompt) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (profile_id, f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"]),
+                )
+            )
+        columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
+        columns += DECISION_COLUMNS + STATE_COLUMNS
+        sql = (
+            f"INSERT INTO interactive_fragments (profile_id, {', '.join(columns)}) "  # nosec B608 -- fixed columns
+            f"VALUES (?, {', '.join('?' * len(columns))})"
+        )
+        for seed in SEED_INTERACTIVE_FRAGMENTS:
+            row = {"description": "", "enabled": True, **seed}
+            values = [row.get(column) for column in columns]
+            params = (profile_id, *(json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for v in values))
+            statements.append((sql, params))
+    if "phrase_bank" in parts:
+        # A seed entry is either a raw regex pattern (str) or a list of literal variant phrases.
+        sql = "INSERT INTO phrase_bank (profile_id, variants, kind, pattern) VALUES (?, ?, ?, ?)"
+        for entry in SEED_PHRASE_BANK:
+            params = (
+                (profile_id, "[]", "regex", entry)
+                if isinstance(entry, str)
+                else (profile_id, json.dumps(entry), "literal", None)
+            )
+            statements.append((sql, params))
+    return statements
+
+
 async def seed_profile_library(db: aiosqlite.Connection, profile_id: str) -> None:
     """The seed fragments and phrase bank, as *profile_id*'s rows."""
-    for f in SEED_MOOD_FRAGMENTS:
-        await db.execute(
-            "INSERT INTO mood_fragments (profile_id, id, label, description, prompt_text, negative_prompt) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (profile_id, f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"]),
-        )
-    columns = ("id", "label", "description", "field_type", "required", "enabled", "injection_label", "sort_order")
-    columns += DECISION_COLUMNS + STATE_COLUMNS
-    for seed in SEED_INTERACTIVE_FRAGMENTS:
-        row = {"description": "", "enabled": True, **seed}
-        values = [row.get(column) for column in columns]
-        await db.execute(
-            f"INSERT INTO interactive_fragments (profile_id, {', '.join(columns)}) "  # nosec B608 -- fixed columns
-            f"VALUES (?, {', '.join('?' * len(columns))})",
-            [profile_id, *(json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for v in values)],
-        )
-    # A seed entry is either a raw regex pattern (str) or a list of literal variant phrases.
-    await db.executemany(
-        "INSERT INTO phrase_bank (profile_id, variants, kind, pattern) VALUES (?, ?, ?, ?)",
-        [
-            (profile_id, "[]", "regex", entry) if isinstance(entry, str) else (profile_id, json.dumps(entry), "literal", None)
-            for entry in SEED_PHRASE_BANK
-        ],
-    )
+    for sql, params in seed_library_statements(profile_id):
+        await db.execute(sql, params)
 
 
 async def seed_default_profile(db: aiosqlite.Connection, name: str) -> None:

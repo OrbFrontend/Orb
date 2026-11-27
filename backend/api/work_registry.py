@@ -142,6 +142,10 @@ class WorkRegistry:
         state = self._resources.get(key)
         return state is not None and any(job.message_id == message_id for job in state.jobs.values())
 
+    def stream_keys(self) -> list[str]:
+        """The resources with a stream running or settling."""
+        return [key for key, state in self._resources.items() if state.stream is not None]
+
     def active_work(self) -> list[str]:
         labels = {
             WorkPhase.STREAMING: "Generation",
