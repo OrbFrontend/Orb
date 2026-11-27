@@ -6,7 +6,6 @@
 .sidebar-header-top { margin-bottom: 12px; }
 .sidebar-header-top .title-row { display: flex; align-items: center; gap: 6px; }
 .sidebar-header-top .title-row > button { margin-block: -4px; }
-.sidebar-header #sidebar-collapse-btn { margin-right: -4px; }
 .sidebar-header h1 { font-family: var(--font-prose); font-size: 18px; font-weight: 600; color: var(--accent);
   letter-spacing: .5px; text-box: trim-both cap alphabetic; }
 /* The theme and preset pickers share one label column, so both selects start at the same x. */
