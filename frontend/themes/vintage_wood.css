@@ -1,95 +1,234 @@
-:root { --bg-deep:#16110f; --bg-primary:#1f1815; --bg-surface:#2b211d; --bg-elevated:#382c26; --bg-hover:#473831;
-  --border:#57463c; --border-light:#6e594d; --text-primary:#e6d8ce; --text-secondary:#a89a90; --text-muted:#95877e;
-  --accent:#c29a66; --accent-dim:#7a5f3e; --accent-glow:rgba(194,154,102,0.14); --red:#9e4642;
+/* Vintage Wood: the app is three stamped walnut boards on a dark desk, like woodshop signs. Each board carries one
+   inset rounded frame; headings are tracked serif capitals over a stamped star rule; anything chosen is a flat
+   light-wood fill with burnt ink. Flat: no shadows, gradients or bevels, and no rules between parts. Lora prose,
+   Playfair only for headlines. Static paint only. */
+:root {
+  --vw-desk:#171210; --vw-board:#30251f; --vw-card:#241d19; --vw-burn:#231b17; --vw-well:#1f1814;
+  --vw-oak:#d9ae86; --vw-oak-hover:#e6bf99; --vw-ink:#2a170e; --vw-stamp:#d8b89c;
+  --vw-frame:rgba(216,184,156,0.55);
+  --vw-rule:url("/static/themes/assets/vintage-wood-rule.svg");
+
+  --bg-deep:#1f1814; --bg-primary:#30251f; --bg-surface:#241d19; --bg-elevated:#3b2f28; --bg-hover:#45372f;
+  --border:#4a3b32; --border-light:#5d4b40;
+  --text-primary:#f3e4d4; --text-secondary:#cdbcab; --text-muted:#a89686;
+  --accent:#d9ae86; --accent-dim:#a77f5c; --accent-glow:rgba(217,174,134,0.16); --accent-muted:rgba(217,174,134,0.14);
+  --on-accent:#2a170e; --red:#e88a78; --warning:#e7b45c;
+
+  --font-display:'Playfair Display',Georgia,serif;
   --font-prose:'Lora',Georgia,'Palatino Linotype',Palatino,serif;
-  --font-ui:Optima,Candara,'Segoe UI',system-ui,sans-serif; --font-mono:'Courier New',Courier,monospace; --radius:4px;
-  --font-prose-size:16px; --sidebar-width:300px; --inspector-width:340px; }
+  --font-ui:Optima,Candara,'Segoe UI',system-ui,sans-serif; --font-mono:'Courier New',Courier,monospace;
+  --radius:8px; --font-prose-size:16px; --sidebar-width:300px; --inspector-width:340px;
 
-/* One brass family carries every accent: the theme accent, corner brackets, inlays, plates and selected fills.
-   Chat boxes are flat walnut with brass corner brackets; yours sit a shade darker with a faint full inlay, both 5px
-   in. No grain, bevels or shadows. Small cards use shorter arms so a one-line card's corners stay apart. */
-:root { --vw-brass:rgba(184,146,94,0.6); --vw-brass-line:rgba(184,146,94,0.4); --vw-rule:#4a382e;
-  --vw-selected:#342920; --vw-selected-hover:#3d3026; --vw-selected-rule:#57452f; --vw-label:#e3cfae;
-  --vw-h:linear-gradient(var(--vw-brass), var(--vw-brass)) no-repeat;
-  --vw-corners:
-    var(--vw-h) left 5px top 5px / 14px 1px, var(--vw-h) left 5px top 5px / 1px 14px,
-    var(--vw-h) right 5px top 5px / 14px 1px, var(--vw-h) right 5px top 5px / 1px 14px,
-    var(--vw-h) left 5px bottom 5px / 14px 1px, var(--vw-h) left 5px bottom 5px / 1px 14px,
-    var(--vw-h) right 5px bottom 5px / 14px 1px, var(--vw-h) right 5px bottom 5px / 1px 14px;
-  --vw-corners-sm:
-    var(--vw-h) left 4px top 4px / 8px 1px, var(--vw-h) left 4px top 4px / 1px 8px,
-    var(--vw-h) right 4px top 4px / 8px 1px, var(--vw-h) right 4px top 4px / 1px 8px,
-    var(--vw-h) left 4px bottom 4px / 8px 1px, var(--vw-h) left 4px bottom 4px / 1px 8px,
-    var(--vw-h) right 4px bottom 4px / 8px 1px, var(--vw-h) right 4px bottom 4px / 1px 8px; }
-.message .msg-body { border: 1px solid var(--vw-rule) !important; box-shadow: none !important;
-  background: var(--vw-corners), #2e231e !important; }
-.message.user .msg-body { background: #271e1a !important; border-color: var(--vw-rule) !important;
-  outline: 1px solid rgba(184,146,94,0.26); outline-offset: -5px; }
-/* Narration near-white, dialogue brass gold, asides muted tan. */
-.message .msg-body { color: #ede7e1 !important; }
-.message .msg-body .quoted { color: #e3b56e !important; }
-.message .msg-body em { color: #a8988b !important; }
-.message .msg-body .quoted em { color: inherit !important; }
-.message .msg-body pre, .message .msg-body code.inline-code { background: rgba(10,7,6,0.45) !important;
-  border-color: #4a3a30 !important; }
-.message.user .msg-edit-area textarea { background: var(--bg-deep) !important; border-color: var(--border) !important; }
-.message .msg-inspect { border-color: var(--vw-rule) !important; background: rgba(10,7,6,0.3) !important; }
+  --scrollbar-width:thin; --scrollbar-thumb:#5d4b40; --scrollbar-track:transparent;
 
-/* ── Panels and cards: the character box's frame, corners on the panel's own fill. ── */
-.modal, .modal-crop { border: 1px solid var(--vw-rule) !important; box-shadow: none !important;
-  background: var(--vw-corners), var(--bg-surface) !important; }
-#doc-page { border: 1px solid var(--vw-rule) !important; box-shadow: none !important;
-  background: var(--vw-corners), var(--bg-elevated) !important; }
-.lib-tool { border-color: var(--vw-rule) !important; background: var(--vw-corners), var(--bg-primary) !important; }
-.stat-card { border-color: var(--vw-rule) !important; background: var(--vw-corners-sm), var(--bg-elevated) !important; }
-.stat-card-favorite { border-color: var(--vw-selected-rule) !important; background: var(--vw-corners), var(--vw-selected) !important; }
-.stat-card-clickable:hover { border-color: var(--vw-brass) !important; transform: none !important; }
-.workflow-card, .tool-card { border-color: var(--vw-rule) !important;
-  background: var(--vw-corners-sm), var(--bg-surface) !important; }
-.tool-card.tool-on { border-color: var(--vw-selected-rule) !important;
-  background: var(--vw-corners-sm), var(--vw-selected) !important; }
+  --mobile-overlay-color:rgba(12,7,5,0.6) !important;
+  --mobile-panel-shadow-left:none !important;
+  --mobile-panel-shadow-right:none !important;
+}
+/* Light-wood fills: children colored by the base tokens would otherwise paint cream on oak. */
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active, .cb-option.active,
+.cb-option:hover, .burger-menu-item:hover, .tab.active, .tab-button-active, .stat-card-favorite {
+  --text-primary:var(--vw-ink); --text-secondary:#5a3a24; --text-muted:#6b4a32; --accent:var(--vw-ink);
+  --accent-dim:var(--vw-ink); }
+:not(.seg), :not(.seg)::before, :not(.seg)::after { box-shadow: none !important; text-shadow: none !important; }
 
-/* ── Pop-ups: flat fill and a brass hairline instead of a drop shadow. ── */
-.ui-popover, .toast {
-  background: var(--bg-elevated) !important; border: 1px solid var(--vw-brass-line) !important; box-shadow: none !important; }
-.toast.error { border-color: var(--red) !important; }
-.turn-error { box-shadow: none !important; }
+body { background: var(--vw-desk) !important; }
 
-/* ── Fields: walnut wells; focus draws the brass line. ── */
-input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus, #chat-input:focus,
+/* ── Frame: three boards, each with its inset frame ── */
+
+.ui-panel, #main, #document-main { background: var(--vw-board) !important; border: none !important; }
+#chat-messages, #chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
+@media (min-width: 901px) {
+  #app { padding: 6px; gap: 0; }
+  #sidebar { margin-right: 6px; }
+  .ui-dock.open { margin-left: 6px; }
+  #sidebar, .ui-dock.open, #main, #document-main { position: relative; border-radius: 12px; overflow: clip; }
+  /* The frame lies above the sticky headers, so a scrolled list never breaks it. */
+  #sidebar::after, .ui-dock.open::after, #main::after, #document-main::after { content: ""; position: absolute;
+    inset: 5px; border: 1.5px solid var(--vw-frame); border-radius: 8px; pointer-events: none; z-index: 5; }
+  /* No !important: the audio player reserves its room with an inline padding-bottom. */
+  body #chat-messages { padding: 4px 10px 4px; }
+  #chat-messages { margin-inline: 6px; }
+  body #chat-input-area { padding: 4px 16px 14px; }
+  .sidebar-section-body { padding-inline: 12px !important; }
+  .sidebar-section-header { padding-inline: 18px !important; }
+  .tools-inner, .inspector-inner, .asst-inner { padding: 16px 18px !important; }
+}
+
+/* ── Sidebar: the shop sign ── */
+
+.sidebar-header { background: transparent !important; border-bottom: none !important; padding: 16px 18px 10px !important; }
+.sidebar-header h1 { font-family: var(--font-display) !important; font-weight: 700 !important; font-size: 30px !important;
+  line-height: 1 !important; text-transform: uppercase; letter-spacing: .16em !important; color: var(--vw-stamp) !important; }
+.sidebar-header-top { margin-bottom: 10px !important; padding-bottom: 20px;
+  background: var(--vw-rule) left bottom / 160px 14px no-repeat; }
+.sidebar-header .theme-label { font-size: 10px !important; letter-spacing: .16em !important; color: var(--text-muted) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--vw-oak) !important;
+  background: var(--bg-hover) !important; border-radius: 999px; }
+
+.sidebar-section { border-bottom: none !important; }
+.sidebar-section-header { background: var(--vw-board) !important; font-family: var(--font-display) !important;
+  font-size: 12px !important; font-weight: 700 !important; letter-spacing: .18em !important;
+  color: var(--text-secondary) !important; padding-block: 9px !important; }
+.sidebar-section-header:hover, .sidebar-section-header[aria-expanded="true"] { color: var(--vw-stamp) !important; }
+.sidebar-section .ep-group, .sidebar-portrait-head, .sidebar-portrait-title { border: none !important; }
+
+.char-item, .group-chat-item, .doc-item, .world-item, .lb-entry-item { border: none !important; border-radius: 8px !important; }
+.char-item:hover, .group-chat-item:hover, .doc-item:hover, .world-item:hover, .lb-entry-item:hover {
+  background: var(--accent-muted) !important; }
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active {
+  background: var(--vw-oak) !important; color: var(--vw-ink) !important; }
+:is(.char-item, .group-chat-item, .doc-item).active :is(.char-item-name, .doc-item-name) { font-weight: 700 !important; }
+.lb-entry-item.active, .conv-history-item.active-conv { background: var(--accent-muted) !important; border: none !important; }
+
+/* ── Chat header: the sign's lettering over a star rule ── */
+
+#chat-header, #doc-header { background: transparent !important; border: none !important; }
+#chat-header .chat-title, #doc-header .doc-title { font-family: var(--font-display) !important; font-size: 22px !important;
+  font-weight: 700 !important; line-height: 1.15 !important; text-transform: uppercase; letter-spacing: .14em;
+  color: var(--vw-stamp) !important; }
+@media (min-width: 901px) {
+  #chat-header, #doc-header { padding: 12px 20px 22px !important;
+    background: var(--vw-rule) left 20px bottom 4px / 160px 14px no-repeat !important; }
+}
+#chat-header .chat-avatar { width: 40px; height: 40px; border: 1.5px solid var(--vw-stamp) !important; }
+
+/* ── Controls: flat burnt blocks; light wood is the main action and whatever is chosen ── */
+
+.btn { background: var(--vw-burn) !important; border: none !important; color: var(--text-primary) !important;
+  transition: background .12s, color .12s !important; }
+.btn:not(:disabled):hover { background: var(--bg-hover) !important; color: var(--vw-oak-hover) !important; }
+.btn-accent, .btn-active, .ui-send { background: var(--vw-oak) !important; color: var(--vw-ink) !important;
+  border: none !important; font-weight: 600; }
+.btn-accent:not(:disabled):hover, .btn-active:not(:disabled):hover, .ui-send:not(:disabled):hover {
+  background: var(--vw-oak-hover) !important; color: var(--vw-ink) !important; }
+.btn-danger { color: var(--red) !important; }
+.btn-danger:not(:disabled):hover { background: #8a3326 !important; color: #f7e6da !important; }
+.ui-send, .ui-stop, #burger-btn { border-radius: 50% !important; aspect-ratio: 1; }
+#send-btn:disabled { opacity: 1 !important; background: var(--vw-burn) !important; color: var(--text-muted) !important; }
+.ui-stop { background: #8a3326 !important; color: #f7e6da !important; border: none !important; filter: none !important; }
+.ui-stop:hover { background: #9d3c2d !important; }
+#burger-btn { background: var(--vw-burn) !important; border: none !important; }
+#burger-btn:hover { color: var(--vw-oak-hover) !important; }
+
+input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="email"],
+textarea, select, .cb-control, .asst-compose {
+  background-color: var(--vw-well) !important; border: 1px solid transparent !important; border-radius: 8px !important; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus,
 .cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
-  border-color: var(--vw-brass) !important; box-shadow: none !important; }
+  border-color: var(--vw-frame) !important; outline: none; }
+#chat-input { background-color: var(--vw-burn) !important; border: 1px solid transparent !important;
+  border-radius: 12px !important; padding-inline: 16px !important; }
+#chat-input:focus { border-color: var(--vw-frame) !important; }
+.cb-root .cb-control .cb-input, .cb-root .cb-control .cb-input:focus { background: transparent !important;
+  border: none !important; }
+.image-gen-edit[readonly] { background: transparent !important; border: none !important; color: inherit !important; }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--vw-oak); }
 
-/* ── Tabs: folder tabs are walnut, the open one the selected fill with brass top corners; underline tabs a brass rule. ── */
-.tab-row { border-bottom-color: var(--vw-rule) !important; }
-.tab-button, .tab { transition: none !important; }
-.tab-button { background: var(--bg-surface) !important; border-color: var(--vw-rule) !important; box-shadow: none !important; }
-.tab-button:not(.tab-button-active):hover { background: var(--bg-elevated) !important; }
-.tab-button-active { color: var(--vw-label) !important; border-color: var(--vw-selected-rule) !important;
-  border-bottom-color: var(--bg-primary) !important; box-shadow: none !important; background:
-    var(--vw-h) left 4px top 4px / 8px 1px, var(--vw-h) left 4px top 4px / 1px 8px,
-    var(--vw-h) right 4px top 4px / 8px 1px, var(--vw-h) right 4px top 4px / 1px 8px, var(--vw-selected) !important; }
-.tabs, .lb-tabs { border-bottom-color: var(--vw-rule) !important; }
-.tab.active, .lb-tab.active { color: var(--vw-label) !important; border-bottom-color: var(--vw-brass) !important; }
+.ui-popover { background: var(--bg-elevated) !important; border: 1px solid var(--vw-frame) !important;
+  border-radius: 10px !important; }
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--vw-oak) !important;
+  color: var(--vw-ink) !important; }
 
-/* ── Buttons: flat walnut that takes a brass edge on hover; the main action is a brass plate; toggled-on is selected. ── */
-:root { --vw-plate:#b8925e; --vw-plate-hover:#c6a06b; --vw-plate-ink:#1f1510; --vw-danger:#d9806f; }
-.btn, #burger-btn { background: var(--bg-surface) !important; border: 1px solid var(--vw-rule) !important;
-  color: #d8c8bb !important; box-shadow: none !important; }
-.btn:not(:disabled):hover, #burger-btn:hover { background: var(--bg-elevated) !important;
-  border-color: var(--vw-brass) !important; color: var(--text-primary) !important; }
-.btn-accent, .ui-send { background: var(--vw-plate) !important; border: 1px solid var(--vw-plate) !important;
-  color: var(--vw-plate-ink) !important; font-weight: 600; }
-.btn-accent:not(:disabled):hover, .ui-send:not(:disabled):hover {
-  background: var(--vw-plate-hover) !important; border-color: var(--vw-plate-hover) !important;
-  color: var(--vw-plate-ink) !important; }
-.btn-active { background: var(--vw-selected) !important; border-color: var(--vw-brass-line) !important;
-  color: var(--vw-label) !important; }
-.btn-active:not(:disabled):hover { background: var(--vw-selected-hover) !important; border-color: var(--vw-brass) !important;
-  color: var(--vw-label) !important; }
-.btn-danger { color: var(--vw-danger) !important; }
-.btn-danger:not(:disabled):hover { background: rgba(158,70,66,0.22) !important; border-color: #a5463f !important;
-  color: var(--vw-danger) !important; }
-.ui-stop { background: #7e332e !important; border: 1px solid #a5463f !important;
-  color: #f3e2d6 !important; filter: none !important; }
-.ui-stop:hover { background: #8f3b35 !important; border-color: #b8564d !important; }
+.tog-slider { background: var(--bg-hover) !important; border: none !important; }
+.tog-slider:before { background: var(--text-muted) !important; }
+.tog input:checked + .tog-slider { background: var(--vw-oak) !important; }
+.tog input:checked + .tog-slider:before { background: var(--vw-ink) !important; }
+
+/* Tabs: a burnt rail with a light-wood slider. */
+.tab-row, .tabs, .lb-tabs { border-bottom: none !important; }
+.tab-row { gap: 4px !important; padding: 4px; background: var(--vw-well); border-radius: 10px; }
+.tab-button { border: none !important; border-radius: 7px !important; background: transparent !important;
+  margin: 0 !important; padding-bottom: 9px !important; transition: none !important; }
+.tab-button:not(.tab-button-active):hover { color: var(--vw-oak-hover) !important; }
+.tab-button-active { background: var(--vw-oak) !important; color: var(--vw-ink) !important; }
+.tab { border-bottom-color: transparent !important; border-radius: 7px !important; }
+.tab.active, .lb-tab.active { background: var(--vw-oak) !important; color: var(--vw-ink) !important;
+  border-bottom-color: transparent !important; }
+
+/* ── Messages: flat planks under a stamped name; yours are burnt darker ── */
+
+/* The hover toolbar already reserves a row under each message, so messages add no margin of their own. */
+.message { margin-bottom: 0 !important; }
+.message:last-child { margin-bottom: 0 !important; }
+.message .msg-role { margin: 0 4px 6px !important; font-family: var(--font-display); font-size: 12px !important;
+  font-weight: 700 !important; letter-spacing: .2em !important; color: var(--vw-stamp) !important; }
+.message .msg-role :is(.msg-num, .swipe-nav, .swipe-counter, .msg-rewriting) { font-family: var(--font-ui);
+  font-weight: 400; letter-spacing: .06em; color: var(--text-muted) !important; }
+.message.user .msg-role { color: var(--vw-oak) !important; }
+.message .msg-body { background: var(--vw-card) !important; border: none !important; border-radius: 10px !important;
+  padding: 12px 18px !important; color: #ebe3d9 !important; }
+.message.user .msg-body { background: #3b2f28 !important; }
+.message .msg-edit-area textarea { background: var(--vw-well) !important; }
+/* Narration near-white, dialogue light oak, asides muted tan. */
+.message .msg-body .quoted { color: #dfb07e !important; }
+.message .msg-body em { color: #b3a394 !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code { background: var(--vw-well) !important; border: none !important; }
+.message .msg-body blockquote { border-left: none !important; padding-left: 1.4em !important; color: var(--text-secondary); }
+.message .msg-body hr { border-top-color: var(--border-light) !important; }
+.message .msg-inspect { border: none !important; background: var(--vw-well) !important; }
+.workflow-artifacts { border-top: none !important; }
+.workflow-artifact-swipe { border: none !important; background: var(--vw-well) !important; }
+.msg-toolbar { margin-top: 2px !important; }
+.msg-toolbar button { border-radius: 999px !important; min-height: 22px !important; padding: 3px 5px !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover { background: var(--accent-muted) !important; color: var(--vw-oak-hover) !important; }
+.msg-toolbar .msg-btn-del:hover { background: #8a3326 !important; color: #f7e6da !important; }
+.message.prose-rewriting .msg-body { outline: 1px solid var(--vw-oak); outline-offset: -1px; }
+
+.gen-status { color: var(--text-secondary) !important; }
+.group-speaking-plan { background: var(--vw-card) !important; border: none !important; border-radius: 10px !important; }
+
+/* ── Workflow and Inspector docks: flat planks, group names stamped in capitals ── */
+
+.inspector-title { font-family: var(--font-display); font-size: 15px !important; font-weight: 700 !important;
+  letter-spacing: .18em !important; color: var(--vw-stamp) !important; }
+.tools-divider { margin: 14px 2px 6px !important; }
+.tools-divider:first-child { margin-top: 4px !important; }
+.tools-divider::before, .tools-divider::after { display: none; }
+.tools-divider span { font-family: var(--font-display); font-weight: 700; font-size: 12px !important;
+  letter-spacing: .2em !important; color: var(--vw-stamp) !important; }
+.tool-card, .workflow-card, .stat-card, .wc-card, .lib-tool { border: none !important; border-radius: 10px !important;
+  background: var(--vw-card) !important; }
+.tool-card.tool-on { background: #2b231e !important; }
+.audit-types, #tools-pane-main > div:last-child, .ml-variants { border: none !important; }
+.stat-card-favorite { background: var(--vw-oak) !important; }
+.stat-card-clickable:hover { background: var(--bg-elevated) !important; transform: none !important; }
+.stat-card-favorite.stat-card-clickable:hover { background: var(--vw-oak-hover) !important; }
+
+/* ── Overlays: a board laid over the others ── */
+
+.modal-overlay { background: rgba(12,7,5,0.7) !important; }
+/* Modals scroll themselves, so their frame is the edge: an inset one would have content sliding across it. */
+.modal, .modal-crop { background: var(--vw-board) !important; border: 1.5px solid var(--vw-frame) !important;
+  border-radius: 12px !important; }
+.modal h2, .modal h3 { font-family: var(--font-display) !important; font-weight: 700 !important; color: var(--vw-stamp) !important; }
+.modal > h2 { font-size: 20px !important; line-height: 1.2; text-transform: uppercase; letter-spacing: .14em;
+  border-bottom: none !important; padding-bottom: 20px !important;
+  background: var(--vw-rule) left bottom 2px / 160px 14px no-repeat; }
+.conv-history-item { border-bottom: none !important; border-radius: 8px; }
+.conv-history-item + .conv-history-item { margin-top: 2px; }
+.toast { background: var(--vw-oak) !important; color: var(--vw-ink) !important; border: none !important;
+  border-radius: 10px !important; }
+.toast.error { background: #8a3326 !important; color: #f7e6da !important; }
+.turn-error { background: color-mix(in srgb, #8a3326 35%, var(--vw-card)) !important; border: none !important;
+  border-radius: 10px !important; }
+.field-warning { color: var(--warning) !important; }
+
+/* The app's own accent edge stripes. */
+.asst-selection, .lib-dupe-collision-note, .decision-status, .decision-problem, .doc-audit-item, .wc-op {
+  border-left: none !important; }
+
+#doc-editor-scroll { background: transparent !important; }
+#doc-page { background: var(--vw-card) !important; border: none !important; border-radius: 12px !important; }
+.doc-mode-toggle, .doc-probs-toggle { border: none !important; border-radius: 8px !important; background: var(--vw-well); }
+.doc-mode-opt + .doc-mode-opt { border-left: none !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active { background: var(--vw-oak) !important; color: var(--vw-ink) !important; }
+
+::selection { background: rgba(217,174,134,0.45); color: #fff6ea; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #5d4b40; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--vw-oak); }
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
