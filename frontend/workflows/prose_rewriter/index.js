@@ -7,6 +7,7 @@ import {
   registerAction,
   registerWorkflowToolsPanelCard,
   showConfirmModal,
+  subscribe,
   toast,
 } from "/static/workflow_api.js";
 
@@ -249,3 +250,4 @@ async function loadAutomatic() {
 
 // Do not await config at module scope; one slow workflow must not block others.
 loadAutomatic().then(paint);
+subscribe("profile", () => loadAutomatic().then(paint));

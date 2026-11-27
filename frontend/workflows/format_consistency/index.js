@@ -4,6 +4,7 @@ import {
   localMlReady,
   registerAction,
   registerWorkflowToolsPanelCard,
+  subscribe,
 } from "/static/workflow_api.js";
 
 const WORKFLOW_ID = "format_consistency";
@@ -61,3 +62,4 @@ registerWorkflowToolsPanelCard(
 
 // Do not await config at module scope; one slow workflow must not block others.
 load().then(refreshCard);
+subscribe("profile", () => load().then(refreshCard));

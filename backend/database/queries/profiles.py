@@ -1,9 +1,9 @@
 """Profiles: a named generation config, the profile's prompt layout blocks, and its own library rows.
 
-The settings and endpoint rows are the live working copy of the config; a profile's state (``config`` and its lane columns) is
-what they held when the profile was last left. Fragments, the phrase bank with its suggestion dismissals, and the global World
-marks are rows of the profile's own (``profile_id``), read straight from the active profile. ``features.profiles`` owns the
-switching rules.
+The settings and endpoint rows are the live working copy of the config; a profile's state (``config``, its lane columns and
+its persona) is what they held when the profile was last left. Fragments, the phrase bank with its suggestion dismissals, and
+the global World marks are rows of the profile's own (``profile_id``), read straight from the active profile.
+``features.profiles`` owns the switching rules.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import aiosqlite
 from ...core import DECISION_COLUMNS, STATE_COLUMNS
 from ...core.prompt_layout import CUSTOM_KIND, DEFAULT_LAYOUT_ID, LayoutBlock, default_layout, marker_block_id
 from ..connection import get_db, immediate_tx, select_rows
-from ..models import LaneRef, ProfileConfig, ProfileLanes, ProfileRow, ProfileState
+from ..models import LaneRef, PersonaRef, ProfileConfig, ProfileLanes, ProfileRow, ProfileState
 from ..seeds import SEED_INTERACTIVE_FRAGMENTS, SEED_MAIN_PROMPT, SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
 from .prompt_layouts import get_prompt_blocks, insert_layout_blocks, layout_block
 
@@ -37,9 +37,26 @@ PROFILE_SETTINGS: tuple[str, ...] = (
     "reasoning_enabled_passes",
     "reasoning_prefill_passes",
     "editor_audit_toggles",
+    "document_audit_enabled",
+    "document_audit_autopatch",
+    "document_audit_toggles",
+    "document_prose_rewriter_enabled",
+    "assistant_instructions",
+    "assistant_reasoning",
+    "assistant_tool_groups",
 )
-_JSON_SETTINGS = frozenset({"enabled_tools", "reasoning_enabled_passes", "reasoning_prefill_passes", "editor_audit_toggles"})
+_JSON_SETTINGS = frozenset(
+    {
+        "enabled_tools",
+        "reasoning_enabled_passes",
+        "reasoning_prefill_passes",
+        "editor_audit_toggles",
+        "document_audit_toggles",
+        "assistant_tool_groups",
+    }
+)
 _LIVE_LANES = ("active_endpoint_id", "agent_same_as_writer", "agent_endpoint_id", "decision_endpoint_id", "decision_model")
+_LIVE_OTHER = ("active_persona_id", "workflow_config")
 # The foreign-key columns holding a profile's lane picks, in ProfileLanes order.
 PROFILE_LANES: tuple[str, ...] = (
     "writer_endpoint_id",
@@ -48,12 +65,30 @@ PROFILE_LANES: tuple[str, ...] = (
     "agent_model_config_id",
     "judge_endpoint_id",
 )
-_COLUMNS = ", ".join(("id", "name", "config", *PROFILE_LANES))
+# Every foreign-key column of a profile's state: the lanes, then its persona.
+_LINKS = (*PROFILE_LANES, "persona_id")
+_COLUMNS = ", ".join(("id", "name", "config", *_LINKS))
 # The SET clause writing a ProfileState, bound by _state_values.
-_STATE_SETS = ", ".join(f"{column} = ?" for column in ("config", *PROFILE_LANES))
+_STATE_SETS = ", ".join(f"{column} = ?" for column in ("config", *_LINKS))
 _PROFILE_ORDER = "ORDER BY id != ?, name COLLATE NOCASE"
 # The tables holding a profile's own rows, copied with it. phrase_bank's surrogate id is renumbered in the copy.
 _LIBRARY_TABLES = ("mood_fragments", "interactive_fragments", "phrase_bank", "slop_dismissals", "profile_worlds")
+# By workflow id, the top-level keys of its config slot that belong to the profile. The workflow registry fills it as each
+# workflow registers, since the workflows sit above this layer.
+_WORKFLOW_KEYS: dict[str, tuple[str, ...]] = {}
+
+
+def register_profile_workflow_keys(workflow_id: str, keys: Collection[str]) -> None:
+    """Declare which top-level keys of *workflow_id*'s config slot each profile saves and applies; none drops the workflow."""
+    if keys:
+        _WORKFLOW_KEYS[workflow_id] = tuple(keys)
+    else:
+        _WORKFLOW_KEYS.pop(workflow_id, None)
+
+
+def profile_workflow_keys() -> dict[str, tuple[str, ...]]:
+    """By workflow id, the config keys a profile carries."""
+    return dict(_WORKFLOW_KEYS)
 
 
 class ProfileEditError(ValueError):
@@ -70,12 +105,13 @@ def _decoded(row: Any) -> ProfileRow:
         "agent_endpoint_id": row["agent_endpoint_id"],
         "agent_model_config_id": row["agent_model_config_id"],
         "judge_endpoint_id": row["judge_endpoint_id"],
+        "persona_id": row["persona_id"],
     }
 
 
 def _state_values(state: ProfileState) -> tuple[Any, ...]:
-    """*state* as the values of ``config`` and the PROFILE_LANES columns, in that order."""
-    return (json.dumps(state["config"], ensure_ascii=False), *(state[column] for column in PROFILE_LANES))
+    """*state* as the values of ``config`` and the _LINKS columns, in that order."""
+    return (json.dumps(state["config"], ensure_ascii=False), *(state[column] for column in _LINKS))
 
 
 def _name(name: str) -> str:
@@ -148,7 +184,7 @@ async def _lane_ref(db: aiosqlite.Connection, endpoint_id: int | None, config_id
 async def read_live_state(db: aiosqlite.Connection) -> ProfileState:
     """The live generation state over an open connection: the config (empty without a settings row) and the lanes the live
     rows select."""
-    columns = PROFILE_SETTINGS + _LIVE_LANES
+    columns = PROFILE_SETTINGS + _LIVE_LANES + _LIVE_OTHER
     rows = list(await db.execute_fetchall(f"SELECT {', '.join(columns)} FROM settings WHERE id = 1"))  # nosec B608
     if not rows:
         return {
@@ -158,6 +194,7 @@ async def read_live_state(db: aiosqlite.Connection) -> ProfileState:
             "agent_endpoint_id": None,
             "agent_model_config_id": None,
             "judge_endpoint_id": None,
+            "persona_id": None,
         }
     row = rows[0]
     writer_id, agent_id = row["active_endpoint_id"], row["agent_endpoint_id"]
@@ -173,17 +210,44 @@ async def read_live_state(db: aiosqlite.Connection) -> ProfileState:
         "agent": await _lane_ref(db, agent_id, lanes["agent_model_config_id"]),
         "judge": await _lane_ref(db, lanes["judge_endpoint_id"], None),
     }
+    persona = await _persona_ref(db, row["active_persona_id"])
     config: ProfileConfig = {
         "settings": {key: json.loads(row[key] or "{}") if key in _JSON_SETTINGS else row[key] for key in PROFILE_SETTINGS},
         "models": {"agent_same_as_writer": row["agent_same_as_writer"], "judge_model": row["decision_model"]},
         "lanes": {lane: ref for lane, ref in refs.items() if ref is not None},
+        "persona": persona,
+        "workflows": _profile_workflow_config(row["workflow_config"]),
     }
-    return {"config": config, **lanes}
+    return {"config": config, **lanes, "persona_id": persona["persona_id"] if persona else None}
+
+
+async def _persona_ref(db: aiosqlite.Connection, persona_id: int | None) -> PersonaRef | None:
+    if persona_id is None:
+        return None
+    rows = list(await db.execute_fetchall("SELECT name FROM user_personas WHERE id = ?", (persona_id,)))
+    return {"persona_id": persona_id, "name": rows[0][0]} if rows else None
+
+
+def _profile_workflow_config(raw: str | None) -> dict[str, dict[str, Any]]:
+    """The per-profile keys of each registered workflow's live config slot; a workflow with an empty slot is left out, so
+    entering the profile leaves it at its live config."""
+    try:
+        slots = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(slots, dict):
+        return {}
+    picked: dict[str, dict[str, Any]] = {}
+    for workflow_id, keys in _WORKFLOW_KEYS.items():
+        slot = slots.get(workflow_id)
+        if isinstance(slot, dict) and (values := {key: slot[key] for key in keys if key in slot}):
+            picked[workflow_id] = values
+    return picked
 
 
 async def _insert_profile(db: aiosqlite.Connection, profile_id: str, name: str, state: ProfileState) -> None:
     await db.execute(
-        f"INSERT INTO profiles ({_COLUMNS}) VALUES ({', '.join('?' * (3 + len(PROFILE_LANES)))})",  # nosec B608
+        f"INSERT INTO profiles ({_COLUMNS}) VALUES ({', '.join('?' * (3 + len(_LINKS)))})",  # nosec B608
         (profile_id, name, *_state_values(state)),
     )
 

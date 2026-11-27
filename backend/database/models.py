@@ -560,12 +560,24 @@ class LaneRef(TypedDict, total=False):
     model_name: str
 
 
+class PersonaRef(TypedDict):
+    """What a profile's persona was when it was saved. A backup made without the personas leaves ``persona_id`` NULL, so on
+    switch a NULL persona goes to the live persona with this name, preferring the one with this id."""
+
+    persona_id: int
+    name: str
+
+
 class ProfileConfig(TypedDict, total=False):
     """``profiles.config``. Every section is optional: a config read from an older or partial file applies what it has."""
 
     settings: dict[str, Any]  # the PROFILE_SETTINGS columns, JSON ones decoded
     models: ProfileModels
     lanes: dict[str, LaneRef]  # "writer", "agent" and "judge"; a lane with no pick is left out
+    persona: PersonaRef | None  # None: the profile has no active persona
+    # By workflow id, the top-level keys of its config slot the workflow declares per-profile; a workflow whose live slot was
+    # empty is left out.
+    workflows: dict[str, dict[str, Any]]
 
 
 class ProfileLanes(TypedDict):
@@ -583,6 +595,7 @@ class ProfileState(ProfileLanes):
     """What a profile's setup holds, and what the live rows hold."""
 
     config: ProfileConfig
+    persona_id: int | None
 
 
 class ProfileRow(ProfileState):

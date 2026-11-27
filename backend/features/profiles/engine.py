@@ -8,7 +8,13 @@ straight from the active profile.
 A profile's lane picks are foreign-key columns, NULL once their endpoint or model config is deleted, or when a backup came
 without the endpoints. ``config.lanes`` names each pick by URL and model name too, so a NULL lane first goes to the live
 endpoint and model config those name. A lane that names none keeps its live value for the Writer and the Agent, and turns the
-Judge off, as clearing it or deleting the live Judge endpoint does.
+Judge off, as clearing it or deleting the live Judge endpoint does. The persona works the same way: a NULL ``persona_id``
+goes to the live persona ``config.persona`` names, keeps the live one when none has that name, and is cleared only when the
+profile had no persona.
+
+A workflow declares which top-level keys of its config slot are a profile's (the creative ones; credentials and the
+connections to this machine's servers stay shared). Entering a profile writes those keys into the live slot under the config
+lock, leaving the slot's other keys as they are.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+from ...core import workflow_config_lock
 from ...core.domain_types import EndpointKind
 from ...database import (
     PROFILE_SETTINGS,
@@ -26,16 +33,21 @@ from ...database import (
     get_endpoints,
     get_model_configs,
     get_profile,
+    get_user_persona,
+    get_user_personas,
+    get_workflow_config,
     list_profiles,
+    profile_workflow_keys,
     save_live_state,
     seed_missing_layouts,
     set_active_profile_id,
+    set_workflow_config,
     update_decision_config,
     update_endpoint,
     update_settings,
 )
 from ...database import delete_profile as remove_profile
-from ...database.models import LaneRef, ProfileRow, ProfileState
+from ...database.models import LaneRef, PersonaRef, ProfileConfig, ProfileRow, ProfileState
 
 # Serializes switches, and the captures and deletes that touch the active profile, so two never interleave capture and apply.
 _lock = asyncio.Lock()
@@ -88,6 +100,30 @@ async def _apply_judge(endpoint_id: int | None, model: str | None) -> None:
     await update_decision_config(update)
 
 
+async def _persona_update(persona_id: int | None, config: ProfileConfig) -> dict[str, int | None]:
+    """The settings change selecting the profile's persona; {} when the profile never saved one, or names one that is gone."""
+    if "persona" not in config:
+        return {}
+    ref: PersonaRef | None = config["persona"]
+    if persona_id is not None and await get_user_persona(persona_id) is not None:
+        return {"active_persona_id": persona_id}
+    if ref is None:
+        return {"active_persona_id": None}
+    matches = [p["id"] for p in await get_user_personas() if p["name"] == ref["name"]]
+    found = _pick(matches, ref["persona_id"])
+    return {} if found is None else {"active_persona_id": found}
+
+
+async def _apply_workflows(saved: Mapping[str, Mapping[str, Any]]) -> None:
+    """Write each workflow's saved keys into its live config slot, only the keys it declares a profile's today."""
+    for workflow_id, keys in profile_workflow_keys().items():
+        values = {key: saved[workflow_id][key] for key in keys if key in saved.get(workflow_id, {})}
+        if not values:
+            continue
+        async with workflow_config_lock():
+            await set_workflow_config(workflow_id, {**await get_workflow_config(workflow_id), **values})
+
+
 async def apply_state(state: ProfileState) -> None:
     """Make *state* live through the settings, endpoint and Judge writers."""
     config = state["config"]
@@ -105,8 +141,10 @@ async def apply_state(state: ProfileState) -> None:
     update |= await _chat_lane_update(*writer, "writer", "active_endpoint_id", "active_model_config_id")
     update |= await _chat_lane_update(*agent, "agent", "agent_endpoint_id", "agent_active_model_config_id")
     await _apply_judge(judge, models.get("judge_model"))
+    update |= await _persona_update(state["persona_id"], config)
     if update:
         await update_settings(update)
+    await _apply_workflows(config.get("workflows", {}))
 
 
 async def _enter(profile: ProfileRow) -> None:

@@ -362,6 +362,7 @@ const TOPICS = new Set([
   "avatars",
   "context-size",
   "turns", // a chat turn began or ended, in any conversation
+  "profile", // another profile became active, and the settings, layout and library lists have reloaded
 ]);
 
 const _subscribers = new Map(); // topic -> listeners

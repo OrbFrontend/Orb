@@ -34,4 +34,5 @@ WORKFLOW = Workflow(
     config_schema=CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
     config_normalizer=normalize_config,
+    profile_config_keys=("automatic",),
 )

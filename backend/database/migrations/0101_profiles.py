@@ -14,6 +14,9 @@ A database from before this fold may hold a presets table, settings.active_prese
 fragment copy takes ``enabled`` from its profile's map (the active profile's copies, and a fragment the map does not name, keep
 the live value), and the maps leave every config.
 
+Each profile also gets its own active persona, ``persona_id``. It is not filled: a profile whose config has no ``persona``
+section keeps the live persona when it is entered, and leaving it saves one.
+
 Last, each profile's config names its lane picks in ``config.lanes`` (the endpoint's id and URL, and the model config's id and
 model name), read from its lane columns. A backup made without the endpoints leaves those columns NULL, and switching to the
 profile then finds the picks by these names.
@@ -200,7 +203,8 @@ def _rename_active(conn: sqlite3.Connection) -> None:
 
 
 def _make_profiles(conn: sqlite3.Connection) -> None:
-    """Rename the layouts table to profiles, add the config and lane columns, and fill them from the live state."""
+    """Rename the layouts table to profiles, add the config, lane and persona columns, and fill config and lanes from the live
+    state."""
     tables = _tables(conn)
     renamed = None
     for old in ("prompt_layouts", "presets"):
@@ -224,6 +228,8 @@ def _make_profiles(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE profiles ADD COLUMN {column} INTEGER REFERENCES {parent}(id) ON DELETE SET NULL"  # nosec B608
             )
+    if "persona_id" not in have:
+        conn.execute("ALTER TABLE profiles ADD COLUMN persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL")
     if "settings" in tables:
         _rename_active(conn)
         # The order get_active_profile_id falls back on: 'default' first, then by name.

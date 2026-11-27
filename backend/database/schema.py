@@ -591,7 +591,9 @@ CREATE TABLE IF NOT EXISTS profiles (
     writer_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     agent_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
-    judge_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL
+    judge_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
+    -- The profile's active persona; config.persona names it too, so a backup without the personas can find it again.
+    persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
 );
 
 -- A profile's prompt layout orders the chat prompt's blocks around the history: 'prefix' blocks build the system message and

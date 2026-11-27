@@ -1230,6 +1230,8 @@ export function initAssistant() {
   subscribe("conversations", paintControls);
   subscribe("documents", paintControls);
   subscribe("lorebook", paintControls);
+  // The options are the profile's: an open pane shows the one now active.
+  subscribe("profile", () => !$("assistant-options").classList.contains("hidden") && paintOptions());
   // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.
   watchUtilityPanel(PANEL, (open) => {
     S.assistant.open = open;

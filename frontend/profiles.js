@@ -11,7 +11,7 @@ import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { loadPromptLayout } from "./prompt_layout.js";
 import { loadSettings } from "./settings.js";
 import { acceptSettingsRow } from "./settings_store.js";
-import { anyTurnActive, S, subscribe } from "./state.js";
+import { anyTurnActive, notify, S, subscribe } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 
 let _profiles = [];
@@ -70,7 +70,8 @@ async function _attempt(fn) {
 }
 
 // After the live state changed under every panel that shows it. The Judge config first: the settings' Judge lane and the
-// fragment lists paint from it. The Worlds follow the profile's global marks, in the sidebar and in the chat in view.
+// fragment lists paint from it. The Worlds follow the profile's global marks, in the sidebar and in the chat in view. Panels
+// that keep their own copy (a workflow's config, an open options pane) reload on "profile" once the rest is in.
 async function _reloadLive() {
   await reloadDecisionConfig();
   await loadSettings();
@@ -82,6 +83,7 @@ async function _reloadLive() {
     loadWorlds(),
     refreshChatWorlds(S.activeConvId),
   ]);
+  notify("profile");
 }
 
 async function switchTo(id) {

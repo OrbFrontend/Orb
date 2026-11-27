@@ -96,6 +96,52 @@ async def test_a_profile_without_a_judge_turns_the_judge_off(client):
     assert (await client.put_json("/api/profiles/active", json={"id": a_id}))["decision_endpoint_id"] == judge["id"]
 
 
+async def test_a_profile_carries_its_persona_document_assistant_and_workflow_settings(client):
+    a_id = (await client.get_json("/api/profiles"))["active_id"]
+    one = await client.post_json("/api/user-personas", json={"name": "One"})
+    two = await client.post_json("/api/user-personas", json={"name": "Two"})
+
+    async def set_up(persona: int, rules: str, style: str, comfy: str, voice: bool) -> None:
+        await client.put_checked(
+            "/api/settings",
+            json={"active_persona_id": persona, "assistant_instructions": rules, "document_audit_autopatch": voice},
+        )
+        image = (await client.get_json("/api/workflows/image_gen/config"))["config"]
+        image = {**image, "default_style": style, "external_comfy": {**image["external_comfy"], "api_url": comfy}}
+        await client.put_checked("/api/workflows/image_gen/config", json={"config": image})
+        await client.put_checked("/api/workflows/format_consistency/config", json={"config": {"voice_consistency": voice}})
+
+    async def live() -> tuple:
+        settings = await client.get_json("/api/settings")
+        image = (await client.get_json("/api/workflows/image_gen/config"))["config"]
+        voice = (await client.get_json("/api/workflows/format_consistency/config"))["config"]["voice_consistency"]
+        return (
+            settings["active_persona_id"],
+            settings["assistant_instructions"],
+            bool(settings["document_audit_autopatch"]),
+            image["default_style"],
+            image["external_comfy"]["api_url"],
+            voice,
+        )
+
+    await set_up(one["id"], "A rules", "anime", "http://a:8188", True)
+    b_id = (await client.post_json("/api/profiles", json={"name": "B"}))["id"]
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    await set_up(two["id"], "B rules", "realistic", "http://b:8188", False)
+
+    # The ComfyUI address is this machine's, so it stays as B left it.
+    await client.put_checked("/api/profiles/active", json={"id": a_id})
+    assert await live() == (one["id"], "A rules", True, "anime", "http://b:8188", True)
+    await client.put_checked("/api/profiles/active", json={"id": b_id})
+    assert await live() == (two["id"], "B rules", False, "realistic", "http://b:8188", False)
+
+    # A's persona is deleted and another takes its name: A finds it by name.
+    await client.delete_checked(f"/api/user-personas/{one['id']}")
+    again = await client.post_json("/api/user-personas", json={"name": "One"})
+    await client.put_checked("/api/profiles/active", json={"id": a_id})
+    assert (await live())[0] == again["id"]
+
+
 async def test_a_backups_apply_renumbers_profile_lanes_with_the_endpoints(client):
     a_id = (await client.get_json("/api/profiles"))["active_id"]
     await client.post_json("/api/endpoints", json={"url": "http://second/v1"})
