@@ -13,6 +13,7 @@ from backend.database import (
     set_active_leaf,
     update_settings,
 )
+from backend.pipeline import handle_continue_reply
 from backend.workflows.toolkit import build_offturn_prefix
 
 
@@ -446,6 +447,24 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
     assert "ARIA PRIVATE" not in shared_head and "KAEL PRIVATE" not in shared_head
 
 
+@pytest.mark.kv_divergence_expected
+async def test_a_rebuilt_continue_under_private_reads_only_the_speakers_card(client, llm_mock):
+    """No Writer request rides a rebuilt Continue, so Private's speaker card has to reach it through the prefix."""
+    ep = await client.post_json("/api/endpoints", json={"url": "http://llama.local", "api_key": ""})
+    await client.put(f"/api/endpoints/{ep['id']}", json={"completion_mode": "text"})
+    await client.put("/api/settings", json={"active_endpoint_id": ep["id"]})
+    conv, members = await _two_card_group(client)
+    aria = next(member for member in members if member["display_name"] == "Aria")
+    *_, reply_id = await _chain(conv["id"], [("user", "Hello", None), ("assistant", "I found ", aria["id"])])
+    llm_mock.enqueue_writer("tracks.")
+
+    events = [event async for event in handle_continue_reply(conv["id"], reply_id)]
+
+    assert events[-1] == {"event": "done"}, events
+    system = str(llm_mock.captured[-1]["messages"][0]["content"])
+    assert "ARIA PRIVATE" in system and "KAEL PRIVATE" not in system and "### Kael" in system
+
+
 _GUARDED = {
     "enable_agent": True,
     "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
@@ -660,7 +679,7 @@ async def _sheet_group(client, **kwargs) -> tuple[dict, list[dict]]:
 def _sheet_calls(llm_mock) -> list[str]:
     """Every sheet-update call's user message, in order."""
     texts = [str(call["messages"][-1]["content"]) for call in llm_mock.captured if call["pass"] == "workflow"]
-    return [text for text in texts if "reference sheet" in text]
+    return [text for text in texts if "current sheet:" in text]
 
 
 async def _proposals(client, conv, status: str | None = None) -> list[dict]:

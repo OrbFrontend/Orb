@@ -13,7 +13,7 @@ from ..core import Macros, StateView, card_description, card_personality, resolv
 from ..core.settings import Settings
 from ..inference import AbortToken, CachedBase, DecisionCancelled, KVCacheTracker, TextCallRecord
 from ..inference.gpu_swap import turn_hold
-from ..prompting import prefix_cache_shape, prefix_is_speaker_scoped, render_state_body
+from ..prompting import continue_context_mode, prefix_cache_shape, prefix_is_speaker_scoped, render_state_body
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
 from .context import PipelineContext, TurnSetup, build_turn_prefix, enabled_moods, load_pipeline_context, prepare_turn
@@ -1120,12 +1120,14 @@ async def _open_continue(
 ) -> AsyncIterator[PublicTurnEvent | _OpenReply]:
     """Rebuild the conversation prefix ending in *target* as *kept*, for a reply with no raw prompt of its own.
 
-    Yields hook events, then an ``_OpenReply``, or an ``error`` event in its place.
+    Yields hook events, then an ``_OpenReply``, or an ``error`` event in its place. A group speaker's card rides the prefix
+    in every mode that shows it, since no Writer request carries Private's.
     """
     history, last_user = continued_history(await db.get_path_to_leaf(conversation_id, target["id"]), kept)
 
+    mode = continue_context_mode(ctx.cast.context_mode)
     speaker = None
-    if ctx.cast.grouped and prefix_is_speaker_scoped(ctx.cast.context_mode):
+    if ctx.cast.grouped and prefix_is_speaker_scoped(mode):
         speaker = next((m for m in ctx.cast.members if m.member_id == target.get("speaker_member_id")), None)
         if speaker is None:
             yield {"event": "error", "data": "This reply's speaker is no longer in the scene"}
@@ -1142,7 +1144,7 @@ async def _open_continue(
     assert setup is not None
     prefix = setup.prefix
     if speaker is not None:
-        prefix = build_turn_prefix(ctx, history, speaker=speaker)
+        prefix = build_turn_prefix(ctx, history, speaker=speaker, context_mode=mode)
     *base_prefix, open_reply = prefix
     if open_reply["role"] != "assistant" or not isinstance(open_reply["content"], str):
         yield {"event": "error", "data": "This reply cannot be continued as text"}
@@ -1160,7 +1162,7 @@ async def _open_continue(
         prefix=base_prefix,
         phrase_bank=ctx.phrase_bank,
         schema_overrides=setup.schema_overrides,
-        cache_shape=prefix_cache_shape(ctx.cast.context_mode, speaker),
+        cache_shape=prefix_cache_shape(mode, speaker),
     )
     base = cfg.writer_lane.base
     prefill = base.resolve_trailing([open_reply])[0]["content"] if base.resolve_trailing else open_reply["content"]

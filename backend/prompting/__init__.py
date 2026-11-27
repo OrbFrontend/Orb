@@ -12,6 +12,7 @@ from .conversation import (
 )
 from .fragment_state import render_state_body
 from .group_context import (
+    continue_context_mode,
     largest_cast_section,
     macro_identity,
     member_macros,

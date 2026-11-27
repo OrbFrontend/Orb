@@ -207,7 +207,7 @@ name means its section wherever it is written, on either side of the divider:
 | `{{personality}}` | A solo card's personality; in a group, as `{{description}}` |
 | `{{scenario}}` | The chat's scenario |
 | `{{examples}}` | A solo card's example dialogue; in a group, as `{{description}}` |
-| `{{instructions}}` | The chat's instructions; empty under `prevent_prompt_overrides` |
+| `{{instructions}}` | The chat's instructions, in a group the scene's, the Group cast text included; in the Group speaker text, the speaker card's post-history instructions; empty under `prevent_prompt_overrides` |
 | `{{persona}}` | The user persona's description |
 
 `{{description}}` and `{{personality}}` are also general macros carrying the

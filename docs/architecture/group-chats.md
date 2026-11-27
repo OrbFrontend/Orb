@@ -71,14 +71,18 @@ The following rules apply in every mode:
   `CastMember.personality`, the card's fields, or the scene override and
   nothing when `card_sheet_override` is set. Outside it there is no single card
   to read, so they resolve to nothing. Member cards render from these fields;
-  `private_sheet` is only the baseline scene sheet updates start from.
+  `private_sheet` is only the baseline scene sheet updates start from: the
+  override, else the card's description and personality with a blank line
+  between them, the bytes the built-in Group cast text renders.
 - Card-linked Worlds and card fragments are scene-wide. Context mode does not
   make lore private.
 
 Private and Swap protect the same information: a member's full card is visible
 only to that member. They differ in placement. Private puts it after history;
 Swap puts it before history so it can cache per speaker. Shared deliberately
-opens the cards to the whole cast.
+opens the cards to the whole cast. A Continue that rebuilds its prompt sends no
+Writer request, so under Private it renders the speaker's prefix as Swap does
+(`prompting.continue_context_mode`).
 
 The roster is ordered by `sort_order, id`. Muted members remain in the cast but
 cannot speak; removed members are tombstoned so old messages keep their names.

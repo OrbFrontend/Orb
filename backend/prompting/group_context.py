@@ -29,6 +29,12 @@ def prefix_is_speaker_scoped(mode: GroupContextMode) -> bool:
     return mode == "swap"
 
 
+def continue_context_mode(mode: GroupContextMode) -> GroupContextMode:
+    """The mode a rebuilt Continue prefix renders in. Continue sends no Writer request, so Private's speaker card moves before
+    the history, where Classic card swap places it; still only that member's call reads it."""
+    return "swap" if tail_carries_identity(mode) else mode
+
+
 def prefix_cache_shape(mode: GroupContextMode, speaker: CastMember | None) -> str:
     """The tracker lane shape for a speaker's prefix: one per speaker under swap, the shared lane otherwise."""
     return f"swap:{speaker.speaker_key}" if speaker is not None and prefix_is_speaker_scoped(mode) else ""

@@ -84,20 +84,15 @@ def _public_profile(card: Mapping | None, override: str | None) -> str:
 
 
 def resolve_private_sheet(card: Mapping | None, override: str | None = None) -> str:
-    """Resolve the scene private-sheet override, otherwise the card's joined sheet.
+    """Resolve the scene private-sheet override, otherwise the card's description and personality, a blank line between them:
+    the bytes the built-in Group cast text renders between its heading and its examples, so an override that keeps them renders
+    the card as it was.
 
     Only None falls back. Scene changes live in the uncached tail without writing the card.
     """
     if override is not None:
         return override
-    if not card:
-        return ""
-    parts = []
-    if str(card.get("description") or "").strip():
-        parts.append(str(card["description"]).strip())
-    if str(card.get("personality") or "").strip():
-        parts.append("Personality: " + str(card["personality"]).strip())
-    return "\n\n".join(parts)
+    return "\n\n".join(part for part in (card_description(card), card_personality(card)) if part)
 
 
 def _context_mode(conv: Mapping) -> GroupContextMode:
