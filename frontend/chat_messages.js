@@ -98,12 +98,30 @@ function focusEditTextarea(ta, onEscape) {
   });
   ta.focus({ preventScroll: true });
   ta.selectionStart = ta.selectionEnd = ta.value.length;
+}
+
+/** Fit an edit box to its text, growing and shrinking, without moving the chat's scroll. */
+function fitEditTextarea(ta) {
+  const ct = $("chat-messages");
+  const top = ct.scrollTop;
   ta.style.height = "auto";
   const lineH = parseFloat(getComputedStyle(ta).lineHeight) || 20;
-  ta.style.height = `${Math.max(lineH * 3, ta.scrollHeight)}px`;
+  const border = ta.offsetHeight - ta.clientHeight;
+  ta.style.height = `${Math.max(lineH * 3, ta.scrollHeight) + border}px`;
+  ct.scrollTop = top;
   const messageEl = ta.closest(".message");
   if (messageEl) messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
 }
+
+for (const type of ["input", "focusin"]) {
+  $("chat-messages").addEventListener(type, (e) => {
+    if (e.target.matches?.(".msg-edit-area textarea")) fitEditTextarea(e.target);
+  });
+}
+// Rewrapping at a new width changes the text's height, and the box hides its overflow.
+window.addEventListener("resize", () => {
+  for (const ta of document.querySelectorAll(".msg-edit-area textarea")) fitEditTextarea(ta);
+});
 
 async function deleteMessage(msgId) {
   if (streamBusy() || S.conversationLoading) return;

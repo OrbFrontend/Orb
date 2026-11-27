@@ -212,7 +212,7 @@
   white-space: nowrap; }
 .msg-edit-area textarea { font-family: var(--font-prose); font-size: var(--font-prose-size); line-height: 1.65;
   min-height: 80px; background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 12px 16px; color: var(--text-primary); resize: vertical; }
+  padding: 12px 16px; color: var(--text-primary); resize: none; overflow: hidden; }
 .message.user .msg-edit-area textarea { background: color-mix(in srgb, var(--accent-glow) 60%, var(--bg-deep));
   border-color: var(--accent-dim); }
 .msg-edit-actions { display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end; }
