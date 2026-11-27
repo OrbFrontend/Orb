@@ -4,7 +4,7 @@ import pytest
 
 from backend.workflows import registry as registry_module
 
-from ._fixtures import make_workflow, register_for_test
+from ._fixtures import make_workflow, register_for_test, restore_workflows
 
 
 @pytest.fixture(autouse=True)
@@ -14,8 +14,7 @@ def _empty_registry():
     snapshot = {k: deepcopy(v) for k, v in registry_module._WORKFLOWS_BY_ID.items()}
     registry_module._WORKFLOWS_BY_ID.clear()
     yield
-    registry_module._WORKFLOWS_BY_ID.clear()
-    registry_module._WORKFLOWS_BY_ID.update(snapshot)
+    restore_workflows(snapshot)
 
 
 async def test_empty_registry_returns_empty_list(client):
