@@ -212,7 +212,7 @@ class _PlanSoFar:
 
     def add_rulings(self, rulings: Sequence[tuple[str, str]]) -> None:
         for label, guidance in rulings:
-            self.decided.append(ruling_entry(label, guidance))
+            self.decided.append(ruling_entry(label, guidance, overrides=bool(self.decided)))
             self.parts.append(f"{label}: {guidance}")
 
 
@@ -364,7 +364,7 @@ async def director_pass(
     lorebook_block: str = "",
     progressive_state: dict | None = None,
     state_block: str = "",
-    decision_guidance: str = "",
+    opening_rulings: Sequence[tuple[str, str]] = (),
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
     timing_entries: list[GenerationTimingRow] | None = None,
@@ -408,11 +408,6 @@ async def director_pass(
     # world facts and the saved state it receives in view.
     lorebook_prefix = ("___\n\n" + headed_lorebook(lorebook_block) + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + state_block + "\n\n") if state_block else ""
-    # Already-settled facts the Director plans *around*, so they ride the context section of the tail rather than the
-    # instruction. Nothing about probabilities or dice is in the block (see passes/judge/guidance.py) -- a rolled outcome reaches
-    # the model as the story constraint its author wrote. Only the opening point's outcomes go here, so the block is the same
-    # in every step; a later ruling joins the decided list, past the first byte where the steps differ.
-    decisions_prefix = ("___\n\n" + decision_guidance + "\n\n") if decision_guidance else ""
 
     scene_rows = [fragment for fragment in interactive_fragments if fragment.get("field_type") != STATE_FIELD_TYPE]
     riding_rows = [fragment for fragment in interactive_fragments if fragment.get("field_type") == STATE_FIELD_TYPE]
@@ -420,6 +415,9 @@ async def director_pass(
     middle = judge if judge is not None and run_middle is not None else DirectorJudge()
     between, waits, questions = middle.between, middle.waits, middle.questions
     plan = _PlanSoFar()
+    # The opening point's rulings stand ahead of the first Director fragment, so they open the plan every step and Judge
+    # point reads, the way a later ruling joins it at its fragment's place.
+    plan.add_rulings(opening_rulings)
     call_params = {**extract_hyperparams(settings, lane="agent"), **reasoning_cfg(reasoning_on, reasoning_prefill)}
 
     t0 = time.monotonic()
@@ -460,7 +458,7 @@ async def director_pass(
                         value_priors=progressive_state,
                         judged_next=questions.get(stage["id"], ()) if stage is not None else (),
                     )
-                    step_tail = lorebook_prefix + notes_prefix + decisions_prefix + step_tail
+                    step_tail = lorebook_prefix + notes_prefix + step_tail
                     content = build_multimodal_content(step_tail, attachments)
                     trailing = [{"role": "user", "content": content}]
                     step_schema = (
@@ -560,7 +558,7 @@ async def director_pass(
                     fills_moods=last,
                     judged_next=questions.get(segment[-1]["id"], ()) if segment and not last else (),
                 )
-                tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
+                tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
                 content = build_multimodal_content(tail, attachments)
                 trailing: list[ChatMessage] = [{"role": "user", "content": content}]
                 call = _Call()
@@ -713,8 +711,7 @@ async def director_stage(
             lorebook_block=lorebook.block,
             progressive_state=prior_values,
             state_block=director_block,
-            # An empty block is a no-op.
-            decision_guidance=state.director_decision_guidance,
+            opening_rulings=state.director_opening_rulings,
             speaker_keys=speaker_keys,
             resting=resting,
             timing_entries=state.latency_breakdown,

@@ -380,7 +380,7 @@ async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(clie
 
     # So does the Director's own trailing request.
     director_tail = _tail_text(_captured(llm_mock, "director")[0])
-    assert "Doorway: Alric holds the doorway." in director_tail
+    assert "- Judge ruling (Doorway): Alric holds the doorway.\n" in director_tail
     assert "0.9" not in director_tail
     assert "___\n\n**Scene Guidance**\n\nDoorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "writer")[0])
 
@@ -399,7 +399,7 @@ async def test_inject_routes_the_guidance_to_the_named_pass(client, db, llm_mock
 
     assert _event(events, "decisions")["evaluations"][0]["inject"] == inject
     injection = _event(events, "director_done")["injection_block"]
-    assert ("Doorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "director")[0])) is to_director
+    assert ("Alric holds the doorway." in _tail_text(_captured(llm_mock, "director")[0])) is to_director
     assert ("Doorway: Alric holds the doorway." in injection) is to_writer
 
 
@@ -1290,9 +1290,9 @@ async def test_a_decision_between_director_fragments_rules_on_the_plan_so_far(cl
     # The ruling reaches the steps after it, never the one it judged.
     assert "The lunge misses." not in _tail_text(attack)
     assert "The lunge misses." in _tail_text(consequence) and "The lunge misses." in _tail_text(moods)
-    # The opening outcomes ride every step's fenced block, byte for byte; a ruling never joins it.
-    assert "Alric holds the doorway." in _fenced(attack)
-    assert _fenced(attack) == _fenced(consequence) == _fenced(moods)
+    # The opening outcome heads every step's decided list, ahead of the plan below it.
+    assert all("Alric holds the doorway." not in _fenced(step) for step in (attack, consequence, moods))
+    assert "- Judge ruling (Doorway): Alric holds the doorway.\n- Attack: a lunge" in _tail_text(consequence)
     # A Director-only ruling does not reach the Writer.
     assert "The lunge misses." not in _tail_text(_captured(llm_mock, "writer")[0])
     assert "Consequence: Vira staggers back" in _event(events, "director_done")["injection_block"]

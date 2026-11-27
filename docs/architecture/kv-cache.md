@@ -312,14 +312,13 @@ start, so it joins the opening request, and its ruling still enters the
 decided list at its place. A waiting middle point whose fragment above gave no
 value skips its decisions without a Judge request.
 
-The opening point's outcomes ride the `___` decisions block at the head of
-every Director step's tail, which stays byte-identical across steps. A middle
-point's ruling goes only in the decided-so-far list, which sits after the
-per-step `Fill ONLY` line, the first byte where the steps already differ, so
-rulings add no divergence on any provider or lane. The step ahead of a point
-names that point's Questions in the same place, after its `Fill ONLY` line. A
-middle ruling never enters the `___` block. Closing outcomes, like every Writer-bound line, stay in the
-Writer request below the layout divider.
+Every Director-routed ruling, the opening point's included, goes only in the
+decided-so-far list, in run order: the opening point's head it, ahead of the
+first fragment's value. The list sits after the per-step `Fill ONLY` line, the
+first byte where the steps already differ, so rulings add no divergence on any
+provider or lane. The step ahead of a point names that point's Questions in the
+same place, after its `Fill ONLY` line. Closing outcomes, like every
+Writer-bound line, stay in the Writer request below the layout divider.
 
 In combined mode a waiting middle point splits `direct_scene` into one call per
 segment, each narrowed by its per-call `json_schema` to its own fields, the

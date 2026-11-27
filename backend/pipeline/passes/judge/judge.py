@@ -30,7 +30,6 @@ from ....inference import (
 )
 from ...events import DecisionsData
 from . import cooldown
-from .guidance import decision_guidance_block
 from .points import CLOSING, OPENING, JudgePlan, JudgePoint, point_name
 from .records import (
     envelope,
@@ -278,10 +277,9 @@ class JudgeResult:
             requests=self.requests + later.requests,
         )
 
-    @property
-    def director_guidance(self) -> str:
-        """The opening point's Director-routed outcomes, which every Director step reads."""
-        return decision_guidance_block([row for row in self.evaluations if _placed_at_opening(row)], "director")
+    def opening_rulings(self) -> list[tuple[str, str]]:
+        """The opening point's Director-routed outcomes, which head the Director's plan ahead of its first fragment."""
+        return _rulings([row for row in self.evaluations if _placed_at_opening(row)])
 
     def rulings_after(self) -> dict[str, list[tuple[str, str]]]:
         """Each middle point's Director-routed outcomes, by the Director fragment it follows: what the Director steps below
@@ -303,7 +301,7 @@ class JudgeResult:
         """Carry the result on *state* so persistence commits it in the reply's own INSERT."""
         state.decision_evaluations = envelope(self.evaluations, self.skipped)
         state.decision_cooldowns = dict(self.cooldowns)
-        state.director_decision_guidance = self.director_guidance
+        state.director_opening_rulings = self.opening_rulings()
 
 
 @dataclass(slots=True)

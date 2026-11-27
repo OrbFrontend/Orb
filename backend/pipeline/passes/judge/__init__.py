@@ -2,7 +2,7 @@
 
 from .authoring import connection_test, definition_problems
 from .cooldown import branch_baseline as decision_cooldown_baseline
-from .guidance import decision_guidance_block, decision_lines
+from .guidance import decision_lines
 from .judge import DecisionCandidate, InvalidDecision, JudgeConfig, JudgeResult, JudgeTurn, judge_pass
 from .points import CLOSING, OPENING, JudgePlan, JudgePoint, judge_points
 from .records import (

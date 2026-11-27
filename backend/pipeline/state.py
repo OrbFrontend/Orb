@@ -113,7 +113,7 @@ _DIRECTOR_SEED_FIELDS = (
     # Shared exchange decisions are copied to each speaker without advancing cooldowns again.
     "decision_evaluations",
     "decision_cooldowns",
-    "director_decision_guidance",
+    "director_opening_rulings",
     "selected_lorebook_entries",
     "inj_block",
     "inj_block_without_moods",
@@ -158,9 +158,8 @@ class TurnState:
     # Persisted decision record, cooldown snapshot, and the guidance each pass receives.
     decision_evaluations: dict = field(default_factory=dict)
     decision_cooldowns: dict[str, int] = field(default_factory=dict)
-    # The Director's opening-point outcomes, which every Director step reads ahead of its instruction; later rulings reach
-    # the steps after them in their decided lists instead.
-    director_decision_guidance: str = ""
+    # The Director's opening-point outcomes as (label, guidance), which open its plan ahead of the first fragment.
+    director_opening_rulings: list[tuple[str, str]] = field(default_factory=list)
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     inj_block_without_moods: str | None = None
