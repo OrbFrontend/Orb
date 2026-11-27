@@ -101,7 +101,7 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
             ("n:= a pause", "A pause.", r"^[\W_]*a[\W_]+pause[\W_]*$"),
         ]
     ]
-    await replace_slop_suggestions(drafts, status="ok", mined_at=STAMP)
+    await replace_slop_suggestions(drafts, status="ok", mined_at=STAMP, profile_id="default")
 
     async def bank_size() -> int:
         return (await (await db.execute("SELECT COUNT(*) FROM phrase_bank")).fetchone())[0]
@@ -126,9 +126,11 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
 
     # A run that started before both actions mines both keys again, with the
     # original patterns: the dismissed key and the one accepted with an edit stay gone.
-    await replace_slop_suggestions(drafts, status="ok", mined_at=STAMP, keys_at_start=[d["key"] for d in drafts])
+    await replace_slop_suggestions(
+        drafts, status="ok", mined_at=STAMP, profile_id="default", keys_at_start=[d["key"] for d in drafts]
+    )
     assert (await client.get_json("/api/phrase-bank/suggestions"))["suggestions"] == []
     # A later run still never offers the dismissed key, nor its pattern under another key.
     rekeyed = {**drafts[1], "key": "n:a pause X"}
-    await replace_slop_suggestions([*drafts, rekeyed], status="ok", mined_at=STAMP)
+    await replace_slop_suggestions([*drafts, rekeyed], status="ok", mined_at=STAMP, profile_id="default")
     assert [s["label"] for s in (await client.get_json("/api/phrase-bank/suggestions"))["suggestions"]] == ["A beat."]

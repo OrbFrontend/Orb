@@ -38,8 +38,8 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    # 0101 renamed the layouts to presets: a schema that already has them needs only the column drops below.
-    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'presets'").fetchone():
+    # 0101 renames the layouts to profiles: a schema that already has them needs only the column drops below.
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'profiles'").fetchone():
         _add_layouts(conn)
     for table, column in _DROPPED:
         if column in _columns(conn, table):

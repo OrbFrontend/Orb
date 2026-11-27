@@ -49,7 +49,7 @@ out requests across the whole app.
 | Feature | Description |
 |---|---|
 | [Macros](macros.md) | Insert names, dice rolls, random choices, dates, and times. |
-| [Presets](presets.md) | Switch between named setups of switches, models, fragments, and prompt layout. |
+| [Profiles](profiles.md) | Switch between named setups, each with its own switches, models, prompt layout, fragments, phrase bank, and global Worlds. |
 | [Super-regenerate](super-regenerate.md) | Ask for a substantially different version of a reply. |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message using your instructions. |
 | [Compress History](compress-history.md) | Summarize a conversation and continue in a new one. |

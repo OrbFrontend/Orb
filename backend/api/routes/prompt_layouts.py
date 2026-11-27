@@ -1,4 +1,4 @@
-"""Prompt block routes: a preset's prompt layout. ``{layout_id}`` is the preset's id; ``presets.py`` serves the presets."""
+"""Prompt block routes: a profile's prompt layout. ``{layout_id}`` is the profile's id; ``profiles.py`` serves the profiles."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ router = APIRouter()
 _T = TypeVar("_T")
 
 
-def _found(value: _T | None, what: str = "Preset") -> _T:
+def _found(value: _T | None, what: str = "Profile") -> _T:
     """*value*, or a 404 when the query found nothing. Refused edits raise ``PromptLayoutError``, answered 409 app-wide."""
     if not value:
         raise HTTPException(status_code=404, detail=f"{what} not found")
@@ -41,7 +41,7 @@ def _block_view(row: Mapping[str, Any]) -> dict[str, Any]:
 
 @router.get("/api/prompt-layouts/{layout_id}/blocks")
 async def api_list_prompt_blocks(layout_id: str):
-    # Every preset's layout holds its markers, so no blocks means no preset.
+    # Every profile's layout holds its markers, so no blocks means no profile.
     return [_block_view(row) for row in _found(await get_prompt_blocks(layout_id))]
 
 

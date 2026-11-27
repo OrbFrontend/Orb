@@ -198,20 +198,20 @@ from .queries.phrase_bank import (
     get_phrase_bank_rows,
     update_phrase_group,
 )
-from .queries.presets import (
+from .queries.profiles import (
     PRESET_LANES,
     PRESET_SETTINGS,
-    PresetEditError,
-    create_preset,
-    delete_preset,
+    ProfileEditError,
+    create_profile,
+    delete_profile,
     get_active_layout_blocks,
-    get_active_preset_id,
-    get_preset,
-    list_presets,
-    rename_preset,
+    get_active_profile_id,
+    get_profile,
+    list_profiles,
+    rename_profile,
     save_live_state,
-    set_active_preset_id,
-    set_fragment_switches,
+    seed_missing_layouts,
+    set_active_profile_id,
 )
 from .queries.prompt_layouts import (
     PromptLayoutError,

@@ -21,7 +21,7 @@ export function loadDecisionConfig() {
   return _request;
 }
 
-/** Load the config again, after a preset switch changed the Judge endpoint or model. */
+/** Load the config again, after a profile switch changed the Judge endpoint or model. */
 export function reloadDecisionConfig() {
   _request = null;
   return loadDecisionConfig();

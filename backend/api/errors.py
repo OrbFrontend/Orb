@@ -9,7 +9,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from ..database import PresetEditError, PromptLayoutError
+from ..database import ProfileEditError, PromptLayoutError
 from ..inference import DecisionTransportError, EndpointConfigError
 from ..inference.claude_code import ClaudeCodeError
 from ..pipeline.events import FailureData, FailureEvent
@@ -87,5 +87,5 @@ def register_error_handlers(app: FastAPI) -> None:
     for error_type in API_PASSTHROUGH_ERRORS[1:]:
         app.add_exception_handler(error_type, expected_failure)
     app.add_exception_handler(PromptLayoutError, refused_edit)
-    app.add_exception_handler(PresetEditError, refused_edit)
+    app.add_exception_handler(ProfileEditError, refused_edit)
     app.add_exception_handler(Exception, unexpected_failure)

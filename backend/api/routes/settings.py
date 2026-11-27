@@ -30,7 +30,7 @@ async def api_update_settings(data: SettingsUpdate):
     # enabled_tools holds only model-callable tools. Drop any key that is not a
     # registered tool so non-tool feature flags can never be persisted into it.
     # Each named flag is set on its own, so a client naming one tool keeps a concurrent change to another, such as the
-    # assistant's. Presets, reset and import replace the whole map through their own writers.
+    # assistant's. Profiles, reset and import replace the whole map through their own writers.
     tools = payload.pop("enabled_tools", None)
     for tool, on in (tools or {}).items():
         if has_tool(tool):
@@ -50,7 +50,7 @@ async def api_update_settings(data: SettingsUpdate):
 
 @router.post("/api/reset")
 async def api_reset(data: ResetConfirm):
-    """Reset mood_fragments, interactive_fragments, phrase_bank, and settings to defaults."""
+    """Reset the settings, endpoints, and the active profile's library, layout and switches to defaults."""
     if not data.confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     await reset_to_defaults()

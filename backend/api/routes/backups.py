@@ -1,4 +1,9 @@
-"""Backup library routes."""
+"""Backup library routes.
+
+A profile's setup is captured from the live rows only when it is left, so every snapshot first saves the live state into the
+active profile, and the file holds what is live. After an apply or a restore the active profile is entered again: an applied
+settings row then never overrides the profile's switches or lanes, and a restored setup of the active profile takes effect.
+"""
 
 from __future__ import annotations
 
@@ -12,10 +17,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from ...core import maintenance_lock
+from ...features import profiles
 from ...features.backups import engine as backups
 from ...workflows import gpu_swap_host
 from ..admission import dataset_maintenance
-from ..schemas import PresetExportRequest
+from ..schemas import BackupApplyRequest, PresetExportRequest
 
 router = APIRouter()
 
@@ -23,7 +29,7 @@ _P = ParamSpec("_P")
 _T = TypeVar("_T")
 
 
-async def _finish_thread(fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
+async def finish_thread(fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> _T:
     """Keep maintenance locks and temporary files alive until a worker stops.
 
     Cancelling a to_thread await does not stop its OS thread. Delay cancellation
@@ -50,11 +56,16 @@ async def api_list_backups():
     return await asyncio.to_thread(backups.list_library)
 
 
+def _choices(data: BackupApplyRequest | None) -> dict[str, dict]:
+    return {pid: choice.model_dump() for pid, choice in (data.profiles if data else {}).items()}
+
+
 @router.post("/api/backups/export")
 async def api_export_backup(data: PresetExportRequest):
     async with maintenance_lock():
+        await profiles.capture_active()
         try:
-            name = await _finish_thread(backups.build_preset, data.domains, data.strip_keys, data.label)
+            name = await finish_thread(backups.build_preset, data.domains, data.strip_keys, data.label, profiles=data.profiles)
         except backups.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
     return {"name": name}
@@ -81,7 +92,7 @@ async def api_import_backup(file: Annotated[UploadFile, File(...)]):
             while chunk := await file.read(1024 * 1024):
                 target.write(chunk)
         async with maintenance_lock():
-            stored = await _finish_thread(backups.ingest_upload, tmp_path, label)
+            stored = await finish_thread(backups.ingest_upload, tmp_path, label)
     except backups.PresetError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     finally:
@@ -91,34 +102,39 @@ async def api_import_backup(file: Annotated[UploadFile, File(...)]):
 
 
 @router.post("/api/backups/{name}/apply")
-async def api_apply_backup(name: str):
+async def api_apply_backup(name: str, data: BackupApplyRequest | None = None):
+    choices = _choices(data)
     async with dataset_maintenance(), maintenance_lock():
+        active = await profiles.capture_active()
         try:
             path = backups._library_path(name)
-            backup = await _finish_thread(backups.create_snapshot, f"before applying {name}", path)
-            summary = await _finish_thread(backups.apply_preset, path)
+            backup = await finish_thread(backups.create_snapshot, f"before applying {name}", path, choices)
+            summary = await finish_thread(backups.apply_preset, path, choices=choices)
         except backups.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-    # A preset can switch workflows on, and the GPU swap plan is off while they are off.
+        await profiles.reenter(active)
+    # A backup can switch workflows on, and the GPU swap plan is off while they are off.
     gpu_swap_host.invalidate()
     return {"backup": backup, "summary": summary}
 
 
 @router.post("/api/backups/{name}/restore")
-async def api_restore_backup(name: str):
+async def api_restore_backup(name: str, data: BackupApplyRequest | None = None):
+    choices = _choices(data)
     async with dataset_maintenance(), maintenance_lock():
+        active = await profiles.capture_active()
         try:
             path = backups._library_path(name)
-            meta = backups.read_meta(path) or {}
-            full = set(meta.get("included_domains") or backups.ALL_DOMAINS) >= set(backups.ALL_DOMAINS)
-            backup = await _finish_thread(backups.create_snapshot, "before restore", None if full else path)
+            full = backups.is_full(backups.read_meta(path))
+            backup = await finish_thread(backups.create_snapshot, "before restore", None if full else path, choices)
             if full:
-                await _finish_thread(backups.restore_full, name)
+                await finish_thread(backups.restore_full, name)
                 summary = None
             else:
-                summary = await _finish_thread(backups.restore_partial, path)
+                summary = await finish_thread(backups.restore_partial, path, choices)
         except backups.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        await profiles.reenter(active)
     gpu_swap_host.invalidate()
     return {"backup": backup, "ok": True, "summary": summary}
 

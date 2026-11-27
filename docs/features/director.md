@@ -6,7 +6,8 @@ mood, pacing, focus, or other details. The Writer sees the block; it is hidden
 from the conversation view and available in the Inspector.
 
 You control the Director with **fragments**. Orb includes default fragments, and
-you can add, edit, reorder, or disable them.
+you can add, edit, reorder, or disable them. Fragments belong to the active
+[profile](profiles.md): deleting one removes it from that profile only.
 
 ## Mood fragments
 

@@ -1048,8 +1048,8 @@ async function showResetConfirmModal() {
     {
       title: "Reset to Defaults",
       message:
-        "This will reset Mood Fragments, Interactive Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost. Characters, conversations and lorebooks are kept.",
-      confirmText: "Reset Everything",
+        "This will reset the active profile's fragments, phrase bank, Prompt Layout and switches, and all Settings and endpoints, to their original default values. Other profiles, characters, conversations and lorebooks are kept.",
+      confirmText: "Reset",
     },
     async () => {
       try {

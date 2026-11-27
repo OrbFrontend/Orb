@@ -1,6 +1,6 @@
 import { responseError } from "./errors.js";
 
-// The dataset this page loaded from; a preset restore replaces it, and a write
+// The dataset this page loaded from; a backup restore replaces it, and a write
 // carrying the old one is refused with `refresh_required`.
 let _epoch = null;
 let _onRefreshRequired = () => {};

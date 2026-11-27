@@ -6,8 +6,8 @@ sentences.
 
 ## Phrase bank
 
-The **Slop Phrase Bank** is a list you maintain. Add words, phrases, or regular
-expressions. Literal matching also catches close variants, while keeping each rewrite
+The **Slop Phrase Bank** is a list you maintain. Each [profile](profiles.md) has
+its own. Add words, phrases, or regular expressions. Literal matching also catches close variants, while keeping each rewrite
 within the sentence that contains the match. Python Regex is supported.
 
 ## Suggested phrases
@@ -20,7 +20,8 @@ messages.
 - **Add** opens a ready-made regular expression. Review or edit it, then save
   it to the Phrase Bank. Suggestions do not block anything until you add them.
 - **Dismiss** hides the suggestion permanently, including its regular expression
-  if a later search finds it again. Presets and backups keep your dismissals.
+  if a later search finds it again. Suggestions and dismissals belong to the
+  active profile, and backups keep the dismissals with its phrase bank.
 
 Each suggestion shows examples. In sentence patterns, `…` marks words that can
 vary; the common choices appear below the examples.

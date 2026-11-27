@@ -159,11 +159,11 @@ async def test_failed_fresh_initialization_rolls_back_and_retries_without_migrat
         if failure_stage == "schema":
             fault.setattr(bootstrap, "CREATE_TABLES_SQL", bootstrap.CREATE_TABLES_SQL + "\nINVALID SQL;")
         else:
-            target = "_seed_phrase_bank" if failure_stage == "seeds" else "stamp_all"
+            target = "seed_default_profile" if failure_stage == "seeds" else "stamp_all"
             original = getattr(bootstrap, target)
 
-            async def fail_after_writes(db):
-                await original(db)
+            async def fail_after_writes(db, *args):
+                await original(db, *args)
                 raise RuntimeError("interrupted initialization")
 
             fault.setattr(bootstrap, target, fail_after_writes)

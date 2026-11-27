@@ -175,7 +175,8 @@ def test_upgraded_fk_shape_matches_a_fresh_install(tmp_path):
         live = presets._build_schema_model(conn)
         canon = presets._build_schema_model(ref)
         for table in ("worlds", "lorebook_entries", "world_changesets"):
-            assert set(live.tables[table].cols) == set(canon.tables[table].cols), table
+            # 0103, which this partial upgrade does not reach, moves is_global to profile_worlds.
+            assert set(live.tables[table].cols) - {"is_global"} == set(canon.tables[table].cols), table
             assert presets._edge_set(live.tables[table]) == presets._edge_set(canon.tables[table]), table
         assert ("lorebook_entries", "supersedes_entry_id") in live.deferred
     finally:

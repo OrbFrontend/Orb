@@ -380,7 +380,7 @@ class WorldRow(TypedDict):
 
     id: str
     name: str
-    is_global: int
+    is_global: int  # whether the active profile marks it global; profile_worlds holds the marks
     dynamic_enabled: int
     content_revision: int
     created_at: str
@@ -508,8 +508,9 @@ class UserPersonaRow(TypedDict):
 
 
 class InteractiveFragmentRow(TypedDict):
-    """A row from ``interactive_fragments`` (``SELECT *``)."""
+    """A row from ``interactive_fragments`` (``SELECT *``). A card-embedded fragment has no ``profile_id``."""
 
+    profile_id: NotRequired[str]
     id: str
     label: str
     description: str
@@ -548,21 +549,15 @@ class PresetModels(TypedDict):
     judge_model: str
 
 
-class PresetFragments(TypedDict):
-    mood: dict[str, int]
-    interactive: dict[str, int]
-
-
 class PresetConfig(TypedDict, total=False):
-    """``presets.config``. Every section is optional: a config read from an older or partial file applies what it has."""
+    """``profiles.config``. Every section is optional: a config read from an older or partial file applies what it has."""
 
     settings: dict[str, Any]  # the PRESET_SETTINGS columns, JSON ones decoded
     models: PresetModels
-    fragments: PresetFragments
 
 
 class PresetLanes(TypedDict):
-    """A preset's lane picks, the ``presets`` foreign-key columns. On switch a None Writer or Agent lane keeps its live value; a
+    """A profile's lane picks, the ``profiles`` foreign-key columns. On switch a None Writer or Agent lane keeps its live value; a
     None Judge lane turns the Judge off."""
 
     writer_endpoint_id: int | None
@@ -573,13 +568,13 @@ class PresetLanes(TypedDict):
 
 
 class PresetState(PresetLanes):
-    """What a preset holds, and what the live rows hold."""
+    """What a profile's setup holds, and what the live rows hold."""
 
     config: PresetConfig
 
 
-class PresetRow(PresetState):
-    """A row from ``presets``."""
+class ProfileRow(PresetState):
+    """A row from ``profiles``."""
 
     id: str
     name: str
@@ -600,8 +595,9 @@ class PromptBlockRow(TypedDict):
 
 
 class MoodFragmentRow(TypedDict):
-    """A row from ``mood_fragments`` (``SELECT *``)."""
+    """A row from ``mood_fragments`` (``SELECT *``). A card-embedded fragment has no ``profile_id``."""
 
+    profile_id: NotRequired[str]
     id: str
     label: str
     description: str

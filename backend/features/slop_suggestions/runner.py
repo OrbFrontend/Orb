@@ -2,7 +2,7 @@
 
 A run takes about a minute of CPU on a large library, so it happens in a spawned child process: nothing in the server's event
 loop or GIL waits on it, and a chat streams normally while it runs. One run at a time; a failed or skipped run keeps the
-previous suggestions.
+previous suggestions. A run mines for the profile active when it starts, against that profile's bank, toggles and dismissals.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from ...database import (
     current_db_path,
+    get_active_profile_id,
     get_phrase_bank,
     get_settings,
     list_slop_dismissals,
@@ -54,12 +55,13 @@ def _terminate(pool: ProcessPoolExecutor) -> None:
 
 async def _run() -> None:
     ran_at = datetime.now(UTC).isoformat()
+    profile_id = await get_active_profile_id()
     try:
         epoch = await get_dataset_epoch()
-        bank = await get_phrase_bank()
+        bank = await get_phrase_bank(profile_id)
         toggles = dict((await get_settings())["editor_audit_toggles"] or {})
-        dismissed_keys, dismissed_patterns = await list_slop_dismissals()
-        keys_at_start = await list_slop_suggestion_keys()
+        dismissed_keys, dismissed_patterns = await list_slop_dismissals(profile_id)
+        keys_at_start = await list_slop_suggestion_keys(profile_id)
         pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
         try:
             result = await asyncio.get_running_loop().run_in_executor(
@@ -76,13 +78,15 @@ async def _run() -> None:
             logger.info("Discarding slop suggestions mined from a replaced dataset")
             return
         await replace_slop_suggestions(
-            result["suggestions"], status=result["status"], mined_at=ran_at, keys_at_start=keys_at_start
+            result["suggestions"], status=result["status"], mined_at=ran_at, profile_id=profile_id, keys_at_start=keys_at_start
         )
         logger.info("Slop suggestions: %s", result["status"])
     except Exception as exc:
         logger.exception("Slop suggestion run failed")
         with contextlib.suppress(Exception):
-            await replace_slop_suggestions(None, status=f"error: {type(exc).__name__}: {exc}", mined_at=ran_at)
+            await replace_slop_suggestions(
+                None, status=f"error: {type(exc).__name__}: {exc}", mined_at=ran_at, profile_id=profile_id
+            )
 
 
 async def shutdown() -> None:

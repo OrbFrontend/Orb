@@ -47,7 +47,7 @@ def test_every_nonexcluded_table_resolves_to_one_domain(tmp_path):
     with closing(_fresh_schema_db(tmp_path)) as conn:
         schema = presets._build_schema_model(conn)
         for name in schema.tables:
-            assert schema.domain_of(name) is not None, name
+            assert schema.domain_of(name) is not None or schema.part_of(name) is not None, name
         # The excluded set is exactly machinery -- never something with a domain.
         for excluded in presets.ps.EXCLUDED_TABLES:
             assert excluded not in schema.tables
@@ -113,8 +113,11 @@ def test_domain_list_is_frozen():
     """Domains are baked into every exported file's meta, so renaming one silently
     breaks import for every preset already out there. This frozen literal turns a
     rename into a CI failure; *adding* a domain is a deliberate one-line edit here
-    (append only)."""
-    assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "documents", "fragments", "lorebooks", "phrase_bank"]
+    (append only). The domains fragments and phrase_bank became profile parts; old files still read through
+    LEGACY_DOMAIN_PARTS."""
+    assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "documents", "lorebooks"]
+    assert presets.PROFILE_PARTS == ("setup", "fragments", "phrase_bank", "global_lorebooks")
+    assert set(presets.ps.LEGACY_DOMAIN_PARTS) == {"configs", "fragments", "phrase_bank", "lorebooks"}
 
 
 # -- fresh-vs-migrated equivalence (the 0026 class of bug) ------------------------
@@ -186,17 +189,17 @@ def test_schema_safety_problems_is_non_fatal_but_preset_ops_stay_fatal(tmp_path)
             clean.close()
 
 
-def test_fully_migrated_fresh_install_satisfies_gate(tmp_path):
-    """A real fresh install runs CREATE_TABLES_SQL *then every migration*, so the fully-migrated schema -- not raw
-    CREATE_TABLES_SQL -- is what production boots with. It must satisfy the schema-safety gate. This is the integration guard
-    that fails the day a migration leaves the live schema unlike CREATE_TABLES_SQL (a missing FK like 0026, a stale column
-    like 0008's settings.active_model_config_id) -- a class the equivalence gate exists to stop reaching production.
+def test_fully_migrated_install_satisfies_gate(tmp_path):
+    """An install upgraded through every migration from a frozen historical schema must satisfy the schema-safety gate. This
+    is the integration guard that fails the day a migration leaves the live schema unlike CREATE_TABLES_SQL (a missing FK like
+    0026, a stale column like 0008's settings.active_model_config_id) -- a class the equivalence gate exists to stop reaching
+    production.
     """
     from backend.database.migrations import run_pending
 
-    db = tmp_path / "fresh.db"
+    db = tmp_path / "upgraded.db"
     conn = sqlite3.connect(str(db))
-    conn.executescript(CREATE_TABLES_SQL)
+    conn.executescript((Path(__file__).parent.parent / "fixtures" / "schema_pre_group_chats.sql").read_text())
     conn.commit()
     conn.close()
     run_pending(str(db))
@@ -369,8 +372,9 @@ SIGNATURE_TABLES = frozenset(
         "mood_fragments",
         "interactive_fragments",
         "documents",
-        "presets",
+        "profiles",
         "prompt_blocks",
+        "profile_worlds",
     }
 )
 
@@ -446,7 +450,8 @@ def _signature(path: str) -> dict:
                 "SELECT e.conversation_id, m.content, e.fragment_id, e.entry_id, e.op, e.text, e.source "
                 "FROM fragment_state_events e JOIN messages m ON e.message_id = m.id"
             ),
-            "worlds": q("SELECT id, name, is_global, dynamic_enabled, content_revision FROM worlds"),
+            "worlds": q("SELECT id, name, dynamic_enabled, content_revision FROM worlds"),
+            "profile_worlds": q("SELECT profile_id, world_id FROM profile_worlds"),
             # Overlay metadata is part of a lorebook's identity: a preset that restored the rows but flattened their layer would
             # silently turn Agent-managed state into authored lore.
             "lorebook_entries": q(
@@ -471,12 +476,12 @@ def _signature(path: str) -> dict:
             "library_tags": q("SELECT name, position FROM library_tags"),
             "auto_tags": q("SELECT name, tags, auto_tag_vocab_hash, auto_tag_card_updated_at FROM character_cards"),
             "personas": q("SELECT name, description FROM user_personas"),
-            "phrase_bank": q("SELECT variants, kind, pattern FROM phrase_bank"),
-            "slop_dismissals": q("SELECT key, pattern, dismissed_at FROM slop_dismissals"),
-            "fragments": q("SELECT id, label FROM mood_fragments"),
-            "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
+            "phrase_bank": q("SELECT profile_id, variants, kind, pattern FROM phrase_bank"),
+            "slop_dismissals": q("SELECT profile_id, key, pattern, dismissed_at FROM slop_dismissals"),
+            "fragments": q("SELECT profile_id, id, label, enabled FROM mood_fragments"),
+            "interactive_fragments": q("SELECT profile_id, id, label, enabled FROM interactive_fragments"),
             "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
-            "presets": q("SELECT id, name, config FROM presets"),
+            "profiles": q("SELECT id, name, config FROM profiles"),
             "prompt_blocks": q(
                 "SELECT id, layout_id, kind, label, content, role, region, sort_order, enabled FROM prompt_blocks"
             ),
@@ -558,21 +563,31 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
         )
         dyn.commit()
 
-    # configs touch, plus a phrase-bank row (surrogate full-replace path) and a
-    # mood fragment (stable upsert) so those domains carry real data round-trip.
+    # configs touch, plus a phrase-bank row (surrogate full-replace path), a mood fragment (stable upsert) and a global
+    # mark, and a second profile whose copies differ, so the profile parts carry real data round-trip.
     await client.put("/api/settings", json={"user_name": "Ada", "user_description": "keep me"})
+    await client.put(f"/api/worlds/{w1}", json={"is_global": True})
+    second = (await client.post_json("/api/profiles", json={"name": "Second", "copy_from": "default"}))["id"]
     with closing(sqlite3.connect(path)) as seed:
-        seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
+        seed.execute(
+            "INSERT INTO phrase_bank (profile_id, variants, kind, pattern) VALUES ('default', '[\"hi\"]', 'literal', NULL)"
+        )
         # A dismissed suggestion is a phrase-bank decision and must come back; a
         # stored suggestion is derived, quotes chat text, and must not ship.
-        seed.execute("INSERT INTO slop_dismissals (key, pattern, dismissed_at) VALUES ('n:= a beat', 'a beat', '2026-01-01')")
         seed.execute(
-            "INSERT INTO slop_suggestions (key, lane, label, pattern, examples, mined_at) "
-            "VALUES ('n:= a pause', 'new', 'A pause.', 'a pause', '[\"*A pause.*\"]', '2026-01-01')"
+            "INSERT INTO slop_dismissals (profile_id, key, pattern, dismissed_at) "
+            "VALUES ('default', 'n:= a beat', 'a beat', '2026-01-01')"
         )
         seed.execute(
-            "INSERT INTO mood_fragments (id, label, description, prompt_text) VALUES ('frag-1', 'Calm', 'desc', 'be calm')"
+            "INSERT INTO slop_suggestions (profile_id, key, lane, label, pattern, examples, mined_at) "
+            "VALUES ('default', 'n:= a pause', 'new', 'A pause.', 'a pause', '[\"*A pause.*\"]', '2026-01-01')"
         )
+        seed.execute(
+            "INSERT INTO mood_fragments (profile_id, id, label, description, prompt_text) "
+            "VALUES ('default', 'frag-1', 'Calm', 'desc', 'be calm')"
+        )
+        seed.execute("UPDATE mood_fragments SET enabled = 1 - enabled WHERE profile_id = ?", (second,))
+        seed.execute("DELETE FROM profile_worlds WHERE profile_id = ?", (second,))
         seed.execute(
             "INSERT INTO documents (id, title, content, generated_spans, created_at, updated_at) "
             "VALUES ('doc-1', 'Draft', 'once upon a time', '[[10,16]]', '2026-01-01', '2026-01-01')"
@@ -589,9 +604,11 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     before = _signature(path)
 
+    every_part = {pid: list(presets.PROFILE_PARTS) for pid in ("default", second)}
     name = (
         await client.post_json(
-            "/api/backups/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": False, "label": "roundtrip"}
+            "/api/backups/export",
+            json={"domains": list(presets.ALL_DOMAINS), "profiles": every_part, "strip_keys": False, "label": "roundtrip"},
         )
     )["name"]
     preset_path = presets._library_path(name)
@@ -601,6 +618,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     # Scramble the live DB across domains: delete, edit, and add rows everywhere.
     with closing(sqlite3.connect(path)) as scramble:
         scramble.execute("DELETE FROM slop_dismissals")
+        scramble.execute("DELETE FROM mood_fragments WHERE profile_id = ?", (second,))
+        scramble.execute("INSERT INTO profile_worlds (profile_id, world_id) VALUES (?, ?)", (second, w1))
         scramble.commit()
     await client.delete(f"/api/characters/{linked}")
     await client.put(f"/api/characters/{locked}", json={"name": "Renamed"})
@@ -619,7 +638,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     assert after == before, {k: (before[k], after[k]) for k in before if before[k] != after[k]}
     # "characters" sums the row counts of every root in the domain: two cards plus the two curated vocabulary tags
     # (character_expressions rides along as a cascade child and is not counted).
-    assert summary["chats"] == 1 and summary["characters"] == 4 and summary["configs"] == 1
+    assert summary["chats"] == 1 and summary["characters"] == 4 and summary["configs"] == 1 and summary["profiles"] == 2
 
     # And the committed state has no dangling foreign keys.
     with closing(sqlite3.connect(path)) as conn:
@@ -871,8 +890,8 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
         if leaf[-1] in presets.ps.CREDENTIAL_LEAVES
     ]
 
-    # (a) every single domain that does NOT pull in configs -> nothing personal ships.
-    for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
+    # (a) every single domain that does NOT pull in configs, and each profile part but the setup -> nothing personal ships.
+    for domain in [d for d in presets.ALL_DOMAINS if d != "configs"] + ["fragments", "phrase_bank"]:
         name = (await client.post_json("/api/backups/export", json={"domains": [domain], "strip_keys": False}))["name"]
         blob = Path(presets._library_path(name)).read_bytes()
         leaked = [c.decode() for c in all_canaries if c in blob]

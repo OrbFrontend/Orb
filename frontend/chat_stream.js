@@ -67,6 +67,7 @@ import {
   conversationState,
   effectiveWorkflowEnabled,
   isViewing,
+  notify,
   releaseConversationState,
   S,
   sendBlocker,
@@ -483,6 +484,7 @@ async function afterStream(op, { settled = true } = {}) {
   // The turn ends here, as a unit. The rest reads its settled record: the bubble it finalizes may be one a return to
   // this chat drew while it settled.
   state.turn = idleTurn();
+  notify("turns");
   endStreamOperation(op);
   const spoke = wasGroupExchange && turn.completedIds.length > 0;
   if (!isViewing(state)) {
@@ -936,6 +938,7 @@ export async function runStreamRequest(
 ) {
   const state = conversationState(S.activeConvId);
   state.turn = beginTurn();
+  notify("turns");
   const turn = state.turn;
   cancelExpressionPlayback();
   beginExpressionPrewarm();

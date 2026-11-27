@@ -278,10 +278,10 @@ shares one prefix (`pipeline.context.build_turn_prefix`). The summarizer reads
 the same neutral prefix over the summarized history
 (`pipeline.context.offturn_config`), so it renders the active layout too.
 
-Each global preset owns one layout: its `prompt_blocks` rows, keyed by the
-preset's id. `api/routes/presets.py` creates, renames, deletes and switches
-presets (`features/presets`); the block surface lives in
-`api/routes/prompt_layouts.py`, where `{id}` is a preset id:
+Each profile owns one layout: its `prompt_blocks` rows, keyed by the
+profile's id. `api/routes/profiles.py` creates, renames, deletes and switches
+profiles (`features/profiles`); the block surface lives in
+`api/routes/prompt_layouts.py`, where `{id}` is a profile id:
 
 | Route | Purpose |
 |---|---|

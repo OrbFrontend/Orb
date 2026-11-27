@@ -10,9 +10,9 @@ let _activeId = "default";
 let _blocks = [];
 let _dragReady = false;
 
-// The active preset's layout; presets.js runs this again after a switch.
+// The active profile's layout; profiles.js runs this again after a switch.
 export async function loadPromptLayout() {
-  _activeId = S.settings.active_preset_id ?? "default";
+  _activeId = S.settings.active_profile_id ?? "default";
   _blocks = await api.get(`/prompt-layouts/${encodeURIComponent(_activeId)}/blocks`);
   render();
 }

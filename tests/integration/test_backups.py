@@ -10,9 +10,13 @@ def _snap_dir(db_path):
 
 async def _full_snapshot(client, label=""):
     """A restorable full-coverage snapshot, via the same route the UI uses."""
-    from backend.features.backups import ALL_DOMAINS
+    from backend.features.backups import ALL_DOMAINS, PROFILE_PARTS
 
-    resp = await client.post("/api/backups/export", json={"domains": list(ALL_DOMAINS), "strip_keys": False, "label": label})
+    profiles = {p["id"]: list(PROFILE_PARTS) for p in (await client.get_json("/api/profiles"))["profiles"]}
+    resp = await client.post(
+        "/api/backups/export",
+        json={"domains": list(ALL_DOMAINS), "profiles": profiles, "strip_keys": False, "label": label},
+    )
     return resp.json()["name"]
 
 

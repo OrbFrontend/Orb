@@ -59,9 +59,9 @@ as system text after the chat on Anthropic; the reply then fails with the
 provider's reason. Assistant blocks at the very end start the reply, on
 providers that allow it.
 
-Each preset in the sidebar header has its own layout. To use a different
-arrangement, create or duplicate a preset there, or switch to another one.
+Each [profile](profiles.md) in the sidebar header has its own layout. To use a
+different arrangement, create or copy a profile there, or switch to another one.
 
 **This chat** in the character portrait shows how many tokens each switched-on
-block of the active preset's layout takes, in layout order, with Chat history between
+block of the active profile's layout takes, in layout order, with Chat history between
 them. A group shows its largest speaker.

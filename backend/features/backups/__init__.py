@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from .engine import (
     ALL_DOMAINS,
+    PROFILE_PARTS,
+    TARGETS,
     PresetError,
     apply_preset,
     assert_schema_safe,
     build_preset,
     create_snapshot,
     delete_library_entry,
+    file_selection,
     ingest_upload,
+    is_full,
     list_library,
     prune_auto,
     read_meta,
@@ -19,4 +23,5 @@ from .engine import (
     schema_coverage_problems,
     schema_equivalence_problems,
     schema_safety_problems,
+    snapshot_profile,
 )

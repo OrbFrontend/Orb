@@ -1,4 +1,4 @@
-"""A preset's prompt layout: its ordered blocks. ``queries.presets`` owns the presets themselves."""
+"""A profile's prompt layout: its ordered blocks. ``queries.profiles`` owns the profiles themselves."""
 
 from __future__ import annotations
 
@@ -63,8 +63,8 @@ def layout_block(row: PromptBlockRow) -> LayoutBlock:
 
 
 async def create_prompt_block(layout_id: str, data: Mapping[str, Any]) -> PromptBlockRow | None:
-    """A custom block at the end of the preset's layout. None when the preset is missing."""
-    if not await select_rows("SELECT 1 FROM presets WHERE id = ?", (layout_id,)):
+    """A custom block at the end of the profile's layout. None when the profile is missing."""
+    if not await select_rows("SELECT 1 FROM profiles WHERE id = ?", (layout_id,)):
         return None
     block_id = uuid.uuid4().hex
     async with get_db() as db:

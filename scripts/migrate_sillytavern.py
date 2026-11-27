@@ -533,14 +533,25 @@ def find_world(conn: sqlite3.Connection, name: str) -> str | None:
     return row[0] if row else None
 
 
+def active_profile(conn: sqlite3.Connection) -> str | None:
+    """The profile Orb reads as active: the setting's, else the first ('default', then by name)."""
+    row = conn.execute("SELECT p.id FROM settings s JOIN profiles p ON p.id = s.active_profile_id WHERE s.id = 1").fetchone()
+    row = row or conn.execute("SELECT id FROM profiles ORDER BY id != 'default', name COLLATE NOCASE LIMIT 1").fetchone()
+    return row[0] if row else None
+
+
 def write_world(conn: sqlite3.Connection, name: str, entries: list[dict], enabled: bool, now: str) -> str:
-    """Create a World and its entries, bumping content_revision once for the book."""
+    """Create a World and its entries, bumping content_revision once for the book. A World SillyTavern had on everywhere is
+    global in the active profile."""
     world_id = world_id_for(name)
     conn.execute(
-        """INSERT INTO worlds (id, name, is_global, dynamic_enabled, content_revision, created_at, updated_at)
-           VALUES (?, ?, ?, 0, 0, ?, ?)""",
-        (world_id, name, 1 if enabled else 0, now, now),
+        """INSERT INTO worlds (id, name, dynamic_enabled, content_revision, created_at, updated_at)
+           VALUES (?, ?, 0, 0, ?, ?)""",
+        (world_id, name, now, now),
     )
+    profile_id = active_profile(conn) if enabled else None
+    if profile_id is not None:
+        conn.execute("INSERT INTO profile_worlds (profile_id, world_id) VALUES (?, ?)", (profile_id, world_id))
     for item in entries:
         # entry_layer/overlay_action pin the row to the user-authored layer; the
         # overlay is the Agent's to write, never an importer's.

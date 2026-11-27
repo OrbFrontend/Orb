@@ -1,8 +1,7 @@
 # Backups
 
-Orb stores characters, conversations, Worlds, fragments, the phrase bank,
-settings, and endpoints in one SQLite database. **Backups** saves this data as
-portable `.db` files.
+Orb stores characters, conversations, Worlds, profiles, settings, and endpoints
+in one SQLite database. **Backups** saves this data as portable `.db` files.
 
 Open it from **Settings → 💾 Backups**.
 
@@ -10,8 +9,9 @@ Open it from **Settings → 💾 Backups**.
 
 Every snapshot is stored in the same library:
 
-- A **full backup** contains all domains and can restore the database to that state.
-- A **partial backup** contains selected domains and is useful for sharing or merging.
+- A **full backup** contains all domains and every part of every profile, and can
+  restore the database to that state.
+- A **partial backup** contains what you selected and is useful for sharing or merging.
 
 Library entries have one of these labels:
 
@@ -23,20 +23,27 @@ Library entries have one of these labels:
 
 ## Create a snapshot
 
-Select **Snapshot current**, choose the domains, add an optional label, and select
-**Create**.
+Select **Snapshot current**, choose the domains, then what to save of each
+[profile](profiles.md), add an optional label, and select **Create**.
 
 | Domain | Included data |
 |---|---|
 | Characters | Character cards |
 | Chats | Conversations and message branches |
 | Lorebooks | Worlds and entries |
-| Fragments | Mood and Director fragments |
-| Phrase bank | Phrase-bank entries |
+| Documents | Documents |
 | Settings & endpoints | Settings, endpoints, model configuration, and personas |
 
+| Profile part | Included data |
+|---|---|
+| Setup | The switches, lane models, and Prompt Layout |
+| Fragments | Mood and Director fragments |
+| Phrase bank | Phrase-bank entries and dismissed suggestions |
+| Global lorebooks | Which Worlds are global |
+
 Selecting **Chats** also includes **Characters**, because a conversation needs its
-character.
+character. Selecting **Global lorebooks** also includes **Lorebooks**, because a
+mark needs its World.
 
 !!! warning "API keys"
     **Settings & endpoints** includes endpoint configuration and API keys. Keep
@@ -49,8 +56,15 @@ Use **Apply** to merge a file into the current database. Matching items are
 overwritten and new items are added. Other items stay unchanged.
 
 Use **Restore** to replace the domains covered by the file. A full backup replaces
-the whole database. A partial file replaces only its included domains; everything
-else stays unchanged.
+the whole database. A partial file replaces only its included domains and profile
+parts; everything else stays unchanged.
+
+Apply and Restore list each profile in the file with its parts. Clear a part to
+leave it out, and choose where the profile goes: onto the profile it came from,
+when this database has it, or onto a **New profile**. A profile's parts replace
+only that profile's parts; other profiles are untouched. The active profile stays
+active, and its switches and lane models stay as they were unless the file
+restores its setup.
 
 !!! danger "Restore removes data"
     Restore removes items added after the snapshot in the domains it covers. Use

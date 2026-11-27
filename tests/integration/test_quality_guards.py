@@ -137,7 +137,7 @@ async def test_cancelled_preset_worker_keeps_both_maintenance_guards(client, mon
     release = threading.Event()
     loop = asyncio.get_running_loop()
 
-    def blocked(*_args):
+    def blocked(*_args, **_kwargs):
         loop.call_soon_threadsafe(started.set)
         if not release.wait(5):
             raise TimeoutError("test worker was not released")
@@ -145,7 +145,7 @@ async def test_cancelled_preset_worker_keeps_both_maintenance_guards(client, mon
 
     monkeypatch.setattr(backups.backups, "_library_path", lambda _name: "test.db")
     monkeypatch.setattr(backups.backups, "create_snapshot", lambda *_args: "before.db")
-    monkeypatch.setattr(backups.backups, "read_meta", lambda _path: {})
+    monkeypatch.setattr(backups.backups, "read_meta", lambda _path: None)
     monkeypatch.setattr(backups.backups, "apply_preset" if operation == "apply" else "restore_full", blocked)
     route = backups.api_apply_backup if operation == "apply" else backups.api_restore_backup
     task = asyncio.create_task(route("test.db"))
