@@ -140,7 +140,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--bg-hover) !important;
   color: var(--xm-teal) !important; }
 
-.tog-slider { background: var(--xm-ghost) !important; border: none !important; }
+.tog-slider { background: var(--xm-ghost) !important; border-color: transparent !important; }
 .tog-slider:before { background: var(--xm-snow) !important; box-shadow: 0 1px 2px rgba(92,74,60,0.3); }
 .tog input:checked + .tog-slider { background: var(--xm-pine) !important; }
 

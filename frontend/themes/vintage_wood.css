@@ -131,7 +131,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--vw-oak) !important;
   color: var(--vw-ink) !important; }
 
-.tog-slider { background: var(--bg-hover) !important; border: none !important; }
+.tog-slider { background: var(--bg-hover) !important; border-color: transparent !important; }
 .tog-slider:before { background: var(--text-muted) !important; }
 .tog input:checked + .tog-slider { background: var(--vw-oak) !important; }
 .tog input:checked + .tog-slider:before { background: var(--vw-ink) !important; }

@@ -139,7 +139,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--wp-yellow) !important;
   color: var(--wp-ink) !important; }
 
-.tog-slider { background: var(--bg-deep) !important; border: none !important; }
+.tog-slider { background: var(--bg-deep) !important; border-color: transparent !important; }
 .tog-slider:before { background: var(--text-muted) !important; }
 .tog input:checked + .tog-slider { background: var(--wp-yellow) !important; }
 .tog input:checked + .tog-slider:before { background: var(--wp-ink) !important; }
