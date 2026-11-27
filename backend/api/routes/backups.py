@@ -56,10 +56,6 @@ async def api_list_backups():
     return await asyncio.to_thread(backups.list_library)
 
 
-def _choices(data: BackupApplyRequest | None) -> dict[str, dict]:
-    return {pid: choice.model_dump() for pid, choice in (data.profiles if data else {}).items()}
-
-
 @router.post("/api/backups/export")
 async def api_export_backup(data: PresetExportRequest):
     async with maintenance_lock():
@@ -103,41 +99,35 @@ async def api_import_backup(file: Annotated[UploadFile, File(...)]):
 
 @router.post("/api/backups/{name}/apply")
 async def api_apply_backup(name: str, data: BackupApplyRequest | None = None):
-    choices = _choices(data)
+    return await _install_backup(name, data, restore=False)
+
+
+@router.post("/api/backups/{name}/restore")
+async def api_restore_backup(name: str, data: BackupApplyRequest | None = None):
+    result = await _install_backup(name, data, restore=True)
+    return {**result, "ok": True}
+
+
+async def _install_backup(name: str, data: BackupApplyRequest | None, *, restore: bool):
+    choices = {pid: choice.model_dump() for pid, choice in data.profiles.items()} if data else {}
     async with dataset_maintenance(), maintenance_lock():
         before = await get_settings()
         active = await profiles.capture_active()
         try:
             path = backups.library_path(name)
-            backup = await finish_thread(backups.create_snapshot, f"before applying {name}", path, choices)
-            summary = await finish_thread(backups.apply_preset, path, choices=choices)
+            full = restore and backups.is_full(backups.read_meta(path))
+            label = "before restore" if restore else f"before applying {name}"
+            backup = await finish_thread(backups.create_snapshot, label, None if full else path, choices)
+            if full:
+                await finish_thread(backups.restore_full, name)
+                summary = None
+            else:
+                summary = await finish_thread(backups.apply_preset, path, replace=restore, choices=choices)
         except backups.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         await profiles.reenter(active)
         await live_settings_changed(before)
     return {"backup": backup, "summary": summary}
-
-
-@router.post("/api/backups/{name}/restore")
-async def api_restore_backup(name: str, data: BackupApplyRequest | None = None):
-    choices = _choices(data)
-    async with dataset_maintenance(), maintenance_lock():
-        before = await get_settings()
-        active = await profiles.capture_active()
-        try:
-            path = backups.library_path(name)
-            full = backups.is_full(backups.read_meta(path))
-            backup = await finish_thread(backups.create_snapshot, "before restore", None if full else path, choices)
-            if full:
-                await finish_thread(backups.restore_full, name)
-                summary = None
-            else:
-                summary = await finish_thread(backups.restore_partial, path, choices)
-        except backups.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        await profiles.reenter(active)
-        await live_settings_changed(before)
-    return {"backup": backup, "ok": True, "summary": summary}
 
 
 @router.delete("/api/backups/{name}")

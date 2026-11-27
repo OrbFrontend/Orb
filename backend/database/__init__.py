@@ -13,6 +13,7 @@ from .connection import (
     open_wal_anchor,
 )
 from .queries.access import clear_access_password, get_access_password, set_access_password
+from .queries.active_profile import get_active_profile_id
 from .queries.assistant_chats import delete_assistant_chat, get_assistant_chat, put_assistant_chat
 from .queries.avatar_focus import (
     AVATAR_FOCUS_MANUAL,
@@ -203,21 +204,18 @@ from .queries.profiles import (
     PROFILE_SETTINGS,
     SEEDED_PARTS,
     ProfileEditError,
+    capture_active_profile,
     capture_uploaded_profile,
     create_profile,
     delete_profile,
-    enter_profile,
     get_active_layout_blocks,
-    get_active_profile_id,
     get_profile,
     list_profiles,
-    profile_enabled_workflows,
-    profile_workflow_keys,
+    reenter_profile,
     register_profile_workflow_keys,
     rename_profile,
-    save_live_state,
     seed_library_statements,
-    seed_missing_layouts,
+    switch_profile,
 )
 from .queries.prompt_layouts import (
     PromptLayoutError,

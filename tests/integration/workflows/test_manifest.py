@@ -12,7 +12,7 @@ def _empty_registry():
     # These tests assert the manifest's exact list contents, so clear the first-party workflows registered at import time and
     # restore them on teardown; each test then controls the whole registry itself.
     snapshot = {k: deepcopy(v) for k, v in registry_module._WORKFLOWS_BY_ID.items()}
-    registry_module._WORKFLOWS_BY_ID.clear()
+    restore_workflows({})
     yield
     restore_workflows(snapshot)
 

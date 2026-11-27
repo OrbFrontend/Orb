@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from . import connection
 from .connection import get_db
 from .migrations import run_pending, stamp_all
-from .queries.profiles import get_active_profile_id, reset_profile, seed_default_profile
+from .queries.active_profile import get_active_profile_id
+from .queries.profiles import reset_profile, seed_default_profile
 from .schema import CREATE_TABLES_SQL
 from .seeds import DEFAULT_CONNECTION, DEFAULT_ENABLED_TOOLS, SEED_PROFILE_NAME
 

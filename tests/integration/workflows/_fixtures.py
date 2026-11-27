@@ -14,8 +14,6 @@ import pytest
 from backend.database import (
     add_message,
     insert_workflow_attachment_row,
-    profile_enabled_workflows,
-    profile_workflow_keys,
     register_profile_workflow_keys,
     set_active_leaf,
 )
@@ -85,10 +83,10 @@ async def must_get_workflow_attachment(att_id: int) -> dict:
 def restore_workflows(snapshot: dict[str, Workflow]) -> None:
     """Put the registry back to *snapshot*, with the profile config keys and enablement its workflows declare: registering a
     stand-in for a real workflow id replaces that id's keys and flag, and a stand-in declares neither."""
+    for workflow_id in _registry._WORKFLOWS_BY_ID.keys() - snapshot.keys():
+        register_profile_workflow_keys(workflow_id, (), {})
     _registry._WORKFLOWS_BY_ID.clear()
     _registry._WORKFLOWS_BY_ID.update(snapshot)
-    for workflow_id in (profile_workflow_keys().keys() | profile_enabled_workflows()) - snapshot.keys():
-        register_profile_workflow_keys(workflow_id, (), {})
     for workflow in snapshot.values():
         register_profile_workflow_keys(
             workflow.id, workflow.profile_config_keys, workflow.config_defaults, enablement=workflow.profile_enabled

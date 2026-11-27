@@ -1,7 +1,5 @@
-"""Profiles: named generation setups, each with its own prompt layout, fragments, phrase bank and global Worlds, switched from
-the sidebar header."""
+"""Profile management for the picker and backup routes."""
 
-from __future__ import annotations
-
-from ...database import rename_profile
-from .engine import capture_active, create_profile, delete_profile, reenter, switch_profile
+from ...database import capture_active_profile as capture_active
+from ...database import create_profile, delete_profile, rename_profile, switch_profile
+from ...database import reenter_profile as reenter
