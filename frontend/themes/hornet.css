@@ -50,7 +50,7 @@ body { background:
   .ui-dock.open { margin-left: 14px; }
   #sidebar, .ui-dock.open { box-shadow: var(--wp-tile) !important; }
   /* No !important: the audio player reserves its room with an inline padding-bottom. */
-  body #chat-messages { padding: 8px 18px 4px; }
+  body #chat-messages { padding: 8px 18px 18px; }
   body #chat-input-area { padding: 4px 18px 0; }
 }
 

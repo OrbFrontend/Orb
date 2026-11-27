@@ -47,7 +47,7 @@ body { background:
     background: url("/static/themes/assets/christmas-snow.svg") left top / 160px 18px repeat-x;
     border-radius: 10px 10px 0 0; filter: var(--xm-snow-shadow); pointer-events: none; z-index: 2; }
   /* No !important: the audio player reserves its room with an inline padding-bottom. */
-  body #chat-messages { padding: 10px 14px 6px; }
+  body #chat-messages { padding: 10px 14px 20px; }
   body #chat-input-area { padding: 6px 14px 2px; }
 }
 
