@@ -14,7 +14,6 @@ from .public_profile import (
     draft_scene_profile,
 )
 from .sheet_update import (
-    SHEET_FLOOR,
     SHEET_TOOL_NAME,
     SheetUpdate,
     SheetUpdateUnavailable,
