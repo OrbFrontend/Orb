@@ -83,6 +83,7 @@ let draft = { styles: [], scene_skills: [], graphs: [], comfy: {}, connections: 
 let connections = [];
 let modelsByConnection = {};
 let modelsByGraph = {};
+let unreachable = new Set();
 let probeIds = {};
 let pendingConnections = new Set();
 let gpuSwap = null;
@@ -249,7 +250,11 @@ async function probeStyleWorkflow(styleId, { draft: fromDraft = false } = {}) {
   refreshCard();
 }
 
-function modelField(state, { attrs, emptyLabel, placeholder }) {
+function modelField(state, { attrs, emptyLabel, placeholder, offline }) {
+  if (offline) {
+    const label = state.current ? `${state.current} (${offline})` : offline;
+    return `<select ${attrs} disabled><option value="${escAttr(state.current)}" selected>${esc(label)}</option></select>`;
+  }
   if (state.kind === "input") {
     return `<input ${attrs} value="${escAttr(state.current)}" placeholder="${escAttr(placeholder)}">`;
   }
@@ -272,6 +277,7 @@ function checkpointField(style) {
     attrs: styleField("checkpoint"),
     emptyLabel: "Choose a model",
     placeholder: "model.safetensors",
+    offline: unreachable.has(COMFY_CONNECTION) ? "ComfyUI not reachable" : "",
   });
 }
 
@@ -281,6 +287,7 @@ function styleModelField(style, connectionId) {
     attrs: styleField("model"),
     emptyLabel: preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model",
     placeholder: preset?.default_model || "model name or ID",
+    offline: unreachable.has(connectionId) ? "not reachable" : "",
   });
 }
 
@@ -1029,6 +1036,7 @@ function removeConnection(id) {
   captureForm();
   delete draft.connections[id];
   delete modelsByConnection[id];
+  unreachable.delete(id);
   pendingConnections.delete(id);
   rebuildConnections();
   renderConnections();
@@ -1070,12 +1078,13 @@ function configForConnection(id) {
   return { ...next, styles };
 }
 
-function applyModels(id, names, graphModels = {}) {
+function applyModels(id, names, graphModels = {}, offline = false) {
   const models = modelPickerState(names).models;
   const previous = modelsByConnection[id];
   const graphs =
     id === COMFY_CONNECTION && graphModels && typeof graphModels === "object" ? graphModels : modelsByGraph;
   if (
+    unreachable.has(id) === offline &&
     previous &&
     previous.length === models.length &&
     previous.every((name, i) => name === models[i]) &&
@@ -1086,6 +1095,8 @@ function applyModels(id, names, graphModels = {}) {
   captureForm();
   modelsByConnection[id] = models;
   modelsByGraph = graphs;
+  if (offline) unreachable.add(id);
+  else unreachable.delete(id);
   rebuildConnections();
   renderStyles(openStyles);
 }
@@ -1095,14 +1106,16 @@ async function loadModels(id) {
   const probeId = probeIds[id];
   let models = [];
   let graphModels = {};
+  let offline = false;
   try {
     const res = await query("models", { config: configForConnection(id) });
     models = Array.isArray(res?.models) ? res.models : [];
     graphModels = res?.graph_models || {};
+    offline = Boolean(res?.unreachable);
   } catch {
     models = [];
   }
-  if (probeIds[id] === probeId) applyModels(id, models, graphModels);
+  if (probeIds[id] === probeId) applyModels(id, models, graphModels, offline);
 }
 
 async function testConnection(id) {
@@ -1114,7 +1127,7 @@ async function testConnection(id) {
     const res = await query("test", { config: configForConnection(id) });
     if (probeIds[id] !== probeId) return;
     if (res?.error) {
-      applyModels(id, []);
+      applyModels(id, [], {}, Boolean(res.unreachable));
       if (result) result.textContent = res.error;
       return;
     }
@@ -1135,6 +1148,7 @@ function openSettings(expandStyleId = "") {
   probeIds = {};
   modelsByConnection = {};
   modelsByGraph = {};
+  unreachable = new Set();
   pendingConnections = new Set();
   gpuSwap = null;
   resetCharacterProfile();

@@ -34,6 +34,21 @@ _OBJECT_INFO_TTL = 60.0
 _OBJECT_INFO_MAX_ENTRIES = 8
 _object_info_cache: dict[str, tuple[float, dict]] = {}
 
+_NOT_COMFY = "The ComfyUI URL answered, but not as ComfyUI; check the URL in Image Generation settings"
+_REFUSED = "ComfyUI refused the request; check the API key in Image Generation settings"
+
+
+class ComfyUnreachableError(ImageGenerationError):
+    """ComfyUI did not answer at all, which says nothing about the style or graph that asked."""
+
+    kind = "unreachable"
+
+
+def _transport_failure(exc: Exception, message: str) -> ImageGenerationError:
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return ComfyUnreachableError("ComfyUI is not reachable; start it or check its URL in Image Generation settings")
+    return ImageGenerationError(message)
+
 
 def _first_input_name(node_errors: Any) -> str | None:
     """The first non-empty input name named by any node error, or None.
@@ -97,6 +112,16 @@ def _rejected_value(node_errors: Any) -> tuple[str, str]:
     return "", ""
 
 
+def _http_failure(path: str, status: int, payload: Any) -> str:
+    if status in (401, 403):
+        return _REFUSED
+    if status == 404:
+        return _NOT_COMFY
+    if path == "/prompt":
+        return _validation_message(payload)
+    return f"ComfyUI answered HTTP {status}"
+
+
 def _validation_message(payload: Any) -> str:
     if not isinstance(payload, Mapping):
         return "ComfyUI rejected the workflow"
@@ -137,12 +162,15 @@ class ComfyClient:
                         payload = response.json()
                     except (json.JSONDecodeError, ValueError):
                         payload = None
-                    raise ImageGenerationError(_validation_message(payload))
-                return response.json()
+                    raise ImageGenerationError(_http_failure(path, response.status_code, payload))
+                try:
+                    return response.json()
+                except (json.JSONDecodeError, ValueError) as exc:
+                    raise ImageGenerationError(_NOT_COMFY) from exc
         except ImageGenerationError:
             raise
-        except (httpx.HTTPError, ValueError) as exc:
-            raise ImageGenerationError("Could not communicate with ComfyUI") from exc
+        except httpx.HTTPError as exc:
+            raise _transport_failure(exc, "Could not communicate with ComfyUI") from exc
 
     async def system_stats(self) -> dict:
         result = await self._json("GET", "/system_stats")
@@ -208,7 +236,9 @@ class ComfyClient:
                 payload = response.json()
         except ImageGenerationError:
             raise
-        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+        except httpx.HTTPError as exc:
+            raise _transport_failure(exc, "Could not upload the reference image to ComfyUI") from exc
+        except (json.JSONDecodeError, ValueError) as exc:
             raise ImageGenerationError("Could not upload the reference image to ComfyUI") from exc
         if not isinstance(payload, Mapping) or not isinstance(payload.get("name"), str):
             raise ImageGenerationError("ComfyUI did not confirm the reference image upload")
@@ -357,7 +387,7 @@ class ComfyClient:
                 response.raise_for_status()
                 data = response.content
         except httpx.HTTPError as exc:
-            raise ImageGenerationError("Could not fetch the generated image from ComfyUI") from exc
+            raise _transport_failure(exc, "Could not fetch the generated image from ComfyUI") from exc
         if not data or len(data) > MAX_IMAGE_BYTES:
             raise ImageGenerationError("ComfyUI image output is empty or too large")
         return data

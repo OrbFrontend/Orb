@@ -772,14 +772,15 @@ async def test_editing_the_style_retires_the_finding(client):
     assert (await _status(client))["failure"] is None
 
 
-async def test_an_unreachable_server_is_reported_rather_than_500ing(client, monkeypatch):
-    await set_workflow_config("image_gen", _two_styles())
+async def test_an_unreachable_server_is_no_verdict_on_the_style(client):
+    config = _two_styles()
+    config["external_comfy"]["api_url"] = "http://127.0.0.1:9"
+    await set_workflow_config("image_gen", config)
 
-    async def unreachable(self, *, allow_cached=True):
-        raise ImageGenerationError("Could not communicate with ComfyUI")
-
-    monkeypatch.setattr(ExternalComfyAdapter, "validate_bound_style", unreachable)
-    assert "Could not communicate" in (await _probe(client, "good"))["failure"]["detail"]
+    assert (await _probe(client, "good"))["failure"] is None
+    assert (await _status(client))["failure"] is None
+    models = await client.post_json("/api/workflows/image_gen/query", json={"action": "models"})
+    assert models["unreachable"] is True
 
 
 async def test_an_unfinished_style_is_not_probed_on_top_of_its_setup_prompt(client, monkeypatch):

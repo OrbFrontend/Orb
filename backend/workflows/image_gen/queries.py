@@ -20,7 +20,7 @@ from .config import (
     normalize_config,
     style_source,
 )
-from .engine import ImageGenerationError, comfy_adapter, get_adapter, health, list_sources
+from .engine import ComfyUnreachableError, ImageGenerationError, comfy_adapter, get_adapter, health, list_sources
 from .engine.providers import provider_catalogue
 from .hooks import review_image_url
 from .references import origin_row
@@ -167,6 +167,8 @@ async def _test_connection(body) -> dict:
     config = await _config_from_query(body)
     try:
         return await _default_adapter(config).validate_connection(allow_cached=not explicit)
+    except ComfyUnreachableError as exc:
+        return {"error": str(exc), "unreachable": True}
     except (ImageGenerationError, ValueError) as exc:
         return {"error": str(exc)}
 
@@ -187,6 +189,8 @@ async def _probe(body) -> dict:
         return {"failure": None}
     try:
         await adapter.validate_bound_style(allow_cached=True)
+    except ComfyUnreachableError:
+        pass
     except (ImageGenerationError, ValueError) as exc:
         health.record_failure(config, style, str(exc))
     else:
@@ -199,6 +203,8 @@ async def _external_models(body) -> dict:
     result: dict = {}
     try:
         result["models"] = await _default_adapter(config).list_models()
+    except ComfyUnreachableError as exc:
+        return {"error": str(exc), "unreachable": True}
     except ImageGenerationError as exc:
         result["error"] = str(exc)
     if style_source(config, active_style(config))[0] == "external_comfy":
