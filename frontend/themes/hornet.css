@@ -1,7 +1,7 @@
 /* Hornet: the app is a club flyer. Borderless charcoal tiles float over a black board of moiré wave lines; the
    chat title is the headline, speakers wear yellow name tags, and hover inverts a control to yellow with ink text.
    No accent edge stripes anywhere; the base ones are cleared below. Static paint only. */
-:root {
+:root { color-scheme: dark;
   --wp-yellow:#ffcf1f; --wp-yellow-hover:#ffdc52; --wp-ink:#141414; --wp-board:#0f0f0f; --wp-tile-bg:#1d1d1d;
   --wp-tile:0 10px 24px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.4);
   --wp-tile-high:0 22px 50px rgba(0,0,0,0.7), 0 4px 10px rgba(0,0,0,0.45);

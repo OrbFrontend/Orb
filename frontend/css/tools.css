@@ -29,8 +29,9 @@ input[type="range"]::-moz-range-track { height: 6px; background: var(--bg-elevat
    fields: one even gap between them, and the section ends on a card's margin. */
 .expression-settings { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
 .expression-settings > .tool-card, .expression-settings > .field { margin-bottom: 0; }
-.ml-variants { margin-top: 8px; border-top: 1px solid var(--border); }
-.ml-variant { display: grid; grid-template-columns: 13px minmax(0, 1fr) 50px 72px; align-items: center; column-gap: 8px;
+.ml-variants { display: grid; grid-template-columns: 13px minmax(0, 1fr) 50px minmax(72px, max-content); column-gap: 8px;
+  margin-top: 8px; border-top: 1px solid var(--border); }
+.ml-variant { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center;
   padding: 6px 0; border-bottom: 1px solid var(--border); }
 .ml-variant input[type="radio"] { grid-column: 1; width: 13px; height: 13px; margin: 0; cursor: pointer; }
 .ml-variant-name { grid-column: 2; margin: 0; font-size: 12px; font-weight: 500; text-transform: none;
