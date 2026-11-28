@@ -1,110 +1,267 @@
-:root { --bg-deep:#031720; --bg-primary:#052430; --bg-surface:#07303f; --bg-elevated:#0a3f52; --bg-hover:#0e4d63;
-  --border:#12475a; --border-light:#1a5f75; --text-primary:#d8f2f4; --text-secondary:#6fa8b8; --text-muted:#639bab;
-  --accent:#3ddc84; --accent-dim:#1e9e58; --accent-glow:rgba(61,220,132,0.16); --accent-muted:rgba(61,220,132,0.15);
-  --red:#f4574d; --font-prose:'Lora','Palatino Linotype',Palatino,Georgia,serif;
+/* Ocean Depths: the app is a sunlit reef seen from below. Light breaks on the surface above the header and falls in
+   soft shafts; far below, the reef is only colour: out-of-focus pools of coral, violet, blue and gold. Panels are tinted
+   water over it: no borders, shadows, or gradients on surfaces. Bubble shapes throughout; your messages rise as air
+   bubbles. One bioluminescent aqua, coral for speech, Crimson italic headlines, Fira Code instrument labels. No accent
+   edge stripes. Static paint: no backdrop or other filters, fixed or content-scrolled backgrounds, or glows on chat
+   text, so scrolling and streaming cost what a flat theme does. The send button's sonar ping animates transform and
+   opacity only. */
+:root {
+  --od-sun:#11707a; --od-shallow:#0c5866; --od-mid:#094352; --od-deep:#06303e;
+  --od-glow:#5ff5dc; --od-glow-hover:#8ffbe9; --od-ink:#03222a; --od-coral:#ff9a76; --od-coral-ink:#2a0d05;
+  --od-pane:rgba(2,16,22,0.5); --od-shade:rgba(2,14,20,0.36); --od-glass:rgba(170,245,240,0.07);
+  --od-glass-hover:rgba(170,245,240,0.13); --od-ring:rgba(95,245,220,0.2); --od-ring-strong:rgba(95,245,220,0.55);
+  --od-solid:#052a37; --od-solid-raise:#0a3a49;
+  --od-display:'Crimson Text',Georgia,'Palatino Linotype',Palatino,serif;
+  --od-label:'Fira Code','SF Mono',Menlo,Consolas,monospace;
+
+  --bg-deep:#031720; --bg-primary:#052430; --bg-surface:#07303f; --bg-elevated:#0a3f52; --bg-hover:#0e4d63;
+  --border:#12475a; --border-light:#1a5f75; --text-primary:#dff4f5; --text-secondary:#8ec0cb; --text-muted:#76aab7;
+  --accent:#5ff5dc; --accent-dim:#2fbfa8; --accent-glow:rgba(95,245,220,0.12); --accent-muted:rgba(95,245,220,0.14);
+  --on-accent:#03222a; --red:#ff8a7a; --warning:#ffc27a;
+  --font-prose:'Lora','Palatino Linotype',Palatino,Georgia,serif;
   --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-  --font-mono:'SF Mono','Menlo','Consolas',monospace; --radius:6px; --font-prose-size:16px; --sidebar-width:300px;
-  --inspector-width:340px; }
+  --font-mono:'Fira Code','SF Mono',Menlo,Consolas,monospace; --radius:12px; --font-prose-size:16px;
+  --sidebar-width:300px; --inspector-width:340px;
 
-/* The teal surface is the most saturated of any theme and eats the lane bands'
-   hue: at the default strength they tell apart less than they do elsewhere.
-   The triad is fine; it only needs to push harder through the tint. */
-:root { --frag-lane-alpha: 0.24; }
-body {
-  background:
-    radial-gradient(130% 60% at 50% -12%, rgba(140,230,245,0.20) 0%, rgba(140,230,245,0.05) 34%, rgba(140,230,245,0) 58%),
-    linear-gradient(112deg, transparent 20%, rgba(150,235,250,0.05) 26%, transparent 31%),
-    linear-gradient(105deg, transparent 43%, rgba(150,235,250,0.045) 49%, transparent 54%),
-    linear-gradient(118deg, transparent 62%, rgba(120,230,245,0.05) 68%, transparent 73%),
-    radial-gradient(12% 38% at 50% 54%, rgba(130,250,170,0.13) 0%, rgba(130,250,170,0) 100%),
-    radial-gradient(42% 60% at 50% 56%, rgba(60,220,130,0.11) 0%, rgba(45,190,150,0.05) 48%, rgba(45,190,150,0) 72%),
-    linear-gradient(180deg, #0a3a4a 0%, #07303f 32%, #05242f 64%, #031720 100%)
-    !important;
-  background-attachment: fixed !important;
+  --scrollbar-width:thin; --scrollbar-thumb:rgba(95,245,220,0.3); --scrollbar-track:transparent;
+
+  /* The aqua accent sits at hue 180 and the water at 224-231: offset 60 puts the pass lanes on blue, rose, amber and
+     green, and the saturated tint needs the stronger alpha to show through. */
+  --frag-lane-offset:60; --frag-lane-alpha:0.24;
+
+  --mobile-overlay-color:rgba(1,10,14,0.6) !important;
+  --mobile-panel-shadow-left:none !important;
+  --mobile-panel-shadow-right:none !important;
 }
-#chat-messages {
-  background:
-    linear-gradient(180deg,
-      rgba(3,23,32,0) 0%,
-      rgba(3,23,32,0.28) 42%,
-      rgba(16,96,72,0.10) 78%,
-      rgba(61,220,132,0.14) 100%) !important;
-  background-attachment: local !important; background-repeat: no-repeat !important;
+/* Aqua- and coral-filled surfaces: children colored by the base tokens would otherwise paint pale on aqua. */
+.toast, .tab-button-active, .tab.active, .cb-option.active, .burger-menu-item:hover, .stat-card-favorite {
+  --text-primary:var(--od-ink); --text-secondary:var(--od-ink); --text-muted:#0d4a52; --accent:var(--od-ink);
+  --accent-dim:var(--od-ink); --red:var(--od-ink); }
+
+/* ── The water: sunlight on the surface, shafts fading by mid-depth, the reef on the floor of the chat ── */
+
+body { background:
+    url("/static/themes/assets/ocean-depths-surface.svg") 0 0 / 520px 130px repeat-x,
+    url("/static/themes/assets/ocean-depths-rays.svg") 0 0 / 100% 100% no-repeat,
+    radial-gradient(70% 45% at 50% -8%, rgba(255,214,150,0.16), rgba(255,214,150,0) 70%),
+    radial-gradient(40% 38% at 4% 106%, rgba(255,128,72,0.3), rgba(255,128,72,0) 72%),
+    radial-gradient(34% 34% at 30% 110%, rgba(146,96,240,0.3), rgba(146,96,240,0) 72%),
+    radial-gradient(38% 34% at 64% 112%, rgba(70,120,230,0.28), rgba(70,120,230,0) 72%),
+    radial-gradient(38% 38% at 96% 106%, rgba(242,182,72,0.24), rgba(242,182,72,0) 72%),
+    linear-gradient(180deg, var(--od-sun) 0%, var(--od-shallow) 26%, var(--od-mid) 62%, var(--od-deep) 100%) !important;
+  background-attachment: scroll !important; }
+
+.ui-panel { background: var(--od-shade) !important; border: none !important; }
+#sidebar, .ui-dock.open { border: none !important; }
+#chat-messages, #chat-input-area, .gen-status, #doc-footer, #doc-editor-scroll { background: transparent !important;
+  border: none !important; }
+/* A mobile drawer slides over the chat, so it has to hide the text beneath it. */
+@media (max-width: 900px) {
+  .ui-panel { background: var(--od-solid) !important; }
 }
-.ui-panel { background: rgba(6,32,42,0.55) !important;
-  backdrop-filter: blur(14px) saturate(140%) !important; -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
-  border-color: rgba(67,214,228,0.16) !important; }
-#sidebar { border-right: 1px solid rgba(67,214,228,0.16) !important; }
-.ui-dock.open { border-left: 1px solid rgba(67,214,228,0.16) !important; }
-.sidebar-header, #chat-header { background: transparent !important;
-  border-bottom: 1px solid rgba(67,214,228,0.14) !important; }
-.sidebar-header h1 { color: #6ff5a4 !important; text-shadow: 0 0 10px rgba(61,220,132,0.35) !important; }
-/* Only a pinned section header needs to hide what scrolls under it. */
+@media (min-width: 901px) {
+  /* No !important on the padding: the audio player reserves its room with an inline padding-bottom. */
+  body #chat-messages { padding: 18px 28px 16px; }
+  body #chat-input-area { padding: 8px 28px 18px; }
+}
+
+/* ── Sidebar ── */
+
+.sidebar-header { background: transparent !important; border-bottom: none !important; padding-top: 16px !important; }
+.sidebar-header h1 { font-family: var(--od-display) !important; font-style: italic; font-weight: 700 !important;
+  font-size: 34px !important; line-height: 1 !important; letter-spacing: 0 !important; color: var(--od-glow) !important; }
+.sidebar-header .theme-label { font-family: var(--od-label) !important; font-size: 10px !important;
+  letter-spacing: .18em !important; color: var(--text-muted) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn) { border-radius: 999px !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { background: var(--od-glass-hover) !important;
+  color: var(--od-glow) !important; }
+
+.sidebar-section { border-bottom: none !important; }
+.sidebar-section-header { font-family: var(--od-label) !important; font-size: 10.5px !important; font-weight: 500 !important;
+  letter-spacing: .2em !important; color: var(--text-muted) !important; }
 .sidebar-section-header:not(.stuck) { background: transparent !important; }
-.sidebar-section-header:hover { color: #56e8ec !important; }
-.btn { background: rgba(14,58,72,0.6) !important; border: 1px solid rgba(67,214,228,0.24) !important;
-  color: #d8f2f4 !important; box-shadow: none !important;
-  transition: background .15s ease, border-color .15s ease, color .15s ease !important; }
-.btn:hover { background: rgba(20,76,94,0.75) !important; border-color: rgba(67,214,228,0.55) !important; }
-.btn:active { background: rgba(10,46,58,0.75) !important; }
-.btn-accent, .btn-active, .ui-send { background: linear-gradient(180deg, #2ec96a 0%, #189a4e 100%) !important;
-  border: 1px solid #35d67c !important; color: #032414 !important; text-shadow: none !important;
-  box-shadow: 0 0 10px rgba(61,220,132,0.22) !important; }
-.btn-accent:hover, .btn-active:hover, .ui-send:hover {
-  background: linear-gradient(180deg, #3adc78 0%, #1fae5b 100%) !important; border-color: #57eb96 !important;
-  box-shadow: 0 0 16px rgba(61,220,132,0.4) !important; }
+.sidebar-section-header.stuck { background: #0a4652 !important; box-shadow: none !important; }
+.sidebar-section-header:hover, .sidebar-section-header[aria-expanded="true"] { color: var(--od-glow) !important; }
+.sidebar-section .ep-group, .sidebar-portrait-head, .sidebar-portrait-title { border: none !important; }
 
+.char-item, .group-chat-item, .doc-item, .world-item, .lb-entry-item { border: none !important; border-radius: 14px !important; }
+.char-item:hover, .group-chat-item:hover, .doc-item:hover, .world-item:hover, .lb-entry-item:hover {
+  background: var(--od-glass) !important; }
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active, .lb-entry-item.active,
+.conv-history-item.active-conv {
+  background: var(--od-glass) !important; box-shadow: inset 0 0 0 1.5px var(--od-glow) !important; border: none !important; }
+:is(.char-item, .group-chat-item, .doc-item).active :is(.char-item-name, .doc-item-name) { color: var(--od-glow) !important; }
+.char-item.active .ui-avatar { box-shadow: 0 0 0 1.5px var(--od-glow) !important; }
+
+/* ── Chat header: a specimen plate's italic headline; the avatar sits in a sonar ring ── */
+
+#chat-header, #doc-header { background: transparent !important; border: none !important; box-shadow: none !important; }
+#chat-header .chat-title, #doc-header .doc-title { font-family: var(--od-display) !important; font-style: italic;
+  font-size: 25px !important; font-weight: 700 !important; line-height: 1.15 !important; color: var(--text-primary) !important; }
+#chat-header .chat-avatar { box-shadow: 0 0 0 1.5px var(--od-glow) !important; outline: 1px solid var(--od-ring-strong);
+  outline-offset: 4px; }
+#chat-header .chat-actions .btn, #doc-header .btn { background: transparent !important;
+  box-shadow: inset 0 0 0 1px var(--od-ring) !important; }
+#chat-header .chat-actions .btn:not(:disabled):hover, #doc-header .btn:not(:disabled):hover {
+  background: var(--od-glass-hover) !important; }
+#chat-header .chat-actions .btn.btn-active, #doc-header .btn.btn-active { background: var(--od-glow) !important;
+  color: var(--od-ink) !important; box-shadow: none !important; }
+
+/* ── Controls: glass pills; aqua is the main action and whatever is chosen ── */
+
+.btn { background: var(--od-glass) !important; border: none !important; border-radius: 999px !important;
+  color: var(--text-primary) !important; box-shadow: none !important; text-shadow: none !important;
+  transition: background .12s, color .12s !important; }
+.btn:not(:disabled):hover { background: var(--od-glass-hover) !important; }
+.btn-accent, .btn-active { background: var(--od-glow) !important; color: var(--od-ink) !important; font-weight: 600; }
+.btn-accent:not(:disabled):hover, .btn-active:not(:disabled):hover { background: var(--od-glow-hover) !important;
+  color: var(--od-ink) !important; }
+.btn-danger { color: var(--od-coral) !important; }
+.btn-danger:not(:disabled):hover { background: var(--od-coral) !important; color: var(--od-coral-ink) !important; }
+
+#send-btn, .ui-stop, #burger-btn { border-radius: 50% !important; aspect-ratio: 1; border: none !important;
+  box-shadow: none !important; }
+#send-btn { background: var(--od-glow) !important; color: var(--od-ink) !important; position: relative; }
+#send-btn:not(:disabled):hover { background: var(--od-glow-hover) !important; }
+.ui-stop { background: var(--od-coral) !important; color: var(--od-coral-ink) !important; }
+.ui-stop:hover { background: #ffb092 !important; }
+#burger-btn { background: transparent !important; box-shadow: inset 0 0 0 1px var(--od-ring-strong) !important;
+  color: var(--od-glow) !important; }
+#burger-btn:hover { background: var(--od-glass-hover) !important; }
 @media (prefers-reduced-motion: no-preference) {
-  #send-btn { animation: od-lure 4.5s ease-in-out infinite; }
-  @keyframes od-lure { 50% { filter: brightness(1.15) drop-shadow(0 0 7px rgba(61,220,132,0.5)); } }
+  #send-btn:not(:disabled)::after { content: ""; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+    border: 1.5px solid var(--od-glow); opacity: 0; animation: od-ping 4s ease-out infinite; }
+  @keyframes od-ping { 0% { opacity: .8; transform: scale(1); } 45%, 100% { opacity: 0; transform: scale(1.7); } }
 }
 
-.btn-danger, .ui-stop { background: linear-gradient(180deg, #e8604f 0%, #c8413c 100%) !important;
-  border: 1px solid #f4776a !important; color: #fff0ec !important; box-shadow: none !important; }
-.btn-danger:hover, .ui-stop:hover { background: linear-gradient(180deg, #f26e5c 0%, #d64c45 100%) !important;
-  box-shadow: 0 0 14px rgba(244,87,77,0.35) !important; }
-#burger-btn { background: rgba(14,58,72,0.6) !important; border: 1px solid rgba(67,214,228,0.24) !important;
-  color: #56c8dc !important; box-shadow: none !important; }
-#burger-btn:hover { background: rgba(20,76,94,0.75) !important; border-color: rgba(67,214,228,0.55) !important;
-  color: #8ff0fa !important; }
-#chat-input-area { background: rgba(5,26,35,0.6) !important; backdrop-filter: blur(12px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(140%) !important; border-top: 1px solid rgba(67,214,228,0.16) !important;
-}
-.tog-slider { background: rgba(6,28,38,0.9) !important; border: 1px solid rgba(67,214,228,0.26) !important;
+input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"],
+input[type="email"], textarea, select, .cb-control, .asst-compose {
+  background-color: var(--od-glass) !important; border: 1px solid var(--od-ring) !important; border-radius: 10px !important; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus,
+.cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
+  border-color: var(--od-glow) !important; outline: none; box-shadow: none !important; }
+#chat-input { background-color: rgba(3,26,34,0.82) !important; border-radius: 24px !important; padding-inline: 20px !important; }
+.cb-root .cb-control .cb-input, .cb-root .cb-control .cb-input:focus { background: transparent !important;
+  border: none !important; }
+.image-gen-edit[readonly] { background: transparent !important; border: none !important; color: inherit !important; }
+select option { background: var(--od-solid); }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--od-glow); }
+
+.ui-popover { background: var(--od-solid) !important; border: 1px solid var(--od-ring) !important;
+  border-radius: 14px !important; box-shadow: none !important; }
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--od-glow) !important;
+  color: var(--od-ink) !important; }
+
+.tog-slider { background: var(--od-glass) !important; border: 1px solid var(--od-ring-strong) !important;
   box-shadow: none !important; }
-.tog-slider:before { background: #5f8fa0 !important; box-shadow: none !important; }
-.tog input:checked + .tog-slider { background: var(--accent-dim) !important; border-color: var(--accent) !important;
-  box-shadow: 0 0 7px rgba(61,220,132,0.4) !important; }
-.tog input:checked + .tog-slider:before { background: #d9fbe8 !important; }
-.message .msg-body { background: rgba(7,36,48,0.55) !important; border: 1px solid rgba(67,214,228,0.14) !important;
+.tog-slider:before { background: var(--text-muted) !important; box-shadow: none !important; }
+.tog input:checked + .tog-slider { background: var(--od-glow) !important; border-color: var(--od-glow) !important;
   box-shadow: none !important; }
-.message.user .msg-body { background: rgba(35,160,95,0.13) !important; border-color: rgba(61,220,132,0.30) !important; }
-.message .msg-body pre, .message .msg-body code.inline-code {
-  background: rgba(2,16,22,0.6) !important; border-color: rgba(67,214,228,0.18) !important;
-}
-.modal-overlay { background: rgba(2,12,17,0.66) !important; backdrop-filter: blur(5px) saturate(120%) !important;
-  -webkit-backdrop-filter: blur(5px) saturate(120%) !important; }
-.modal, .modal-crop { background: rgba(6,30,40,0.93) !important; backdrop-filter: blur(18px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(140%) !important; border: 1px solid rgba(67,214,228,0.2) !important;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.6), 0 0 34px rgba(61,220,132,0.08) !important; }
-.toast { background: rgba(6,30,40,0.93) !important; backdrop-filter: blur(10px) saturate(140%) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(140%) !important; border: 1px solid rgba(67,214,228,0.2) !important;
-  color: #d8f2f4 !important; box-shadow: 0 8px 24px rgba(0,0,0,0.55) !important; }
-::-webkit-scrollbar { width: 9px; height: 9px; }
+.tog input:checked + .tog-slider:before { background: var(--od-ink) !important; }
+
+/* Tabs: a glass capsule with an aqua slider. */
+.tab-row, .tabs, .lb-tabs { border-bottom: none !important; }
+.tab-row { gap: 4px !important; padding: 4px; background: var(--od-shade); border-radius: 999px; }
+.tab-button { border: none !important; border-radius: 999px !important; background: transparent !important;
+  margin: 0 !important; padding-bottom: 9px !important; font-family: var(--od-label); letter-spacing: .14em !important;
+  transition: none !important; }
+.tab-button:not(.tab-button-active):hover { color: var(--od-glow) !important; }
+.tab-button-active { background: var(--od-glow) !important; color: var(--od-ink) !important; }
+.tab { border-bottom-color: transparent !important; border-radius: 999px !important; }
+.tab.active, .lb-tab.active { background: var(--od-glow) !important; color: var(--od-ink) !important;
+  border-bottom-color: transparent !important; }
+
+/* ── Messages: dark glass panes under a sonar-blip label; yours rise as aqua air bubbles ── */
+
+.message { margin-bottom: 10px !important; }
+.message:last-child { margin-bottom: 0 !important; }
+.message .msg-role { font-family: var(--od-label); font-size: 10.5px !important; font-weight: 500 !important;
+  letter-spacing: .2em !important; color: var(--od-glow) !important; margin-bottom: 7px !important; padding-inline: 4px; }
+.message .msg-role::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--od-glow); box-shadow: 0 0 0 3px rgba(95,245,220,0.18); }
+.message.user .msg-role::before { order: 99; }
+.message .msg-role :is(.msg-num, .swipe-counter, .swipe-nav) { color: var(--text-muted) !important; }
+.message .msg-body { background: var(--od-pane) !important; border: none !important; border-radius: 4px 20px 20px 20px !important;
+  box-shadow: none !important; padding: 16px 20px !important; color: var(--text-primary) !important; }
+.message.user .msg-body { position: relative; background: rgba(95,245,220,0.1) !important;
+  box-shadow: inset 0 0 0 1px rgba(95,245,220,0.32) !important; border-radius: 24px 4px 24px 24px !important; }
+.message.user .msg-body::after { content: ""; position: absolute; left: 10px; top: -27px; width: 34px; height: 24px;
+  background: url("/static/themes/assets/ocean-depths-bubbles.svg") center / 34px 24px no-repeat; pointer-events: none; }
+.message .msg-edit-area textarea, .message.user .msg-edit-area textarea { background: var(--od-pane) !important; }
+.message .msg-body .quoted { color: var(--od-coral) !important; }
+.message .msg-body .quoted.speaking { color: #ffd0bc !important; }
+.message .msg-body em { color: #8fc3cc !important; font-style: italic !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code { background: rgba(1,10,14,0.5) !important;
+  border: none !important; }
+.message .msg-body blockquote { border-left: none !important; padding-left: 1.4em !important; color: var(--text-secondary); }
+.message .msg-body hr { border-top-color: var(--od-ring) !important; }
+.message .msg-inspect { border: none !important; background: var(--od-pane) !important; border-radius: 14px !important; }
+.workflow-artifacts { border-top: none !important; }
+.workflow-artifact-swipe { border: none !important; background: var(--od-pane) !important; }
+.msg-toolbar { color: var(--text-muted) !important; }
+.msg-toolbar button, .swipe-nav button { border-radius: 999px !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover { background: var(--od-glass-hover) !important;
+  color: var(--od-glow) !important; }
+.msg-toolbar .msg-btn-del { color: var(--od-coral) !important; }
+.msg-toolbar .msg-btn-del:hover { background: var(--od-coral) !important; color: var(--od-coral-ink) !important; opacity: 1; }
+.message.prose-rewriting .msg-body { box-shadow: inset 0 0 0 1px var(--od-glow) !important; }
+.message.prose-rewriting .msg-body::before { display: none; }
+
+.gen-status { color: var(--text-secondary) !important; }
+.group-speaking-plan { background: var(--od-pane) !important; border: none !important; border-radius: 14px !important; }
+
+/* ── Workflow and Inspector docks: glass cards, group names as sonar readings ── */
+
+.inspector-title { font-family: var(--od-display) !important; font-style: italic; font-size: 20px !important;
+  font-weight: 700 !important; text-transform: none !important; letter-spacing: 0 !important; color: var(--text-primary) !important; }
+.tools-divider { margin: 16px 4px 8px !important; gap: 8px !important; }
+.tools-divider:first-child { margin-top: 6px !important; }
+.tools-divider::after { display: none; }
+.tools-divider::before { flex: none !important; width: 6px; height: 6px !important; border-radius: 50%;
+  background: var(--od-glow) !important; box-shadow: 0 0 0 3px rgba(95,245,220,0.18); }
+.tools-divider span { font-family: var(--od-label); font-size: 10.5px !important; letter-spacing: .2em !important;
+  color: var(--od-glow) !important; }
+.tool-card, .workflow-card, .stat-card, .wc-card, .lib-tool { border: none !important; border-radius: 16px !important;
+  background: var(--od-glass) !important; }
+.tool-card.tool-on { background: rgba(95,245,220,0.1) !important; }
+.audit-types, #tools-pane-main > div:last-child, .ml-variants { border: none !important; }
+.stat-card-favorite { background: var(--od-glow) !important; }
+.stat-card-favorite, .stat-card-favorite * { color: var(--od-ink) !important; }
+.stat-card-clickable:hover { background: var(--od-glass-hover) !important; transform: none !important; }
+.stat-card-favorite.stat-card-clickable:hover { background: var(--od-glow-hover) !important; }
+
+/* ── Overlays: solid, so text never sits on text ── */
+
+.modal-overlay { background: rgba(1,10,14,0.72) !important; }
+.modal, .modal-crop { background: var(--od-solid) !important; border: 1px solid var(--od-ring) !important;
+  border-radius: 22px !important; box-shadow: none !important; }
+.modal h2, .modal h3 { font-family: var(--od-display) !important; font-style: italic; font-weight: 700 !important;
+  color: var(--text-primary) !important; }
+.modal > h2 { font-size: 24px !important; line-height: 1.2; border-bottom: none !important; }
+.conv-history-item { border-bottom: none !important; border-radius: 12px; }
+.conv-history-item + .conv-history-item { margin-top: 2px; }
+.toast { background: var(--od-glow) !important; color: var(--od-ink) !important; border: none !important;
+  border-radius: 999px !important; box-shadow: none !important; font-weight: 600; }
+.toast.error { background: var(--od-coral) !important; color: var(--od-coral-ink) !important; }
+.turn-error { background: rgba(255,138,122,0.12) !important; border: none !important; border-radius: 14px !important; }
+.field-warning { color: var(--warning) !important; }
+
+/* The app's own accent edge stripes. */
+.asst-selection, .lib-dupe-collision-note, .decision-status, .decision-problem, .doc-audit-item, .wc-op {
+  border-left: none !important; }
+
+#doc-page { background: var(--od-pane) !important; border: none !important; border-radius: 20px !important;
+  box-shadow: none !important; }
+.doc-mode-toggle, .doc-probs-toggle { border: none !important; border-radius: 999px !important;
+  background: var(--od-glass) !important; }
+.doc-mode-opt + .doc-mode-opt { border-left: none !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active { background: var(--od-glow) !important; color: var(--od-ink) !important; }
+
+::selection { background: rgba(95,245,220,0.32); color: #effffb; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(67,214,228,0.4), rgba(61,220,132,0.45));
-  border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, rgba(67,214,228,0.65), rgba(61,220,132,0.7)); }
-:root { --scrollbar-width: thin; --scrollbar-thumb: rgba(52,210,170,0.45); --scrollbar-track: transparent; }
-::selection { background: rgba(61,220,132,0.30); color: #eafff2; }
-.msg-role { color: #56c8dc !important; text-shadow: 0 0 6px rgba(67,214,228,0.25) !important; }
-.swipe-counter, .swipe-nav { color: #66a8bc !important; }
-.swipe-nav:hover { color: #56e8ec !important; }
-.msg-toolbar { color: #6fa8b8 !important; }
-.message .msg-body { color: #d6ecef !important; }
-.message .msg-body .quoted { color: #ffab7e !important; text-shadow: 0 0 8px rgba(255,138,95,0.25) !important; }
-.message .msg-body em { color: #7fa9b8 !important; font-style: italic !important; }
-.message .msg-body .quoted.speaking { color: #ffd2b0 !important; }
+::-webkit-scrollbar-thumb { background: rgba(95,245,220,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--od-glow); }
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
-.message .msg-inspect { background: rgba(7,36,48,0.55) !important; border-color: rgba(67,214,228,0.14) !important; }

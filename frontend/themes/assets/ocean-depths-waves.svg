@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#5b5cc4"/>
+<path d="M0 150 C220 70 430 250 690 170 C840 125 930 140 1000 165 V1000 H0Z" fill="#4c4fb6"/>
+<path d="M0 400 C170 310 360 300 540 380 C720 455 860 430 1000 350 V1000 H0Z" fill="#3a43a5"/>
+<path d="M0 610 C230 560 400 680 640 640 C820 610 900 540 1000 575 V1000 H0Z" fill="#2b3389"/>
+<path d="M0 830 C240 770 500 880 760 820 C880 795 950 790 1000 805 V1000 H0Z" fill="#1d2464"/>
+</svg>
