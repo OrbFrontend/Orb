@@ -1,10 +1,277 @@
-:root { --bg-deep:#0b0608; --bg-primary:#140a0e; --bg-surface:#1e1018; --bg-elevated:#291620; --bg-hover:#361c2a;
-  --border:#471e30; --border-light:#602538; --text-primary:#f0cfa0; --text-secondary:#d09a78; --text-muted:#a87153;
-  --accent:#e8711a; --accent-dim:#a04e10; --accent-glow:rgba(232,113,26,0.14); --red:#c45d5d;
+/* Halloween: the app is a screen-printed haunt poster. The chat is the poster itself: a dusk sky with a distressed
+   harvest moon full of bats, and a graveyard horizon glowing orange behind the composer. Sidebar and docks are plum
+   tiles beside it. Speakers wear torn paper tags, headings sit over a bat rule, pumpkin-orange fills carry print
+   speckle and ink text, and send is a pumpkin. Spectral throughout. No accent edge stripes. Static paint only. */
+:root {
+  --hw-board:#0b0608; --hw-tile:#140a0e; --hw-card:#1e1018; --hw-well:#0e070a; --hw-raise:#331a28;
+  --hw-field:#24111b; --hw-field-line:#55283a;
+  --hw-pumpkin:#e8711a; --hw-pumpkin-hover:#f58a3a; --hw-ember:#a04e10; --hw-ink:#170a0f;
+  --hw-moon:#f1d9ab; --hw-paper:#ecd5a8; --hw-blood:#8f2a22;
+  --hw-rule:url("/static/themes/assets/halloween-rule.svg");
+  --hw-print:url("/static/themes/assets/halloween-speckle.svg") 0 0 / 160px 160px;
+  --hw-lift:0 14px 34px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4);
+
+  --bg-deep:#0b0608; --bg-primary:#140a0e; --bg-surface:#1e1018; --bg-elevated:#291620; --bg-hover:#361c2a;
+  --border:#471e30; --border-light:#602538;
+  --text-primary:#f0cfa0; --text-secondary:#e0b08c; --text-muted:#c48f6c;
+  --accent:#e8711a; --accent-dim:#a04e10; --accent-glow:rgba(232,113,26,0.14); --accent-muted:rgba(232,113,26,0.15);
+  --on-accent:#170a0f; --red:#e0705f; --warning:#e8a64a;
+
+  --font-display:'Spectral',Georgia,'Palatino Linotype',Palatino,serif;
   --font-prose:'Spectral',Georgia,'Palatino Linotype',Palatino,serif;
   --font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --font-mono:'Menlo','Consolas','Courier New',monospace; --radius:6px; --font-prose-size:17px; --sidebar-width:300px;
-  --inspector-width:340px; }
+  --inspector-width:340px;
 
-/* Hue offset 92 keeps pass colours at least 30 degrees from the surface, hover and accent. */
-:root { --frag-lane-offset: 92; }
+  --scrollbar-width:thin; --scrollbar-thumb:#471e30; --scrollbar-track:transparent;
+
+  /* Hue offset 92 keeps pass colours at least 30 degrees from the surface, hover and accent. */
+  --frag-lane-offset:92;
+
+  --mobile-overlay-color:rgba(6,3,4,0.65) !important;
+  --mobile-panel-shadow-left:12px 0 30px rgba(0,0,0,0.6) !important;
+  --mobile-panel-shadow-right:-12px 0 30px rgba(0,0,0,0.6) !important;
+}
+/* Pumpkin- and paper-filled surfaces: children colored by the base tokens would otherwise paint cream on orange. */
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active, .cb-option.active,
+.cb-option:hover, .burger-menu-item:hover, .toast, .tab.active, .tab-button-active, .stat-card-favorite,
+.message.user .msg-body {
+  --text-primary:var(--hw-ink); --text-secondary:#4a2214; --text-muted:#5e3220; --accent:var(--hw-ink);
+  --accent-dim:var(--hw-ink); --red:var(--hw-ink); }
+
+body { background: var(--hw-board) !important; }
+
+/* ── Frame: the poster between two plum tiles ── */
+
+.ui-panel { background: var(--hw-tile) !important; border: none !important; }
+#chat-messages, #chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
+#main, #document-main { background:
+    url("/static/themes/assets/halloween-horizon.svg") center bottom / max(100%, 1100px) auto no-repeat,
+    url("/static/themes/assets/halloween-moon.svg") right 9% top 84px / clamp(260px, 30vw, 440px) no-repeat,
+    radial-gradient(closest-side, rgba(232,113,26,0.16), rgba(232,113,26,0))
+      right calc(9% - 80px) top 4px / clamp(420px, 42vw, 600px) clamp(420px, 42vw, 600px) no-repeat,
+    linear-gradient(to top, rgba(232,113,26,0.5), rgba(160,78,16,0.22) 150px, rgba(160,78,16,0) 340px),
+    var(--hw-tile) !important; }
+@media (min-width: 901px) {
+  #app { padding: 12px; }
+  #sidebar { margin-right: 12px; }
+  .ui-dock.open { margin-left: 12px; }
+  #sidebar, .ui-dock.open, #main, #document-main { border-radius: 10px; overflow: clip; }
+  #main, #document-main { position: relative; }
+  /* No !important: the audio player reserves its room with an inline padding-bottom. */
+  body #chat-messages { padding: 6px 20px 18px; }
+  body #chat-input-area { padding: 4px 20px 16px; }
+}
+
+/* ── Sidebar: the billing ── */
+
+.sidebar-header { background: transparent !important; border-bottom: none !important; padding: 18px 16px 10px !important; }
+.sidebar-header h1 { font-family: var(--font-display) !important; font-weight: 700 !important; font-size: 30px !important;
+  line-height: 1 !important; text-transform: uppercase; letter-spacing: .14em !important; color: var(--hw-moon) !important; }
+.sidebar-header-top { margin-bottom: 10px !important; padding-bottom: 22px;
+  background: var(--hw-rule) left bottom / 160px 16px no-repeat; }
+.sidebar-header .theme-label { font-size: 10px !important; letter-spacing: .16em !important;
+  color: var(--text-muted) !important; }
+.sidebar-header :is(#sidebar-collapse-btn, #mode-switch-btn):hover { color: var(--hw-pumpkin) !important;
+  background: var(--bg-hover) !important; border-radius: 999px; }
+
+.sidebar-section { border-bottom: none !important; }
+.sidebar-section-header { background: var(--hw-tile) !important; font-family: var(--font-display) !important;
+  font-size: 13px !important; font-weight: 700 !important; letter-spacing: .16em !important;
+  color: var(--text-secondary) !important; padding-block: 10px !important; }
+.sidebar-section-header:hover, .sidebar-section-header[aria-expanded="true"] { color: var(--hw-pumpkin) !important; }
+.sidebar-section-header.stuck { box-shadow: 0 8px 12px -6px rgba(0,0,0,0.7) !important; }
+.sidebar-section .ep-group, .sidebar-portrait-head, .sidebar-portrait-title { border: none !important; }
+
+.char-item, .group-chat-item, .doc-item, .world-item, .lb-entry-item { border: none !important; border-radius: 6px !important; }
+.char-item:hover, .group-chat-item:hover, .doc-item:hover, .world-item:hover, .lb-entry-item:hover {
+  background: var(--hw-raise) !important; }
+.char-item.active, .group-chat-item.active, .doc-item.active, .world-item.active {
+  background: var(--hw-print), var(--hw-pumpkin) !important; color: var(--hw-ink) !important; }
+:is(.char-item, .group-chat-item, .doc-item, .world-item).active * { color: var(--hw-ink) !important; }
+:is(.char-item, .group-chat-item, .doc-item).active :is(.char-item-name, .doc-item-name) { font-weight: 700 !important; }
+.char-item.active .ui-avatar { box-shadow: 0 0 0 2px var(--hw-ink) !important; }
+.lb-entry-item.active, .conv-history-item.active-conv { background: var(--accent-muted) !important; border: none !important; }
+
+/* ── Chat header: the poster's headline over a bat rule ── */
+
+#chat-header, #doc-header { background: transparent !important; border: none !important; box-shadow: none !important; }
+@media (min-width: 901px) {
+  #chat-header, #doc-header { padding: 14px 20px 24px !important;
+    background: var(--hw-rule) left 20px bottom 4px / 160px 16px no-repeat !important; }
+  /* The rule starts under the title, clear of the avatar's moon ring. */
+  #chat-header { background-position: left 76px bottom 4px !important; }
+}
+#chat-header .chat-title, #doc-header .doc-title { font-family: var(--font-display) !important; font-size: 26px !important;
+  font-weight: 700 !important; line-height: 1.1 !important; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--hw-pumpkin) !important; }
+#chat-header .chat-avatar { width: 44px; height: 44px; box-shadow: 0 0 0 2px var(--hw-moon), 0 0 0 5px var(--hw-tile),
+  0 0 0 6px var(--hw-ember) !important; }
+#chat-header .chat-actions .btn, #doc-header .btn { background: transparent !important; color: var(--text-secondary) !important;
+  text-transform: uppercase; letter-spacing: .1em; font-size: 11px !important; font-weight: 600 !important; }
+#chat-header .chat-actions .btn:not(:disabled):hover, #doc-header .btn:not(:disabled):hover,
+#chat-header .chat-actions .btn.btn-active, #doc-header .btn.btn-active {
+  background: var(--hw-pumpkin) !important; color: var(--hw-ink) !important; }
+
+/* ── Controls: flat plum blocks; pumpkin is the main action, the hover, and whatever is chosen ── */
+
+.btn { background: var(--hw-raise) !important; border: none !important; color: var(--text-primary) !important;
+  transition: background .12s, color .12s !important; }
+.btn:not(:disabled):hover { background: var(--hw-pumpkin) !important; color: var(--hw-ink) !important; }
+.btn-accent, .btn-active { background: var(--hw-print), var(--hw-pumpkin) !important; color: var(--hw-ink) !important;
+  border: none !important; font-weight: 600; }
+.btn-accent:not(:disabled):hover, .btn-active:not(:disabled):hover {
+  background: var(--hw-print), var(--hw-pumpkin-hover) !important; color: var(--hw-ink) !important; }
+.btn-danger { color: var(--red) !important; }
+.btn-danger:not(:disabled):hover { background: var(--hw-blood) !important; color: #f7e3d8 !important; }
+
+/* Send is a pumpkin: the button paints nothing of its own, the lantern image is the whole shape. */
+#send-btn { width: 46px; height: 46px; border: none !important; border-radius: 0 !important; color: var(--hw-ink) !important;
+  background: url("/static/themes/assets/halloween-lantern.svg") center / 46px 46px no-repeat !important;
+  transition: filter .12s !important; }
+#send-btn svg { margin-top: 5px; }
+#send-btn:not(:disabled):hover { filter: brightness(1.1) saturate(1.1); }
+#send-btn:disabled { opacity: 1 !important; filter: saturate(.55) brightness(.7); }
+.ui-stop { background: var(--hw-blood) !important; color: #f7e3d8 !important; border: none !important;
+  border-radius: 50% !important; aspect-ratio: 1; filter: none !important; }
+.ui-stop:hover { background: #a8352b !important; }
+#burger-btn { background: var(--hw-card) !important; border: none !important; border-radius: 50% !important; aspect-ratio: 1;
+  box-shadow: var(--hw-lift) !important; }
+#burger-btn:hover { background: var(--hw-pumpkin) !important; color: var(--hw-ink) !important; }
+
+input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"],
+input[type="email"], textarea, select, .cb-control, .asst-compose {
+  background-color: var(--hw-field) !important; border: 1px solid var(--hw-field-line) !important;
+  border-radius: 6px !important; }
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus,
+.cb-control.open, .cb-control:focus-within, .asst-compose:focus-within {
+  border-color: var(--hw-ember) !important; outline: none; }
+#chat-input { background-color: var(--hw-card) !important; border: 1px solid transparent !important;
+  border-radius: 14px !important; padding-inline: 16px !important; box-shadow: var(--hw-lift) !important; }
+#chat-input:focus { border-color: var(--hw-ember) !important; }
+.cb-root .cb-control .cb-input, .cb-root .cb-control .cb-input:focus { background: transparent !important;
+  border: none !important; }
+.image-gen-edit[readonly] { background: transparent !important; border: none !important; color: inherit !important; }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--hw-pumpkin); }
+
+.ui-popover { background: var(--hw-raise) !important; border: none !important; border-radius: 8px !important;
+  box-shadow: 0 22px 50px rgba(0,0,0,0.7), 0 4px 10px rgba(0,0,0,0.45) !important; }
+.cb-option.active, .cb-option:hover, .burger-menu-item:hover { background: var(--hw-pumpkin) !important;
+  color: var(--hw-ink) !important; }
+
+.tog-slider { background: var(--hw-field) !important; border: 1px solid var(--hw-field-line) !important; }
+.tog-slider:before { background: var(--text-muted) !important; }
+.tog input:checked + .tog-slider { background: var(--hw-pumpkin) !important; border-color: var(--hw-pumpkin) !important; }
+.tog input:checked + .tog-slider:before { background: var(--hw-ink) !important; }
+
+/* Tabs: a dark rail with a pumpkin slider. */
+.tab-row, .tabs, .lb-tabs { border-bottom: none !important; }
+.tab-row { gap: 4px !important; padding: 4px; background: var(--hw-field); border-radius: 8px; }
+.tab-button { border: none !important; border-radius: 5px !important; background: transparent !important;
+  margin: 0 !important; padding-bottom: 9px !important; transition: none !important; }
+.tab-button:not(.tab-button-active):hover { color: var(--hw-pumpkin) !important; }
+.tab-button-active { background: var(--hw-pumpkin) !important; color: var(--hw-ink) !important; }
+.tab { border-bottom-color: transparent !important; border-radius: 5px !important; }
+.tab.active, .lb-tab.active { background: var(--hw-pumpkin) !important; color: var(--hw-ink) !important;
+  border-bottom-color: transparent !important; }
+
+/* ── Messages: plum cards under a torn pumpkin tag; yours is moon paper under a torn cream tag ── */
+
+.message { margin-bottom: 14px !important; }
+.message:last-child { margin-bottom: 0 !important; }
+.message .msg-role { width: fit-content; position: relative; z-index: 1; margin: 0 0 -9px 14px !important;
+  padding: 4px 16px 4px 10px; background: var(--hw-print), var(--hw-pumpkin); color: var(--hw-ink) !important;
+  font-family: var(--font-display); font-size: 12px !important; font-weight: 700 !important; letter-spacing: .16em !important;
+  transform: rotate(-1.2deg);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 22%, 100% 41%, calc(100% - 4px) 63%, 100% 80%, calc(100% - 6px) 100%,
+    0 100%); }
+.message .msg-role :is(.msg-num, .swipe-nav, .swipe-nav button, .swipe-counter, .msg-rewriting) {
+  color: var(--hw-ink) !important;
+  font-family: var(--font-ui); font-weight: 600; letter-spacing: .04em; }
+.message .msg-role .msg-rewriting .dot { background: var(--hw-ink) !important; }
+.message.user .msg-role { margin: 0 14px -9px auto !important; padding: 4px 10px 4px 16px; transform: rotate(1.2deg);
+  background: var(--hw-print), var(--hw-moon);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 6px 100%, 0 78%, 5px 58%, 0 37%, 4px 18%); }
+.message .msg-body { background: var(--hw-card) !important; border: none !important; border-radius: 8px !important;
+  box-shadow: var(--hw-lift) !important; padding: 20px 22px 14px !important; }
+.message.user .msg-body { background: var(--hw-paper) !important; color: var(--hw-ink) !important; margin-left: 14%; }
+.message.user .msg-toolbar { margin-left: 14%; }
+.message.user .msg-edit-area textarea { background: var(--hw-well) !important; }
+.message .msg-edit-area textarea { background: var(--hw-well) !important; }
+.message .msg-body .quoted { color: #f08a3e !important; }
+.message .msg-body em { color: #c49a82 !important; }
+.message.user .msg-body .quoted { color: #9c3f08 !important; }
+.message.user .msg-body em { color: #6b4434 !important; }
+.message .msg-body .quoted em { color: inherit !important; }
+.message .msg-body pre, .message .msg-body code.inline-code { background: var(--hw-well) !important; border: none !important; }
+.message .msg-body blockquote { border-left: none !important; padding-left: 1.4em !important; color: var(--text-secondary); }
+.message .msg-body hr { border-top-color: var(--border-light) !important; }
+.message .msg-inspect { border: none !important; background: var(--hw-well) !important; }
+.workflow-artifacts { border-top: none !important; }
+.workflow-artifact-swipe { border: none !important; background: var(--hw-well) !important; }
+.msg-toolbar button { border-radius: 999px !important; }
+.msg-toolbar button:hover, .swipe-nav button:hover { background: var(--hw-pumpkin) !important;
+  color: var(--hw-ink) !important; }
+.message .msg-role .swipe-nav button:hover { background: var(--hw-ink) !important; color: var(--hw-pumpkin) !important; }
+.msg-toolbar .msg-btn-del:hover { background: var(--hw-blood) !important; color: #f7e3d8 !important; }
+.message.prose-rewriting .msg-body { box-shadow: var(--hw-lift), 0 0 0 1px var(--hw-pumpkin) !important; }
+
+.gen-status { color: var(--text-secondary) !important; }
+.group-speaking-plan { background: var(--hw-card) !important; border: none !important; border-radius: 8px !important; }
+
+/* ── Workflow and Inspector docks: plum tiles, group names in pumpkin capitals ── */
+
+.inspector-title { font-family: var(--font-display); font-size: 16px !important; font-weight: 700 !important;
+  text-transform: uppercase; letter-spacing: .14em !important; color: var(--hw-pumpkin) !important; }
+.tools-divider { margin: 14px 2px 6px !important; }
+.tools-divider:first-child { margin-top: 4px !important; }
+.tools-divider::before, .tools-divider::after { display: none; }
+.tools-divider span { font-family: var(--font-display); font-weight: 700; font-size: 12px !important;
+  letter-spacing: .18em !important; color: var(--hw-pumpkin) !important; }
+.tool-card, .workflow-card, .stat-card, .wc-card, .lib-tool { border: none !important; border-radius: 8px !important;
+  background: var(--hw-card) !important; }
+.tool-card.tool-on { background: var(--hw-raise) !important; }
+.audit-types, #tools-pane-main > div:last-child, .ml-variants { border: none !important; }
+.stat-card-favorite { background: var(--hw-print), var(--hw-pumpkin) !important; }
+.stat-card-favorite, .stat-card-favorite * { color: var(--hw-ink) !important; }
+.stat-card-clickable:hover { background: var(--hw-raise) !important; transform: none !important; }
+.stat-card-favorite.stat-card-clickable:hover { background: var(--hw-print), var(--hw-pumpkin-hover) !important; }
+
+/* ── Overlays: a handbill laid on the poster ── */
+
+.modal-overlay { background: rgba(6,3,4,0.74) !important; }
+.modal, .modal-crop { background: var(--hw-tile) !important; border: none !important; border-radius: 10px !important;
+  box-shadow: 0 30px 70px rgba(0,0,0,0.75), 0 0 0 1px rgba(232,113,26,0.18) !important; }
+.modal h2, .modal h3 { font-family: var(--font-display) !important; font-weight: 700 !important;
+  color: var(--hw-pumpkin) !important; }
+.modal > h2 { font-size: 21px !important; line-height: 1.2; text-transform: uppercase; letter-spacing: .1em;
+  border-bottom: none !important; padding-bottom: 22px !important;
+  background: var(--hw-rule) left bottom 2px / 160px 16px no-repeat; }
+.conv-history-item { border-bottom: none !important; border-radius: 6px; }
+.conv-history-item + .conv-history-item { margin-top: 2px; }
+.toast { background: var(--hw-print), var(--hw-pumpkin) !important; color: var(--hw-ink) !important; border: none !important;
+  border-radius: 8px !important; box-shadow: var(--hw-lift) !important; font-weight: 600; }
+.toast.error { background: var(--hw-blood) !important; color: #f7e3d8 !important; }
+.turn-error { background: color-mix(in srgb, var(--hw-blood) 35%, var(--hw-card)) !important; border: none !important;
+  border-radius: 8px !important; }
+.field-warning { color: var(--warning) !important; }
+
+/* The app's own accent edge stripes. */
+.asst-selection, .lib-dupe-collision-note, .decision-status, .decision-problem, .doc-audit-item, .wc-op {
+  border-left: none !important; }
+
+#doc-editor-scroll { background: transparent !important; }
+#doc-page { background: var(--hw-card) !important; border: none !important; border-radius: 10px !important;
+  box-shadow: var(--hw-lift) !important; }
+.doc-mode-toggle, .doc-probs-toggle { border: none !important; border-radius: 6px !important;
+  background: var(--hw-card) !important; }
+.doc-mode-opt + .doc-mode-opt { border-left: none !important; }
+.doc-mode-opt.active, .doc-probs-toggle.active { background: var(--hw-pumpkin) !important; color: var(--hw-ink) !important; }
+
+::selection { background: var(--hw-pumpkin); color: var(--hw-ink); }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--hw-pumpkin); }
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
