@@ -456,7 +456,6 @@ async def director_pass(
                         active_moods,
                         mood_fragments,
                         tool_schema=tool_schema,
-                        reasoning_on=reasoning_on,
                         target_fragment=stage,
                         decided_fields=plan.decided,
                         cast_instruction=(
@@ -546,7 +545,6 @@ async def director_pass(
                     user_message,
                     active_moods,
                     mood_fragments,
-                    reasoning_on=reasoning_on,
                     interactive_fragments=[*segment, *(riding_rows if last else [])],
                     progressive_state=progressive_state,
                     tool_schema=live_schema,

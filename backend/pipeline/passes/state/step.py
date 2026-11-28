@@ -167,7 +167,6 @@ async def state_step(
             aliases,
             placement=placement,
             tool_schema=live_schema,
-            reasoning_on=reasoning_on,
             scene_direction=scene_direction,
             user_message=user_message,
         )

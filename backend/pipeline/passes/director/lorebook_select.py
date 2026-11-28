@@ -70,7 +70,7 @@ async def lorebook_select_step(
         yield {"type": "done", "result": LorebookSelectResult()}
         return
 
-    request = build_lorebook_select_prompt(catalog, user_message, reasoning_on=reasoning_on)
+    request = build_lorebook_select_prompt(catalog, user_message)
     trailing = [{"role": "user", "content": request}]
     hyperparams = extract_hyperparams(settings, lane="agent")
 

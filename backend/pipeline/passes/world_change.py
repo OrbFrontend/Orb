@@ -61,7 +61,7 @@ async def world_change_step(
     """
     catalog = build_world_change_catalog(entries, worlds=worlds, exchange_text=exchange_text)
     request = build_world_change_prompt(
-        catalog, original_user_message=original_user_message, reasoning_on=reasoning_on, tool_schema=PROPOSE_WORLD_CHANGES_TOOL
+        catalog, original_user_message=original_user_message, tool_schema=PROPOSE_WORLD_CHANGES_TOOL
     )
     trailing: list[ChatMessage] = [
         *replay_reply(writer_request, reply_text),

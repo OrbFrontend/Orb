@@ -604,7 +604,6 @@ class _EditLoop:
             rewrite=self.rewrite,
             length_guard_triggered=self.length_guard_triggered,
             length_guard_instruction=self.length_guard_instruction,
-            reasoning_on=self.reasoning_on,
         )
 
     async def initial_audit(self) -> None:
@@ -870,7 +869,6 @@ def _build_editor_request(
     rewrite: bool,
     length_guard_triggered: bool,
     length_guard_instruction: str,
-    reasoning_on: bool,
 ) -> _Request:
     """The prompt and report for one editor iteration, rendered in lockstep.
 
@@ -890,7 +888,6 @@ def _build_editor_request(
         length_guard_triggered,
         length_guard_instruction,
         structural_rewrite=structural,
-        reasoning_on=reasoning_on,
         patchable=bool(targets),
         patch_categories=categories,
     )

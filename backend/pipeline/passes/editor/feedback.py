@@ -68,7 +68,7 @@ async def feedback_step(
     # (``json_schema``) where the transport can; the wire tools blob is the unchanged base.
     tool_schema = build_feedback_tool(feedback_fragments)
 
-    request = build_feedback_prompt(feedback_fragments, reasoning_on=reasoning_on, tool_schema=tool_schema)
+    request = build_feedback_prompt(feedback_fragments, tool_schema=tool_schema)
     # Replay writer_request + reply (as the editor does) so the feedback call
     # continues the warm writer/editor stack; only `request` is new bytes.
     trailing: list[ChatMessage] = [

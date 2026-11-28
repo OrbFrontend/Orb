@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._prompting import REASONING_GUIDANCE, tool_call_instruction
+from ._prompting import tool_call_instruction
 
 WORLD_CHANGE_PREAMBLE = (
     "[OOC: Pause the roleplay and step out of character. Review the exchange above and decide whether it "
@@ -30,12 +30,9 @@ WORLD_CHANGE_CATALOG_HEADER = (
 )
 
 
-def build_world_change_prompt(
-    catalog: str, *, original_user_message: str = "", reasoning_on: bool = False, tool_schema: dict | None = None
-) -> str:
+def build_world_change_prompt(catalog: str, *, original_user_message: str = "", tool_schema: dict | None = None) -> str:
     """Build the post-turn Dynamic Worlds proposal request."""
-    preamble = WORLD_CHANGE_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
-    parts = [preamble, WORLD_CHANGE_RULES]
+    parts = [WORLD_CHANGE_PREAMBLE, WORLD_CHANGE_RULES]
     if original_user_message:
         parts.append(
             "The user turn above is Orb's own instruction to the writer, not something the user said. "

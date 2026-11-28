@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ....core import StateFragment, StateView
-from .._prompting import REASONING_GUIDANCE, tool_call_instruction
+from .._prompting import tool_call_instruction
 
 STATE_PREAMBLE = (
     "[OOC: Pause the roleplay and step out of character. The fields below are the story's saved state: "
@@ -80,13 +80,12 @@ def build_state_request(
     *,
     placement: str,
     tool_schema: dict,
-    reasoning_on: bool = False,
     scene_direction: str = "",
     user_message: str = "",
 ) -> str:
     """Build the ``update_state`` request for one call."""
     task = _BEFORE_WRITER_TASK if placement == "before_writer" else _AFTER_REPLY_TASK
-    parts = [f"{STATE_PREAMBLE} {task} {_RULES}" + (REASONING_GUIDANCE if reasoning_on else "")]
+    parts = [f"{STATE_PREAMBLE} {task} {_RULES}"]
     parts.extend(_field_section(fragment, view, aliases) for fragment in fragments)
     if any(fragment.mode == "value" for fragment in fragments):
         parts.append("For fields with one value, write the complete new value only if it changed.")

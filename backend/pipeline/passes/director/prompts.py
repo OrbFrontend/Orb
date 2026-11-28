@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ....prompting.tool_catalog import get_tool, require_tool
-from .._prompting import REASONING_GUIDANCE, field_hint, tool_call_instruction
+from .._prompting import field_hint, tool_call_instruction
 from ..judge import PlacedQuestion
 
 DIRECTOR_PREAMBLE = (
@@ -33,7 +33,6 @@ def build_director_tool_prompt(
     user_message: str,
     active_moods: list[str],
     mood_fragments: Sequence[Mapping[str, Any]],
-    reasoning_on: bool = False,
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
@@ -59,7 +58,7 @@ def build_director_tool_prompt(
     if not tool:
         return ""
     schema = tool_schema if tool_schema is not None else tool["schema"]
-    preamble = DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    preamble = DIRECTOR_PREAMBLE
     fragments = (
         {fragment["id"]: fragment for fragment in (interactive_fragments or [])} if tool_name == "direct_scene" else None
     )
@@ -136,7 +135,6 @@ def build_director_scene_step_prompt(
     mood_fragments: Sequence[Mapping[str, Any]],
     *,
     tool_schema: dict | None = None,
-    reasoning_on: bool = False,
     target_fragment: Mapping[str, Any] | None = None,
     decided_fields: Sequence[tuple[str, Any]] = (),
     cast_instruction: str = "",
@@ -152,7 +150,7 @@ def build_director_scene_step_prompt(
     """
     schema = tool_schema if tool_schema is not None else require_tool("direct_scene")["schema"]
     description = schema["function"]["description"]
-    parts = [DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")]
+    parts = [DIRECTOR_PREAMBLE]
 
     if target_fragment is None:
         targets = ", ".join(["moods", *(fragment["id"] for fragment in value_fields)])
@@ -186,10 +184,10 @@ def build_director_scene_step_prompt(
     return "\n\n".join(parts) + "]"
 
 
-def build_lorebook_select_prompt(catalog: str, user_message: str, *, reasoning_on: bool = False) -> str:
+def build_lorebook_select_prompt(catalog: str, user_message: str) -> str:
     """Build the standalone Agentic Lorebook selection request."""
     parts = [
-        DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else ""),
+        DIRECTOR_PREAMBLE,
         (
             "Call ONLY select_lorebook. From the catalog below, choose ONLY the entries relevant to the "
             "current scene and the user's next message (quoted after the catalog); leave the selection "

@@ -8,7 +8,7 @@ from typing import Any
 
 from ....analysis.detectors.subject_fixation import PRESENT, SubjectStreak
 from ....analysis.subjects import SUBJECT_DESCRIPTIONS
-from .._prompting import REASONING_GUIDANCE, tool_call_instruction
+from .._prompting import tool_call_instruction
 
 EDITOR_PREAMBLE = (
     "[OOC: You are the uncensored editor. The assistant message above is a draft "
@@ -110,12 +110,9 @@ STRUCTURAL_REWRITE_INSTRUCTIONS = (
 )
 
 
-def build_feedback_prompt(
-    feedback_fragments: Sequence[Mapping[str, Any]], reasoning_on: bool = False, tool_schema: dict | None = None
-) -> str:
+def build_feedback_prompt(feedback_fragments: Sequence[Mapping[str, Any]], tool_schema: dict | None = None) -> str:
     """Build the post-Writer feedback request."""
-    preamble = FEEDBACK_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
-    parts = [preamble]
+    parts = [FEEDBACK_PREAMBLE]
     if tool_schema is not None:
         labels = {fragment["id"]: (fragment.get("injection_label") or "").strip() for fragment in feedback_fragments}
         # The shared schema carries feedback fields by name only; state each live one here.
@@ -135,36 +132,35 @@ def draft_bounds(draft: str) -> str:
     return f"`{head[0]}...{text[-tail.end() :]}`"
 
 
-def _fragment_prompt(preamble: str, rules: str, task: Mapping[str, Any], *, draft: str, reasoning_on: bool) -> str:
+def _fragment_prompt(preamble: str, rules: str, task: Mapping[str, Any], *, draft: str) -> str:
     """One fragment-defined Editor request over *draft*.
 
     The rules, which quote the draft's ends, precede the per-fragment task so consecutive
     fragment calls of one kind share them as cached prefix whenever the draft came through unchanged.
     """
-    preamble += REASONING_GUIDANCE if reasoning_on else ""
     heading = str(task.get("injection_label") or "").strip()
     instruction = str(task.get("description") or "").strip()
     return "\n\n".join([preamble, rules.format(bounds=draft_bounds(draft)), f"## {heading}", instruction]) + "]"
 
 
-def build_recast_prompt(task: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
+def build_recast_prompt(task: Mapping[str, Any], *, draft: str) -> str:
     """Build an exact-patch request over *draft* for a recast fragment or another find/replace task."""
-    return _fragment_prompt(RECAST_PREAMBLE, RECAST_RULES, task, draft=draft, reasoning_on=reasoning_on)
+    return _fragment_prompt(RECAST_PREAMBLE, RECAST_RULES, task, draft=draft)
 
 
-def build_rewrite_prompt(task: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
+def build_rewrite_prompt(task: Mapping[str, Any], *, draft: str) -> str:
     """Build a whole-draft rewrite request over *draft* for a rewrite fragment."""
-    return _fragment_prompt(REWRITE_PREAMBLE, REWRITE_RULES, task, draft=draft, reasoning_on=reasoning_on)
+    return _fragment_prompt(REWRITE_PREAMBLE, REWRITE_RULES, task, draft=draft)
 
 
-def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, draft: str, reasoning_on: bool = False) -> str:
+def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, draft: str) -> str:
     """Build an exact-edit request listing each subject to cut."""
     targets = "\n".join(
         f"- {'Any mention' if streak.level == PRESENT else 'Descriptions'} of {SUBJECT_DESCRIPTIONS.get(streak.category, streak.category)}"
         for streak in streaks
     )
     task = {"injection_label": "Subject fixation", "description": f"{SUBJECT_FIXATION_INSTRUCTION}\n\n{targets}"}
-    return build_recast_prompt(task, draft=draft, reasoning_on=reasoning_on)
+    return build_recast_prompt(task, draft=draft)
 
 
 def _category_rules(categories: Collection[str]) -> str:
@@ -196,7 +192,6 @@ def build_editor_prompt(
     length_guard_triggered: bool,
     length_guard_instruction: str,
     structural_rewrite: bool = False,
-    reasoning_on: bool = False,
     patchable: bool = True,
     patch_categories: Collection[str] = (),
 ) -> str:
@@ -205,8 +200,7 @@ def build_editor_prompt(
     *patch_categories* are the audit categories the report flags; a patch request
     carries only their rules, and a rewrite request only their content rules.
     """
-    preamble = EDITOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
-    parts = [preamble]
+    parts = [EDITOR_PREAMBLE]
 
     if editor_patches(has_audit_issues, length_guard_triggered, structural_rewrite, patchable):
         parts.append(patch_instructions(patch_categories))

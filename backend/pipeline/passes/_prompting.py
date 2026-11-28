@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-REASONING_GUIDANCE = " Avoid overthinking."
-
 
 def field_hint(field_type: str | None) -> str:
     """How a field's value is shaped, as a request states it.
