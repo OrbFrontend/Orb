@@ -1,5 +1,6 @@
-/* Hornet: the app is a club flyer. Borderless charcoal tiles float over a black board of moiré wave lines; the
-   chat title is the headline, speakers wear yellow name tags, and hover inverts a control to yellow with ink text.
+/* Hornet: the app is a club flyer. Borderless charcoal tiles float over a black board; flat chevron bands and halftone
+   dots sit in the corners of the message area; the chat title is the headline, speakers wear yellow name tags, and
+   hover inverts a control to yellow with ink text.
    No accent edge stripes anywhere; the base ones are cleared below. Static paint only. */
 :root { color-scheme: dark;
   --wp-yellow:#ffcf1f; --wp-yellow-hover:#ffdc52; --wp-ink:#141414; --wp-board:#0f0f0f; --wp-tile-bg:#1d1d1d;
@@ -35,15 +36,22 @@
   --accent-dim:var(--wp-ink); --red:var(--wp-ink); }
 *, *::before, *::after { border-radius: 0 !important; }
 
-body { background:
-    radial-gradient(70% 60% at 50% 45%, rgba(255,207,31,0.05) 0%, rgba(255,207,31,0) 70%),
-    url("/static/themes/assets/hornet-lines.svg") center / cover no-repeat,
-    var(--wp-board) !important; }
+body { background: var(--wp-board) !important; }
 
 /* ── Frame: tiles floating on the board, no rules between them ── */
 
 .ui-panel { background: var(--wp-tile-bg) !important; border: none !important; }
-#chat-messages, #chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
+#chat-input-area, .gen-status, #doc-footer { background: transparent !important; border: none !important; }
+/* The scroll box paints its background fixed to its own box, so the corner art stays put while messages scroll over it. */
+#chat-messages { border: none !important; background:
+    url("/static/themes/assets/hornet-chevron-tl.svg") left top / 420px 180px no-repeat,
+    url("/static/themes/assets/hornet-chevron-br.svg") right bottom / 420px 180px no-repeat,
+    url("/static/themes/assets/hornet-dots-tr.svg") right top / 240px 180px no-repeat,
+    url("/static/themes/assets/hornet-dots-bl.svg") left bottom / 240px 180px no-repeat,
+    transparent !important; }
+@media (max-width: 900px) {
+  #chat-messages { background-size: 252px 108px, 252px 108px, 160px 120px, 160px 120px !important; }
+}
 @media (min-width: 901px) {
   #app { padding: 14px; }
   #sidebar { margin-right: 14px; }
@@ -149,8 +157,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 /* ── Messages: borderless tiles with a yellow name tag pinned over the top edge ── */
 
-.message { margin-bottom: 22px !important; }
-.message:last-child { margin-bottom: 0 !important; }
+/* The hover toolbar already reserves a row under every message; it is the gap. */
+.message { margin-bottom: 0 !important; }
+.message .msg-toolbar { margin-top: 2px; }
 .message .msg-role { width: fit-content; position: relative; z-index: 1; margin: 0 0 -8px 12px !important;
   padding: 4px 10px; background: var(--wp-yellow); color: var(--wp-ink) !important; font-family: var(--font-ui);
   font-size: 11px !important; font-weight: 700 !important; letter-spacing: .14em !important;
@@ -160,8 +169,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .message.user .msg-role { margin: 0 12px -8px auto !important; background: var(--text-primary); }
 .message .msg-body { background: var(--wp-tile-bg) !important; border: none !important; box-shadow: var(--wp-tile) !important;
   padding: 20px 22px 16px !important; }
-.message.user .msg-body { background: #262626 !important; margin-left: 12%; }
-.message.user .msg-toolbar { margin-left: 12%; }
+.message.user .msg-body { background: #262626 !important; }
 .message.user .msg-edit-area textarea { background: var(--bg-deep) !important; }
 .message .msg-body .quoted { color: #ffe27a !important; }
 .message .msg-body em { color: #b4ae9f !important; }
